@@ -35,14 +35,10 @@ jobs:
     - name: compile and create vsix
       if: matrix.node-version == '22.x'
       run: npm run package
-      
-    - name: print vsix path
-      run: |
-        echo "VSIX Path: ${{ env.vsix_path }}"
-    
-    # - name: Upload VSIX to artifacts
-    #   if: matrix.node-version == '22.x'
-    #   uses: actions/upload-artifact@v3
-    #   with:
-    #     name: vsix-package
-    #     path: path/to/generated.vsix
+          
+    - name: Upload VSIX to artifacts
+      if: matrix.node-version == '22.x'
+      uses: actions/upload-artifact@v3
+      with:
+        name: vsix-package
+        path: *.vsix
