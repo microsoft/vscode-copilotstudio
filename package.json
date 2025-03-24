@@ -22,8 +22,7 @@
         "title": "Hello World"
       }
     ]
-  },
-  "type": "module",
+  },  
   "scripts": {
     "lint": "eslint .",
     "pretest": "npm run lint",

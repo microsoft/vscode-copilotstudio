@@ -1,2 +1,2 @@
-import * as nbgv from 'nerdbank-gitversioning'
+const nbgv = require('nerdbank-gitversioning')
 nbgv.setPackageVersion('.')
