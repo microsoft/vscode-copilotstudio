@@ -2,7 +2,6 @@
 
 [![Build CI](https://github.com/microsoft/vscode-copilotstudio/actions/workflows/node.js.yml/badge.svg?branch=main)](https://github.com/microsoft/vscode-copilotstudio/actions/workflows/node.js.yml)
 
-
 Copilot Studio VSCode Extension
 
 ## Features
