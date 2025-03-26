@@ -13,6 +13,12 @@
     "type": "git",
     "url": "https://github.com/microsoft/vscode-copilotstudio"
   },
+  "author": "Microsoft Copilot Studio Team",
+  "license": "See license in license file",
+  "homepage": "https://github.com/microsoft/vscode-copilotstudio/blob/main/README.md",
+  "keywords": [
+    "Copilot Studio"
+  ],
   "activationEvents": [],
   "main": "./extension.js",
   "contributes": {
