@@ -3,21 +3,40 @@
   "displayName": "Copilot Studio",
   "description": "Build Agents with Copilot Studio",
   "version": "0.0.1",
+  "publisher": "ms-vscode",
   "engines": {
     "vscode": "^1.98.0"
   },
   "categories": [
-    "Other"
+    "Copilot STudio",
+    "Agents",
+    "M365",
+    "Azure AI",
+    "Azure AI Foundry"
   ],
   "repository": {
     "type": "git",
     "url": "https://github.com/microsoft/vscode-copilotstudio"
   },
-  "author": "Microsoft Copilot Studio Team",
-  "license": "See license in license file",
   "homepage": "https://github.com/microsoft/vscode-copilotstudio/blob/main/README.md",
+  "bugs": {
+    "url": "https://github.com/microsoft/vscode-copilotstudio/issues"
+  },
+  "author": "Microsoft Corporation",
+  "license": "MIT",
+  "galleryBanner": {
+        "color": "#0072c6",
+        "theme": "dark"
+    },
+  "icon": "CopilotStudio.png",
   "keywords": [
-    "Copilot Studio"
+    "Copilot Studio",
+    "Agents",
+    "M365",
+    "Custom Engine Agent",
+    "Microsoft",
+    "Azure AI",
+    "Azure AI Foundry"
   ],
   "activationEvents": [],
   "main": "./extension.js",
