@@ -8,11 +8,10 @@
     "vscode": "^1.98.0"
   },
   "categories": [
-    "Copilot Studio",
-    "Agents",
-    "M365",
-    "Azure AI",
-    "Azure AI Foundry"
+    "AI",
+    "Azure",
+    "Chat",
+    "Programming Languages"
   ],
   "repository": {
     "type": "git",
