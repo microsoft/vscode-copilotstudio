@@ -3,7 +3,7 @@
   "displayName": "Copilot Studio",
   "description": "Build Agents with Copilot Studio",
   "version": "0.0.1",
-  "publisher": "ms-vscode",
+  "publisher": "ms-CopilotStudio",
   "engines": {
     "vscode": "^1.98.0"
   },
