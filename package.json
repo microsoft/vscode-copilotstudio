@@ -1,6 +1,6 @@
 {
   "name": "vscode-copilotstudio",
-  "displayName": "Copilot Studio",
+  "displayName": "Text Editor",
   "description": "Build Agents with Copilot Studio",
   "version": "0.0.1",
   "publisher": "ms-CopilotStudio",
