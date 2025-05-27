@@ -1,32 +1,43 @@
-# Overview of the Copilot Studio Extension
+# Copilot Studio extension for Visual Studio Code
 
-The `Copilot Studio Extension` is a Visual Studio Code extension designed to enhance the development experience for Microsoft Copilot Studio projects. It provides language support and authoring capabilities for Copilot Studio.
+The Copilot Studio extension for Visual Studio Code is designed to enhance the development experience of Microsoft Copilot Studio agents. It provides language support, Intellisense, and authoring capabilities for Copilot Studio agent components.
 
-## Technology Preview Release
+After installation, the extension prompts you to sign in to Copilot Studio. It can then show you a list of the agents associated with your environment. Clone an agent to see its editable components, including knowledge sources, actions, topics, and triggers.
 
-This is a technology preview release.
+## Technology preview release
 
-##  Overview
+This is a technology preview release. Preview releases are only available for Windows/x64 versions of Visual Studio Code.
 
-The Copilot Studio Extension for Visual Studio Code is a new extension, accessible from the Visual Studio Marketplace. It can be searched for and installed just like any other extension. After installation, it allows a user to connect to a Copilot Studio tenant where they can interact with the agents through code, rather than the UI. The extension provides language support and intellisense that supports the development workflow of agents built in Copilot Studio.
+## Connect to Copilot Studio for the first time
 
-The screenshots below provide a high-level view of how this works. Note: These screenshots are all of the desktop IDE, however extensions operate identically across both the desktop IDE and Visual Studio Code for the Web.
+1. Select the Copilot Studio icon in the primary side bar of Visual Studio Code. The extension asks for your permission to sign in.
 
-## Installation
-First, the user searches for Copilot Studio through one of three entry points. The Visual Studio Code IDE, Visual Studio Code for the Web, or directly through the Visual Studio Marketplace. After installation, the extension shows up in both editors (desktop IDE and the web).
+1. Select **Allow**, and sign in with the appropriate credentials for your Copilot Studio environment.
 
-<img src=https://raw.githubusercontent.com/microsoft/vscode-copilotStudio/main/images/ConnectToCopilotStudio.jpg width=734 height=413>
+## Clone an agent
 
-## Connect to Copilot Studio
-After installation, the user is prompted to sign-in to Copilot Studio and is presented with a list of the agents associated with their account. Each agent can be expanded to see the editable components of the agent, including Knowledge sources, Actions, Topics, and Triggers.
+1. (Optional) Open the desired agent in Copilot Studio and copy its URL from your browser's address bar.
 
-<img src=https://raw.githubusercontent.com/microsoft/vscode-copilotStudio/main/images/ControlPlane.jpg width=734 height=413>
+1. In the **Copilot Studio** panel of Visual Studio Code, select **Clone agent**.
 
-## Editing
-Each component can then be edited by double-click to open and directly editing the YAML for each component. Because YAML files are natively supported in Visual Studio Code, the Copilot Studio extension can provide rich intellisense and guided tips.
+1. Select your agent (marked with "from clipboard" if you already copied the URL); otherwise, select the desired environment and then select the desired agent. The extension prompts you to select a folder to hold your agent's files (similar to a local repository).
 
-<img src=https://raw.githubusercontent.com/microsoft/vscode-copilotStudio/main/images/OpenAndEdit.jpg width=734 height=413>
+![Screenshot of the agent/environment picker of the Copilot Studio extension in Visual Studio code](https://raw.githubusercontent.com/microsoft/vscode-copilotStudio/main/images/select-agent-from-clipboard.png)
 
-<img src=https://raw.githubusercontent.com/microsoft/vscode-copilotStudio/main/images/OpenAndEdit2.jpg width=734 height=413>
+1. Select the desired folder.
 
-Edits are saved directly to Copilot Studio. Note: This is important, as this is different than having a local instance of the agent, which is then deployed to Copilot Studio. The experience provided by the Extension is “live editing” of a cloud resource.
+## Edit your agent
+
+To edit any component, open the corresponding file and make the desired changes. Since Visual Studio Code natively supports YAML files, the Copilot Studio extension can provide rich Intellisense and guided tips.
+
+![Screenshot of an agent topic open for editing with the Copilot Studio extension in Visual Studio code](https://raw.githubusercontent.com/microsoft/vscode-copilotStudio/main/images/edit-topic.png)
+
+## Sync your changes
+
+The Copilot Studio extension uses the same source control features as Visual Studio Code. **Fetch changes**, **Pull changes**, and **Push changes** icons are available in both the **Explorer** panel and the **Source Control** panel of Visual Studio Code.
+
+- To preview any remote changes from Copilot Studio, use **Fetch changes**.
+- To get all remote changes from Copilot Studio, use **Pull changes**.
+- To push your local changes from Visual Studio Code to Copilot Studio, use **Push changes**.
+
+When you push changes they are saved directly to Copilot Studio. This is different than having a local instance of the agent, which you would then deploy to Copilot Studio. The extension provides a _live editing_ experience of a cloud resource.
