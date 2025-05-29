@@ -1,6 +1,6 @@
 # Copilot Studio extension for Visual Studio Code
 
-The Copilot Studio extension for Visual Studio Code is designed to enhance the development experience of Microsoft Copilot Studio agents. It provides language support, Intellisense, and authoring capabilities for Copilot Studio agent components.
+The Copilot Studio extension for Visual Studio Code is designed to enhance the development experience of Microsoft Copilot Studio agents. It provides language support, IntelliSense code completion and suggestions, and authoring capabilities for Copilot Studio agent components.
 
 After installation, the extension prompts you to sign in to Copilot Studio. It can then show you a list of the agents associated with your environment. Clone an agent to see its editable components, including knowledge sources, actions, topics, and triggers.
 
@@ -22,13 +22,13 @@ This is a technology preview release. Preview releases are only available for Wi
 
 1. Select your agent (marked with "from clipboard" if you already copied the URL); otherwise, select the desired environment and then select the desired agent. The extension prompts you to select a folder to hold your agent's files (similar to a local repository).
 
-![Screenshot of the agent/environment picker of the Copilot Studio extension in Visual Studio code](https://raw.githubusercontent.com/microsoft/vscode-copilotStudio/main/images/select-agent-from-clipboard.png)
+   ![Screenshot of the agent/environment picker of the Copilot Studio extension in Visual Studio code](https://raw.githubusercontent.com/microsoft/vscode-copilotStudio/main/images/select-agent-from-clipboard.png)
 
 1. Select the desired folder.
 
 ## Edit your agent
 
-To edit any component, open the corresponding file and make the desired changes. Since Visual Studio Code natively supports YAML files, the Copilot Studio extension can provide rich Intellisense and guided tips.
+To edit any component, open the corresponding file and make the desired changes. Since Visual Studio Code natively supports YAML files, the Copilot Studio extension supports IntelliSense code completion and can provide guided tips.
 
 ![Screenshot of an agent topic open for editing with the Copilot Studio extension in Visual Studio code](https://raw.githubusercontent.com/microsoft/vscode-copilotStudio/main/images/edit-topic.png)
 
