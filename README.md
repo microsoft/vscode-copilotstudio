@@ -41,3 +41,26 @@ The Copilot Studio extension uses the same source control features as Visual Stu
 - To push your local changes from Visual Studio Code to Copilot Studio, use **Push changes**.
 
 When you push changes they are saved directly to Copilot Studio. This is different than having a local instance of the agent, which you would then deploy to Copilot Studio. The extension provides a _live editing_ experience of a cloud resource.
+
+## Reporting Issues
+
+To help us resolve problems more efficiently, please use the custom issue reporting command built into this extension. It automatically includes helpful diagnostic information like your session ID.
+
+✅ Recommended: use the custom **Help: Copilot Studio: Report Issue** command
+1. Open the Command Palette (Ctrl+Shift+P or Cmd+Shift+P on macOS)
+2. Type and select:
+**Help: Copilot Studio: Report Issue**
+<img width="964" height="165" alt="image" src="https://github.com/user-attachments/assets/f9028ed9-cdec-4fe8-882b-c9ea74326d31" />  
+  
+3. A form will appear with a pre-filled Session ID, fill out the form and submit. This ensures we receive context to investigate your issue quickly.
+<img width="781" height="682" alt="image" src="https://github.com/user-attachments/assets/ba1696b4-6b0d-4bec-b5e3-b5da66e92a28" />  
+
+
+
+⚠️ Avoid using the built-in **Help: Report Issue...**
+
+
+
+
+
+
