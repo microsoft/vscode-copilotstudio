@@ -7,7 +7,14 @@ assignees: ''
 
 ---
 
+## If possible, Please submit the bug via VS as it attaches more telemtry inforamtion for us to help debug issues
+
+As described here: https://github.com/microsoft/vscode-copilotstudio?tab=readme-ov-file#reporting-issues
+
+Otherwise: 
+
 **Describe the bug**
+
 A clear and concise description of what the bug is.
 
 **To Reproduce**
@@ -23,9 +30,8 @@ A clear and concise description of what you expected to happen.
 **Screenshots**
 If applicable, add screenshots to help explain your problem.
 
-**Desktop (please complete the following information):**
+**VS Code Instance (please complete the following information):**
  - OS: [e.g. iOS]
- - Version [e.g. 22]
  - Extension version [e.g. 1.0.0]
 
 **Additional context**
