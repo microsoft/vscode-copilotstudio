@@ -1,0 +1,11 @@
+<botcomponent schemaname="cree9_agent.topic.httpswwwwikipediaorg_bTGlJaddMpECly7A8abwx">
+  <componenttype>16</componenttype>
+  <description>This knowledge source searches information on the web found in https://www.wikipedia.org/ website</description>
+  <iscustomizable>0</iscustomizable>
+  <name>https://www.wikipedia.org/</name>
+  <parentbotid>
+    <schemaname>cree9_agent</schemaname>
+  </parentbotid>
+  <statecode>0</statecode>
+  <statuscode>1</statuscode>
+</botcomponent>

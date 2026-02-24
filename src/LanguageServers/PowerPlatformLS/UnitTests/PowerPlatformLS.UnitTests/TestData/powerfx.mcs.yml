@@ -1,0 +1,91 @@
+kind: AdaptiveDialog
+startBehavior: CancelOtherTopics
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+
+  actions:
+    - kind: ConditionGroup
+      id: condition_DGc1Wy
+      conditions:
+        - id: condition_DGc1Wy-item-0
+          condition: |
+            =Topic.EndConversation = 
+              (
+                Len("Hello,
+                a
+
+
+
+
+
+                b                
+                  World
+                  !" /* string inside
+
+
+                      Len function */)
+                    >  456 /* 456 is number */ +             // plus operator
+                    12 *               // 12 is number                 
+                    /* additional number. */ 523545 
+              ) // PowerFx expression
+
+
+
+              // empty lines
+
+
+              // End of the expression
+
+
+
+
+
+          actions:
+            - kind: BeginDialog
+              id: dn94DC
+              dialog: cree9_agent.topic.EndofConversation
+
+        - id: condition_DGc1Wy-item-1
+          condition: =Topic.EndConversation = /* boolean type */ false     // comment        
+          actions:
+            - kind: SendActivity
+              id: sendMessage_LdLhmf
+              activity: Go ahead. I'm listening.
+
+    - kind: SetVariable
+      id: setProperty_2zIik9
+      variable: Topic.RichMessageTitle
+      value: =Text(ParseJSON(Topic.richMessage).richObjectName)
+
+    - kind: SendActivity
+      id: sendMessage_aannBa
+      activity:
+        attachments:
+          - kind: AdaptiveCardTemplate
+            cardContent: |-
+              ={
+                type: "AdaptiveCard",
+                '$schema': "http://adaptivecards.io/schemas/adaptive-card.json",
+                version: "1.0",
+                body: [
+                  {
+                    id: "ocsurveyjs",
+                    type: "TextBlock",
+                    isVisible: false,
+                    text: Topic.richMessage
+                  },
+                  {
+                    id: "title",
+                    type: "TextBlock",
+                    text: Topic.RichMessageTitle
+                  }
+                ]
+              }
+
+inputType:
+  properties:
+    richMessage:
+      displayName: richMessage
+      type: String
+ 

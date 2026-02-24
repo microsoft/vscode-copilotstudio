@@ -1,0 +1,23 @@
+# Name: Contoso Banking API - Transfer funds between accounts
+kind: TaskDialog
+inputs:
+  - kind: ManualTaskInput
+    propertyName: date
+    value: =Text(Today(), "DD/MM/YYYY")
+
+modelDisplayName: Transfer funds between accounts
+modelDescription: This is a tool will all the user to transfer funds from 1 account to another.
+outputs:
+  - propertyName: transferfundsinfo.isPosted
+
+  - propertyName: transferfundsinfo.postedDate
+
+action:
+  kind: InvokeConnectorTaskAction
+  connectionReference: crd1c_agent.shared_crd1c-5fcontoso-20banking-20api-5f099802cd293c57f0.7bcf6980a76c422e9f835d72b785b1e2
+  connectionProperties:
+    mode: Maker
+
+  operationId: TransferFunds
+
+outputMode: All

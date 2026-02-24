@@ -1,0 +1,12 @@
+schemaName: test_allthethings
+cdsBotId: 00000000-0000-0000-0000-000000000099
+accessControlPolicy: Any
+authenticationMode: Integrated
+authenticationTrigger: Always
+configuration:
+  settings:
+    GenerativeActionsEnabled: true
+  publishOnCreate: true
+  isLightweightBot: true
+language: 1033
+name: AllTheThings

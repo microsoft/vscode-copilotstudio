@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Platforms>AnyCPU;x64</Platforms>
+    <AssemblyName>Microsoft.PowerPlatformLS.UnitTests</AssemblyName>
+    <RootNamespace>$(AssemblyName)</RootNamespace>
+    <SignAssembly>True</SignAssembly>
+    <DelaySign>True</DelaySign>
+    <Nullable>enable</Nullable>
+    <NoWarn>$(NoWarn);NX0001;NX0003;VSTHRD200</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Moq" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="TestData\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Contracts.Internal\Contracts.Internal.csproj" />
+    <ProjectReference Include="..\..\Impl.Core\Impl.Core.csproj" />
+    <ProjectReference Include="..\..\Impl.Language.CopilotStudio\Impl.Language.CopilotStudio.csproj" />
+    <ProjectReference Include="..\..\Impl.Language.PowerFx\Impl.Language.PowerFx.csproj" />
+    <ProjectReference Include="..\..\Impl.Language.Yaml\Impl.Language.Yaml.csproj" />
+    <ProjectReference Include="..\..\Impl.YamlSourceTree\Impl.YamlSourceTree.csproj" />
+    <ProjectReference Include="..\..\LanguageServerHost\LanguageServerHost.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Agents.ObjectModel.NodeGenerators" />
+    <PackageReference Include="Microsoft.Agents.ObjectModel.Dataverse" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,38 @@
+# Name: Contoso Banking API - Get user profile
+kind: TaskDialog
+inputs:
+  - kind: ManualTaskInput
+    propertyName: username
+    value: gary@contoso.com
+
+modelDisplayName: Get user profile
+modelDescription: This is a tool that provides the user's banking profile.  The typical banking profile contains the first and last name, the address, and a list of accounts including number and type of account.
+outputs:
+  - propertyName: userProfile.accounts
+
+  - propertyName: userProfile.address.city
+
+  - propertyName: userProfile.address.state
+
+  - propertyName: userProfile.address.street1
+
+  - propertyName: userProfile.address.street2
+
+  - propertyName: userProfile.address.zipCode
+
+  - propertyName: userProfile.firstName
+
+  - propertyName: userProfile.lastName
+
+  - propertyName: userProfile.username
+
+action:
+  kind: InvokeConnectorTaskAction
+  connectionReference: crd1c_agent.shared_crd1c-5fcontoso-20banking-20api-5f099802cd293c57f0.7bcf6980a76c422e9f835d72b785b1e2
+  connectionProperties:
+    mode: Maker
+
+  operationId: GetUserProfile
+
+outputMode: All
+triggerCondition: false

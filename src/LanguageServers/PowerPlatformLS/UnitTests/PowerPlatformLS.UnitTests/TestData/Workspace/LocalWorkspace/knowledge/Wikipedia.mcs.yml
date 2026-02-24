@@ -1,0 +1,4 @@
+# Name: Wikipedia
+# This knowledge source provides information found in wikipedia.
+kind: PublicSiteSearchSource
+site: https://www.wikipedia.org/

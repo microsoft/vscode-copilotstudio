@@ -1,0 +1,6 @@
+accessControlPolicy: Any
+configuration:
+  publishOnCreate: true
+  isLightweightBot: true
+language: 1033
+name: Agent

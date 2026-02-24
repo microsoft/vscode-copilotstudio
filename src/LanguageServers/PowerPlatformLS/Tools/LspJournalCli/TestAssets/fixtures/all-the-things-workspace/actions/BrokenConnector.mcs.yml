@@ -1,0 +1,8 @@
+# Name: Broken Connector
+# Action referencing a nonexistent connector — should trigger diagnostics.
+kind: TaskDialog
+modelDisplayName: Broken Action
+action:
+  kind: InvokeConnectorTaskAction
+  connectionReference: nonexistent.connector.00000000
+  operationId: 12345

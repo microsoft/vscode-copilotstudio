@@ -1,0 +1,16 @@
+# Name: Contoso Banking API - Get transaction history for an account
+kind: TaskDialog
+modelDisplayName: Get transaction history for an account
+modelDescription: This is a tool will retrieve the user's transaction history for the specific account provided.
+outputs:
+  - propertyName: transactions
+
+action:
+  kind: InvokeConnectorTaskAction
+  connectionReference: crd1c_agent.shared_crd1c-5fcontoso-20banking-20api-5f099802cd293c57f0.7bcf6980a76c422e9f835d72b785b1e2
+  connectionProperties:
+    mode: Maker
+
+  operationId: TransactionHistory
+
+outputMode: All

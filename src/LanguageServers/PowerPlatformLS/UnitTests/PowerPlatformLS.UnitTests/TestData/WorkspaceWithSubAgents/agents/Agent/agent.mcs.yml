@@ -1,0 +1,16 @@
+# Name: Balance Agent
+kind: AgentDialog
+beginDialog:
+  kind: OnToolSelected
+  id: main
+  description: "This agent provides balance information for user accounts. "
+
+settings:
+  instructions: |-
+    1. Fetch the user profile and their accounts using the {System.Bot.Components.Actions.'crd1c_agent.action.ContosoBankingAPI-Getuserprofile'.DisplayName} tool.
+    2. If the user didn't already specify, ask them which of their accounts is the one for which their card has been lost or stolen (show them this in a bulleted list in the format, Account: <Account Name> (No. <Account Number>)).
+    3. Ensure the choice of account is clear, if needed, clarify the choice with the user in the case there is any ambiguity between the accounts.
+    4. Use the {System.Bot.Components.Actions.'crd1c_agent.action.ContosoBankingAPI-Getbalanceinformation'.DisplayName} tool to get the balance for the account the user chose and tell them the balance.
+
+inputType: {}
+outputType: {}

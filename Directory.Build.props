@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <CurrentDir>$(MSBuildThisFileDirectory)</CurrentDir>
+    <RepoRootAbspath>$([System.IO.Path]::GetFullPath($(CurrentDir)).Trim('\'))</RepoRootAbspath>
+  </PropertyGroup>
+  <PropertyGroup>
+    <RepoRoot>$(RepoRootAbspath)</RepoRoot>
+    <RepoSrcDir>$(RepoRoot)\src</RepoSrcDir>
+    <RepoBuildDir>$(RepoRoot)\build</RepoBuildDir>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Assembly / package version -->
+    <AssemblyVersion Condition="'$(Build_BuildNumber)'==''">0.0.0.1</AssemblyVersion>
+    <AssemblyVersion Condition="'$(Build_BuildNumber)'!=''">$(Build_BuildNumber)</AssemblyVersion>
+    <Version Condition="'$(Version)'==''">$(AssemblyVersion)</Version>
+    <!-- Debug -->
+    <DebugType>full</DebugType>
+    <DebugSymbols>true</DebugSymbols>
+    <!-- Language -->
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Packaging -->
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(BUILD_ARTIFACTSTAGINGDIRECTORY)' != ''">
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+  </PropertyGroup>
+</Project>

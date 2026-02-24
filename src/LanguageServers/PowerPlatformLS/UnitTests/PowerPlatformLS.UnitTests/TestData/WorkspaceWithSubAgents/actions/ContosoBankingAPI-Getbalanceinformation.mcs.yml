@@ -1,0 +1,25 @@
+# Name: Contoso Banking API - Get balance information
+kind: TaskDialog
+modelDisplayName: Get balance information
+modelDescription: This is a tool will retrieve the user's balance information for the specific account provided.
+outputs:
+  - propertyName: balanceInfo.account.accountNumber
+
+  - propertyName: balanceInfo.account.type
+
+  - propertyName: balanceInfo.asOfDate
+
+  - propertyName: balanceInfo.balance
+
+  - propertyName: balanceInfo.currency
+
+action:
+  kind: InvokeConnectorTaskAction
+  connectionReference: crd1c_agent.shared_crd1c-5fcontoso-20banking-20api-5f099802cd293c57f0.7bcf6980a76c422e9f835d72b785b1e2
+  connectionProperties:
+    mode: Maker
+
+  operationId: GetBalanceInformation
+
+outputMode: All
+triggerCondition: false

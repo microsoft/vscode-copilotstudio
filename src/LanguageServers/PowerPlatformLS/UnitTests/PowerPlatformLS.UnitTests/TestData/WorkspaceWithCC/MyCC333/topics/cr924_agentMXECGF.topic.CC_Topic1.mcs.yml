@@ -1,0 +1,14 @@
+# Name: CC_Topic1
+kind: AdaptiveDialog
+modelDescription: says hello
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent: {}
+  actions:
+    - kind: SendActivity
+      id: sendActivity_YAoVl8
+      activity: (2) Hi from CC!
+
+inputType: {}
+outputType: {}

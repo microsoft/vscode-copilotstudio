@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Licensed to the .NET Foundation under one or more agreements. The .NET Foundation licenses this file to you under the MIT license. See the LICENSE file in the project root for more information. -->
+
+<!--
+  Defines a source-only package for the Microsoft.CommonLanguageServerProtocol.Framework sources.
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <Nullable>enable</Nullable>
+
+    <SignAssembly>True</SignAssembly>
+    <DelaySign>True</DelaySign>
+    
+    <!-- NuGet -->
+    <PackageId>Microsoft.CommonLanguageServerProtocol.Framework</PackageId>
+    <PackageDescription>
+      A framework of sources for building Language Server Protocol implementations in C#.
+      Clone of https://github.com/dotnet/roslyn/tree/main/src/LanguageServer/Microsoft.CommonLanguageServerProtocol.Framework
+    </PackageDescription>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Collections.Immutable" VersionOverride="9.0.2" />
+    <PackageReference Include="Microsoft.VisualStudio.Threading" />
+    <PackageReference Include="System.Text.Json" />
+  </ItemGroup>
+</Project>

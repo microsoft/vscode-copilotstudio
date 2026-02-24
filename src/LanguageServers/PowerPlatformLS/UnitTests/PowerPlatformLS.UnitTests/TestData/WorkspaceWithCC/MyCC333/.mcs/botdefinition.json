@@ -1,0 +1,4268 @@
+{
+    "$kind": "BotComponentCollectionDefinition",
+    "components": [
+        {
+            "$kind": "DialogComponent",
+            "version": 73190916,
+            "managedProperties": {
+                "$kind": "ManagedProperties",
+                "isCustomizable": false,
+                "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+            },
+            "auditInfo": {
+                "$kind": "AuditInfo",
+                "createdTimeUtc": "2025-07-01T17:48:06Z",
+                "modifiedTimeUtc": "2025-07-01T17:48:28Z",
+                "createdBy": "7a7d4f61-c937-4f07-9cae-eb7795444d86",
+                "modifiedBy": "7a7d4f61-c937-4f07-9cae-eb7795444d86"
+            },
+            "displayName": "CC_Topic2",
+            "id": "9492509b-bdd1-4af5-bf79-356244bce706",
+            "parentBotComponentCollectionId": "5ffe1597-a256-f011-877b-6045bd029b45",
+            "shareContext": {
+                "$kind": "ContentShareContext"
+            },
+            "state": "Active",
+            "status": "Active",
+            "publisherUniqueName": "DefaultPublisherorg37997a7f",
+            "schemaName": "cr924_agentgkVyK-.topic.CC_Topic2",
+            "dialog": "kind: AdaptiveDialog\r\nbeginDialog:\r\n  kind: OnRecognizedIntent\r\n  id: main\r\n  intent: {}\r\n  actions:\r\n    - kind: SendActivity\r\n      id: sendActivity_BhXXlY\r\n      activity: This is second topic\r\n\r\ninputType: {}\r\noutputType: {}"
+        },
+        {
+            "$kind": "DialogComponent",
+            "version": 73190796,
+            "managedProperties": {
+                "$kind": "ManagedProperties",
+                "isCustomizable": false,
+                "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+            },
+            "auditInfo": {
+                "$kind": "AuditInfo",
+                "createdTimeUtc": "2025-07-01T17:32:24Z",
+                "modifiedTimeUtc": "2025-07-01T17:44:41Z",
+                "createdBy": "7a7d4f61-c937-4f07-9cae-eb7795444d86",
+                "modifiedBy": "7a7d4f61-c937-4f07-9cae-eb7795444d86"
+            },
+            "displayName": "CC_Topic1",
+            "id": "d8d5b661-65d4-4591-90d8-3b2e09d142c9",
+            "parentBotComponentCollectionId": "5ffe1597-a256-f011-877b-6045bd029b45",
+            "shareContext": {
+                "$kind": "ContentShareContext"
+            },
+            "state": "Active",
+            "status": "Active",
+            "publisherUniqueName": "DefaultPublisherorg37997a7f",
+            "schemaName": "cr924_agentMXECGF.topic.CC_Topic1",
+            "dialog": "kind: AdaptiveDialog\r\nmodelDescription: says hello\r\nbeginDialog:\r\n  kind: OnRecognizedIntent\r\n  id: main\r\n  intent: {}\r\n  actions:\r\n    - kind: SendActivity\r\n      id: sendActivity_YAoVl8\r\n      activity: (2) Hi from CC!\r\n\r\ninputType: {}\r\noutputType: {}"
+        }
+    ],
+    "environmentVariables": [
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 10972289,
+            "displayName": "[Copilot Classic] Echo Skill",
+            "schemaName": "new_skill_a853b2e65ce24923b4232c5fd7fb21a4_echoskill_appid",
+            "id": "47815c00-9a59-ef11-bfe2-000d3a31fdff",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 10972305,
+                "id": "4a815c00-9a59-ef11-bfe2-000d3a31fdff",
+                "definitionId": "47815c00-9a59-ef11-bfe2-000d3a31fdff",
+                "value": "ec1b5567-7b4b-4689-801b-7f00fda9f207"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 10972309,
+            "displayName": "[Copilot Classic] Echo Skill",
+            "schemaName": "new_skill_a853b2e65ce24923b4232c5fd7fb21a4_echoskill_appendpoint",
+            "id": "4c815c00-9a59-ef11-bfe2-000d3a31fdff",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 10972325,
+                "id": "4f815c00-9a59-ef11-bfe2-000d3a31fdff",
+                "definitionId": "4c815c00-9a59-ef11-bfe2-000d3a31fdff",
+                "value": "https://pvabugbashechoskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 11674282,
+            "displayName": "[Copilot 10] Skill bot with dialogs",
+            "schemaName": "new_skill_01518f58e7cf4ac7a2ae8b15af201268_dialogskillbot_appid",
+            "id": "ee5b0c19-b066-ef11-a670-000d3a37f75a",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 11674298,
+                "id": "f15b0c19-b066-ef11-a670-000d3a37f75a",
+                "definitionId": "ee5b0c19-b066-ef11-a670-000d3a37f75a",
+                "value": "afc6a229-d9b0-44b9-a3b3-32baef60ac64"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 11674302,
+            "displayName": "[Copilot 10] Skill bot with dialogs",
+            "schemaName": "new_skill_01518f58e7cf4ac7a2ae8b15af201268_dialogskillbot_appendpoint",
+            "id": "f35b0c19-b066-ef11-a670-000d3a37f75a",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 11674318,
+                "id": "f65b0c19-b066-ef11-a670-000d3a37f75a",
+                "definitionId": "f35b0c19-b066-ef11-a670-000d3a37f75a",
+                "value": "https://gccflightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7452733,
+            "displayName": "[15Apr24PVA1] Flight Skill Migrated Bot",
+            "schemaName": "new_skill_81e81ee5070f4538bd94cfa572d3d0d1_flightskillmigratedbot_appid",
+            "id": "31aa9951-01fb-ee11-9f89-000d3a3b851b",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7452749,
+                "id": "34aa9951-01fb-ee11-9f89-000d3a3b851b",
+                "definitionId": "31aa9951-01fb-ee11-9f89-000d3a3b851b",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7452753,
+            "displayName": "[15Apr24PVA1] Flight Skill Migrated Bot",
+            "schemaName": "new_skill_81e81ee5070f4538bd94cfa572d3d0d1_flightskillmigratedbot_appendpoint",
+            "id": "38aa9951-01fb-ee11-9f89-000d3a3b851b",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7452769,
+                "id": "3baa9951-01fb-ee11-9f89-000d3a3b851b",
+                "definitionId": "38aa9951-01fb-ee11-9f89-000d3a3b851b",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7453077,
+            "displayName": "[PVA1_L] Flight Skill Migrated Bot",
+            "schemaName": "new_skill_d108d041d52b4dca8a7e9daca0873507_flightskillmigratedbot_appid",
+            "id": "cee3fa23-02fb-ee11-9f89-000d3a3b851b",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7453093,
+                "id": "d1e3fa23-02fb-ee11-9f89-000d3a3b851b",
+                "definitionId": "cee3fa23-02fb-ee11-9f89-000d3a3b851b",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7453097,
+            "displayName": "[PVA1_L] Flight Skill Migrated Bot",
+            "schemaName": "new_skill_d108d041d52b4dca8a7e9daca0873507_flightskillmigratedbot_appendpoint",
+            "id": "d3e3fa23-02fb-ee11-9f89-000d3a3b851b",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7453113,
+                "id": "d6e3fa23-02fb-ee11-9f89-000d3a3b851b",
+                "definitionId": "d3e3fa23-02fb-ee11-9f89-000d3a3b851b",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7077289,
+            "displayName": "[cc1] cc1",
+            "schemaName": "cr924_cc1cc1",
+            "id": "9d716245-bae7-ee11-a203-000d3a3b851b",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7077286,
+                "id": "affc70a7-bce7-ee11-a203-000d3a3b851b",
+                "definitionId": "9d716245-bae7-ee11-a203-000d3a3b851b",
+                "value": "ONLINE"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7115803,
+            "displayName": "cc_test_env",
+            "schemaName": "cr924_cc_test_env",
+            "id": "027a1f84-81eb-ee11-a203-000d3a3b851b",
+            "defaultValue": "yes",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7115817,
+                "id": "7d367d8c-81eb-ee11-a203-000d3a3b851b",
+                "definitionId": "027a1f84-81eb-ee11-a203-000d3a3b851b",
+                "value": "no"
+            },
+            "type": "Boolean"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6264410,
+            "displayName": "[Copilot 1] Flight Skill Migrated Bot",
+            "schemaName": "new_skill_eb8c45c2eaf1411d853fdb9f2f5e9647_flightskillmigratedbot_appid",
+            "id": "bb3f4e73-b39f-ee11-a568-000d3a5a062a",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6264426,
+                "id": "be3f4e73-b39f-ee11-a568-000d3a5a062a",
+                "definitionId": "bb3f4e73-b39f-ee11-a568-000d3a5a062a",
+                "value": "1cfe936d-d428-4a5e-aca2-13416597d84c"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6264430,
+            "displayName": "[Copilot 1] Flight Skill Migrated Bot",
+            "schemaName": "new_skill_eb8c45c2eaf1411d853fdb9f2f5e9647_flightskillmigratedbot_appendpoint",
+            "id": "c33f4e73-b39f-ee11-a568-000d3a5a062a",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6264446,
+                "id": "c63f4e73-b39f-ee11-a568-000d3a5a062a",
+                "definitionId": "c33f4e73-b39f-ee11-a568-000d3a5a062a",
+                "value": "https://flightoffshoretest.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6338658,
+            "displayName": "[Govi_PVA1 Edited] Flight Skill Migrated Bot",
+            "schemaName": "new_skill_e491519294c340cf8d04dd7b31194f55_flightskillmigratedbot_appid",
+            "id": "30e85ae3-e1aa-ee11-a568-000d3a5a062a",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6338674,
+                "id": "33e85ae3-e1aa-ee11-a568-000d3a5a062a",
+                "definitionId": "30e85ae3-e1aa-ee11-a568-000d3a5a062a",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6338678,
+            "displayName": "[Govi_PVA1 Edited] Flight Skill Migrated Bot",
+            "schemaName": "new_skill_e491519294c340cf8d04dd7b31194f55_flightskillmigratedbot_appendpoint",
+            "id": "b727d7e9-e1aa-ee11-a568-000d3a5a062a",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6338694,
+                "id": "ba27d7e9-e1aa-ee11-a568-000d3a5a062a",
+                "definitionId": "b727d7e9-e1aa-ee11-a568-000d3a5a062a",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6207551,
+            "displayName": "[Amanpvaa] Flight Skill Migrated Bot",
+            "schemaName": "new_skill_75948e8cef0e418b918143a08289c922_flightskillmigratedbot_appid",
+            "id": "8b81ce0e-449a-ee11-be36-000d3a5a062a",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6207567,
+                "id": "8e81ce0e-449a-ee11-be36-000d3a5a062a",
+                "definitionId": "8b81ce0e-449a-ee11-be36-000d3a5a062a",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6207571,
+            "displayName": "[Amanpvaa] Flight Skill Migrated Bot",
+            "schemaName": "new_skill_75948e8cef0e418b918143a08289c922_flightskillmigratedbot_appendpoint",
+            "id": "9081ce0e-449a-ee11-be36-000d3a5a062a",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6207587,
+                "id": "9381ce0e-449a-ee11-be36-000d3a5a062a",
+                "definitionId": "9081ce0e-449a-ee11-be36-000d3a5a062a",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 30324798,
+            "displayName": "[DND_Test01032] Echo Skill",
+            "schemaName": "new_skill_d8049a893a114daab9d05719c408b584_echoskill_appid",
+            "id": "7193e699-68dd-ef11-a730-000d3a5a6877",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 30324814,
+                "id": "7593e699-68dd-ef11-a730-000d3a5a6877",
+                "definitionId": "7193e699-68dd-ef11-a730-000d3a5a6877",
+                "value": "152a4d0e-b34f-4d1a-bac4-016063279661"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 30324818,
+            "displayName": "[DND_Test01032] Echo Skill",
+            "schemaName": "new_skill_d8049a893a114daab9d05719c408b584_echoskill_appendpoint",
+            "id": "7793e699-68dd-ef11-a730-000d3a5a6877",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 30324834,
+                "id": "7a93e699-68dd-ef11-a730-000d3a5a6877",
+                "definitionId": "7793e699-68dd-ef11-a730-000d3a5a6877",
+                "value": "https://test-echoskillbot-singletenant.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7021720,
+            "displayName": "[Copilot_PVA1_0319_test] Flight Skill Migrated Bot",
+            "schemaName": "new_skill_1d7ce854129546f19def1beab32b9c74_flightskillmigratedbot_appid",
+            "id": "bcd38c27-77e6-ee11-a203-000d3a5d3643",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7021736,
+                "id": "bfd38c27-77e6-ee11-a203-000d3a5d3643",
+                "definitionId": "bcd38c27-77e6-ee11-a203-000d3a5d3643",
+                "value": "1cfe936d-d428-4a5e-aca2-13416597d84c"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7021740,
+            "displayName": "[Copilot_PVA1_0319_test] Flight Skill Migrated Bot",
+            "schemaName": "new_skill_1d7ce854129546f19def1beab32b9c74_flightskillmigratedbot_appendpoint",
+            "id": "c1d38c27-77e6-ee11-a203-000d3a5d3643",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7021756,
+                "id": "c4d38c27-77e6-ee11-a203-000d3a5d3643",
+                "definitionId": "c1d38c27-77e6-ee11-a203-000d3a5d3643",
+                "value": "https://flightoffshoretest.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 10726365,
+            "displayName": "[Copilot 1] Echo Skill",
+            "schemaName": "new_skill_c4d5cbf6e4f644949f4d792fede3b274_echoskill_appid",
+            "id": "fae54a1b-ae53-ef11-bfe2-0022480a7841",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 10726381,
+                "id": "fde54a1b-ae53-ef11-bfe2-0022480a7841",
+                "definitionId": "fae54a1b-ae53-ef11-bfe2-0022480a7841",
+                "value": "ec1b5567-7b4b-4689-801b-7f00fda9f207"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 10726385,
+            "displayName": "[Copilot 1] Echo Skill",
+            "schemaName": "new_skill_c4d5cbf6e4f644949f4d792fede3b274_echoskill_appendpoint",
+            "id": "ffe54a1b-ae53-ef11-bfe2-0022480a7841",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 10726401,
+                "id": "02e64a1b-ae53-ef11-bfe2-0022480a7841",
+                "definitionId": "ffe54a1b-ae53-ef11-bfe2-0022480a7841",
+                "value": "https://pvabugbashechoskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 10726473,
+            "displayName": "[Copilot 1] Skill bot with dialogs",
+            "schemaName": "new_skill_461e8c70e98b40b3b64a7a66b87c6fe0_dialogskillbot_appid",
+            "id": "e9caa34b-ae53-ef11-bfe2-0022480a7841",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 10726489,
+                "id": "eccaa34b-ae53-ef11-bfe2-0022480a7841",
+                "definitionId": "e9caa34b-ae53-ef11-bfe2-0022480a7841",
+                "value": "d579b977-d7b2-4a9d-92fe-29f19cb02732"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 10726493,
+            "displayName": "[Copilot 1] Skill bot with dialogs",
+            "schemaName": "new_skill_461e8c70e98b40b3b64a7a66b87c6fe0_dialogskillbot_appendpoint",
+            "id": "eecaa34b-ae53-ef11-bfe2-0022480a7841",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 10726509,
+                "id": "f1caa34b-ae53-ef11-bfe2-0022480a7841",
+                "definitionId": "eecaa34b-ae53-ef11-bfe2-0022480a7841",
+                "value": "https://pvabugbashflightskillbot2.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 1007629,
+            "displayName": "pvaschema",
+            "schemaName": "pvarealm",
+            "id": "260237dd-213a-ed11-bba2-0022480b8a69",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 1007641,
+                "id": "290237dd-213a-ed11-bba2-0022480b8a69",
+                "definitionId": "260237dd-213a-ed11-bba2-0022480b8a69",
+                "value": "ppe"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 3132609,
+            "displayName": "[12MarchProd] Flight Skill Migrated Bot",
+            "schemaName": "new_skill_2eddf8bb82dd445681053344293c1769_flightskillmigratedbot_appid",
+            "id": "6aa5ee12-41c3-ed11-b595-0022480b9db8",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 3133121,
+                "id": "88048b25-41c3-ed11-b595-0022480b9db8",
+                "definitionId": "6aa5ee12-41c3-ed11-b595-0022480b9db8",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 3133128,
+            "displayName": "[12MarchProd] Flight Skill Migrated Bot",
+            "schemaName": "new_skill_2eddf8bb82dd445681053344293c1769_flightskillmigratedbot_appendpoint",
+            "id": "8a048b25-41c3-ed11-b595-0022480b9db8",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 3133144,
+                "id": "8d048b25-41c3-ed11-b595-0022480b9db8",
+                "definitionId": "8a048b25-41c3-ed11-b595-0022480b9db8",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 5493839,
+            "displayName": "[Bot 1] pva msAppId",
+            "schemaName": "cr924_bot1_LmL-s.skill.pva.AppId",
+            "id": "f7a05c48-90e9-427a-a5a3-002999228b26",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 5493847,
+                "id": "ac973223-8578-ee11-8178-000d3a5b9b9f",
+                "definitionId": "f7a05c48-90e9-427a-a5a3-002999228b26",
+                "value": "ff2cecd9-e5ff-4995-a3e2-18ababe824ef"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8532727,
+            "displayName": "[HP-VA-EN] Action Set Other Bot (app id)",
+            "schemaName": "cr2534_lamilHPRepro.variable.HPVAENActionSetOtherBotappid",
+            "id": "43650f62-5f92-42ea-b033-01ea2a2a1600",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8532735,
+                "id": "25a8e65d-4f07-424c-bc35-f13b1a4d3bbd",
+                "definitionId": "43650f62-5f92-42ea-b033-01ea2a2a1600",
+                "value": "e72b2b38-62ba-4d55-b676-5f2cbba1e109"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 66089181,
+            "displayName": "[Agent] Echo Skill msAppId",
+            "schemaName": "cr924_agentEj6ZAJ.skill.EchoSkill.AppId",
+            "id": "0cb0ea36-a048-4dc3-8bc3-0305041f1ebe",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 66089189,
+                "id": "74563d41-aa2c-f011-8c4d-6045bd027a27",
+                "definitionId": "0cb0ea36-a048-4dc3-8bc3-0305041f1ebe",
+                "value": "152a4d0e-b34f-4d1a-bac4-016063279661"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6610866,
+            "displayName": "[Chris] PESFAQDemo msAppId",
+            "schemaName": "cr924_chris.skill.PESFAQDemo.AppId",
+            "id": "b0cc50b3-2abd-48be-8dea-033105688daf",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6610874,
+                "id": "dfad200e-e3c5-ee11-9079-6045bd099af6",
+                "definitionId": "b0cc50b3-2abd-48be-8dea-033105688daf",
+                "value": "7fc0792e-c373-4f42-9255-dde887cc9e0d"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8551036,
+            "schemaName": "cr924_adityaPoC.envVar.4CwnNN5ODnGa2lIBWBVA5",
+            "id": "89675a44-3ff0-4ffb-a01a-046270d69d1b",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8551037,
+                "id": "1da4bbdb-ff0b-ef11-9f89-6045bd0513a3",
+                "definitionId": "89675a44-3ff0-4ffb-a01a-046270d69d1b",
+                "value": "Salesforce1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7457489,
+            "displayName": "[PVA2_SB_15April] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr924_pva2Sb15April.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "8cbdb33f-870f-489f-9730-04f07a8394c3",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7457505,
+                "id": "5eca1a4d-0efb-ee11-9f89-7c1e520a4a5f",
+                "definitionId": "8cbdb33f-870f-489f-9730-04f07a8394c3",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8091963,
+            "displayName": "[Copilot05_04] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr924_copilot0504.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "e13ec2a2-46d1-4f8d-873b-053bea827a74",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8091971,
+                "id": "2febd5f8-f609-ef11-9f89-6045bd0513a3",
+                "definitionId": "e13ec2a2-46d1-4f8d-873b-053bea827a74",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8861769,
+            "schemaName": "cr924_customerAssistant.envVar._Ja6p9ROhh_VoOi5c0RH_",
+            "id": "0f54973b-6169-4bc4-b560-05f61cf5a489",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8861770,
+                "id": "67c28713-9817-ef11-840b-6045bd0513a3",
+                "definitionId": "0f54973b-6169-4bc4-b560-05f61cf5a489",
+                "value": "Jira1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7130534,
+            "displayName": "[MyBot27] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr718_myBot27.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "0d0eb60a-5fef-4a7c-811c-06a714f07396",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7130550,
+                "id": "56cc95c0-fbeb-ee11-a203-000d3a5970a6",
+                "definitionId": "0d0eb60a-5fef-4a7c-811c-06a714f07396",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7689634,
+            "schemaName": "cr924_mainguyKtest.envVar.1qf2kvarVLkuVthLPxUH3",
+            "id": "b033cd9e-46a8-4215-91ea-06cdd2732656",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7689635,
+                "id": "77ed5601-2101-ef11-9f89-6045bd0961aa",
+                "definitionId": "b033cd9e-46a8-4215-91ea-06cdd2732656",
+                "value": "Confluence1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7686246,
+            "schemaName": "cr924_april22Newcp2.envVar.tpdQRsqsGKoTH3PVd2hyU",
+            "id": "552488ac-2331-4700-9921-077e38afeec7",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7686247,
+                "id": "bff1d72e-1001-ef11-9f89-6045bd0961aa",
+                "definitionId": "552488ac-2331-4700-9921-077e38afeec7",
+                "value": "ServiceNowKB2"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8532835,
+            "displayName": "[HP-VA-EN] PVAAdaptiveCardsSkill (skill endpoint)",
+            "schemaName": "cr2534_lamilHPRepro.variable.HPVAENPVAAdaptiveCardsSkillskillendpoint",
+            "id": "95d348c7-c920-4d0c-b2b4-0799caa655d8",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8532843,
+                "id": "b25a7d59-94b8-4f16-a9f9-3b32e8bbbcbf",
+                "definitionId": "95d348c7-c920-4d0c-b2b4-0799caa655d8",
+                "value": "https://virtualagent-api-dev.hpcloud.hp.com/adaptivecard/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7699210,
+            "displayName": "[Mybot23_04] Flight Skill Migrated Bot msAppId",
+            "schemaName": "crf9d_mybot2304.skill.FlightSkillMigratedBot.AppId",
+            "id": "f0cfe3be-e1a8-47cc-a1b2-080bb84efa09",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7699222,
+                "id": "c8127952-4d01-ef11-9f89-0022483390b5",
+                "definitionId": "f0cfe3be-e1a8-47cc-a1b2-080bb84efa09",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6610552,
+            "displayName": "[UriTestBot2] CopilotForHealthShaked msAppId",
+            "schemaName": "cr924_uriTestBot2.skill.CopilotForHealthShaked.AppId",
+            "id": "19f965fa-bf14-4bde-9474-0837712de1a3",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6610560,
+                "id": "ac8926d1-d0c5-ee11-9079-6045bd099af6",
+                "definitionId": "19f965fa-bf14-4bde-9474-0837712de1a3",
+                "value": "8652a3e8-caa7-4cd7-b830-8359995d10a5"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 3133775,
+            "displayName": "[Copy of Bot with Authentication 1] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr924_copyOfBotWithAuthentication1.skill.FlightSkillMigratedBot.AppId",
+            "id": "3c515347-05b0-4d6e-9682-083c7e05606c",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 3133787,
+                "id": "8ed94e71-41c3-ed11-b595-0022480b9db8",
+                "definitionId": "3c515347-05b0-4d6e-9682-083c7e05606c",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 66089169,
+            "displayName": "[Agent] Echo Skill endpointUrl",
+            "schemaName": "cr924_agentEj6ZAJ.skill.EchoSkill.AppEndpoint",
+            "id": "a46a4492-c695-4850-a0ea-08f6cff0a3e1",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 66089177,
+                "id": "71563d41-aa2c-f011-8c4d-6045bd027a27",
+                "definitionId": "a46a4492-c695-4850-a0ea-08f6cff0a3e1",
+                "value": "https://test-echoskillbot-singletenant.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 2338577,
+            "displayName": "[NewBot] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr7ee_newBot.skill.FlightSkillMigratedBot.AppId",
+            "id": "4f932613-7ca3-4689-9f4e-0a8fe746fdaa",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 1854245,
+                "id": "5027f3b0-646b-ed11-81ac-000d3a5c6c9b",
+                "definitionId": "4f932613-7ca3-4689-9f4e-0a8fe746fdaa",
+                "value": "1cfe936d-d428-4a5e-aca2-13416597d84c"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 12363461,
+            "schemaName": "cr924_copilotGc.envVar.I9RYmxf2id9315CyxShrf",
+            "id": "8fd40f8d-0fd5-4532-9f74-0d3df5dcb0d9",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 12363462,
+                "id": "551f8c73-5f76-ef11-ac20-000d3a5ae626",
+                "definitionId": "8fd40f8d-0fd5-4532-9f74-0d3df5dcb0d9",
+                "value": "IntranetSites1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7617396,
+            "displayName": "[Copilot20alm] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr924_copilot20Alm.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "b73a720d-93af-4f60-b642-0d446722bfa8",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7617404,
+                "id": "d7d71594-e3fe-ee11-9f8a-6045bd0261f9",
+                "definitionId": "b73a720d-93af-4f60-b642-0d446722bfa8",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8532787,
+            "displayName": "[VA-HP] Action Set InkAssist Bot endpointUrl",
+            "schemaName": "cr2534_lamilHPRepro.variable.VAHPActionSetInkAssistBotendpointUrl",
+            "id": "171cdae6-6c8e-4e16-bfc3-0d945654aefb",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8532795,
+                "id": "b85951ba-716b-47b2-ae5a-c653d5012a2a",
+                "definitionId": "171cdae6-6c8e-4e16-bfc3-0d945654aefb",
+                "value": "https://virtualagent-api-dev.hpcloud.hp.com/action-set-5/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6610854,
+            "displayName": "[Chris] PESFAQDemo endpointUrl",
+            "schemaName": "cr924_chris.skill.PESFAQDemo.AppEndpoint",
+            "id": "3df01851-92a6-4036-8716-0f122a2c7369",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6610862,
+                "id": "dcad200e-e3c5-ee11-9079-6045bd099af6",
+                "definitionId": "3df01851-92a6-4036-8716-0f122a2c7369",
+                "value": "https://bot-api-us.healthbot-dev.microsoft.com/bot/dynabot/pes-demo-jns2cho/skill/consume"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7801857,
+            "schemaName": "cr924_copilotQXKjRP.envVar.bArFCrEw_wr0g1bZ49Jmj",
+            "id": "1ce12f67-565b-4c74-93a8-10e2efff39d9",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7801858,
+                "id": "27788ea0-5202-ef11-9f89-6045bd0513a3",
+                "definitionId": "1ce12f67-565b-4c74-93a8-10e2efff39d9",
+                "value": "ServiceNowKB4"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 11891119,
+            "schemaName": "cr924_websiteQACopilotknH-Jq.envVar.5VX8VLxeT-O-jowu9TqbD",
+            "id": "734ef208-b9d1-4df0-86b4-11c9fd795cd8",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 11891120,
+                "id": "0828d6fc-6c6b-ef11-a670-000d3a37f75a",
+                "definitionId": "734ef208-b9d1-4df0-86b4-11c9fd795cd8",
+                "value": "ServiceNowKB3"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 13178931,
+            "schemaName": "cr924_mainguyTest7.envVar.unOjpM3qaXvORkSAM3V19",
+            "id": "820b930c-f6df-4c8b-a6f8-11e07df199ad",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 13178932,
+                "id": "fdc19013-5f82-ef11-ac21-000d3a5a24b4",
+                "definitionId": "820b930c-f6df-4c8b-a6f8-11e07df199ad",
+                "value": "ServiceNowKB5"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 9169535,
+            "schemaName": "cr924_copilotSri.envVar.fwQeaWKQ97By9pjQrZBJx",
+            "id": "1cb59fa4-7e18-462f-a5ff-121b9468b5d3",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 9169536,
+                "id": "d07c2869-e51e-ef11-840a-6045bd029197",
+                "definitionId": "1cb59fa4-7e18-462f-a5ff-121b9468b5d3",
+                "value": "Confluence3"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 9181134,
+            "schemaName": "cr924_testCopilot3Bhakti.envVar.ePimTaWdyvy0Mmgp2qWOT",
+            "id": "2c340932-6466-4638-a6b9-14e8fad7d618",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 9181135,
+                "id": "47bc0d4a-591f-ef11-840a-000d3a59d024",
+                "definitionId": "2c340932-6466-4638-a6b9-14e8fad7d618",
+                "value": "IntranetSites2"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 11986836,
+            "displayName": "[Copilot 2] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr924_copilot23n7iRk.skill.FlightSkillMigratedBot.AppId",
+            "id": "98bca311-4747-4fc5-a68a-15be6eb2c18c",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 11986844,
+                "id": "72d553a4-fe6e-ef11-a670-000d3a37f75a",
+                "definitionId": "98bca311-4747-4fc5-a68a-15be6eb2c18c",
+                "value": "1cfe936d-d428-4a5e-aca2-13416597d84c"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6587477,
+            "displayName": "[Copilot 2] CopilotForHealthDev endpointUrl",
+            "schemaName": "cr924_copilot2qUWrHT.skill.CopilotForHealthDev.AppEndpoint",
+            "id": "82487cbe-d6bf-485a-be2d-1657ebf3f7dc",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6587485,
+                "id": "f1e5321b-39c5-ee11-9079-6045bd099af6",
+                "definitionId": "82487cbe-d6bf-485a-be2d-1657ebf3f7dc",
+                "value": "https://bot-api-us.healthbot-dev.microsoft.com/bot/dynabot/bert-dev-bot-qflksfb/skill/consume"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 73183061,
+            "displayName": "[Copilot (gen)] Skill bot with dialogs msAppId",
+            "schemaName": "cr924_copilotNbXuMK.skill.Skillbotwithdialogs.AppId",
+            "id": "307f67ee-cbba-4c78-8b7b-168b277304d3",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 73183069,
+                "id": "b3ed5f6e-8f56-f011-877b-6045bd029b45",
+                "definitionId": "307f67ee-cbba-4c78-8b7b-168b277304d3",
+                "value": "d579b977-d7b2-4a9d-92fe-29f19cb02732"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7641089,
+            "displayName": "[Copilot 68] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr924_copilot68oA7m6G.skill.FlightSkillMigratedBot.AppId",
+            "id": "9bc0d291-1e8e-4422-9720-17f0d056cd6a",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7641097,
+                "id": "6af7726c-8200-ef11-9f89-6045bd0961aa",
+                "definitionId": "9bc0d291-1e8e-4422-9720-17f0d056cd6a",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 9312468,
+            "schemaName": "cr924_copilotzmqkDI.envVar.f6694124-8afe-4e2f-bbe2-c3459e291207.VpF3J1Jn6yXeThUB-HfdU",
+            "id": "8a75a179-3c09-42f4-98ac-18a9401420f1",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 9312469,
+                "id": "ede6af63-7127-ef11-840a-000d3a349d37",
+                "definitionId": "8a75a179-3c09-42f4-98ac-18a9401420f1",
+                "value": "f6694124-8afe-4e2f-bbe2-c3459e291207"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7897710,
+            "schemaName": "cr924_rkTestCopilot.envVar.N0AKz0lRsN8p_dnbgCKif",
+            "id": "8aa66bf8-46b1-469e-8a5a-1a90549f7f34",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7897711,
+                "id": "6f754b94-4c03-ef11-9f89-6045bd0513a3",
+                "definitionId": "8aa66bf8-46b1-469e-8a5a-1a90549f7f34",
+                "value": "ServiceNowKB3"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6583629,
+            "displayName": "[Bert Test] healthbot msAppId",
+            "schemaName": "cr924_bertTest.skill.healthbot.AppId",
+            "id": "4673d165-3643-4599-a3fd-1b030047882d",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6583637,
+                "id": "4e3e5d0a-28c4-ee11-9079-6045bd099af6",
+                "definitionId": "4673d165-3643-4599-a3fd-1b030047882d",
+                "value": "12a4ed30-2c9a-4ee8-bc91-f6c3f63d0762"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 10759905,
+            "schemaName": "cr924_copilotztZylH.envVar.QOQi0VvbX-jTBERyd4yfs",
+            "id": "f1cf73d4-95b3-4e9a-9f35-1b45b7bd18d8",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 10759906,
+                "id": "3c30c02c-1355-ef11-bfe2-0022480a7841",
+                "definitionId": "f1cf73d4-95b3-4e9a-9f35-1b45b7bd18d8",
+                "value": "Salesforce1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 11538635,
+            "schemaName": "cr924_copilotuUSMBp.envVar.8HHPyjo2vW-LtXnl2gGbE",
+            "id": "594f3119-af16-4727-9ef4-1c76b24020b7",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 11538636,
+                "id": "e25dddab-b762-ef11-a670-000d3a36416e",
+                "definitionId": "594f3119-af16-4727-9ef4-1c76b24020b7",
+                "value": "Salesforce1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 30309377,
+            "schemaName": "cr924_copilotPacificScience.envVar.O0foRVrLi8u277DTV1SmA",
+            "id": "c9a1f79f-c578-4ec0-a1cd-1e008aad690d",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 30309378,
+                "id": "aae150f9-e4dc-ef11-a730-000d3a5a6877",
+                "definitionId": "c9a1f79f-c578-4ec0-a1cd-1e008aad690d",
+                "value": "Confluence4"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6836561,
+            "displayName": "[ALM050324] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr9d8_alm050324.skill.FlightSkillMigratedBot.AppId",
+            "id": "2562d6a0-d32b-4f82-b744-1e0b979e36d0",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6836573,
+                "id": "9a511c8a-c4da-ee11-904c-7c1e52004990",
+                "definitionId": "2562d6a0-d32b-4f82-b744-1e0b979e36d0",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 13007255,
+            "schemaName": "cr924_copilotServiceNowKnowledgeArticlesTest.envVar._TkaeO5VDe_hp2Hmt3LkO",
+            "id": "314c76fc-a1fc-4671-9ea1-1eca3474f5a7",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 13007256,
+                "id": "869dd5dd-8980-ef11-ac21-000d3a5a24b4",
+                "definitionId": "314c76fc-a1fc-4671-9ea1-1eca3474f5a7",
+                "value": "Confluence4"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6049084,
+            "displayName": "Service Copilot - Service Now knowledge base enabled",
+            "schemaName": "msdyn_ServiceCopilot_ServiceNowKnowledgeEnabled",
+            "id": "effbd9ed-2693-44bc-bb31-237450ff5fa0",
+            "defaultValue": "yes",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6048464,
+                "id": "7ab6ade0-ddfb-46dd-a3d6-6801b60b0c5b",
+                "definitionId": "effbd9ed-2693-44bc-bb31-237450ff5fa0",
+                "value": "yes"
+            },
+            "type": "Boolean"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 57658402,
+            "schemaName": "cr924_ppeTestShavital.envVar.cp1cY0ofaSKEzIkx1atLx",
+            "id": "1abf58aa-fa39-4807-947e-246bb385fb21",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 57658403,
+                "id": "ddcdc5fe-e5f4-ef11-be20-000d3a58ff3d",
+                "definitionId": "1abf58aa-fa39-4807-947e-246bb385fb21",
+                "value": "Salesforce1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 12018013,
+            "displayName": "[Copy of Copilot 1] Echo Skill endpointUrl",
+            "schemaName": "cr924_copyOfCopilot1.variable.EchoSkillendpointUrl",
+            "id": "1aac38dd-4cca-476e-a959-25e94280c302",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 12018021,
+                "id": "f85edb42-1b70-ef11-a670-000d3a37f75a",
+                "definitionId": "1aac38dd-4cca-476e-a959-25e94280c302",
+                "value": "https://pvabugbashechoskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7448237,
+            "displayName": "[PVA2_SB] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr924_pva2Sb.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "57346094-4ec9-4c58-9463-26d1d5ee85be",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7448245,
+                "id": "e1151a30-f0fa-ee11-9f89-000d3a3b851b",
+                "definitionId": "57346094-4ec9-4c58-9463-26d1d5ee85be",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8861820,
+            "schemaName": "cr924_customerAssistant.envVar.7iVJyFS-v-tGbKgHpH3sw",
+            "id": "7788bf7f-ae9d-41e2-a6e3-26f4feec4168",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8861821,
+                "id": "10e3e154-9917-ef11-840b-6045bd0513a3",
+                "definitionId": "7788bf7f-ae9d-41e2-a6e3-26f4feec4168",
+                "value": "ServiceNowKB3"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8627187,
+            "schemaName": "cr924_nycBusinessSetupAdvisor.envVar.QnH0XGCg6mnstsOQ4JO32",
+            "id": "aaefc63d-b996-498d-a047-29d126530272",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8627188,
+                "id": "497e72be-720d-ef11-9f8a-6045bd0513a3",
+                "definitionId": "aaefc63d-b996-498d-a047-29d126530272",
+                "value": "ServiceNowKB4"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 12018061,
+            "displayName": "[Copy of Copilot 1] Skill bot with dialogs endpointUrl",
+            "schemaName": "cr924_copyOfCopilot1.variable.SkillbotwithdialogsendpointUrl",
+            "id": "fe55d246-c193-4bbd-8883-2a3fd6b97ef3",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 12018069,
+                "id": "8df6e148-1b70-ef11-a670-000d3a37f75a",
+                "definitionId": "fe55d246-c193-4bbd-8883-2a3fd6b97ef3",
+                "value": "https://pvabugbashflightskillbot2.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 13014045,
+            "displayName": "[Copilot] Skill bot with dialogs msAppId",
+            "schemaName": "cr924_copilotlJCOYf.skill.Skillbotwithdialogs.AppId",
+            "id": "396bf84d-49d9-4ebf-9166-2a560f1dde2f",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 13014053,
+                "id": "52ddc64f-d580-ef11-ac21-000d3a5a24b4",
+                "definitionId": "396bf84d-49d9-4ebf-9166-2a560f1dde2f",
+                "value": "afc6a229-d9b0-44b9-a3b3-32baef60ac64"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 12018001,
+            "displayName": "[Copy of Copilot 1] Echo Skill msAppId",
+            "schemaName": "cr924_copyOfCopilot1.variable.EchoSkillmsAppId",
+            "id": "37238867-e68c-466e-b9d8-2b640611245c",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 12018009,
+                "id": "f55edb42-1b70-ef11-a670-000d3a37f75a",
+                "definitionId": "37238867-e68c-466e-b9d8-2b640611245c",
+                "value": "ec1b5567-7b4b-4689-801b-7f00fda9f207"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8051033,
+            "schemaName": "cr924_copilotSri.envVar.FgWFiPLMZw8PuhEQhOLcT",
+            "id": "f7eba51b-a8a3-4bb3-ac1e-2cdc189acb07",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8051034,
+                "id": "260a4de7-be08-ef11-9f89-6045bd0513a3",
+                "definitionId": "f7eba51b-a8a3-4bb3-ac1e-2cdc189acb07",
+                "value": "ServiceNowKB3"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6591713,
+            "displayName": "[Copilot 5] CopilotForHealthShaked endpointUrl",
+            "schemaName": "cr924_copilot5KjtRRi.skill.CopilotForHealthShaked.AppEndpoint",
+            "id": "1e8aa0b1-22ab-424b-acdd-2d36bd8a9bc1",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6591721,
+                "id": "f92d729d-a7c5-ee11-9079-6045bd099af6",
+                "definitionId": "1e8aa0b1-22ab-424b-acdd-2d36bd8a9bc1",
+                "value": "https://bot-api-us.healthbot-dev.microsoft.com/bot/dynabot/shaked-test-bot-s8d8y0z/skill/consume"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 10452777,
+            "displayName": "[Copilot24July] Insurance Skill Migrated Bot msAppId",
+            "schemaName": "cr924_copilot24July.skill.InsuranceSkillMigratedBot.AppId",
+            "id": "0d2afc2e-a517-4f2a-a985-30e565c494c0",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 10452785,
+                "id": "f8fa6268-bb49-ef11-acce-6045bd021050",
+                "definitionId": "0d2afc2e-a517-4f2a-a985-30e565c494c0",
+                "value": "d24ea181-35c5-4a91-9409-e7fcaf877f8c"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8848579,
+            "schemaName": "cr924_sharepointTestWithGraphConnector.envVar.Y64nz8hAxzMGE6lwohgA9",
+            "id": "30523efa-21d3-4b51-8de3-34157b23626c",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8848580,
+                "id": "d51616b7-d716-ef11-840b-6045bd0513a3",
+                "definitionId": "30523efa-21d3-4b51-8de3-34157b23626c",
+                "value": "ServiceNowKB4"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8532811,
+            "displayName": "[HP-VA-EN] Action Set IntentSetters Bot (skill endpoint)",
+            "schemaName": "cr2534_lamilHPRepro.variable.HPVAENActionSetIntentSettersBotskillendpoint",
+            "id": "d854fb53-af5a-43a4-a726-3493992127f3",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8532819,
+                "id": "d1d2c9f8-d573-4a3d-9a59-7ac539031e98",
+                "definitionId": "d854fb53-af5a-43a4-a726-3493992127f3",
+                "value": "https://virtualagent-api-dev.hpcloud.hp.com/action-set-2/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8869843,
+            "schemaName": "cr924_goviSafeTravelsCopilot27.envVar.0ZwxCeD2AZB1kCU1u-dUe",
+            "id": "957a257b-f55c-4a97-8bba-358e4fbd6be6",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8869844,
+                "id": "f0c7f57f-0a18-ef11-840b-6045bd0513a3",
+                "definitionId": "957a257b-f55c-4a97-8bba-358e4fbd6be6",
+                "value": "ServiceNowKB3"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6048553,
+            "displayName": "Agent Copilot Moderation Level",
+            "schemaName": "msdyn_AgentCopilotModerationLevel",
+            "id": "53f1ecdb-02a2-4fd5-a791-35a2c7157dc3",
+            "defaultValue": "High",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6074802,
+                "id": "cf968cdd-468d-ee11-be36-000d3a5b9b9f",
+                "definitionId": "53f1ecdb-02a2-4fd5-a791-35a2c7157dc3",
+                "value": "High"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6049100,
+            "displayName": "Service Copilot - Service Now knowledge base list",
+            "schemaName": "msdyn_ServiceNowKnowledgeBases",
+            "id": "9d6dd134-ce44-4f94-a348-3695b5b1e902",
+            "defaultValue": "NULL",
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 57658323,
+            "schemaName": "cr924_ppeTestShavital.envVar.rxpX-Lj3_FW5t0639YvJK",
+            "id": "41b0aebc-f59e-4559-b340-37be0953ac11",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 57658324,
+                "id": "322002ca-e5f4-ef11-be20-000d3a58ff3d",
+                "definitionId": "41b0aebc-f59e-4559-b340-37be0953ac11",
+                "value": "ServiceNowKB4"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 13405260,
+            "schemaName": "cr924_copilotGc.envVar.6k4nqsHfXstMxOap9ofXy",
+            "id": "4041851f-f877-4056-bfd6-3802a2d5817a",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 13405261,
+                "id": "ec7f9b5d-e686-ef11-ac21-000d3a5a24b4",
+                "definitionId": "4041851f-f877-4056-bfd6-3802a2d5817a",
+                "value": "ServiceNowKB5"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 4815772,
+            "displayName": "[BotPVA2] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr7ed_botPva2.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "495d94af-f353-4f05-b6a7-3984a926c918",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 4815792,
+                "id": "53747469-9648-ee11-be6e-00224805c8dd",
+                "definitionId": "495d94af-f353-4f05-b6a7-3984a926c918",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 5882703,
+            "displayName": "[uribot1] urizsimplepvaskill endpointUrl",
+            "schemaName": "cr924_uribot1.skill.urizsimplepvaskill.AppEndpoint",
+            "id": "fc3a4b2b-ad0c-4d77-80f9-3a0b26fa8908",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 5882711,
+                "id": "f9706692-5981-ee11-8178-000d3a5b9b9f",
+                "definitionId": "fc3a4b2b-ad0c-4d77-80f9-3a0b26fa8908",
+                "value": "https://bot-api-us.healthbot.microsoft.com/bot/dynabot/urizpvabot-pt5uakt/skill/consume"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 9217757,
+            "schemaName": "cr924_customerAssistant.envVar.lWKrgTLvccONyb48j4Y3W",
+            "id": "eba8923b-52ba-43aa-aaea-3a8df7e6b008",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 9217758,
+                "id": "9baf4f31-7122-ef11-840a-000d3a59d024",
+                "definitionId": "eba8923b-52ba-43aa-aaea-3a8df7e6b008",
+                "value": "ServiceNowKB3"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8526987,
+            "schemaName": "cr924_copilot3vNCbao.envVar.xh1hCvRgakE2EJaZUby3E",
+            "id": "bae71139-a2bf-448f-be94-3a9e15a87473",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8526988,
+                "id": "f012df60-8a0b-ef11-9f89-6045bd0513a3",
+                "definitionId": "bae71139-a2bf-448f-be94-3a9e15a87473",
+                "value": "ServiceNowTickets1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 4815780,
+            "displayName": "[BotPVA2] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr7ed_botPva2.skill.FlightSkillMigratedBot.AppId",
+            "id": "97216cda-2dfb-40cb-a72f-3aa44606dd35",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 4815788,
+                "id": "56747469-9648-ee11-be6e-00224805c8dd",
+                "definitionId": "97216cda-2dfb-40cb-a72f-3aa44606dd35",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7169888,
+            "displayName": "[CopiloK1] Flight Skill Migrated Bot msAppId",
+            "schemaName": "crd15_copiloK1.skill.FlightSkillMigratedBot.AppId",
+            "id": "9ce32e64-691e-42fb-b813-3b11be1a4552",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7169896,
+                "id": "ebc153f1-94ed-ee11-a1fd-6045bd03e346",
+                "definitionId": "9ce32e64-691e-42fb-b813-3b11be1a4552",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8533004,
+            "displayName": "[HP-VA-EN] Action Set IntentSetters Bot (app id)",
+            "schemaName": "cr2534_lamilHPRepro.variable.HPVAENActionSetIntentSettersBotappid",
+            "id": "bdb88a10-efd8-4ae2-8d42-3cad14e013e3",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8533012,
+                "id": "e1a61aec-2710-4f1c-ae9f-fcc1249acfc1",
+                "definitionId": "bdb88a10-efd8-4ae2-8d42-3cad14e013e3",
+                "value": "8bd3f6de-10d5-4c72-933e-528d9fa899a8"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 70700706,
+            "displayName": "[TeamsWithSkill] Echo Skill msAppId",
+            "schemaName": "cr924_teamsWithSkill.skill.EchoSkill.AppId",
+            "id": "db7514c3-5b6c-4ba1-b1f3-3d639c7f8522",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 70700718,
+                "id": "3189ca08-9859-ef11-bfe2-000d3a31fdff",
+                "definitionId": "db7514c3-5b6c-4ba1-b1f3-3d639c7f8522",
+                "value": "97e0b1e0-098b-4928-8e51-a6fd074203ff"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6048594,
+            "displayName": "Agent Copilot Website URLs",
+            "schemaName": "msdyn_AgentCopilotWebsiteURLs",
+            "id": "68d94884-cac2-4f9c-9739-3fb12c7aefb2",
+            "defaultValue": "NULL",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6074792,
+                "id": "cb968cdd-468d-ee11-be36-000d3a5b9b9f",
+                "definitionId": "68d94884-cac2-4f9c-9739-3fb12c7aefb2",
+                "value": "https://BING.COM"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8564938,
+            "displayName": "[Govi_07_05_PVA2] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr924_govi0705Pva2WnYWpN.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "553efe69-4fa2-4050-952f-40418914e182",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8564946,
+                "id": "008ae36d-4b0c-ef11-9f89-6045bd0513a3",
+                "definitionId": "553efe69-4fa2-4050-952f-40418914e182",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 61766271,
+            "schemaName": "msdyn_copilotforemployeeselfservice.envVar.sJmAsqTxNmKwHYOYrHW9X",
+            "id": "4e12c45a-d069-455f-8aab-45040c153732",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 61766272,
+                "id": "24a52721-5410-f011-998a-6045bd027a27",
+                "definitionId": "4e12c45a-d069-455f-8aab-45040c153732",
+                "value": "IntranetSites1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8532895,
+            "displayName": "[VA-HP] Action Set InkAssist Bot msAppId",
+            "schemaName": "cr2534_lamilHPRepro.variable.VAHPActionSetInkAssistBotmsAppId",
+            "id": "6be6fd6d-3e96-47df-810e-4709bb2b9fac",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8532903,
+                "id": "c62d9404-88e8-4ad0-99fd-c7938c428850",
+                "definitionId": "6be6fd6d-3e96-47df-810e-4709bb2b9fac",
+                "value": "86f00aab-be43-4289-86e8-5f1bae750412"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 10971430,
+            "displayName": "[Copilot] Echo Skill endpointUrl",
+            "schemaName": "cr924_copilotYcetDV.skill.EchoSkill.AppEndpoint",
+            "id": "2d3705df-a927-4ab2-9efa-479422db8c9a",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 10971438,
+                "id": "949a49d0-9659-ef11-bfe2-000d3a31fdff",
+                "definitionId": "2d3705df-a927-4ab2-9efa-479422db8c9a",
+                "value": "https://pvabugbashechoskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8532871,
+            "displayName": "[VA-HP] ProfileSkill endpointUrl",
+            "schemaName": "cr2534_lamilHPRepro.variable.VAHPProfileSkillendpointUrl",
+            "id": "81acccfe-de38-4612-8278-48085f42142a",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8532879,
+                "id": "336f1f31-77f9-45ea-999a-22d93697bb68",
+                "definitionId": "81acccfe-de38-4612-8278-48085f42142a",
+                "value": "https://virtualagent-api-dev.hpcloud.hp.com/profileskill/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7956591,
+            "schemaName": "cr924_mainguyPromptTest.envVar.NMzsXb7Mu52iPK7rQCEUL",
+            "id": "4c088d27-c612-4ebf-98b8-486b92081abc",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7956592,
+                "id": "5c5af48d-8606-ef11-9f89-6045bd0513a3",
+                "definitionId": "4c088d27-c612-4ebf-98b8-486b92081abc",
+                "value": "ServiceNowKB3"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8732108,
+            "schemaName": "cr924_copilot28357473.envVar.V-jih56vcvMHO0kOmsmwf",
+            "id": "55a71fbf-1627-4c99-bd70-49ef6468c33e",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8732109,
+                "id": "bd1da757-f611-ef11-9f8a-6045bd0513a3",
+                "definitionId": "55a71fbf-1627-4c99-bd70-49ef6468c33e",
+                "value": "Confluence3"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 60051900,
+            "schemaName": "msdyn_copilotforemployeeselfservice.envVar.DbnhVL6X3hBWU6Y49Fr3y",
+            "id": "9321080a-4674-44d7-b223-4a8cd255a6cf",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 60051901,
+                "id": "6fa099bb-a105-f011-bae2-6045bd027a27",
+                "definitionId": "9321080a-4674-44d7-b223-4a8cd255a6cf",
+                "value": "ServiceNowTickets1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 63141379,
+            "displayName": "[Agent calling skill] Echo Skill endpointUrl",
+            "schemaName": "cr924_agent61ylOk.skill.EchoSkill.AppEndpoint",
+            "id": "29a820da-06f4-4dcd-b796-4d5a1a5dced4",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 63141387,
+                "id": "56c562d8-dc15-f011-9989-6045bd027a27",
+                "definitionId": "29a820da-06f4-4dcd-b796-4d5a1a5dced4",
+                "value": "https://test-echoskillbot-multitenant.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 5882715,
+            "displayName": "[uribot1] urizsimplepvaskill msAppId",
+            "schemaName": "cr924_uribot1.skill.urizsimplepvaskill.AppId",
+            "id": "981c5dbb-dba7-403b-95f5-4df265b8f0e4",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 5882723,
+                "id": "fc706692-5981-ee11-8178-000d3a5b9b9f",
+                "definitionId": "981c5dbb-dba7-403b-95f5-4df265b8f0e4",
+                "value": "5fba1248-bf8d-4d09-96e8-be6755b6beb9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8799584,
+            "schemaName": "cr924_ahkamalTestBot.envVar.fJ5mBMxAxlbReDi9pISMX",
+            "id": "46f7b34e-0a2e-4d8e-be0d-4e7d16ef77e0",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8799585,
+                "id": "67ecd4c5-cc13-ef11-9f8a-6045bd0513a3",
+                "definitionId": "46f7b34e-0a2e-4d8e-be0d-4e7d16ef77e0",
+                "value": "Salesforce1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8532991,
+            "displayName": "[HP-VA-EN] Action Set SposTypeSetters Bot (app id)",
+            "schemaName": "cr2534_lamilHPRepro.variable.HPVAENActionSetSposTypeSettersBotappid",
+            "id": "12106325-ac1d-4059-92ac-4f6cb1bcdd83",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8533000,
+                "id": "03aefbf1-471b-489b-88cc-26b3a0e27b74",
+                "definitionId": "12106325-ac1d-4059-92ac-4f6cb1bcdd83",
+                "value": "a0a21f3b-54f8-40fe-8489-a143fdee20e9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7642818,
+            "displayName": "[PVA2_NEW2_22Apr] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr924_pva2New222Apr.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "48112cf8-6a95-42ee-98b7-50576f22adf6",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7642826,
+                "id": "407cc76d-8700-ef11-9f89-6045bd0961aa",
+                "definitionId": "48112cf8-6a95-42ee-98b7-50576f22adf6",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 13014033,
+            "displayName": "[Copilot] Skill bot with dialogs endpointUrl",
+            "schemaName": "cr924_copilotlJCOYf.skill.Skillbotwithdialogs.AppEndpoint",
+            "id": "aeab2cb0-d1ab-4e5b-ada4-52be472b02c8",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 13014041,
+                "id": "4fddc64f-d580-ef11-ac21-000d3a5a24b4",
+                "definitionId": "aeab2cb0-d1ab-4e5b-ada4-52be472b02c8",
+                "value": "https://gccflightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7689088,
+            "schemaName": "cr924_mainguyKtest.envVar.m0FLwHj42w7ZomcSFQ139",
+            "id": "509c5fa0-a1d3-4cac-9f39-5361f8b514d1",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7689089,
+                "id": "26d40d68-1f01-ef11-9f89-6045bd0961aa",
+                "definitionId": "509c5fa0-a1d3-4cac-9f39-5361f8b514d1",
+                "value": "Jira1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 9312463,
+            "schemaName": "cr924_copilotzmqkDI.envVar.32c0ba14-deb8-4e71-b3c7-8838b303d0cb.nKVPx8XCOBHao4MkIACrw",
+            "id": "d604a4a4-f08d-4afe-aed9-537afa0869ec",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 9312464,
+                "id": "ebe6af63-7127-ef11-840a-000d3a349d37",
+                "definitionId": "d604a4a4-f08d-4afe-aed9-537afa0869ec",
+                "value": "32c0ba14-deb8-4e71-b3c7-8838b303d0cb"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 12114772,
+            "schemaName": "cr924_websiteQACopilotknH-Jq.envVar.wldzqc429An468me4mc1u",
+            "id": "f0636c91-4dbd-4dfa-96d6-53beb040e444",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 12114773,
+                "id": "b20f081c-f370-ef11-a670-000d3a37f75a",
+                "definitionId": "f0636c91-4dbd-4dfa-96d6-53beb040e444",
+                "value": "IntranetSites1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6591062,
+            "displayName": "[Copilot 4] CopilotForHealthDev endpointUrl",
+            "schemaName": "cr924_copilot4fa30kI.skill.CopilotForHealthDev.AppEndpoint",
+            "id": "75d5af09-9e74-47a5-825e-550a21d0afc2",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6591070,
+                "id": "50bb7a4e-98c5-ee11-9079-6045bd099af6",
+                "definitionId": "75d5af09-9e74-47a5-825e-550a21d0afc2",
+                "value": "https://bot-api-us.healthbot-dev.microsoft.com/bot/dynabot/bert-dev-bot-qflksfb/skill/consume"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 13007178,
+            "schemaName": "cr924_copilotServiceNowKnowledgeArticlesTest.envVar.-pDO9i0xsXYfddBx2iQf5",
+            "id": "25e1b4df-19f6-4ff5-b66b-5570e7bd2183",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 13007179,
+                "id": "45752c23-8980-ef11-ac21-000d3a5a24b4",
+                "definitionId": "25e1b4df-19f6-4ff5-b66b-5570e7bd2183",
+                "value": "ServiceNowKB3"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 4938239,
+            "displayName": "[PVA2Bot 1] Flight Skill Migrated Bot msAppId",
+            "schemaName": "crfc3_pva2Bot1.skill.FlightSkillMigratedBot.AppId",
+            "id": "510516e4-9125-4a94-bdde-55b9543b7929",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 4938248,
+                "id": "0fac8829-e855-ee11-8def-0022480c4284",
+                "definitionId": "510516e4-9125-4a94-bdde-55b9543b7929",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 60032720,
+            "schemaName": "msdyn_copilotforemployeeselfservice.envVar.lFXSDf8JmvEPOURBi6wHc",
+            "id": "ecd6e528-7865-4f88-941a-5607099deb57",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 60032750,
+                "id": "cc5a4bb8-9905-f011-bae2-6045bd027a27",
+                "definitionId": "ecd6e528-7865-4f88-941a-5607099deb57",
+                "value": "ServiceNowKB4"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7617408,
+            "displayName": "[Copilot20alm] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr924_copilot20Alm.skill.FlightSkillMigratedBot.AppId",
+            "id": "769c40ac-8110-4866-be61-56bde91ad337",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7617416,
+                "id": "e1d71594-e3fe-ee11-9f8a-6045bd0261f9",
+                "definitionId": "769c40ac-8110-4866-be61-56bde91ad337",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 9619700,
+            "displayName": "[Copilot] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr924_copilotnWxpSG.skill.FlightSkillMigratedBot.AppId",
+            "id": "0e1038af-6d13-4607-a900-56e520bf4a06",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 9619708,
+                "id": "7e05cd99-3435-ef11-a316-000d3a349d37",
+                "definitionId": "0e1038af-6d13-4607-a900-56e520bf4a06",
+                "value": "1cfe936d-d428-4a5e-aca2-13416597d84c"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 72595394,
+            "schemaName": "cr924_responseDeserializationCheck.envVar.Ow-RioL2gi6CnHzAD7A7a",
+            "id": "0404cfae-a2f1-4deb-a2e4-5833ceeefbce",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 72595395,
+                "id": "60ed0328-a052-f011-877a-6045bd029b45",
+                "definitionId": "0404cfae-a2f1-4deb-a2e4-5833ceeefbce",
+                "value": "ServiceNowKB3"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 11891073,
+            "schemaName": "cr924_websiteQACopilotknH-Jq.envVar.WQFCW4Bt4RJ_lGh5s7KEN",
+            "id": "a6079da6-86cc-4823-9801-5897c7389cf5",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 11891074,
+                "id": "1165e9c6-6c6b-ef11-a670-000d3a37f75a",
+                "definitionId": "a6079da6-86cc-4823-9801-5897c7389cf5",
+                "value": "Confluence4"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6049061,
+            "displayName": "Service Copilot - Service Now knowledge base filter",
+            "schemaName": "msdyn_ServiceCopilot_ServiceNowKnowledgeArticleFilter",
+            "id": "b56614fc-afa8-44e2-8118-58d80b2bcaed",
+            "defaultValue": "NULL",
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6331151,
+            "displayName": "[CopilotJan2] Flight Skill Migrated Bot msAppId",
+            "schemaName": "crf5a_copilotJan2.skill.FlightSkillMigratedBot.AppId",
+            "id": "49b6f182-65dc-4d1e-9775-5d12d275735d",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6331159,
+                "id": "4ff3e189-04aa-ee11-a568-000d3a5b2c16",
+                "definitionId": "49b6f182-65dc-4d1e-9775-5d12d275735d",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 9619688,
+            "displayName": "[Copilot] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr924_copilotnWxpSG.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "c2dffb92-a409-46b2-ae0c-5d84addeb28e",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 9619696,
+                "id": "7b05cd99-3435-ef11-a316-000d3a349d37",
+                "definitionId": "c2dffb92-a409-46b2-ae0c-5d84addeb28e",
+                "value": "https://flightoffshoretest.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7642830,
+            "displayName": "[PVA2_NEW2_22Apr] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr924_pva2New222Apr.skill.FlightSkillMigratedBot.AppId",
+            "id": "c6f12f01-c539-4e75-aef7-5ededc312722",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7642838,
+                "id": "467cc76d-8700-ef11-9f89-6045bd0961aa",
+                "definitionId": "c6f12f01-c539-4e75-aef7-5ededc312722",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8843054,
+            "displayName": "[20May24PVA1] Insurance Skill Migrated Bot",
+            "schemaName": "new_skill_7902088f5995465cab2db99ae3ff05d3_insuranceskillprod_appid",
+            "id": "bb9be947-7116-ef11-840b-6045bd0513a3",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8843070,
+                "id": "c09be947-7116-ef11-840b-6045bd0513a3",
+                "definitionId": "bb9be947-7116-ef11-840b-6045bd0513a3",
+                "value": "d24ea181-35c5-4a91-9409-e7fcaf877f8c"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8843074,
+            "displayName": "[20May24PVA1] Insurance Skill Migrated Bot",
+            "schemaName": "new_skill_7902088f5995465cab2db99ae3ff05d3_insuranceskillprod_appendpoint",
+            "id": "cc9be947-7116-ef11-840b-6045bd0513a3",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8843090,
+                "id": "cf9be947-7116-ef11-840b-6045bd0513a3",
+                "definitionId": "cc9be947-7116-ef11-840b-6045bd0513a3",
+                "value": "https://insuranceskillbottest.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8917234,
+            "displayName": "[PVA1BOT] Flight Skill Migrated Bot",
+            "schemaName": "new_skill_ec57c27ef7934e0495d2ea6a2c3f3654_flightskillmigratedbot_appid",
+            "id": "c2821e6e-b419-ef11-840b-6045bd0513a3",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8917250,
+                "id": "85f54f74-b419-ef11-840b-6045bd0513a3",
+                "definitionId": "c2821e6e-b419-ef11-840b-6045bd0513a3",
+                "value": "1cfe936d-d428-4a5e-aca2-13416597d84c"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8917254,
+            "displayName": "[PVA1BOT] Flight Skill Migrated Bot",
+            "schemaName": "new_skill_ec57c27ef7934e0495d2ea6a2c3f3654_flightskillmigratedbot_appendpoint",
+            "id": "8af54f74-b419-ef11-840b-6045bd0513a3",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8917270,
+                "id": "8df54f74-b419-ef11-840b-6045bd0513a3",
+                "definitionId": "8af54f74-b419-ef11-840b-6045bd0513a3",
+                "value": "https://flightoffshoretest.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8805817,
+            "displayName": "[zeePVA1_edit] Flight Skill Migrated Bot",
+            "schemaName": "new_skill_f3122f1684dd4d6394e31da746727104_flightskillmigratedbot_appid",
+            "id": "320cf04a-0514-ef11-9f8a-6045bd0513a3",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8805833,
+                "id": "350cf04a-0514-ef11-9f8a-6045bd0513a3",
+                "definitionId": "320cf04a-0514-ef11-9f8a-6045bd0513a3",
+                "value": "1cfe936d-d428-4a5e-aca2-13416597d84c"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8805837,
+            "displayName": "[zeePVA1_edit] Flight Skill Migrated Bot",
+            "schemaName": "new_skill_f3122f1684dd4d6394e31da746727104_flightskillmigratedbot_appendpoint",
+            "id": "370cf04a-0514-ef11-9f8a-6045bd0513a3",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8805853,
+                "id": "3a0cf04a-0514-ef11-9f8a-6045bd0513a3",
+                "definitionId": "370cf04a-0514-ef11-9f8a-6045bd0513a3",
+                "value": "https://flightoffshoretest.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6470488,
+            "displayName": "tenantid",
+            "schemaName": "handoff_tenantid",
+            "id": "c7a259cd-36b8-ee11-9078-6045bd08a839",
+            "defaultValue": "tenantId",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6470498,
+                "id": "7a4ef088-5bb8-ee11-9078-6045bd08a839",
+                "definitionId": "c7a259cd-36b8-ee11-9078-6045bd08a839",
+                "value": "pes-bot-7-jbc6emx"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6470510,
+            "displayName": "tenantKey",
+            "schemaName": "handoff_tenantKey",
+            "id": "dbcf02ca-38b9-ee11-9078-6045bd08a839",
+            "defaultValue": "tenantKey",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6470524,
+                "id": "dfcf02ca-38b9-ee11-9078-6045bd08a839",
+                "definitionId": "dbcf02ca-38b9-ee11-9078-6045bd08a839",
+                "value": "99a66a8c2c3d535dcaee8a0c2749a73ce3dcfc00e74a6f8aad6983debd84f9f0"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6517041,
+            "displayName": "tenantKey",
+            "schemaName": "cre6f_tenantKey",
+            "id": "cdd2ecef-71bf-ee11-9078-6045bd08a839",
+            "defaultValue": "tenantKey",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6517059,
+                "id": "d1d2ecef-71bf-ee11-9078-6045bd08a839",
+                "definitionId": "cdd2ecef-71bf-ee11-9078-6045bd08a839",
+                "value": "hello"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6530034,
+            "displayName": "tenantVar",
+            "schemaName": "cre6f_tenantVar",
+            "id": "6d62c619-10c0-ee11-9078-6045bd08a839",
+            "defaultValue": "tenantVar",
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 4938231,
+            "displayName": "[PVA2Bot 1] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "crfc3_pva2Bot1.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "4eb6ff80-8498-4cf6-b004-61088d438137",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 4938252,
+                "id": "12159822-e855-ee11-8def-0022480c4284",
+                "definitionId": "4eb6ff80-8498-4cf6-b004-61088d438137",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 66251059,
+            "displayName": "[Matthias Skill Multitenant] Echo Skill msAppId",
+            "schemaName": "cr924_agentXCmJ5z.skill.EchoSkill.AppId",
+            "id": "edc0198f-4a68-4521-87ad-636b6b6dc964",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 66251069,
+                "id": "fa2e4b6d-002f-f011-8c4c-000d3a5af35f",
+                "definitionId": "edc0198f-4a68-4521-87ad-636b6b6dc964",
+                "value": "8c7dfe36-637e-4081-9ec5-16f7b6a2c150"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 57552140,
+            "displayName": "[Test Agent Cert Creation Disabled] Echo Skill endpointUrl",
+            "schemaName": "cr924_testAgentCertCreationDisabled.skill.EchoSkill.AppEndpoint",
+            "id": "20c1b425-4ca9-4404-a3a5-65c5122b2d1d",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 57552148,
+                "id": "5e9f49bc-54f3-ef11-be1f-000d3a58ff3d",
+                "definitionId": "20c1b425-4ca9-4404-a3a5-65c5122b2d1d",
+                "value": "https://test-echoskillbot-singletenant.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8532799,
+            "displayName": "[VA-HP] SalesSkill msAppId",
+            "schemaName": "cr2534_lamilHPRepro.variable.VAHPSalesSkillmsAppId",
+            "id": "66daa2f3-7a1b-4696-8802-66911ce7ae7d",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8532807,
+                "id": "5038623e-bd72-4180-a523-9d9b691b067c",
+                "definitionId": "66daa2f3-7a1b-4696-8802-66911ce7ae7d",
+                "value": "90713d2c-ea7b-44cf-8049-7c2b8ae14205"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 10503686,
+            "displayName": "[Copilot] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr924_copilotlJCOYf.skill.FlightSkillMigratedBot.AppId",
+            "id": "c23ac476-5b6e-4f58-bdb0-66e91ea6929f",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 10503694,
+                "id": "6b2183eb-dc4a-ef11-bfe3-6045bd021050",
+                "definitionId": "c23ac476-5b6e-4f58-bdb0-66e91ea6929f",
+                "value": "d579b977-d7b2-4a9d-92fe-29f19cb02732"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 11986824,
+            "displayName": "[Copilot 2] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr924_copilot23n7iRk.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "2d36e241-af00-4887-b6a3-67df748e3113",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 11986832,
+                "id": "6fd553a4-fe6e-ef11-a670-000d3a37f75a",
+                "definitionId": "2d36e241-af00-4887-b6a3-67df748e3113",
+                "value": "https://flightoffshoretest.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 73342489,
+            "displayName": "LOB Guid List for user expansion",
+            "schemaName": "msdyn_lineofbusinessfiltertemplatefeatureuserexpansion",
+            "id": "57719ece-69c8-4e72-9dc3-6a5ccad5fca3",
+            "defaultValue": "00000000-00000000-00000000-00000000",
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8532883,
+            "displayName": "[VA-HP] ProfileSkill msAppId",
+            "schemaName": "cr2534_lamilHPRepro.variable.VAHPProfileSkillmsAppId",
+            "id": "bc33f69d-90e7-4344-b9c3-6a95ad89e598",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8532891,
+                "id": "880b256e-b9db-4ee7-9512-130882915a19",
+                "definitionId": "bc33f69d-90e7-4344-b9c3-6a95ad89e598",
+                "value": "bfaa0381-0196-4e91-94d2-3da455ef0ba4"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8532751,
+            "displayName": "[VA-HP] SolutionsSkill msAppId",
+            "schemaName": "cr2534_lamilHPRepro.variable.VAHPSolutionsSkillmsAppId",
+            "id": "92428c30-b1c6-40bd-a340-6c7626a86bbc",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8532759,
+                "id": "55904d77-b0e0-4b6b-9b69-c28b6b1d6e45",
+                "definitionId": "92428c30-b1c6-40bd-a340-6c7626a86bbc",
+                "value": "b26df1f6-6b1f-4344-8c9e-224bbc70f7b1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 63141391,
+            "displayName": "[Agent calling skill] Echo Skill msAppId",
+            "schemaName": "cr924_agent61ylOk.skill.EchoSkill.AppId",
+            "id": "12da2b51-4428-435f-9c18-6cbd450b10c7",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 63141399,
+                "id": "59c562d8-dc15-f011-9989-6045bd027a27",
+                "definitionId": "12da2b51-4428-435f-9c18-6cbd450b10c7",
+                "value": "8c7dfe36-637e-4081-9ec5-16f7b6a2c150"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8532715,
+            "displayName": "[HP-VA-EN] Action Set Parsers Bot (skill endpoint)",
+            "schemaName": "cr2534_lamilHPRepro.variable.HPVAENActionSetParsersBotskillendpoint",
+            "id": "db9e8aca-caf7-4139-ade2-6e479cda5914",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8532723,
+                "id": "c07fedc3-c0a4-4ceb-9060-71330b0c5a8f",
+                "definitionId": "db9e8aca-caf7-4139-ade2-6e479cda5914",
+                "value": "https://virtualagent-api-dev.hpcloud.hp.com/action-set-0/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7002953,
+            "displayName": "[Copilot18_03] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr11a_copilot1803.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "d669f4a8-c5ae-49dc-a18f-71491590b13d",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7002969,
+                "id": "3283ee34-f2e4-ee11-904c-7c1e5216915a",
+                "definitionId": "d669f4a8-c5ae-49dc-a18f-71491590b13d",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 10760024,
+            "schemaName": "cr924_copilotztZylH.envVar.-xM13J-dAoZuYUZYfxkGD",
+            "id": "d9aeb4ba-ec84-40d7-b9d3-727e1198dc52",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 10760025,
+                "id": "363ffc3b-1455-ef11-bfe2-0022480a7841",
+                "definitionId": "d9aeb4ba-ec84-40d7-b9d3-727e1198dc52",
+                "value": "ADLSGen21"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 4282088,
+            "displayName": "[BotPVA2July12] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr734_botPva2July12.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "a90dca17-f1e6-4a10-b7b4-72e640794fc4",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 4282104,
+                "id": "27ca9447-7420-ee11-9965-000d3a5a8885",
+                "definitionId": "a90dca17-f1e6-4a10-b7b4-72e640794fc4",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 13677099,
+            "schemaName": "cr924_menuGuide.envVar.nnNYDlEWNnvdn9VECRR73",
+            "id": "c0f9c75b-7a7d-4841-98ac-786ce9904c53",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 13677100,
+                "id": "d702a686-438c-ef11-8a69-000d3a591b02",
+                "definitionId": "c0f9c75b-7a7d-4841-98ac-786ce9904c53",
+                "value": "Salesforce1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8564950,
+            "displayName": "[Govi_07_05_PVA2] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr924_govi0705Pva2WnYWpN.skill.FlightSkillMigratedBot.AppId",
+            "id": "02cfca9d-3606-42f6-980b-789e9dba4578",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8564958,
+                "id": "038ae36d-4b0c-ef11-9f89-6045bd0513a3",
+                "definitionId": "02cfca9d-3606-42f6-980b-789e9dba4578",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8532847,
+            "displayName": "[HP-VA-EN] Action Set AgentAssist Bot (app id)",
+            "schemaName": "cr2534_lamilHPRepro.variable.HPVAENActionSetAgentAssistBotappid",
+            "id": "8e0d4b8d-bb66-48e2-b932-7959ca01326b",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8532855,
+                "id": "ec36fe58-d756-4453-8915-cbada765fb06",
+                "definitionId": "8e0d4b8d-bb66-48e2-b932-7959ca01326b",
+                "value": "84f94f49-ac2f-4032-ab43-a3851a796406"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7699202,
+            "displayName": "[Mybot23_04] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "crf9d_mybot2304.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "d5786177-a6ec-4e9d-9720-79b87afccbf4",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7699218,
+                "id": "c5127952-4d01-ef11-9f89-0022483390b5",
+                "definitionId": "d5786177-a6ec-4e9d-9720-79b87afccbf4",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 11462730,
+            "schemaName": "cr924_serviceNowBugBashCopilot.envVar.6yuipD1Snum00sKZLR4pF",
+            "id": "ea2bb82f-c344-4d59-b645-7a3c0aad5b63",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 11462731,
+                "id": "2ca8cfd1-a760-ef11-a670-000d3a36416e",
+                "definitionId": "ea2bb82f-c344-4d59-b645-7a3c0aad5b63",
+                "value": "ServiceNowTickets1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 16141099,
+            "displayName": "[Test Matthias] Echo Skill msAppId",
+            "schemaName": "cr924_testMatthias.skill.EchoSkill.AppId",
+            "id": "074c27ed-394a-465b-9ba4-7bf50367144f",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 16141107,
+                "id": "f0a57661-46b2-ef11-a72f-000d3a321c2a",
+                "definitionId": "074c27ed-394a-465b-9ba4-7bf50367144f",
+                "value": "152a4d0e-b34f-4d1a-bac4-016063279661"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7686065,
+            "schemaName": "cr924_mainguyKtest.envVar.JdP2NrvLLk0LfXAzavTz5",
+            "id": "5358fd0b-ac87-4ac9-ad04-7cab9de50840",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7686066,
+                "id": "68fa1745-0c01-ef11-9f89-6045bd0961aa",
+                "definitionId": "5358fd0b-ac87-4ac9-ad04-7cab9de50840",
+                "value": "ServiceNowTickets1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8068673,
+            "schemaName": "cr924_safeTravelsCopilot17uAYkA.envVar.2c84dRvwjDu9MQ0VW-gKG",
+            "id": "fcbecce0-7939-42ca-902f-7d3c03210b36",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8068674,
+                "id": "6d380450-6d09-ef11-9f89-6045bd0513a3",
+                "definitionId": "fcbecce0-7939-42ca-902f-7d3c03210b36",
+                "value": "Salesforce1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8576524,
+            "schemaName": "cr924_copilotKU_9CN.envVar.cUci1_MTjvJxXSFuXhfld",
+            "id": "0c9f813e-f75a-4442-a10f-7e96650563bf",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8576525,
+                "id": "b2a8d5c3-a40c-ef11-9f89-6045bd0513a3",
+                "definitionId": "0c9f813e-f75a-4442-a10f-7e96650563bf",
+                "value": "IntranetSites2"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 4029222,
+            "displayName": "[Bot 1] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr924_bot1H8JHiL.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "25b64a41-d9ce-49e6-bb83-7ecf61a55d09",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 4029230,
+                "id": "2bcd6f4d-fa05-ee11-8f6e-0022480b9db8",
+                "definitionId": "25b64a41-d9ce-49e6-bb83-7ecf61a55d09",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 10800499,
+            "displayName": "[Skills] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr924_copilot47KkZbn.skill.FlightSkillMigratedBot.AppId",
+            "id": "f4b27fec-0215-483f-ac97-7fc098a56125",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 10800507,
+                "id": "a5881892-da55-ef11-bfe2-000d3a31fdff",
+                "definitionId": "f4b27fec-0215-483f-ac97-7fc098a56125",
+                "value": "1cfe936d-d428-4a5e-aca2-13416597d84c"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8532931,
+            "displayName": "[HP-VA-EN] Action Set Cards Bot (skill endpoint)",
+            "schemaName": "cr2534_lamilHPRepro.variable.HPVAENActionSetCardsBotskillendpoint",
+            "id": "8d8fe0f2-fd39-4c44-ae37-804ee4152d25",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8532939,
+                "id": "0bb73f44-89de-41ac-92ac-7f8354cd4b40",
+                "definitionId": "8d8fe0f2-fd39-4c44-ae37-804ee4152d25",
+                "value": "https://virtualagent-api-dev.hpcloud.hp.com/action-set-1/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 57552154,
+            "displayName": "[Test Agent Cert Creation Disabled] Echo Skill msAppId",
+            "schemaName": "cr924_testAgentCertCreationDisabled.skill.EchoSkill.AppId",
+            "id": "8754bb01-3bb6-4917-9cce-80d3021f3465",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 57552162,
+                "id": "629f49bc-54f3-ef11-be1f-000d3a58ff3d",
+                "definitionId": "8754bb01-3bb6-4917-9cce-80d3021f3465",
+                "value": "152a4d0e-b34f-4d1a-bac4-016063279661"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7627614,
+            "displayName": "[CopilotK21Apr] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr924_copilotK21Apr.skill.FlightSkillMigratedBot.AppId",
+            "id": "ec63d458-48d5-4388-bc92-813f90545317",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7627622,
+                "id": "3634d8d2-a8ff-ee11-9f89-6045bd0961aa",
+                "definitionId": "ec63d458-48d5-4388-bc92-813f90545317",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7002961,
+            "displayName": "[Copilot18_03] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr11a_copilot1803.skill.FlightSkillMigratedBot.AppId",
+            "id": "03edc539-228d-496d-a724-814a4ef4eb85",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7002973,
+                "id": "3583ee34-f2e4-ee11-904c-7c1e5216915a",
+                "definitionId": "03edc539-228d-496d-a724-814a4ef4eb85",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 10800860,
+            "displayName": "[new skills bot] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr924_copilot4xBR5gq.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "55443b3c-9a3e-400a-9f48-82660d39fdc7",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 10800868,
+                "id": "4c9f976c-db55-ef11-bfe2-000d3a31fdff",
+                "definitionId": "55443b3c-9a3e-400a-9f48-82660d39fdc7",
+                "value": "https://flightoffshoretest.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7457497,
+            "displayName": "[PVA2_SB_15April] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr924_pva2Sb15April.skill.FlightSkillMigratedBot.AppId",
+            "id": "1f420906-87eb-4dff-bf93-83cb7a25146e",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7457509,
+                "id": "61ca1a4d-0efb-ee11-9f89-7c1e520a4a5f",
+                "definitionId": "1f420906-87eb-4dff-bf93-83cb7a25146e",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8732043,
+            "schemaName": "cr924_copilot28357473.envVar.Pk_zPFh2vILx7WRrLB73R",
+            "id": "ca420e7f-bcca-4481-8b84-8621dc3dc29c",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8732044,
+                "id": "fdcd5a1d-f611-ef11-9f8a-6045bd0513a3",
+                "definitionId": "ca420e7f-bcca-4481-8b84-8621dc3dc29c",
+                "value": "ServiceNowKB3"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8532859,
+            "displayName": "[HP-VA-EN] Action Set Cards Bot (app id)",
+            "schemaName": "cr2534_lamilHPRepro.variable.HPVAENActionSetCardsBotappid",
+            "id": "14d5ab86-c5db-4a95-8cf2-870ec6674c0a",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8532867,
+                "id": "1174fb38-30b1-4b02-adf0-1fb20b429158",
+                "definitionId": "14d5ab86-c5db-4a95-8cf2-870ec6674c0a",
+                "value": "a5f00075-92da-4fce-a4a5-c355a07697b8"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 12975372,
+            "schemaName": "cr924_websiteQASharepoint.envVar.uzk6loGwhWfdAqmpgDCit",
+            "id": "d9b10062-2328-4619-a022-87a5f59731e2",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 12975373,
+                "id": "dba6e269-d87f-ef11-ac21-000d3a5a24b4",
+                "definitionId": "d9b10062-2328-4619-a022-87a5f59731e2",
+                "value": "ServiceNowKB3"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 13178882,
+            "schemaName": "cr924_mainguyTest7.envVar.-QKww2y0QiBCFCAEXHrMe",
+            "id": "331cd1a4-9c56-46a9-bf51-87c91ffef849",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 13178883,
+                "id": "5d0359ab-5e82-ef11-ac21-000d3a5a24b4",
+                "definitionId": "331cd1a4-9c56-46a9-bf51-87c91ffef849",
+                "value": "ServiceNowKB4"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8532943,
+            "displayName": "[HP-VA-EN] SmartContent (app id)",
+            "schemaName": "cr2534_lamilHPRepro.variable.HPVAENSmartContentappid",
+            "id": "0a49d612-8d6c-475f-8b6b-893f8d04de64",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8532951,
+                "id": "6958ac36-8126-4c78-acb2-e5c3e5715b48",
+                "definitionId": "0a49d612-8d6c-475f-8b6b-893f8d04de64",
+                "value": "21860c76-b539-425b-b3d9-1cf4df8bc271"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6610540,
+            "displayName": "[UriTestBot2] CopilotForHealthShaked endpointUrl",
+            "schemaName": "cr924_uriTestBot2.skill.CopilotForHealthShaked.AppEndpoint",
+            "id": "8dd9fddd-9725-43f1-8c41-8b07b0f1fa8f",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6610548,
+                "id": "a98926d1-d0c5-ee11-9079-6045bd099af6",
+                "definitionId": "8dd9fddd-9725-43f1-8c41-8b07b0f1fa8f",
+                "value": "https://bot-api-us.healthbot-dev.microsoft.com/bot/dynabot/shaked-test-bot-s8d8y0z/skill/consume"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 12975227,
+            "schemaName": "cr924_websiteQASharepoint.envVar.hZq_9ynoEkLpG_mgmPiLY",
+            "id": "8a87b99e-bffe-43a9-90bd-8c56d93046cd",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 12975228,
+                "id": "4b02bb86-d77f-ef11-ac21-000d3a5a24b4",
+                "definitionId": "8a87b99e-bffe-43a9-90bd-8c56d93046cd",
+                "value": "Confluence4"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6582084,
+            "displayName": "[Bert Test] CopilotForHealth msAppId",
+            "schemaName": "cr924_bertTest.skill.CopilotForHealth.AppId",
+            "id": "a82f45b0-e4db-4e27-99ff-8c83311c602c",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6582092,
+                "id": "f13e3776-7ac3-ee11-9079-6045bd099af6",
+                "definitionId": "a82f45b0-e4db-4e27-99ff-8c83311c602c",
+                "value": "c148d4f7-a615-41ac-b1de-3c0b041c0690"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7627602,
+            "displayName": "[CopilotK21Apr] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr924_copilotK21Apr.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "a93e9208-e3e7-4000-9a4e-8d6bb702f6bd",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7627610,
+                "id": "d4728ccc-a8ff-ee11-9f89-6045bd0961aa",
+                "definitionId": "a93e9208-e3e7-4000-9a4e-8d6bb702f6bd",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 11865376,
+            "schemaName": "cr924_sellakTest1.envVar.NNNR9tFtqyLhvU-1a4a8N",
+            "id": "53579422-0a8c-46bc-9cb5-8dd1e9861879",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 11865377,
+                "id": "bba451dd-046b-ef11-a670-000d3a37f75a",
+                "definitionId": "53579422-0a8c-46bc-9cb5-8dd1e9861879",
+                "value": "ServiceNowTickets1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7802779,
+            "schemaName": "cr924_.envVar.rQsZvXjVytiEENMUbcAp8",
+            "id": "4ed905cd-4d0f-4045-be45-8e3636d2d20d",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7802780,
+                "id": "2c1aacd7-5a02-ef11-9f89-6045bd0513a3",
+                "definitionId": "4ed905cd-4d0f-4045-be45-8e3636d2d20d",
+                "value": "ServiceNowKB3"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 9128895,
+            "schemaName": "cr924_testRgmaRZ.envVar.a5842022-b4e1-48ef-b637-e217b5c2677b.DJwED3MUSvBd6bwfDFS_O",
+            "id": "cc454a4d-7c73-4d25-b317-8e3a8cd6f579",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 9128896,
+                "id": "0f91d7b2-2b1d-ef11-840b-6045bd0513a3",
+                "definitionId": "cc454a4d-7c73-4d25-b317-8e3a8cd6f579",
+                "value": "a5842022-b4e1-48ef-b637-e217b5c2677b"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 63143355,
+            "displayName": "[Agent calling skill 2] Echo Skill msAppId",
+            "schemaName": "cr924_agentGRGbCv.skill.EchoSkill.AppId",
+            "id": "f674a11b-7ebf-425a-aa5c-8e851500fe6d",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 63143363,
+                "id": "c6c6fce8-dd15-f011-9989-6045bd027a27",
+                "definitionId": "f674a11b-7ebf-425a-aa5c-8e851500fe6d",
+                "value": "8c7dfe36-637e-4081-9ec5-16f7b6a2c150"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 9348051,
+            "schemaName": "cr924_mattTestCopilot.envVar.7QZioswa8f6oz2nTQyOmQ",
+            "id": "a11a4f71-fb42-4567-bbaa-8f3d8bf07c54",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 9348052,
+                "id": "ee9bd0a1-d028-ef11-840a-000d3a349d37",
+                "definitionId": "a11a4f71-fb42-4567-bbaa-8f3d8bf07c54",
+                "value": "ServiceNowKB4"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6203672,
+            "displayName": "[amanpva2] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr924_amanpva2.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "54a60747-9761-4d1c-9ea3-8fbc0b575317",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6203680,
+                "id": "affca506-9e99-ee11-be36-000d3a5a062a",
+                "definitionId": "54a60747-9761-4d1c-9ea3-8fbc0b575317",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7641076,
+            "displayName": "[Copilot 68] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr924_copilot68oA7m6G.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "a50189cf-a4d0-4ca1-a77a-90d8dc09975a",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7641084,
+                "id": "65f7726c-8200-ef11-9f89-6045bd0961aa",
+                "definitionId": "a50189cf-a4d0-4ca1-a77a-90d8dc09975a",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 14035361,
+            "schemaName": "cr924_ukTelcoPreProd.envVar._AARRR7YuvaYdUrc-6c27",
+            "id": "698d621a-b069-47da-9e09-9237a7014469",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 14035362,
+                "id": "0b0fddf2-8290-ef11-8a69-00224802fb8b",
+                "definitionId": "698d621a-b069-47da-9e09-9237a7014469",
+                "value": "ServiceNowKB5"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 9590176,
+            "displayName": "[Copilot with dependencies] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr924_copilotWithDependencies.skill.FlightSkillMigratedBot.AppId",
+            "id": "ae263b56-3495-4665-9c47-926a4d065753",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 9590184,
+                "id": "4f210531-cb33-ef11-a316-000d3a349d37",
+                "definitionId": "ae263b56-3495-4665-9c47-926a4d065753",
+                "value": "1cfe936d-d428-4a5e-aca2-13416597d84c"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7935482,
+            "displayName": "[Govi_28_04] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr226_govi2804.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "d39ed23b-317c-4330-9638-938fd3c4c256",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7935502,
+                "id": "4dc0d1d8-2305-ef11-9f89-000d3a1e907b",
+                "definitionId": "d39ed23b-317c-4330-9638-938fd3c4c256",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 63143343,
+            "displayName": "[Agent calling skill 2] Echo Skill endpointUrl",
+            "schemaName": "cr924_agentGRGbCv.skill.EchoSkill.AppEndpoint",
+            "id": "b3480f73-b2ef-47ce-9ffa-94db20a13c5f",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 63143351,
+                "id": "c3c6fce8-dd15-f011-9989-6045bd027a27",
+                "definitionId": "b3480f73-b2ef-47ce-9ffa-94db20a13c5f",
+                "value": "https://test-echoskillbot-multitenant.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6836553,
+            "displayName": "[ALM050324] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr9d8_alm050324.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "82859784-6afc-41e7-b609-96a232b6ff45",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6836569,
+                "id": "97511c8a-c4da-ee11-904c-7c1e52004990",
+                "definitionId": "82859784-6afc-41e7-b609-96a232b6ff45",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6203684,
+            "displayName": "[amanpva2] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr924_amanpva2.skill.FlightSkillMigratedBot.AppId",
+            "id": "c668c931-f4a5-49e3-a807-96d4226cc0c4",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6203692,
+                "id": "b2fca506-9e99-ee11-be36-000d3a5a062a",
+                "definitionId": "c668c931-f4a5-49e3-a807-96d4226cc0c4",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 5493827,
+            "displayName": "[Bot 1] pva endpointUrl",
+            "schemaName": "cr924_bot1_LmL-s.skill.pva.AppEndpoint",
+            "id": "86e06723-5985-4ebf-a7f8-977730d9ab37",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 5493835,
+                "id": "a9973223-8578-ee11-8178-000d3a5b9b9f",
+                "definitionId": "86e06723-5985-4ebf-a7f8-977730d9ab37",
+                "value": "https://bot-api-us.healthbot-dev.microsoft.com/bot/dynabot/arie-v4-w2iconk/skill/consume"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 10503670,
+            "displayName": "[Copilot] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr924_copilotlJCOYf.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "dc815f6d-56d7-44ff-8d10-98a1c9036dff",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 10503682,
+                "id": "682183eb-dc4a-ef11-bfe3-6045bd021050",
+                "definitionId": "dc815f6d-56d7-44ff-8d10-98a1c9036dff",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 9180118,
+            "schemaName": "cr924_testGpt1Bhakti.envVar.kapfo6Py-C3x95jeulpDa",
+            "id": "7b0b7413-5504-48ce-8c2b-9976705c2021",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 9180119,
+                "id": "06c468ec-3e1f-ef11-840a-000d3a59d024",
+                "definitionId": "7b0b7413-5504-48ce-8c2b-9976705c2021",
+                "value": "IntranetSites1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6582072,
+            "displayName": "[Bert Test] CopilotForHealth endpointUrl",
+            "schemaName": "cr924_bertTest.skill.CopilotForHealth.AppEndpoint",
+            "id": "6844b398-596a-4659-b8cd-9a42799e4f4c",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6582080,
+                "id": "ee3e3776-7ac3-ee11-9079-6045bd099af6",
+                "definitionId": "6844b398-596a-4659-b8cd-9a42799e4f4c",
+                "value": "https://bot-api-eu.healthbot.microsoft.com/bot/dynabot/healthcareintelligence-uqrcbeu/skill/consume"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8533016,
+            "displayName": "[VA-HP] ApiProxySkill msAppId",
+            "schemaName": "cr2534_lamilHPRepro.variable.VAHPApiProxySkillmsAppId",
+            "id": "6de63ac6-2108-42ea-ad4b-9a4bf980d1c0",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8533024,
+                "id": "868fcb40-dae5-4b55-9bc3-aa89cb290a70",
+                "definitionId": "6de63ac6-2108-42ea-ad4b-9a4bf980d1c0",
+                "value": "997436b0-b533-47ad-bd44-b84d4827ded5"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8532967,
+            "displayName": "[HP-VA-EN] Action Set Other Bot (skill endpoint)",
+            "schemaName": "cr2534_lamilHPRepro.variable.HPVAENActionSetOtherBotskillendpoint",
+            "id": "f2624f5f-ee3c-4021-904e-9ac257b6f0da",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8532975,
+                "id": "c10ce658-108a-4572-b966-5edd476ace1d",
+                "definitionId": "f2624f5f-ee3c-4021-904e-9ac257b6f0da",
+                "value": "https://virtualagent-api-dev.hpcloud.hp.com/action-set-6/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6622479,
+            "displayName": "[Copilot 6] CopilotForHealthDev endpointUrl",
+            "schemaName": "cr924_copilot6D3l_k0.skill.CopilotForHealthDev.AppEndpoint",
+            "id": "cd9ee5e1-f053-4775-a2a5-9d6aa1adff50",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6622487,
+                "id": "7919d020-8cc6-ee11-9079-6045bd099af6",
+                "definitionId": "cd9ee5e1-f053-4775-a2a5-9d6aa1adff50",
+                "value": "https://bot-api-us.healthbot-dev.microsoft.com/bot/dynabot/bert-dev-bot-qflksfb/skill/consume"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8861733,
+            "schemaName": "cr924_customerAssistant.envVar.Ip4mB5ACK01Xf4Tu_1Vca",
+            "id": "140b6185-707f-4fbe-9d50-a0e5818515ea",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8861734,
+                "id": "98477307-9817-ef11-840b-6045bd0513a3",
+                "definitionId": "140b6185-707f-4fbe-9d50-a0e5818515ea",
+                "value": "Confluence3"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 11561303,
+            "schemaName": "cr924_copilotNqF4lE.envVar.lfw8y50fGXe6L9IyO1jpn",
+            "id": "54a528ad-aadc-4ced-8f25-a119c14ed0d8",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 11561304,
+                "id": "1bc6d4db-c663-ef11-a670-000d3a36416e",
+                "definitionId": "54a528ad-aadc-4ced-8f25-a119c14ed0d8",
+                "value": "IntranetSites1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 9181170,
+            "schemaName": "cr924_testCopilot3Bhakti.envVar.wGNSn6vijT_bVn0WZ1waD",
+            "id": "3ea9d5da-eb1e-4fb9-911c-a182b6c1e603",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 9181171,
+                "id": "5ab85456-591f-ef11-840a-000d3a59d024",
+                "definitionId": "3ea9d5da-eb1e-4fb9-911c-a182b6c1e603",
+                "value": "ServiceNowKB3"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7562754,
+            "displayName": "[Copilot18April] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr924_copilot18April.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "8b8ffdd1-6429-49c7-8d70-a2a9be17aef5",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7562762,
+                "id": "c1373146-75fd-ee11-9f89-000d3a3b851b",
+                "definitionId": "8b8ffdd1-6429-49c7-8d70-a2a9be17aef5",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 9600661,
+            "schemaName": "cr924_mattTestCopilot.envVar.CrnFHXyxEHuGBnThdnKaN",
+            "id": "dd65cc48-02b7-4630-8717-a2d95fcd0108",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 9600662,
+                "id": "e069686a-8a34-ef11-a316-000d3a349d37",
+                "definitionId": "dd65cc48-02b7-4630-8717-a2d95fcd0108",
+                "value": "Salesforce1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8020083,
+            "schemaName": "cr924_vaCopilot.envVar._XWTQaZK2U2akV17qQxOo",
+            "id": "86299926-e770-4c08-b259-a541eb012c94",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8020084,
+                "id": "042058b9-c707-ef11-9f89-6045bd0513a3",
+                "definitionId": "86299926-e770-4c08-b259-a541eb012c94",
+                "value": "ServiceNowKB3"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8728308,
+            "schemaName": "cr924_14May.envVar.GhKxVojaTtt98J5hqcHd2",
+            "id": "1bd6cbc0-01f4-4bc6-87df-a708cbab3343",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8728325,
+                "id": "94aa87b0-e211-ef11-9f8a-6045bd0513a3",
+                "definitionId": "1bd6cbc0-01f4-4bc6-87df-a708cbab3343",
+                "value": "ServiceNowKB4"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6644952,
+            "displayName": "[Chris 2] PESFAQDemo endpointUrl",
+            "schemaName": "cr924_copilot7V-xxGf.skill.PESFAQDemo.AppEndpoint",
+            "id": "b15a1a9c-779e-43e9-a6a5-a71ee838a1ce",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6644960,
+                "id": "702e55c4-fbc9-ee11-9078-00224804661c",
+                "definitionId": "b15a1a9c-779e-43e9-a6a5-a71ee838a1ce",
+                "value": "https://bot-api-us.healthbot-dev.microsoft.com/bot/dynabot/pes-demo-jns2cho/skill/consume"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 11890601,
+            "schemaName": "cr924_websiteQACopilotknH-Jq.envVar.dLgYEbXU2xUpDoZZ0epNQ",
+            "id": "88a361c5-a3e7-4e52-97ac-a7e7c06e45cc",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 11890602,
+                "id": "fd92cafd-696b-ef11-a670-000d3a37f75a",
+                "definitionId": "88a361c5-a3e7-4e52-97ac-a7e7c06e45cc",
+                "value": "Jira1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 59197741,
+            "schemaName": "cr924_metaDataTester.envVar.UeyNwxRDVxjMS1ahA59Jr",
+            "id": "ab7a3569-215b-4082-95b0-a868d6adefa5",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 59197742,
+                "id": "48b8f2eb-d4fd-ef11-bae3-000d3a5d56eb",
+                "definitionId": "ab7a3569-215b-4082-95b0-a868d6adefa5",
+                "value": "Confluence4"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6587949,
+            "displayName": "[Copilot 2] CopilotForHealthDev endpointUrl",
+            "schemaName": "cr924_copilot2qUWrHT.skill.CopilotForHealthDev1.AppEndpoint",
+            "id": "c45b3ae0-e940-4ad2-9d5b-a8d78165f92d",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6587957,
+                "id": "224623d6-3ec5-ee11-9079-6045bd099af6",
+                "definitionId": "c45b3ae0-e940-4ad2-9d5b-a8d78165f92d",
+                "value": "https://mshealthbot.ngrok.io/dynabot/bert-dev-bot-qflksfb/skill/consume"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8938091,
+            "schemaName": "cr924_copilot70hbtlQ.envVar.v-Xi99DdgTg7VbdpqVRb1",
+            "id": "01f373f8-1ca6-4082-9c6e-a992333a71a3",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8938092,
+                "id": "484c271d-451b-ef11-840b-6045bd0513a3",
+                "definitionId": "01f373f8-1ca6-4082-9c6e-a992333a71a3",
+                "value": "ServiceNowKB3"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 3133655,
+            "displayName": "[Copy of Bot with Authentication 1] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr924_copyOfBotWithAuthentication1.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "4200af8b-3765-4daa-aa45-a9d3d51e7b44",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 3133765,
+                "id": "8bd94e71-41c3-ed11-b595-0022480b9db8",
+                "definitionId": "4200af8b-3765-4daa-aa45-a9d3d51e7b44",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7491842,
+            "displayName": "[copilot17april] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr924_copilot17April.skill.FlightSkillMigratedBot.AppId",
+            "id": "76858804-e3b1-402f-af9d-abbf6245c0bf",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7491850,
+                "id": "6857a148-9ffc-ee11-9f89-000d3a3b851b",
+                "definitionId": "76858804-e3b1-402f-af9d-abbf6245c0bf",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 66251044,
+            "displayName": "[Matthias Skill Multitenant] Echo Skill endpointUrl",
+            "schemaName": "cr924_agentXCmJ5z.skill.EchoSkill.AppEndpoint",
+            "id": "5d398fde-c4b5-4251-8a38-abdbd2185a76",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 66251055,
+                "id": "f72e4b6d-002f-f011-8c4c-000d3a5af35f",
+                "definitionId": "5d398fde-c4b5-4251-8a38-abdbd2185a76",
+                "value": "https://test-echoskillbot-multitenant.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6048573,
+            "displayName": "Agent Copilot SharePoint URLs",
+            "schemaName": "msdyn_AgentCopilotSharePointURLs",
+            "id": "7e571073-aac2-4858-aa00-ac0710a5bd4b",
+            "defaultValue": "NULL",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6074797,
+                "id": "cd968cdd-468d-ee11-be36-000d3a5b9b9f",
+                "definitionId": "7e571073-aac2-4858-aa00-ac0710a5bd4b",
+                "value": "NULL"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8532739,
+            "displayName": "[VA-HP] SalesSkill endpointUrl",
+            "schemaName": "cr2534_lamilHPRepro.variable.VAHPSalesSkillendpointUrl",
+            "id": "9eb2943d-a0e0-4bf7-a33f-adc70956d555",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8532747,
+                "id": "8484ab87-3ba8-44ca-8d22-6986a2d233b2",
+                "definitionId": "9eb2943d-a0e0-4bf7-a33f-adc70956d555",
+                "value": "https://virtualagent-api-dev.hpcloud.hp.com/salesskill/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 15715421,
+            "displayName": "SLA Web Client Deprecation Acknowledge",
+            "schemaName": "msdyn_SLAWebClientDeprecationAcknowledge",
+            "id": "e72e1872-1fb4-4af4-9745-ae6821c7983c",
+            "defaultValue": "0",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 15715443,
+                "id": "bc04821d-0613-ed11-b83f-000d3a58b59f",
+                "definitionId": "e72e1872-1fb4-4af4-9745-ae6821c7983c",
+                "value": "0"
+            },
+            "type": "Number"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 14276485,
+            "schemaName": "cr924_mattTestCopilot.envVar.r6RD9mITkqQP5iOQFVkpn",
+            "id": "e78de2f5-302d-4fc3-9720-af1065f3a02c",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 14276486,
+                "id": "3c52fb6b-3695-ef11-a72d-6045bd0521d6",
+                "definitionId": "e78de2f5-302d-4fc3-9720-af1065f3a02c",
+                "value": "Salesforce1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7585377,
+            "displayName": "[Bot19_04] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr924_bot1904.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "347c3a3e-6ba2-4622-a6ee-af71494fa6f6",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7585385,
+                "id": "5dc7e62a-1efe-ee11-9f89-000d3a3b851b",
+                "definitionId": "347c3a3e-6ba2-4622-a6ee-af71494fa6f6",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7585389,
+            "displayName": "[Bot19_04] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr924_bot1904.skill.FlightSkillMigratedBot.AppId",
+            "id": "1533876b-527c-4e61-83e8-b231d5d34a36",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7585397,
+                "id": "65c7e62a-1efe-ee11-9f89-000d3a3b851b",
+                "definitionId": "1533876b-527c-4e61-83e8-b231d5d34a36",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 59197678,
+            "schemaName": "cr924_metaDataTester.envVar.FYFB4rzkcJW7806Xf6gUD",
+            "id": "7588d639-9ce4-483a-8139-b2b491391d62",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 59197679,
+                "id": "d59f6acd-d4fd-ef11-bae3-000d3a5d56eb",
+                "definitionId": "7588d639-9ce4-483a-8139-b2b491391d62",
+                "value": "Salesforce1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 70700688,
+            "displayName": "[TeamsWithSkill] Echo Skill endpointUrl",
+            "schemaName": "cr924_teamsWithSkill.skill.EchoSkill.AppEndpoint",
+            "id": "2f3ab1be-95a2-41cb-91a8-b2c948c52d56",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 70700700,
+                "id": "2e89ca08-9859-ef11-bfe2-000d3a31fdff",
+                "definitionId": "2f3ab1be-95a2-41cb-91a8-b2c948c52d56",
+                "value": "https://pvabugbashechoskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6587961,
+            "displayName": "[Copilot 2] CopilotForHealthDev msAppId",
+            "schemaName": "cr924_copilot2qUWrHT.skill.CopilotForHealthDev1.AppId",
+            "id": "2014b1c9-a78c-4c50-94e2-b329ef9a297a",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6587969,
+                "id": "274623d6-3ec5-ee11-9079-6045bd099af6",
+                "definitionId": "2014b1c9-a78c-4c50-94e2-b329ef9a297a",
+                "value": "8974a9d7-a28e-4645-80d4-1f467098e660"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6622491,
+            "displayName": "[Copilot 6] CopilotForHealthDev msAppId",
+            "schemaName": "cr924_copilot6D3l_k0.skill.CopilotForHealthDev.AppId",
+            "id": "f0a136d6-2529-4149-a95f-b39f1bcdc267",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6622499,
+                "id": "7c19d020-8cc6-ee11-9079-6045bd099af6",
+                "definitionId": "f0a136d6-2529-4149-a95f-b39f1bcdc267",
+                "value": "8974a9d7-a28e-4645-80d4-1f467098e660"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6591074,
+            "displayName": "[Copilot 4] CopilotForHealthDev msAppId",
+            "schemaName": "cr924_copilot4fa30kI.skill.CopilotForHealthDev.AppId",
+            "id": "9382bda4-84f8-4893-94b9-b3a1193b7de5",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6591082,
+                "id": "53bb7a4e-98c5-ee11-9079-6045bd099af6",
+                "definitionId": "9382bda4-84f8-4893-94b9-b3a1193b7de5",
+                "value": "8974a9d7-a28e-4645-80d4-1f467098e660"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7940985,
+            "displayName": "[SCbot23424] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr924_sCbot23424.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "7a4284b8-c837-4946-853e-b3b11461d370",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7940998,
+                "id": "670e2a41-fb05-ef11-9f89-6045bd0513a3",
+                "definitionId": "7a4284b8-c837-4946-853e-b3b11461d370",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8532763,
+            "displayName": "[HP-VA-EN] Action Set Parsers Bot (app id)",
+            "schemaName": "cr2534_lamilHPRepro.variable.HPVAENActionSetParsersBotappid",
+            "id": "693dab3b-f0b7-42ab-95b1-b7b4d7b649ad",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8532771,
+                "id": "f9028783-e25f-4f71-bc58-b21f968b5ac3",
+                "definitionId": "693dab3b-f0b7-42ab-95b1-b7b4d7b649ad",
+                "value": "444a2622-5eda-46e8-b9e9-c7ce7c575c11"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8848628,
+            "schemaName": "cr924_sharepointTestWithGraphConnector.envVar.ubGQRuBjfNC4Ju_vtlHj1",
+            "id": "a9a800fe-6e0a-4479-bb71-b8f22c41c6d3",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8848629,
+                "id": "036d27e7-d716-ef11-840b-6045bd0513a3",
+                "definitionId": "a9a800fe-6e0a-4479-bb71-b8f22c41c6d3",
+                "value": "ServiceNowKB3"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7130542,
+            "displayName": "[MyBot27] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr718_myBot27.skill.FlightSkillMigratedBot.AppId",
+            "id": "7bb0bae8-329f-4fa6-8c7f-b8f5b1782042",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7130554,
+                "id": "59cc95c0-fbeb-ee11-a203-000d3a5970a6",
+                "definitionId": "7bb0bae8-329f-4fa6-8c7f-b8f5b1782042",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 10452765,
+            "displayName": "[Copilot24July] Insurance Skill Migrated Bot endpointUrl",
+            "schemaName": "cr924_copilot24July.skill.InsuranceSkillMigratedBot.AppEndpoint",
+            "id": "ba63084e-0145-4d42-9dfd-b9d6d695c3f5",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 10452773,
+                "id": "f5fa6268-bb49-ef11-acce-6045bd021050",
+                "definitionId": "ba63084e-0145-4d42-9dfd-b9d6d695c3f5",
+                "value": "https://insuranceskillbottest.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6049037,
+            "displayName": "Service Copilot - Service Now knowledge base article count ",
+            "schemaName": "msdyn_ServiceCopilot_ServiceNowKnowledgeArticleCount",
+            "id": "e1166e88-5731-4dff-8ca6-b9e4a6e83aa1",
+            "defaultValue": "3",
+            "type": "Number"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8091975,
+            "displayName": "[Copilot05_04] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr924_copilot0504.skill.FlightSkillMigratedBot.AppId",
+            "id": "c27721a1-2d14-4590-9561-bb7b8ddc40cc",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8091983,
+                "id": "32ebd5f8-f609-ef11-9f89-6045bd0513a3",
+                "definitionId": "c27721a1-2d14-4590-9561-bb7b8ddc40cc",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 58897968,
+            "schemaName": "cr924_agentwQHDKu.envVar.G85SPDadpHjP-i7Cb3dlZ",
+            "id": "659df3fa-f259-4b8b-b685-bda96cae3166",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 58897969,
+                "id": "0d78e2bd-ecfa-ef11-bae3-000d3a58ff3d",
+                "definitionId": "659df3fa-f259-4b8b-b685-bda96cae3166",
+                "value": "Salesforce1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7491830,
+            "displayName": "[copilot17april] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr924_copilot17April.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "4ad8b57b-af13-4219-9c48-be9fdf03a5ce",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7491838,
+                "id": "6557a148-9ffc-ee11-9f89-000d3a3b851b",
+                "definitionId": "4ad8b57b-af13-4219-9c48-be9fdf03a5ce",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7723521,
+            "displayName": "[Copilot_Govi_24_04] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr924_copilotGovi2404.skill.FlightSkillMigratedBot.AppId",
+            "id": "77efa294-fd75-476e-b571-c005d57cae53",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7723529,
+                "id": "792ee251-0402-ef11-9f89-6045bd0513a3",
+                "definitionId": "77efa294-fd75-476e-b571-c005d57cae53",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 4029234,
+            "displayName": "[Bot 1] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr924_bot1H8JHiL.skill.FlightSkillMigratedBot.AppId",
+            "id": "a4151625-c28b-4305-ab3a-c19768c30d93",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 4029242,
+                "id": "30cd6f4d-fa05-ee11-8f6e-0022480b9db8",
+                "definitionId": "a4151625-c28b-4305-ab3a-c19768c30d93",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 12018049,
+            "displayName": "[Copy of Copilot 1] Skill bot with dialogs msAppId",
+            "schemaName": "cr924_copyOfCopilot1.variable.SkillbotwithdialogsmsAppId",
+            "id": "acd405f2-18fe-4547-aba6-c22913b43089",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 12018057,
+                "id": "8af6e148-1b70-ef11-a670-000d3a37f75a",
+                "definitionId": "acd405f2-18fe-4547-aba6-c22913b43089",
+                "value": "d579b977-d7b2-4a9d-92fe-29f19cb02732"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 10971442,
+            "displayName": "[Copilot] Echo Skill msAppId",
+            "schemaName": "cr924_copilotYcetDV.skill.EchoSkill.AppId",
+            "id": "6508e9fe-51af-4240-80e9-c2c0fcf27506",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 10971450,
+                "id": "979a49d0-9659-ef11-bfe2-000d3a31fdff",
+                "definitionId": "6508e9fe-51af-4240-80e9-c2c0fcf27506",
+                "value": "ec1b5567-7b4b-4689-801b-7f00fda9f207"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6587489,
+            "displayName": "[Copilot 2] CopilotForHealthDev msAppId",
+            "schemaName": "cr924_copilot2qUWrHT.skill.CopilotForHealthDev.AppId",
+            "id": "b231e255-5c23-4f3f-90a3-c4a597fc4796",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6587497,
+                "id": "f4e5321b-39c5-ee11-9079-6045bd099af6",
+                "definitionId": "b231e255-5c23-4f3f-90a3-c4a597fc4796",
+                "value": "8974a9d7-a28e-4645-80d4-1f467098e660"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 16141087,
+            "displayName": "[Test Matthias] Echo Skill endpointUrl",
+            "schemaName": "cr924_testMatthias.skill.EchoSkill.AppEndpoint",
+            "id": "5f8ef630-f5fa-4e22-bf5b-c58c8d12995c",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 16141095,
+                "id": "e5a57661-46b2-ef11-a72f-000d3a321c2a",
+                "definitionId": "5f8ef630-f5fa-4e22-bf5b-c58c8d12995c",
+                "value": "https://test-echoskillbot-singletenant.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6737859,
+            "displayName": "[ALM21FEB] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr2eb_alm21Feb.skill.FlightSkillMigratedBot.AppId",
+            "id": "1012cdc0-0484-4034-926e-c5b24b8ad293",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6737871,
+                "id": "ac88298c-8fd0-ee11-904c-6045bd029a49",
+                "definitionId": "1012cdc0-0484-4034-926e-c5b24b8ad293",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 10800487,
+            "displayName": "[Skills] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr924_copilot47KkZbn.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "4e2bdbc2-0879-4a2f-8c3f-c6daea45eb63",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 10800495,
+                "id": "a2881892-da55-ef11-bfe2-000d3a31fdff",
+                "definitionId": "4e2bdbc2-0879-4a2f-8c3f-c6daea45eb63",
+                "value": "https://flightoffshoretest.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 5859725,
+            "displayName": "Service Copilot - Zendesk knowledge base enabled",
+            "schemaName": "msdyn_ServiceCopilot_ZendeskKnowledgeEnabled",
+            "id": "9e46b60d-9227-407f-902c-c7d664799c8a",
+            "defaultValue": "yes",
+            "type": "Boolean"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7448249,
+            "displayName": "[PVA2_SB] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr924_pva2Sb.skill.FlightSkillMigratedBot.AppId",
+            "id": "af67a5bc-09f2-4fed-877b-c96b856aca85",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7448257,
+                "id": "e4151a30-f0fa-ee11-9f89-000d3a3b851b",
+                "definitionId": "af67a5bc-09f2-4fed-877b-c96b856aca85",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 9274998,
+            "schemaName": "cr924_mattTestCopilot.envVar.ST1bMP7cOslDeh348YcXY",
+            "id": "48505ed1-c9bf-4447-b878-c96eac56f0e2",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 9274999,
+                "id": "2f1c6a0c-fe24-ef11-840a-000d3a366cb4",
+                "definitionId": "48505ed1-c9bf-4447-b878-c96eac56f0e2",
+                "value": "Salesforce1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8730055,
+            "schemaName": "cr924_copilot115vjEj.envVar.8y3m2yIwRQenzODn5fsEj",
+            "id": "cfa0a0fb-7eb1-4663-ab18-ca46c2f130df",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8730056,
+                "id": "92ec62de-ec11-ef11-9f8a-6045bd0513a3",
+                "definitionId": "cfa0a0fb-7eb1-4663-ab18-ca46c2f130df",
+                "value": "Confluence3"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 57017907,
+            "schemaName": "cr924_copilotCitations.envVar.V0trzAM0UWuLE8QWUBhiT",
+            "id": "c134e39a-750e-44d8-a8d4-cdbd47725524",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 57017908,
+                "id": "fd1d782e-b3ef-ef11-be1f-000d3a58ff3d",
+                "definitionId": "c134e39a-750e-44d8-a8d4-cdbd47725524",
+                "value": "ServiceNowKB3"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 5488345,
+            "displayName": "Customer Copilot Moderation Level",
+            "schemaName": "msdyn_CustomerCopilotModerationLevel",
+            "id": "4e316246-63f6-491c-bd15-ce398182d75b",
+            "defaultValue": "High",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 5479866,
+                "id": "b3ebf0e0-0d77-ee11-8178-000d3a5b9b9f",
+                "definitionId": "4e316246-63f6-491c-bd15-ce398182d75b",
+                "value": "High"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8532955,
+            "displayName": "[HP-VA-EN] Action Set AgentAssist Bot (skill endpoint)",
+            "schemaName": "cr2534_lamilHPRepro.variable.HPVAENActionSetAgentAssistBotskillendpoint",
+            "id": "7c69c119-c3c4-41e4-9fdb-d092764dbdf6",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8532963,
+                "id": "d3d200c0-d47c-4e67-9550-65a97ce73e4e",
+                "definitionId": "7c69c119-c3c4-41e4-9fdb-d092764dbdf6",
+                "value": "https://virtualagent-api-dev.hpcloud.hp.com/action-set-4/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 9590164,
+            "displayName": "[Copilot with dependencies] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr924_copilotWithDependencies.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "eade3e1e-f6bc-4508-ae64-d49e74003a76",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 9590172,
+                "id": "4c210531-cb33-ef11-a316-000d3a349d37",
+                "definitionId": "eade3e1e-f6bc-4508-ae64-d49e74003a76",
+                "value": "https://flightoffshoretest.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 57658371,
+            "schemaName": "cr924_ppeTestShavital.envVar.1VdgmoYtodrD9LewDQ_9R",
+            "id": "84bfc0bf-d1b7-4e6b-8204-d4c689ee10ac",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 57658372,
+                "id": "07421df7-e5f4-ef11-be20-000d3a58ff3d",
+                "definitionId": "84bfc0bf-d1b7-4e6b-8204-d4c689ee10ac",
+                "value": "ServiceNowKB4"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 59319750,
+            "schemaName": "cr924_agent1C2Rwzv.envVar.VGe8AmCDsYIx4A-nYsuDD",
+            "id": "0ceab622-d906-4a10-b33e-d9afb680c9be",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 59319751,
+                "id": "81cfeec9-d4ff-ef11-bae2-6045bd02e493",
+                "definitionId": "0ceab622-d906-4a10-b33e-d9afb680c9be",
+                "value": "ServiceNowKB4"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6644964,
+            "displayName": "[Chris 2] PESFAQDemo msAppId",
+            "schemaName": "cr924_copilot7V-xxGf.skill.PESFAQDemo.AppId",
+            "id": "843ca2e2-3767-480f-ad33-da2ab584e0cb",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6644972,
+                "id": "732e55c4-fbc9-ee11-9078-00224804661c",
+                "definitionId": "843ca2e2-3767-480f-ad33-da2ab584e0cb",
+                "value": "7fc0792e-c373-4f42-9255-dde887cc9e0d"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6737851,
+            "displayName": "[ALM21FEB] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr2eb_alm21Feb.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "665ade7f-5434-4d2f-ace6-da7147abb10f",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6737867,
+                "id": "a988298c-8fd0-ee11-904c-6045bd029a49",
+                "definitionId": "665ade7f-5434-4d2f-ace6-da7147abb10f",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8532823,
+            "displayName": "[HP-VA-EN] Action Set SposTypeSetters Bot (skill endpoint)",
+            "schemaName": "cr2534_lamilHPRepro.variable.HPVAENActionSetSposTypeSettersBotskillendpoint",
+            "id": "5b1bcae4-3c8a-4dd6-ac9e-dbf33228d95e",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8532831,
+                "id": "9cd9c1ee-796c-4c60-aa0b-2852bdcc7a76",
+                "definitionId": "5b1bcae4-3c8a-4dd6-ac9e-dbf33228d95e",
+                "value": "https://virtualagent-dev.hpcloud.hp.com/action-set-3/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 11891009,
+            "schemaName": "cr924_websiteQACopilotknH-Jq.envVar.UhONHF-6Hh_Ao43-PCv7T",
+            "id": "3723dbb9-436f-4ea5-8843-dd33910e4e76",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 11891010,
+                "id": "0db3de3e-6c6b-ef11-a670-000d3a37f75a",
+                "definitionId": "3723dbb9-436f-4ea5-8843-dd33910e4e76",
+                "value": "Salesforce1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 4282096,
+            "displayName": "[BotPVA2July12] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr734_botPva2July12.skill.FlightSkillMigratedBot.AppId",
+            "id": "8592435e-fc12-4d31-ae5c-ddd404d1adc7",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 4282108,
+                "id": "2aca9447-7420-ee11-9965-000d3a5a8885",
+                "definitionId": "8592435e-fc12-4d31-ae5c-ddd404d1adc7",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7723508,
+            "displayName": "[Copilot_Govi_24_04] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "cr924_copilotGovi2404.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "1dd06735-4d79-4255-ac8e-dfd3ebe4e3be",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7723516,
+                "id": "742ee251-0402-ef11-9f89-6045bd0513a3",
+                "definitionId": "1dd06735-4d79-4255-ac8e-dfd3ebe4e3be",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 14654791,
+            "schemaName": "cr924_mainguyTestK.envVar.7Q9psiJ14KOomVruJsKvC",
+            "id": "36c45897-a634-42fc-a106-e09fea171da6",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 14654792,
+                "id": "d407cb74-899c-ef11-a72d-000d3a5c3a3f",
+                "definitionId": "36c45897-a634-42fc-a106-e09fea171da6",
+                "value": "ServiceNowKB4"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 73342475,
+            "displayName": "LOB Guid List",
+            "schemaName": "msdyn_lineofbusinessfiltertemplatefeature",
+            "id": "731746d7-eb72-4c81-b077-e24421c3254c",
+            "defaultValue": "00000000-00000000-00000000-00000000",
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 60051841,
+            "schemaName": "msdyn_copilotforemployeeselfservice.envVar.isqvuCR2Lu09ZfWBSfS8O",
+            "id": "fce91bcd-16aa-498d-8d2f-e2646ce64342",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 60051845,
+                "id": "e9988794-a105-f011-bae2-6045bd027a27",
+                "definitionId": "fce91bcd-16aa-498d-8d2f-e2646ce64342",
+                "value": "ServiceNowKB4"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 9993190,
+            "schemaName": "cr924_mattTestCopilot.envVar.YKxcXaenOhs5SYL_bL3Ni",
+            "id": "c4571a8b-567e-4aa2-8d99-e2db3f2e0e8b",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 9993191,
+                "id": "5972e68e-af3f-ef11-a316-000d3a349d37",
+                "definitionId": "c4571a8b-567e-4aa2-8d99-e2db3f2e0e8b",
+                "value": "ServiceNowKB4"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8532919,
+            "displayName": "[HP-VA-EN] SmartContent (skill endpoint)",
+            "schemaName": "cr2534_lamilHPRepro.variable.HPVAENSmartContentskillendpoint",
+            "id": "e276697c-aee6-42c6-96c2-e3973e6fe052",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8532927,
+                "id": "14b7bac3-f40e-496e-9230-0ade38049e45",
+                "definitionId": "e276697c-aee6-42c6-96c2-e3973e6fe052",
+                "value": "https://virtualagent-api-dev.hpcloud.hp.com/smartcontent/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8532907,
+            "displayName": "[VA-HP] ApiProxySkill endpointUrl",
+            "schemaName": "cr2534_lamilHPRepro.variable.VAHPApiProxySkillendpointUrl",
+            "id": "5f983a51-c965-41cd-9f61-e3dc4a273e5b",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8532915,
+                "id": "a32f98c9-c2f0-4178-9905-a0815357de0f",
+                "definitionId": "5f983a51-c965-41cd-9f61-e3dc4a273e5b",
+                "value": "https://virtualagent-api-dev.hpcloud.hp.com/apiproxyskill/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8629823,
+            "schemaName": "cr924_adityaPoC.envVar.hUJ0uyhwC7mEdL_YKfpDL",
+            "id": "5b5bc137-236f-4a9f-aac9-e42348a5bea8",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8629824,
+                "id": "07db8bba-840d-ef11-9f8a-6045bd0513a3",
+                "definitionId": "5b5bc137-236f-4a9f-aac9-e42348a5bea8",
+                "value": "Salesforce1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7169880,
+            "displayName": "[CopiloK1] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "crd15_copiloK1.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "0bf689de-7024-4237-b6a4-e427e10fbb30",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7169900,
+                "id": "e8c153f1-94ed-ee11-a1fd-6045bd03e346",
+                "definitionId": "0bf689de-7024-4237-b6a4-e427e10fbb30",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6331143,
+            "displayName": "[CopilotJan2] Flight Skill Migrated Bot endpointUrl",
+            "schemaName": "crf5a_copilotJan2.skill.FlightSkillMigratedBot.AppEndpoint",
+            "id": "a3be75a1-ce62-4104-892c-e575201016d1",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6331163,
+                "id": "4cf3e189-04aa-ee11-a568-000d3a5b2c16",
+                "definitionId": "a3be75a1-ce62-4104-892c-e575201016d1",
+                "value": "https://flightskillbot.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6048529,
+            "displayName": "Agent Copilot Debug Mode",
+            "schemaName": "msdyn_AgentCopilotDebugMode",
+            "id": "f3977885-0235-45c0-976a-e719841f866a",
+            "defaultValue": "no",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6074807,
+                "id": "d1968cdd-468d-ee11-be36-000d3a5b9b9f",
+                "definitionId": "f3977885-0235-45c0-976a-e719841f866a",
+                "value": "no"
+            },
+            "type": "Boolean"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8532979,
+            "displayName": "[VA-HP] SolutionsSkill endpointUrl",
+            "schemaName": "cr2534_lamilHPRepro.variable.VAHPSolutionsSkillendpointUrl",
+            "id": "d346fce0-a280-40cf-ba2b-e7c65361d634",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8532987,
+                "id": "f66e035f-5b0d-426c-a77a-fe62bb34a3e0",
+                "definitionId": "d346fce0-a280-40cf-ba2b-e7c65361d634",
+                "value": "https://virtualagent-api-dev.hpcloud.hp.com/solutionskill/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6583617,
+            "displayName": "[Bert Test] healthbot endpointUrl",
+            "schemaName": "cr924_bertTest.skill.healthbot.AppEndpoint",
+            "id": "95f492a6-9fcd-44c3-aa52-e89d7a48593c",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6583625,
+                "id": "483e5d0a-28c4-ee11-9079-6045bd099af6",
+                "definitionId": "95f492a6-9fcd-44c3-aa52-e89d7a48593c",
+                "value": "https://mshealthbot.ngrok.io/dynabot/arieazurebot-fpcctrw/skill/consume"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 5488369,
+            "displayName": "Customer Copilot Website URLs",
+            "schemaName": "msdyn_CustomerCopilotWebsiteURLs",
+            "id": "11bbfac6-b3e9-4888-acf4-e943f8273b8c",
+            "defaultValue": "NULL",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 5479863,
+                "id": "1350028a-807a-4b6c-ae25-bd6cc2b1db55",
+                "definitionId": "11bbfac6-b3e9-4888-acf4-e943f8273b8c",
+                "value": "www.amazon.com"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8729536,
+            "schemaName": "cr924_14May.envVar.goqPsRKhciKSchL-CU_xV",
+            "id": "462c4433-0c22-4385-8302-e9588510b80c",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8729537,
+                "id": "0a016ec8-e811-ef11-9f8a-6045bd0513a3",
+                "definitionId": "462c4433-0c22-4385-8302-e9588510b80c",
+                "value": "Confluence3"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 55497032,
+            "schemaName": "cr924_creationTest.envVar._NsJ1aRSpGPQ9zdsySDe1",
+            "id": "ff363688-8a5b-4493-bbb3-e9d2a657a4e0",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 55497033,
+                "id": "8129a173-b1e8-ef11-be20-000d3a5a6877",
+                "definitionId": "ff363688-8a5b-4493-bbb3-e9d2a657a4e0",
+                "value": "Salesforce1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 10800872,
+            "displayName": "[new skills bot] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr924_copilot4xBR5gq.skill.FlightSkillMigratedBot.AppId",
+            "id": "005ea4b8-c700-4cd3-ae3b-ea438f6bb489",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 10800880,
+                "id": "4f9f976c-db55-ef11-bfe2-000d3a31fdff",
+                "definitionId": "005ea4b8-c700-4cd3-ae3b-ea438f6bb489",
+                "value": "1cfe936d-d428-4a5e-aca2-13416597d84c"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 9450793,
+            "schemaName": "cr924_personalizedSalesAssistant.envVar.SukjLtVwdZImw_sY44tSX",
+            "id": "41fb3bc5-73ee-47fc-8ddd-ef414663a265",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 9450794,
+                "id": "c27b7ce0-cc2d-ef11-840a-000d3a349d37",
+                "definitionId": "41fb3bc5-73ee-47fc-8ddd-ef414663a265",
+                "value": "IntranetSites1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 12048282,
+            "schemaName": "cr924_salesforceCopilotTest.envVar.dDMFaHXpyzsBkLq4wKVKK",
+            "id": "01332784-6255-45a9-bce5-ef539b7b0661",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 12048283,
+                "id": "01fd9969-7070-ef11-a670-000d3a37f75a",
+                "definitionId": "01332784-6255-45a9-bce5-ef539b7b0661",
+                "value": "Salesforce1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7711858,
+            "schemaName": "cr924_mainguyNoauth.envVar.lbxjZu5Fn9yChc6NINmNg",
+            "id": "d26dd0e9-c3dc-4679-8985-ef58b538ebcd",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7711859,
+                "id": "0f7c1985-9b01-ef11-9f89-6045bd0961aa",
+                "definitionId": "d26dd0e9-c3dc-4679-8985-ef58b538ebcd",
+                "value": "ServiceNowKB3"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6591725,
+            "displayName": "[Copilot 5] CopilotForHealthShaked msAppId",
+            "schemaName": "cr924_copilot5KjtRRi.skill.CopilotForHealthShaked.AppId",
+            "id": "617dad3a-689a-47d9-beaa-f09231f531a8",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 6591733,
+                "id": "fc2d729d-a7c5-ee11-9079-6045bd099af6",
+                "definitionId": "617dad3a-689a-47d9-beaa-f09231f531a8",
+                "value": "8652a3e8-caa7-4cd7-b830-8359995d10a5"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 639169,
+            "displayName": "Should only leaf node selection be allowed",
+            "schemaName": "msdyn_AllowSelectLeafOnly",
+            "id": "6b544de2-b14c-4eee-a78a-f206774df101",
+            "defaultValue": "no",
+            "type": "Boolean"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7941025,
+            "displayName": "[SCbot23424] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr924_sCbot23424.skill.FlightSkillMigratedBot.AppId",
+            "id": "9bedc46c-d9b8-4b12-a7c4-f2bf6197efbb",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7941033,
+                "id": "730e2a41-fb05-ef11-9f89-6045bd0513a3",
+                "definitionId": "9bedc46c-d9b8-4b12-a7c4-f2bf6197efbb",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 1854228,
+            "displayName": "Variable",
+            "schemaName": "cr0ff_Variable",
+            "id": "7b3c9eea-251a-45d5-9241-f2d43765d84d",
+            "defaultValue": "bla",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 1854252,
+                "id": "714fb23f-9c96-ed11-aad1-6045bd06e703",
+                "definitionId": "7b3c9eea-251a-45d5-9241-f2d43765d84d",
+                "value": "blaC"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 9128890,
+            "schemaName": "cr924_testRgmaRZ.envVar.cb9544ef-9ae9-4b6e-b4b3-42a4f229273e.RrKvGJKQl8kV8sFtjNFW9",
+            "id": "49e89227-067b-421d-9d60-f3a31e2bc68f",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 9128891,
+                "id": "ac1ab9ac-2b1d-ef11-840b-6045bd0513a3",
+                "definitionId": "49e89227-067b-421d-9d60-f3a31e2bc68f",
+                "value": "cb9544ef-9ae9-4b6e-b4b3-42a4f229273e"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8719545,
+            "schemaName": "cr924_.envVar.J7citPOIjIGL1QWe-knvT",
+            "id": "c7190ef3-c61b-44dd-8a92-f3de53600269",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8719546,
+                "id": "d0729b00-9a11-ef11-9f8a-6045bd0513a3",
+                "definitionId": "c7190ef3-c61b-44dd-8a92-f3de53600269",
+                "value": "ServiceNowKB3"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 639170,
+            "displayName": "Should the Peek Button Be Showed",
+            "schemaName": "msdyn_ShouldShowPeekButton",
+            "id": "f8fa2e43-1ea3-461a-863b-f42ed77f290f",
+            "defaultValue": "no",
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 59197705,
+            "schemaName": "cr924_metaDataTester.envVar.mjpoAY7ZT64dv7hFzUn38",
+            "id": "e887d515-40ce-4376-bfe2-f4be2ce3a2d9",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 59197706,
+                "id": "fb4578e1-d4fd-ef11-bae3-000d3a5d56eb",
+                "definitionId": "e887d515-40ce-4376-bfe2-f4be2ce3a2d9",
+                "value": "ServiceNowKB5"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 61452717,
+            "schemaName": "cr924_agent2Ra-h1P.envVar.uxyFI_JYvMhiP0vK9rBok",
+            "id": "a9ce2f9f-5af7-4a8d-870e-f58766dae6e6",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 61452718,
+                "id": "a5c17049-620c-f011-bae1-6045bd027a27",
+                "definitionId": "a9ce2f9f-5af7-4a8d-870e-f58766dae6e6",
+                "value": "IntranetSites1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 73183049,
+            "displayName": "[Copilot (gen)] Skill bot with dialogs endpointUrl",
+            "schemaName": "cr924_copilotNbXuMK.skill.Skillbotwithdialogs.AppEndpoint",
+            "id": "dc5c4acd-ba16-428c-8be9-f5c6cb9e6db6",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 73183057,
+                "id": "b0ed5f6e-8f56-f011-877b-6045bd029b45",
+                "definitionId": "dc5c4acd-ba16-428c-8be9-f5c6cb9e6db6",
+                "value": "https://pvabugbashflightskillbot2.azurewebsites.net/api/messages"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7935490,
+            "displayName": "[Govi_28_04] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr226_govi2804.skill.FlightSkillMigratedBot.AppId",
+            "id": "139e4024-3811-42f5-ac09-f6f9f50e2cb5",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7935498,
+                "id": "50c0d1d8-2305-ef11-9f89-000d3a1e907b",
+                "definitionId": "139e4024-3811-42f5-ac09-f6f9f50e2cb5",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 11865497,
+            "schemaName": "cr924_sellakTest1.envVar.11juUw-uRBHttPFLQeCRa",
+            "id": "8ff02d99-7b57-44b0-8f6f-f828d5c2e3d1",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 11865498,
+                "id": "35680145-056b-ef11-a670-000d3a37f75a",
+                "definitionId": "8ff02d99-7b57-44b0-8f6f-f828d5c2e3d1",
+                "value": "ServiceNowTickets1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7955088,
+            "schemaName": "cr924_mainguyTest3.envVar.5xO6iK3hYbCpvbsoeqti1",
+            "id": "196a3164-ea1a-41ab-bc13-f8760039429b",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7955089,
+                "id": "dcb3d423-8206-ef11-9f89-6045bd0513a3",
+                "definitionId": "196a3164-ea1a-41ab-bc13-f8760039429b",
+                "value": "ServiceNowKB3"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 72595441,
+            "schemaName": "cr924_responseDeserializationCheck.envVar.XrwkpiVBA3-8xcoHhNBHn",
+            "id": "318ed56f-1372-43b4-acf1-f92c42cb319e",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 72595442,
+                "id": "288d113c-a052-f011-877a-6045bd029b45",
+                "definitionId": "318ed56f-1372-43b4-acf1-f92c42cb319e",
+                "value": "Salesforce1"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 8532775,
+            "displayName": "[HP-VA-EN] PVAAdaptiveCardsSkill (app id)",
+            "schemaName": "cr2534_lamilHPRepro.variable.HPVAENPVAAdaptiveCardsSkillappid",
+            "id": "f7f7d505-75b4-4c21-b7f5-fb29d46a2807",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 8532783,
+                "id": "8b0a98ae-8d4d-41f6-af88-24a63a40413f",
+                "definitionId": "f7f7d505-75b4-4c21-b7f5-fb29d46a2807",
+                "value": "29015f3b-7c8c-487b-8ef9-24302196dcce"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7562766,
+            "displayName": "[Copilot18April] Flight Skill Migrated Bot msAppId",
+            "schemaName": "cr924_copilot18April.skill.FlightSkillMigratedBot.AppId",
+            "id": "b139633b-f04b-4b17-93ee-fd5a33336dd8",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7562774,
+                "id": "d1373146-75fd-ee11-9f89-000d3a3b851b",
+                "definitionId": "b139633b-f04b-4b17-93ee-fd5a33336dd8",
+                "value": "131b7027-5829-45c1-a25f-13841c770ae9"
+            },
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 6049016,
+            "displayName": "Service Copilot - Service Now knowledge Score Threshold",
+            "schemaName": "msdyn_ServiceCopilotServiceNowKnowledgeScoreThreshold",
+            "id": "455117f6-dd4d-46f4-bb3b-fe1c318e4345",
+            "defaultValue": "1.1",
+            "type": "Number"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 7711252,
+            "schemaName": "cr924_mainguyKtest.envVar.Sz6FfkvHAynSUUe7uIckx",
+            "id": "b93d7633-7744-4363-bc63-fe4ed0494b84",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 7711253,
+                "id": "c5b0dd2f-9a01-ef11-9f89-6045bd0961aa",
+                "definitionId": "b93d7633-7744-4363-bc63-fe4ed0494b84",
+                "value": "ServiceNowKB3"
+            },
+            "type": "String"
+        }
+    ],
+    "componentCollection": {
+        "$kind": "BotComponentCollection",
+        "version": 73190617,
+        "managedProperties": {
+            "$kind": "ManagedProperties",
+            "isCustomizable": true,
+            "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+        },
+        "auditInfo": {
+            "$kind": "AuditInfo",
+            "createdTimeUtc": "2025-07-01T17:41:17Z",
+            "modifiedTimeUtc": "2025-07-01T17:41:17Z",
+            "createdBy": "7a7d4f61-c937-4f07-9cae-eb7795444d86",
+            "modifiedBy": "7a7d4f61-c937-4f07-9cae-eb7795444d86"
+        },
+        "schemaName": "bot_componentcollection_my_cc_333",
+        "id": "5ffe1597-a256-f011-877b-6045bd029b45",
+        "displayName": "MyCC333",
+        "description": "a component collection ",
+        "configuration": {
+            "$kind": "BotComponentCollectionConfiguration",
+            "primaryLanguage": 1033
+        }
+    }
+}

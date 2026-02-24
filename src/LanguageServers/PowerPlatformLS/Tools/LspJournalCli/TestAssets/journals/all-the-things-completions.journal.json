@@ -1,0 +1,2187 @@
+{
+  "metadata": {
+    "description": "All-the-things: request completions on every document type at meaningful positions.",
+    "workspaceRoot": "../fixtures/all-the-things-clean-workspace",
+    "classification": "recorded",
+    "branch": "dev/stevesteiner/testcli.2",
+    "commit": "fa6143602",
+    "timestamp": "2026-02-10T22:44:58.2574758Z",
+    "branchBase": "27b3c27f3",
+    "branchDepth": 5
+  },
+  "steps": [
+    {
+      "step": "initialize",
+      "params": {
+        "processId": 0,
+        "capabilities": {},
+        "workspaceFolders": [
+          {
+            "uri": "${workspace}",
+            "name": "all-the-things-clean-workspace"
+          }
+        ]
+      },
+      "expected": {
+        "capabilities": {
+          "codeActionProvider": {
+            "codeActionKinds": [
+              "quickfix"
+            ]
+          },
+          "completionProvider": {
+            "allCommitCharacters": [],
+            "resolveProvider": false,
+            "triggerCharacters": [
+              "\n",
+              ".",
+              ":",
+              " "
+            ]
+          },
+          "definitionProvider": true,
+          "semanticTokensProvider": {
+            "documentSelector": [
+              {
+                "language": "CopilotStudio"
+              }
+            ],
+            "full": true,
+            "legend": {
+              "tokenModifiers": [
+                "declaration",
+                "definition",
+                "readonly",
+                "static",
+                "deprecated",
+                "abstract",
+                "async",
+                "modification",
+                "documentation",
+                "defaultlibrary"
+              ],
+              "tokenTypes": [
+                "keyword",
+                "variable",
+                "function",
+                "interface",
+                "comment",
+                "namespace",
+                "type",
+                "class",
+                "enum",
+                "struct",
+                "typeparameter",
+                "parameter",
+                "property",
+                "enummember",
+                "event",
+                "method",
+                "macro",
+                "modifier",
+                "string",
+                "number",
+                "regexp",
+                "operator",
+                "decorator",
+                "default"
+              ]
+            },
+            "range": false
+          },
+          "signatureHelpProvider": {
+            "triggerCharacters": [
+              "(",
+              ","
+            ]
+          },
+          "textDocumentSync": {
+            "change": 2,
+            "openClose": true,
+            "save": {
+              "includeText": false
+            }
+          },
+          "workspace": {
+            "fileOperations": {
+              "didRename": {
+                "filters": [
+                  {
+                    "pattern": {
+                      "glob": "**/*"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "serverInfo": {
+          "name": "Power Platform Pro-Code Language Server",
+          "version": "1.0"
+        }
+      }
+    },
+    {
+      "step": "initialized"
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/Greeting.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:topics/Greeting.mcs.yml}",
+          "textHash": "sha256:d7449de5be2231420a239449ba5534e422ecf8b3d44128f7571bdc4bff840767",
+          "textBytes": 576
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/topics/Greeting.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/actions/GetWeather.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:actions/GetWeather.mcs.yml}",
+          "textHash": "sha256:f2fadadae05472dece493b37d20d362ca26bbb72f7a4e4e174f874242d0bee15",
+          "textBytes": 385
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/actions/GetWeather.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/variables/UserName.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:variables/UserName.mcs.yml}",
+          "textHash": "sha256:321495a5acab226c6efa1c5732df0a1ee2de7535853d717024ed713a5ebea39f",
+          "textBytes": 158
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/variables/UserName.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/entities/City.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:entities/City.mcs.yml}",
+          "textHash": "sha256:337cf3cfd1e2277fc24fdbd5717d8b2a15e686bc1cd352bafefd61f33ba1f758",
+          "textBytes": 253
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/entities/City.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/knowledge/CompanyWebsite.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:knowledge/CompanyWebsite.mcs.yml}",
+          "textHash": "sha256:f7ad1bb46c09c5bf0f8761bab9014f4a261e7b328ce310636d65340982e556fd",
+          "textBytes": 138
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/knowledge/CompanyWebsite.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/skills/EchoSkill.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:skills/EchoSkill.mcs.yml}",
+          "textHash": "sha256:cf01c38f4dc2e9254df288387b67f28a6a86c29193e88dcb8ae165e3f99e4d86",
+          "textBytes": 408
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/skills/EchoSkill.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/trigger/OnNewEmail.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:trigger/OnNewEmail.mcs.yml}",
+          "textHash": "sha256:893450e4f95847707d050f43e889eba3fb5e691c0022fc9aae0db77ef79394a8",
+          "textBytes": 679
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/trigger/OnNewEmail.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/translations/Greeting.pt-BR.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:translations/Greeting.pt-BR.mcs.yml}",
+          "textHash": "sha256:acf30b505617b44ee2c169e67f142ab898516575d254b4450a77a842bb39f902",
+          "textBytes": 406
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/translations/Greeting.pt-BR.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/settings/ContentModeration.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:settings/ContentModeration.mcs.yml}",
+          "textHash": "sha256:8d7f70f2a026098b13735bcebf2b56069c93f82ea91b2d845f93f18a3d6dbbde",
+          "textBytes": 90
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/settings/ContentModeration.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/settings/Feedback.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:settings/Feedback.mcs.yml}",
+          "textHash": "sha256:5f4b03a9195ef68a2284480e2c30194143e30783fbfbb8fdd07a7226b1e4ba41",
+          "textBytes": 102
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/settings/Feedback.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/connectionreferences.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:connectionreferences.mcs.yml}",
+          "textHash": "sha256:77fea8ef2034e2542931311e791c0a4dd275124670a52749240f88248482e173",
+          "textBytes": 342
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/connectionreferences.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/actions/RunComplianceFlow.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:actions/RunComplianceFlow.mcs.yml}",
+          "textHash": "sha256:4477138bf3f59b727491a1b0e03d36684707d6f406640ff7f7cb458ef9064a7c",
+          "textBytes": 299
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/actions/RunComplianceFlow.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/entities/ZipCode.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:entities/ZipCode.mcs.yml}",
+          "textHash": "sha256:56f42eb7a4518ba8894ad8368fdf943e111861b327c2c18d4c7fd1527de12902",
+          "textBytes": 225
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/entities/ZipCode.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/LoopAndBranch.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:topics/LoopAndBranch.mcs.yml}",
+          "textHash": "sha256:4cd798956177a0ddbc436cff9b91b9d43153678472dae943b70f3b2e6dec00fa",
+          "textBytes": 1602
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/topics/LoopAndBranch.mcs.yml",
+            "version": 0,
+            "diagnostics": [
+              {
+                "code": "PowerFxError",
+                "range": {
+                  "start": {
+                    "line": 16,
+                    "character": 14
+                  },
+                  "end": {
+                    "line": 16,
+                    "character": 14
+                  }
+                },
+                "severity": 1,
+                "message": "Expected an operand. The formula or expression expects a valid operand. For example, you can add the operand \u00272\u0027 to the expression \u0027 1 \u002B_\u0027 so that the result is \u00273\u0027. Or, you can add the operand \u0022there\u0022 to the expression \u0027\u0022Hi \u0022\u0026 _ \u0027 so that the result is \u0027Hi there\u0027.",
+                "data": {}
+              },
+              {
+                "code": "UnexpectedCharacter",
+                "range": {
+                  "start": {
+                    "line": 16,
+                    "character": 14
+                  },
+                  "end": {
+                    "line": 16,
+                    "character": 14
+                  }
+                },
+                "severity": 1,
+                "message": "Unexpected character in expression \u0027[\u0027",
+                "data": {}
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/SignInFlow.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:topics/SignInFlow.mcs.yml}",
+          "textHash": "sha256:9ce233b1a0a03acd559f6adef1cac19203bd226473e68fa0b3e21b24f0d495ef",
+          "textBytes": 1108
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/topics/SignInFlow.mcs.yml",
+            "version": 0,
+            "diagnostics": [
+              {
+                "code": "AuthenticationInputNotEnabled",
+                "range": {
+                  "start": {
+                    "line": 14,
+                    "character": 6
+                  },
+                  "end": {
+                    "line": 18,
+                    "character": 0
+                  }
+                },
+                "severity": 1,
+                "message": "Element is invalid: AuthenticationInputNotEnabled",
+                "data": {}
+              },
+              {
+                "code": "IdentifierNotRecognized",
+                "range": {
+                  "start": {
+                    "line": 23,
+                    "character": 28
+                  },
+                  "end": {
+                    "line": 23,
+                    "character": 41
+                  }
+                },
+                "severity": 1,
+                "message": "Identifier not recognized in expression: System.SignInReason = SignInReason.SignInRequired",
+                "data": {}
+              },
+              {
+                "code": "IncompatibleTypes",
+                "range": {
+                  "start": {
+                    "line": 23,
+                    "character": 42
+                  },
+                  "end": {
+                    "line": 23,
+                    "character": 43
+                  }
+                },
+                "severity": 1,
+                "message": "Incompatible type comparison in expression \u0027System.SignInReason = SignInReason.SignInRequired\u0027",
+                "data": {}
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/RedirectTarget.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:topics/RedirectTarget.mcs.yml}",
+          "textHash": "sha256:45692514bf5fd41d73a0bd59e9127d6540ed4ade26c6d2aed06d835afc01c5e0",
+          "textBytes": 506
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/topics/RedirectTarget.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/ErrorHandler.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:topics/ErrorHandler.mcs.yml}",
+          "textHash": "sha256:fba3f9f66364960a6942af3ce8455df2d613bf702b572a9e4bc97f68457f2320",
+          "textBytes": 504
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/topics/ErrorHandler.mcs.yml",
+            "version": 0,
+            "diagnostics": [
+              {
+                "code": "IdentifierNotRecognized",
+                "range": {
+                  "start": {
+                    "line": 11,
+                    "character": 49
+                  },
+                  "end": {
+                    "line": 11,
+                    "character": 63
+                  }
+                },
+                "severity": 1,
+                "message": "Identifier not recognized in expression: Topic.ErrorCode",
+                "data": {}
+              },
+              {
+                "code": "IdentifierNotRecognized",
+                "range": {
+                  "start": {
+                    "line": 17,
+                    "character": 24
+                  },
+                  "end": {
+                    "line": 17,
+                    "character": 41
+                  }
+                },
+                "severity": 1,
+                "message": "Identifier not recognized in expression: Topic.ErrorMessage",
+                "data": {}
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/ActivityHandler.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:topics/ActivityHandler.mcs.yml}",
+          "textHash": "sha256:7efff32942a677222b06738aa051bc8c8de06023d6fb622f28ff357b5c678501",
+          "textBytes": 868
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/topics/ActivityHandler.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/knowledge/TeamSite.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:knowledge/TeamSite.mcs.yml}",
+          "textHash": "sha256:013cf5e9236d72bb7a96423b56c95c7cb90e7f11bf459932c8eb037a838a9ff5",
+          "textBytes": 150
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/knowledge/TeamSite.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/settings/Autonomous.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:settings/Autonomous.mcs.yml}",
+          "textHash": "sha256:569eab7744a0a906aff8b58e37821336dd7468eafaeb4eb9b0105947bfa41286",
+          "textBytes": 156
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/settings/Autonomous.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/Greeting.mcs.yml"
+        },
+        "position": {
+          "line": 17,
+          "character": 12
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/actions/GetWeather.mcs.yml"
+        },
+        "position": {
+          "line": 5,
+          "character": 8
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/variables/UserName.mcs.yml"
+        },
+        "position": {
+          "line": 3,
+          "character": 7
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": [
+          {
+            "detail": "Dialog",
+            "kind": 19,
+            "label": "Dialog",
+            "textEdit": {
+              "newText": "Dialog",
+              "range": {
+                "end": {
+                  "character": 11,
+                  "line": 3
+                },
+                "start": {
+                  "character": 7,
+                  "line": 3
+                }
+              }
+            }
+          },
+          {
+            "detail": "Conversation",
+            "kind": 19,
+            "label": "Conversation",
+            "textEdit": {
+              "newText": "Conversation",
+              "range": {
+                "end": {
+                  "character": 11,
+                  "line": 3
+                },
+                "start": {
+                  "character": 7,
+                  "line": 3
+                }
+              }
+            }
+          },
+          {
+            "detail": "User",
+            "kind": 19,
+            "label": "User",
+            "textEdit": {
+              "newText": "User",
+              "range": {
+                "end": {
+                  "character": 11,
+                  "line": 3
+                },
+                "start": {
+                  "character": 7,
+                  "line": 3
+                }
+              }
+            }
+          },
+          {
+            "detail": "Environment",
+            "kind": 19,
+            "label": "Environment",
+            "textEdit": {
+              "newText": "Environment",
+              "range": {
+                "end": {
+                  "character": 11,
+                  "line": 3
+                },
+                "start": {
+                  "character": 7,
+                  "line": 3
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/entities/City.mcs.yml"
+        },
+        "position": {
+          "line": 4,
+          "character": 4
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": [
+          {
+            "detail": "Id",
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "id: ",
+            "preselect": true,
+            "sortText": "0id",
+            "textEdit": {
+              "newText": "id",
+              "range": {
+                "end": {
+                  "character": 6,
+                  "line": 4
+                },
+                "start": {
+                  "character": 4,
+                  "line": 4
+                }
+              }
+            }
+          },
+          {
+            "detail": "Display name",
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "displayName: ",
+            "sortText": "2displayName",
+            "textEdit": {
+              "newText": "displayName",
+              "range": {
+                "end": {
+                  "character": 6,
+                  "line": 4
+                },
+                "start": {
+                  "character": 4,
+                  "line": 4
+                }
+              }
+            }
+          },
+          {
+            "detail": "Synonyms",
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "synonyms: \n  - ",
+            "sortText": "3synonyms",
+            "textEdit": {
+              "newText": "synonyms",
+              "range": {
+                "end": {
+                  "character": 6,
+                  "line": 4
+                },
+                "start": {
+                  "character": 4,
+                  "line": 4
+                }
+              }
+            }
+          },
+          {
+            "detail": "DTMF Key",
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "dtmfKey: ",
+            "sortText": "3dtmfKey",
+            "textEdit": {
+              "newText": "dtmfKey",
+              "range": {
+                "end": {
+                  "character": 6,
+                  "line": 4
+                },
+                "start": {
+                  "character": 4,
+                  "line": 4
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/knowledge/CompanyWebsite.mcs.yml"
+        },
+        "position": {
+          "line": 2,
+          "character": 6
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/skills/EchoSkill.mcs.yml"
+        },
+        "position": {
+          "line": 2,
+          "character": 6
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/trigger/OnNewEmail.mcs.yml"
+        },
+        "position": {
+          "line": 4,
+          "character": 8
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/translations/Greeting.pt-BR.mcs.yml"
+        },
+        "position": {
+          "line": 15,
+          "character": 12
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/settings/ContentModeration.mcs.yml"
+        },
+        "position": {
+          "line": 0,
+          "character": 6
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/settings/Feedback.mcs.yml"
+        },
+        "position": {
+          "line": 0,
+          "character": 6
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/connectionreferences.mcs.yml"
+        },
+        "position": {
+          "line": 1,
+          "character": 4
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": [
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "connectionReferenceLogicalName: ",
+            "preselect": true,
+            "sortText": "0connectionReferenceLogicalName",
+            "textEdit": {
+              "newText": "connectionReferenceLogicalName",
+              "range": {
+                "end": {
+                  "character": 34,
+                  "line": 1
+                },
+                "start": {
+                  "character": 4,
+                  "line": 1
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "id: ",
+            "sortText": "2id",
+            "textEdit": {
+              "newText": "id",
+              "range": {
+                "end": {
+                  "character": 34,
+                  "line": 1
+                },
+                "start": {
+                  "character": 4,
+                  "line": 1
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "version: ",
+            "sortText": "3version",
+            "textEdit": {
+              "newText": "version",
+              "range": {
+                "end": {
+                  "character": 34,
+                  "line": 1
+                },
+                "start": {
+                  "character": 4,
+                  "line": 1
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "managedProperties: \n  ",
+            "sortText": "3managedProperties",
+            "textEdit": {
+              "newText": "managedProperties",
+              "range": {
+                "end": {
+                  "character": 34,
+                  "line": 1
+                },
+                "start": {
+                  "character": 4,
+                  "line": 1
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "auditInfo: \n  ",
+            "sortText": "3auditInfo",
+            "textEdit": {
+              "newText": "auditInfo",
+              "range": {
+                "end": {
+                  "character": 34,
+                  "line": 1
+                },
+                "start": {
+                  "character": 4,
+                  "line": 1
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "connectionId: ",
+            "sortText": "3connectionId",
+            "textEdit": {
+              "newText": "connectionId",
+              "range": {
+                "end": {
+                  "character": 34,
+                  "line": 1
+                },
+                "start": {
+                  "character": 4,
+                  "line": 1
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "customConnectorId: ",
+            "sortText": "3customConnectorId",
+            "textEdit": {
+              "newText": "customConnectorId",
+              "range": {
+                "end": {
+                  "character": 34,
+                  "line": 1
+                },
+                "start": {
+                  "character": 4,
+                  "line": 1
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "connectorId: ",
+            "sortText": "3connectorId",
+            "textEdit": {
+              "newText": "connectorId",
+              "range": {
+                "end": {
+                  "character": 34,
+                  "line": 1
+                },
+                "start": {
+                  "character": 4,
+                  "line": 1
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "displayName: ",
+            "sortText": "3displayName",
+            "textEdit": {
+              "newText": "displayName",
+              "range": {
+                "end": {
+                  "character": 34,
+                  "line": 1
+                },
+                "start": {
+                  "character": 4,
+                  "line": 1
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/actions/RunComplianceFlow.mcs.yml"
+        },
+        "position": {
+          "line": 5,
+          "character": 8
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/entities/ZipCode.mcs.yml"
+        },
+        "position": {
+          "line": 3,
+          "character": 10
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/LoopAndBranch.mcs.yml"
+        },
+        "position": {
+          "line": 20,
+          "character": 12
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": [
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "id: ",
+            "preselect": true,
+            "sortText": "2id",
+            "textEdit": {
+              "newText": "id",
+              "range": {
+                "end": {
+                  "character": 32,
+                  "line": 60
+                },
+                "start": {
+                  "character": 17,
+                  "line": 16
+                }
+              }
+            }
+          },
+          {
+            "detail": "Variable",
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "variable: ",
+            "sortText": "2variable",
+            "textEdit": {
+              "newText": "variable",
+              "range": {
+                "end": {
+                  "character": 32,
+                  "line": 60
+                },
+                "start": {
+                  "character": 17,
+                  "line": 16
+                }
+              }
+            }
+          },
+          {
+            "detail": "Value",
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "value: ",
+            "sortText": "2value",
+            "textEdit": {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 32,
+                  "line": 60
+                },
+                "start": {
+                  "character": 17,
+                  "line": 16
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "disabled: ",
+            "sortText": "3disabled",
+            "textEdit": {
+              "newText": "disabled",
+              "range": {
+                "end": {
+                  "character": 32,
+                  "line": 60
+                },
+                "start": {
+                  "character": 17,
+                  "line": 16
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "conversationOutcome: ",
+            "sortText": "3conversationOutcome",
+            "textEdit": {
+              "newText": "conversationOutcome",
+              "range": {
+                "end": {
+                  "character": 32,
+                  "line": 60
+                },
+                "start": {
+                  "character": 17,
+                  "line": 16
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "displayName: ",
+            "sortText": "3displayName",
+            "textEdit": {
+              "newText": "displayName",
+              "range": {
+                "end": {
+                  "character": 32,
+                  "line": 60
+                },
+                "start": {
+                  "character": 17,
+                  "line": 16
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "note: ",
+            "sortText": "3note",
+            "textEdit": {
+              "newText": "note",
+              "range": {
+                "end": {
+                  "character": 32,
+                  "line": 60
+                },
+                "start": {
+                  "character": 17,
+                  "line": 16
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/SignInFlow.mcs.yml"
+        },
+        "position": {
+          "line": 16,
+          "character": 12
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/RedirectTarget.mcs.yml"
+        },
+        "position": {
+          "line": 7,
+          "character": 8
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": [
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "id: ",
+            "preselect": true,
+            "sortText": "2id",
+            "textEdit": {
+              "newText": "id",
+              "range": {
+                "end": {
+                  "character": 10,
+                  "line": 7
+                },
+                "start": {
+                  "character": 6,
+                  "line": 7
+                }
+              }
+            }
+          },
+          {
+            "detail": "Activity",
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "activity: ",
+            "sortText": "2activity",
+            "textEdit": {
+              "newText": "activity",
+              "range": {
+                "end": {
+                  "character": 10,
+                  "line": 7
+                },
+                "start": {
+                  "character": 6,
+                  "line": 7
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "disabled: ",
+            "sortText": "3disabled",
+            "textEdit": {
+              "newText": "disabled",
+              "range": {
+                "end": {
+                  "character": 10,
+                  "line": 7
+                },
+                "start": {
+                  "character": 6,
+                  "line": 7
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "conversationOutcome: ",
+            "sortText": "3conversationOutcome",
+            "textEdit": {
+              "newText": "conversationOutcome",
+              "range": {
+                "end": {
+                  "character": 10,
+                  "line": 7
+                },
+                "start": {
+                  "character": 6,
+                  "line": 7
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "displayName: ",
+            "sortText": "3displayName",
+            "textEdit": {
+              "newText": "displayName",
+              "range": {
+                "end": {
+                  "character": 10,
+                  "line": 7
+                },
+                "start": {
+                  "character": 6,
+                  "line": 7
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "note: ",
+            "sortText": "3note",
+            "textEdit": {
+              "newText": "note",
+              "range": {
+                "end": {
+                  "character": 10,
+                  "line": 7
+                },
+                "start": {
+                  "character": 6,
+                  "line": 7
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/ErrorHandler.mcs.yml"
+        },
+        "position": {
+          "line": 7,
+          "character": 8
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": [
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "id: ",
+            "preselect": true,
+            "sortText": "2id",
+            "textEdit": {
+              "newText": "id",
+              "range": {
+                "end": {
+                  "character": 10,
+                  "line": 7
+                },
+                "start": {
+                  "character": 6,
+                  "line": 7
+                }
+              }
+            }
+          },
+          {
+            "detail": "Activity",
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "activity: ",
+            "sortText": "2activity",
+            "textEdit": {
+              "newText": "activity",
+              "range": {
+                "end": {
+                  "character": 10,
+                  "line": 7
+                },
+                "start": {
+                  "character": 6,
+                  "line": 7
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "disabled: ",
+            "sortText": "3disabled",
+            "textEdit": {
+              "newText": "disabled",
+              "range": {
+                "end": {
+                  "character": 10,
+                  "line": 7
+                },
+                "start": {
+                  "character": 6,
+                  "line": 7
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "conversationOutcome: ",
+            "sortText": "3conversationOutcome",
+            "textEdit": {
+              "newText": "conversationOutcome",
+              "range": {
+                "end": {
+                  "character": 10,
+                  "line": 7
+                },
+                "start": {
+                  "character": 6,
+                  "line": 7
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "displayName: ",
+            "sortText": "3displayName",
+            "textEdit": {
+              "newText": "displayName",
+              "range": {
+                "end": {
+                  "character": 10,
+                  "line": 7
+                },
+                "start": {
+                  "character": 6,
+                  "line": 7
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "note: ",
+            "sortText": "3note",
+            "textEdit": {
+              "newText": "note",
+              "range": {
+                "end": {
+                  "character": 10,
+                  "line": 7
+                },
+                "start": {
+                  "character": 6,
+                  "line": 7
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/ActivityHandler.mcs.yml"
+        },
+        "position": {
+          "line": 8,
+          "character": 8
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": [
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "id: ",
+            "preselect": true,
+            "sortText": "2id",
+            "textEdit": {
+              "newText": "id",
+              "range": {
+                "end": {
+                  "character": 10,
+                  "line": 8
+                },
+                "start": {
+                  "character": 6,
+                  "line": 8
+                }
+              }
+            }
+          },
+          {
+            "detail": "Activity",
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "activity: ",
+            "sortText": "2activity",
+            "textEdit": {
+              "newText": "activity",
+              "range": {
+                "end": {
+                  "character": 10,
+                  "line": 8
+                },
+                "start": {
+                  "character": 6,
+                  "line": 8
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "disabled: ",
+            "sortText": "3disabled",
+            "textEdit": {
+              "newText": "disabled",
+              "range": {
+                "end": {
+                  "character": 10,
+                  "line": 8
+                },
+                "start": {
+                  "character": 6,
+                  "line": 8
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "conversationOutcome: ",
+            "sortText": "3conversationOutcome",
+            "textEdit": {
+              "newText": "conversationOutcome",
+              "range": {
+                "end": {
+                  "character": 10,
+                  "line": 8
+                },
+                "start": {
+                  "character": 6,
+                  "line": 8
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "displayName: ",
+            "sortText": "3displayName",
+            "textEdit": {
+              "newText": "displayName",
+              "range": {
+                "end": {
+                  "character": 10,
+                  "line": 8
+                },
+                "start": {
+                  "character": 6,
+                  "line": 8
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "note: ",
+            "sortText": "3note",
+            "textEdit": {
+              "newText": "note",
+              "range": {
+                "end": {
+                  "character": 10,
+                  "line": 8
+                },
+                "start": {
+                  "character": 6,
+                  "line": 8
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/knowledge/TeamSite.mcs.yml"
+        },
+        "position": {
+          "line": 2,
+          "character": 6
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/settings/Autonomous.mcs.yml"
+        },
+        "position": {
+          "line": 0,
+          "character": 6
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/Greeting.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/actions/GetWeather.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/variables/UserName.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/entities/City.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/knowledge/CompanyWebsite.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/skills/EchoSkill.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/trigger/OnNewEmail.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/translations/Greeting.pt-BR.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/settings/ContentModeration.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/settings/Feedback.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/connectionreferences.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/actions/RunComplianceFlow.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/entities/ZipCode.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/LoopAndBranch.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/SignInFlow.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/RedirectTarget.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/ErrorHandler.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/ActivityHandler.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/knowledge/TeamSite.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/settings/Autonomous.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "shutdown",
+      "expected": null
+    },
+    {
+      "step": "exit"
+    }
+  ]
+}

@@ -1,5 +1,5 @@
+# === VS Code Extension (Node / TypeScript) ===
 *.vsix
-
 node_modules/
 out/
 dist/
@@ -7,14 +7,48 @@ dist/
 /package
 /package/
 .vs/
+
 # Logs
 logs
 *.log
 npm-debug.log*
 
-# VS Code test infra
+# VS Code test infrastructure
 .vscode-test/
 .vscode-test-web/
 
-# don't check in generated folders
+# Generated folders
 telemetry-generated
+
+# === .NET (Language Server) ===
+bin/
+obj/
+*.nupkg
+*.snupkg
+*.user
+*.suo
+*.userprefs
+*.DotSettings.user
+project.lock.json
+
+# NuGet
+packages/
+*.nuget.props
+*.nuget.targets
+
+# Build output
+build/local-nuget/
+TestResults/
+BenchmarkDotNet.Artifacts/
+
+# === IDE / Editor ===
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# === Local development overrides (never commit) ===
+*.config.user
+Directory.Build.props.user

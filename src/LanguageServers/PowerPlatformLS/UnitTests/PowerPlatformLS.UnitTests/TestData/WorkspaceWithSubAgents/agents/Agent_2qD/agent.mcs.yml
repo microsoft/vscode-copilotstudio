@@ -1,0 +1,19 @@
+# Name: Lost or Stolen Card
+kind: AgentDialog
+beginDialog:
+  kind: OnToolSelected
+  id: main
+  description: This agent lets a user report a lost or stolen card
+
+settings:
+  instructions: |-
+    1. Fetch a list of the user's accounts using {System.Bot.Components.Actions.'crd1c_agent.action.ContosoBankingAPI-Getuserprofile'.DisplayName}.
+    2. If the user didn't already specify, ask them which of their accounts is the one for which their card has been lost or stolen (show them this in a bulleted list in the format, Account: <Account Name> (No. <Account Number>)).
+    3. Freeze the account selected by the user using {Topic.Components.Actions.'crd1c_agent.action.ContosoBankingAPI-Freezeanaccount'.DisplayName}.
+    4. Get a list of recent transactions for the account using {Topic.Components.Actions.'crd1c_agent.action.ContosoBankingAPI-Gettransactionhistoryforanaccount'.DisplayName}.
+    5. Show the most recent 5 transactions to the user and ask them if there are any that they do not recognize.
+    6. If the user does not indicate any transactions were suspicious or fraudulent, you are done.
+    7. For any transactions that the user indicates are suspicious or were not made by them, call the {Topic.Components.Actions.'crd1c_agent.action.ContosoBankingAPI-Endpointtodisputeaspecifictransaction'.DisplayName} and inform the user that their dispute has been raised and a member of the dispute team will be in contact with them within 7 days.
+
+inputType: {}
+outputType: {}

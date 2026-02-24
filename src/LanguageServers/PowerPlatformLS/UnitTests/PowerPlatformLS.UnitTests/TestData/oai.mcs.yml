@@ -1,0 +1,30 @@
+# Name: _OAI_Private_HeartbeatTriggerCallback
+kind: AdaptiveDialog
+beginDialog:
+  kind: RecurrenceTrigger
+  id: oai_framework.topic._OAI_Private_HeartbeatTriggerCallback
+  actions:
+    - kind: BeginDialog
+      id: log_callback
+      displayName: Log trigger fired
+      input:
+        binding:
+          EventName: HeartbeatTriggerCallback
+          LogLevel: =Global.LogLevelInfo
+          Message: In HeartbeatTriggerCallback
+          MessageRecord: =Global.HeartbeatTriggerParameters
+          Payload: "={IsHeartbeatTriggerCreated: Global.IsHeartbeatTriggerCreated}"
+      dialog: oai_core.topic._OAI_Public_LogMessage
+
+    - kind: BeginDialog
+      id: process_trigger_callback
+      displayName: Process trigger callback using shared helper
+      input:
+        binding:
+          TrafficManagerInputText: Heartbeat
+          TriggerParameters: =Global.HeartbeatTriggerParameters
+
+      dialog: oai_framework.topic._OAI_Private_ProcessTriggerCallback
+      output:
+        binding:
+          UpdatedTriggerParameters: Global.HeartbeatTriggerParameters

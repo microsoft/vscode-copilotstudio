@@ -1,0 +1,19 @@
+# Name: Car Loans SME
+# When someone asks about car loans
+kind: TaskDialog
+inputs:
+  - kind: ManualTaskInput
+    propertyName: AgentUrl
+    value: contosoloans-build.azurewebsites.net
+
+modelDisplayName: Car Loan SME Agent
+modelDescription: Call this agent when asking about car loans
+action:
+  kind: InvokeExternalAgentTaskAction
+  connectionReference: crd1c_agent.shared_crfad-5fsdk-20agent-5f099802cd293c57f0.f285d6c60e4248fb88a2d803abc97381-j29PY7wT
+  connectionProperties:
+    mode: Maker
+
+  operationDetails:
+    kind: ActivityProtocolMetadata
+    operationId: SendActivity

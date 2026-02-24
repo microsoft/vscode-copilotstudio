@@ -1,0 +1,31 @@
+# Name: When a new email arrives (V3)
+# Triggered when a new email arrives in a specified folder.
+kind: ExternalTriggerConfiguration
+externalTriggerSource:
+  kind: ConnectorTriggerDefinition
+  callbackMessage: Use trigger content.
+  inputs:
+    - kind: ManualTaskInput
+      propertyName: includeAttachments
+      value: false
+
+    - kind: ManualTaskInput
+      propertyName: folderPath
+      value: Inbox
+
+    - kind: ManualTaskInput
+      propertyName: importance
+      value: Any
+
+    - kind: ManualTaskInput
+      propertyName: fetchOnlyWithAttachment
+      value: false
+
+  connectionReference: cree9_agent.shared_office365.f2c5b5124637485c93aaa42f41648f8b
+  connectionProperties:
+    mode: Invoker
+
+  triggerId: OnNewEmailV3
+
+extensionData:
+  connectorDisplayName: Office 365 Outlook

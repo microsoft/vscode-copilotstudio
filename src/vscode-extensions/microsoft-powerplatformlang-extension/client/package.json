@@ -1,0 +1,18 @@
+{
+	"name": "vscode-powerplatformlang-extension-client",
+	"description": "Extension Client for PowerPlatform Languages",
+	"version": "0.0.1",
+	"author": "Microsoft Corporation",
+	"license": "MIT",
+	"engines": {
+		"node": "*"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/microsoft/vscode-copilotstudio"
+	},
+	"scripts": {},
+	"dependencies": {
+		"vscode-languageclient": "^9.0.1"
+	}
+}

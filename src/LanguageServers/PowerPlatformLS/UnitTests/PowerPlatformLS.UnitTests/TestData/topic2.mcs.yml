@@ -1,0 +1,85 @@
+# Name: Topic2DisplayName 
+# This is description line 1. 
+kind: AdaptiveDialog
+beginDialog:
+  kind: OnUnknownIntent
+  id: main
+  actions:
+    - kind: SetVariable
+      id: setVariable_var1
+      variable: Topic.Var1
+      value: =123
+                
+    - kind: SetVariable
+      id: setVariable_var2
+      variable: Topic.Var2
+      value: = "Hi" & Topic.Var1
+
+    - kind: SetVariable
+      id: setVariable_var3
+      variable: Topic.Var3.SubProperty
+      value: = "Hi" & Topic.Var1
+      
+    - kind: SearchAndSummarizeContent
+      id: searchAndSummarizeContent1
+      userInput: =System.Activity.Text
+      knowledgeSources:
+        kind: SearchSpecificKnowledgeSources
+        knowledgeSources:
+          - Source1
+          - botname.knowledgeSource.Source2
+
+    - kind: ConditionGroup
+      id: conditionGroup_LktzXw
+      conditions:
+        - id: conditionItem_tlGIVo
+          condition: =125<456
+          actions:
+            - kind: SendActivity
+              id: sendMessage_QZreqo
+              activity: I'm sorry, {Topic.Var2} Can you try rephrasing?
+            - kind: SendActivity
+              id: sendMessage_QZreqo
+              activity: I'm sorry, {Topic.Var2 = "Foo"} Can you try rephrasing?
+
+        - id: conditionItem_abc
+          condition: =35 < /*second number*/ 238 // PowerFx expression
+          actions:
+            - kind: SendActivity
+              id: sendMessage_abcd
+              activity: I'm sorry, I'm not sure how to help with that.
+
+      elseActions:
+        - kind: SendActivity
+          id: 5aXj5M
+          activity: Let's escalate...
+        - kind: BeginDialog
+          id: 5aXj5M
+          dialog: cr36e_fluxCopilot.topic.Escalate
+
+    - kind: ConditionGroup
+      id: condition_DGc1Wy
+      conditions:
+        - id: condition_DGc1Wy-item-0
+          condition: |
+            =Topic.EndConversation = 
+              (
+                Len( /* Length of input string*/ "Hello,
+                  World
+                  !" /* string inside
+                      Len function */) // end of Len function
+                    >  456 /* 456 is number */ +             // plus operator
+                    12 *               // 12 is number                 
+                    /* additional number. */ 523545 
+              ) // PowerFx expression       
+          actions:
+            - kind: BeginDialog
+              id: dn94DC
+              dialog: cree9_agent.topic.EndofConversation
+
+        - id: condition_DGc1Wy-item-1
+          condition: =Topic.EndConversation = /* boolean type */ false     // comment        
+          actions:
+            - kind: SendActivity
+              id: sendMessage_LdLhmf
+              activity: Go ahead. I'm listening.

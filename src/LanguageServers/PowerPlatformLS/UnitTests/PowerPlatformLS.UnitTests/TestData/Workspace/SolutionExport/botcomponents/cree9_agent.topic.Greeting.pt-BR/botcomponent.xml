@@ -1,0 +1,14 @@
+<botcomponent schemaname="cree9_agent.topic.Greeting.pt-BR">
+  <componenttype>10</componenttype>
+  <iscustomizable>0</iscustomizable>
+  <language>1046</language>
+  <name>Greeting (pt-BR)</name>
+  <parentbotcomponentid>
+    <schemaname>cree9_agent.topic.Greeting</schemaname>
+  </parentbotcomponentid>
+  <parentbotid>
+    <schemaname>cree9_agent</schemaname>
+  </parentbotid>
+  <statecode>0</statecode>
+  <statuscode>1</statuscode>
+</botcomponent>

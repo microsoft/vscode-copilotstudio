@@ -1,0 +1,9 @@
+# Name: NeTopic.<>?/|\;':"[]{}!@#$%^&*()_+-=`~
+kind: AdaptiveDialog
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent: {}
+
+inputType: {}
+outputType: {}

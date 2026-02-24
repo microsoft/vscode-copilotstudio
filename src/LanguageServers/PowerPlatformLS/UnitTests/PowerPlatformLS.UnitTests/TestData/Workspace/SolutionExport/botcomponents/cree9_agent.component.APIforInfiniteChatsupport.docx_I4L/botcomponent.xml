@@ -1,0 +1,12 @@
+<botcomponent schemaname="cree9_agent.component.APIforInfiniteChatsupport.docx_I4L">
+  <componenttype>14</componenttype>
+  <description>This knowledge source searches information contained in API for InfiniteChat support.docx</description>
+  <filedata mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document">API%20for%20InfiniteChat%20support.docx</filedata>
+  <iscustomizable>0</iscustomizable>
+  <name>API for InfiniteChat support.docx</name>
+  <parentbotid>
+    <schemaname>cree9_agent</schemaname>
+  </parentbotid>
+  <statecode>0</statecode>
+  <statuscode>1</statuscode>
+</botcomponent>

@@ -1,0 +1,42 @@
+# Name: Sign In Flow
+# Topic demonstrating OAuthInput for user authentication.
+kind: AdaptiveDialog
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent:
+    displayName: Sign In Flow
+    triggerQueries:
+      - sign in
+      - log in
+      - authenticate
+
+  actions:
+    - kind: OAuthInput
+      id: oauthInput_signin01
+      title: Sign In
+      text: Please sign in to access your account.
+
+    - kind: ConditionGroup
+      id: conditionGroup_authCheck01
+      conditions:
+        - id: conditionItem_signedIn01
+          condition: =System.SignInReason = SignInReason.SignInRequired
+          actions:
+            - kind: SendActivity
+              id: sendMessage_signInRequired01
+              activity:
+                text:
+                  - You need to sign in before I can help you.
+      elseActions:
+        - kind: SendActivity
+          id: sendMessage_welcome01
+          activity:
+            text:
+              - Welcome back! You are now signed in.
+
+    - kind: SendActivity
+      id: sendMessage_authDone01
+      activity:
+        text:
+          - Authentication flow complete.

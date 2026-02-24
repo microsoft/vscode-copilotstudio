@@ -1,0 +1,12 @@
+<botcomponent schemaname="cree9_agent.file.MyLedger.xlsx_hyG">
+  <componenttype>14</componenttype>
+  <description>This knowledge source searches information contained in MyLedger.xlsx</description>
+  <filedata mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">MyLedger.xlsx</filedata>
+  <iscustomizable>0</iscustomizable>
+  <name>MyLedger.xlsx</name>
+  <parentbotid>
+    <schemaname>cree9_agent</schemaname>
+  </parentbotid>
+  <statecode>0</statecode>
+  <statuscode>1</statuscode>
+</botcomponent>

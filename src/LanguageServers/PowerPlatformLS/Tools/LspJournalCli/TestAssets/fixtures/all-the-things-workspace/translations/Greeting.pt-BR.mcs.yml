@@ -1,0 +1,20 @@
+# Name: Greeting (pt-BR)
+# Greeting topic translated to Brazilian Portuguese.
+kind: AdaptiveDialog
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent:
+    displayName: Greeting
+    triggerQueries:
+      - Boa tarde
+      - Bom dia
+      - Olá
+      - Oi
+
+  actions:
+    - kind: SendActivity
+      id: sendMessage_greet01
+      activity:
+        text:
+          - Olá, como posso ajudá-lo hoje?

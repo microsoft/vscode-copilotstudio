@@ -1,0 +1,3 @@
+kind: AdaptiveDialog
+beginDialog
+  kind: OnRecognizedIntent

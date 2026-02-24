@@ -7,11 +7,16 @@ assignees: ''
 
 ---
 
-## If possible, Please submit the bug via VS as it attaches more telemtry inforamtion for us to help debug issues
+## Recommended: submit via the extension's built-in issue reporter
 
-As described here: https://github.com/microsoft/vscode-copilotstudio?tab=readme-ov-file#reporting-issues
+It attaches diagnostic telemetry (like your session ID) automatically:
 
-Otherwise: 
+1. Open the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`)
+2. Run **Help: Copilot Studio: Report Issue**
+
+See: https://github.com/microsoft/vscode-copilotstudio?tab=readme-ov-file#reporting-issues
+
+---
 
 **Describe the bug**
 
@@ -30,9 +35,10 @@ A clear and concise description of what you expected to happen.
 **Screenshots**
 If applicable, add screenshots to help explain your problem.
 
-**VS Code Instance (please complete the following information):**
- - OS: [e.g. iOS]
- - Extension version [e.g. 1.0.0]
+**Environment (please complete the following information):**
+ - OS: [e.g. Windows 11, macOS 15]
+ - VS Code version: [e.g. 1.96.0]
+ - Extension version: [e.g. 1.0.0]
 
 **Additional context**
 Add any other context about the problem here.

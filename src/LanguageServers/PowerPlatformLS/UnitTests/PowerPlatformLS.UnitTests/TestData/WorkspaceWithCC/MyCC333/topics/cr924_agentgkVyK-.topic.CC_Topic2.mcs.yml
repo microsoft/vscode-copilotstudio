@@ -1,0 +1,13 @@
+# Name: CC_Topic2
+kind: AdaptiveDialog
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent: {}
+  actions:
+    - kind: SendActivity
+      id: sendActivity_BhXXlY
+      activity: This is second topic
+
+inputType: {}
+outputType: {}

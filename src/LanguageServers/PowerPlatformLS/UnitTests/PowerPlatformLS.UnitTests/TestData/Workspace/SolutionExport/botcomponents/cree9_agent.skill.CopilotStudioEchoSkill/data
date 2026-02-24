@@ -1,0 +1,17 @@
+# Name: CopilotStudioEchoSkill
+# This is a sample Agent that can be called by Copilot Studio
+kind: SkillDefinition
+appId:
+  schemaName: cre4a_agent7tZPAA.skill.CopilotStudioEchoSkill.AppId
+
+appEndpoint:
+  schemaName: cre4a_agent7tZPAA.skill.CopilotStudioEchoSkill.AppEndpoint
+
+manifestVersion: 1.0
+privacyPolicy: https://microsoft.com/
+actions:
+  - activityType: message
+    actionId: message
+    title: Echo messages from user
+    inputType: {}
+    outputType: {}

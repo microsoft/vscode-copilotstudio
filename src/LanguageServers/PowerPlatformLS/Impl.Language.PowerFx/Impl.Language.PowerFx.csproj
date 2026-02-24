@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Microsoft.PowerPlatformLS.Impl.Language.PowerFx</AssemblyName>
+    <RootNamespace>$(AssemblyName)</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.PowerFx.Interpreter" />
+    <PackageReference Include="Microsoft.PowerFx.LanguageServerProtocol" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Contracts.Internal\Contracts.Internal.csproj" />
+    <ProjectReference Include="..\Contracts.Lsp\Contracts.Lsp.csproj" />
+  </ItemGroup>
+
+</Project>
