@@ -41,6 +41,12 @@ build/local-nuget/
 TestResults/
 BenchmarkDotNet.Artifacts/
 
+# LSP server output
+lspOut/
+
+# TypeScript incremental build info
+**/tsconfig.tsbuildinfo
+
 # === IDE / Editor ===
 .idea/
 *.swp
