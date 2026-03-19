@@ -1,4 +1,13 @@
-# Copilot Studio extension for Visual Studio Code
+# Copilot Studio Extension for Visual Studio Code
+
+> [!IMPORTANT]
+> This repository contains the full source code for the Copilot Studio VS Code
+> extension. The build currently requires internal NuGet packages and is not
+> externally reproducible yet. We are replacing the internal dependency
+> (Dataverse authoring SDK) with [PAC CLI](https://learn.microsoft.com/power-platform/developer/cli/introduction)
+> delegation, which will make the build fully self-contained with public
+> packages. See [CONTRIBUTING.md](CONTRIBUTING.md) for details and current
+> status.
 
 The Copilot Studio extension for Visual Studio Code is designed to enhance the development experience of Microsoft Copilot Studio agents. It provides language support, IntelliSense code completion and suggestions, and authoring capabilities for Copilot Studio agent components.
 
@@ -39,11 +48,34 @@ The Copilot Studio extension keeps your local workspace in sync with your agent.
 
 When you apply changes, they are saved directly to your agent's environment. This is a _live editing_ experience—your agent is updated immediately.
 
+## Repository Structure
+
+```
+src/
+  LanguageServers/                        # .NET language server (C#)
+    CLaSP/                                # Common Language Server Protocol framework
+    PowerPlatformLS/                      # Language server solution (11 projects)
+  vscode-extensions/                      # VS Code extension (TypeScript)
+    microsoft-powerplatformlang-extension/  # Extension entry point
+    shared/                               # Shared TypeScript modules
+docs/                                     # Architecture documentation
+assets/                                   # Shared assets (BotSchema.json)
+build/                                    # Build infrastructure
+```
+
+For architecture details, see the [docs/](docs/) folder.
+
+## Development
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for build prerequisites, current build
+state, and contribution guidelines.
+
 ## Reporting Issues
 
 To help us resolve problems more efficiently, please use the custom issue reporting command built into this extension. It automatically includes helpful diagnostic information like your session ID.
 
 ✅ Recommended: use the custom **Help: Copilot Studio: Report Issue** command
+
 1. Open the Command Palette (Ctrl+Shift+P or Cmd+Shift+P on macOS)
 2. Type and select:
 **Help: Copilot Studio: Report Issue**
@@ -55,3 +87,12 @@ To help us resolve problems more efficiently, please use the custom issue report
 
 
 ⚠️ Avoid using the built-in **Help: Report Issue...**
+
+## Code of Conduct
+
+This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/).
+See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for details.
+
+## License
+
+[MIT](LICENSE)

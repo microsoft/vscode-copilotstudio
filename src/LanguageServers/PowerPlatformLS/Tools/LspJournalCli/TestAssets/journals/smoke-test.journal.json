@@ -1,0 +1,222 @@
+{
+  "metadata": {
+    "description": "Smoke test: initialize, open a document, request completions, shutdown.",
+    "workspaceRoot": "../fixtures/file-only-workspace",
+    "classification": "recorded",
+    "branch": "dev/stevesteiner/testcli.2",
+    "commit": "fa6143602",
+    "timestamp": "2026-02-10T22:45:37.8056064Z",
+    "branchBase": "27b3c27f3",
+    "branchDepth": 5
+  },
+  "steps": [
+    {
+      "step": "initialize",
+      "params": {
+        "processId": 0,
+        "capabilities": {},
+        "workspaceFolders": [
+          {
+            "uri": "${workspace}",
+            "name": "file-only-workspace"
+          }
+        ]
+      },
+      "expected": {
+        "capabilities": {
+          "codeActionProvider": {
+            "codeActionKinds": [
+              "quickfix"
+            ]
+          },
+          "completionProvider": {
+            "allCommitCharacters": [],
+            "resolveProvider": false,
+            "triggerCharacters": [
+              "\n",
+              ".",
+              ":",
+              " "
+            ]
+          },
+          "definitionProvider": true,
+          "semanticTokensProvider": {
+            "documentSelector": [
+              {
+                "language": "CopilotStudio"
+              }
+            ],
+            "full": true,
+            "legend": {
+              "tokenModifiers": [
+                "declaration",
+                "definition",
+                "readonly",
+                "static",
+                "deprecated",
+                "abstract",
+                "async",
+                "modification",
+                "documentation",
+                "defaultlibrary"
+              ],
+              "tokenTypes": [
+                "keyword",
+                "variable",
+                "function",
+                "interface",
+                "comment",
+                "namespace",
+                "type",
+                "class",
+                "enum",
+                "struct",
+                "typeparameter",
+                "parameter",
+                "property",
+                "enummember",
+                "event",
+                "method",
+                "macro",
+                "modifier",
+                "string",
+                "number",
+                "regexp",
+                "operator",
+                "decorator",
+                "default"
+              ]
+            },
+            "range": false
+          },
+          "signatureHelpProvider": {
+            "triggerCharacters": [
+              "(",
+              ","
+            ]
+          },
+          "textDocumentSync": {
+            "change": 2,
+            "openClose": true,
+            "save": {
+              "includeText": false
+            }
+          },
+          "workspace": {
+            "fileOperations": {
+              "didRename": {
+                "filters": [
+                  {
+                    "pattern": {
+                      "glob": "**/*"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "serverInfo": {
+          "name": "Power Platform Pro-Code Language Server",
+          "version": "1.0"
+        }
+      }
+    },
+    {
+      "step": "initialized"
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/Hello.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:topics/Hello.mcs.yml}",
+          "textHash": "sha256:159f49742e9dbf08fcb7e41b7e1de7ab4e2bba9a2ba32f32c9e66fbbf6a81341",
+          "textBytes": 120
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 10000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/topics/Hello.mcs.yml",
+            "version": 0,
+            "diagnostics": [
+              {
+                "code": "MissingRequiredProperty",
+                "range": {
+                  "start": {
+                    "line": 2,
+                    "character": 0
+                  },
+                  "end": {
+                    "line": 6,
+                    "character": 0
+                  }
+                },
+                "severity": 1,
+                "message": "Missing required property \u0027Id\u0027",
+                "data": {}
+              },
+              {
+                "code": "MissingRequiredProperty",
+                "range": {
+                  "start": {
+                    "line": 4,
+                    "character": 6
+                  },
+                  "end": {
+                    "line": 6,
+                    "character": 0
+                  }
+                },
+                "severity": 1,
+                "message": "Missing required property \u0027Id\u0027",
+                "data": {}
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/Hello.mcs.yml"
+        },
+        "position": {
+          "line": 4,
+          "character": 12
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/Hello.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "shutdown",
+      "expected": null
+    },
+    {
+      "step": "exit"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+kind: GptComponentMetadata
+instructions: |
+
+  
+  This is a template line
+  This is variable use {System.User.FirstName}
+  This is an {System.Activity.Text} inline variable
+  This is an {5 > 3} inline expression
+  This is an expression {5 + 3} after expression
+
+
+
+  consecutive break lines
+
+
+  then more break lines
+
+
+
+
+foo: Bar

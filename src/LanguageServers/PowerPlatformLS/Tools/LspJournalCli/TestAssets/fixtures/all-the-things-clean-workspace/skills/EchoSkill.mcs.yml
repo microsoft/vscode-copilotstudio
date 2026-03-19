@@ -1,0 +1,17 @@
+# Name: EchoSkill
+# A sample skill that echoes messages.
+kind: SkillDefinition
+appId:
+  schemaName: test_allthethings.skill.EchoSkill.AppId
+
+appEndpoint:
+  schemaName: test_allthethings.skill.EchoSkill.AppEndpoint
+
+manifestVersion: 1.0
+privacyPolicy: https://example.com/privacy
+actions:
+  - activityType: message
+    actionId: message
+    title: Echo messages from user
+    inputType: {}
+    outputType: {}

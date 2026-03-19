@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Microsoft.PowerPlatformLS.LanguageServerHost</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PublishSingleFile>true</PublishSingleFile>
+    <PublishSelfContained>true</PublishSelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <UserSecretsId>dotnet-Microsoft.PowerPlatformLS.LanguageServerHost-7ae74c46-1621-4595-8655-50d440705fdf</UserSecretsId>
+  </PropertyGroup>
+
+  <!-- For version information -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\..\vscode-extensions\microsoft-powerplatformlang-extension\package.json" Link="package.json"/>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.ApplicationInsights" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Impl.Language.CopilotStudio\Impl.Language.CopilotStudio.csproj" />
+    <ProjectReference Include="..\Impl.Language.PowerFx\Impl.Language.PowerFx.csproj" />
+    <ProjectReference Include="..\Impl.Language.Yaml\Impl.Language.Yaml.csproj" />
+    <ProjectReference Include="..\Impl.Core\Impl.Core.csproj" />
+    <ProjectReference Include="..\Impl.PullAgent\Impl.PullAgent.csproj" />
+  </ItemGroup>
+</Project>

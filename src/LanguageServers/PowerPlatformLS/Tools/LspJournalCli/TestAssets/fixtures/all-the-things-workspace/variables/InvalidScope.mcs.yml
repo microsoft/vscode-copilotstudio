@@ -1,0 +1,5 @@
+# Name: InvalidScope
+# Variable with invalid scope value — should trigger diagnostics.
+kind: Variable
+name: InvalidScope
+scope: NotARealScope

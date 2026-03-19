@@ -1,0 +1,42 @@
+<Project>
+  <PropertyGroup>
+    <AspNetCoreVersion>10.0.1</AspNetCoreVersion>
+    <PowerFxPackageVersion>1.5.0-build.20251008-1002</PowerFxPackageVersion>
+    <AgentsPackageVersion>1.2026.317.1</AgentsPackageVersion>
+  </PropertyGroup>
+
+  <!-- Microsoft.Agents.* packages (from CCI-Dependency feed) -->
+  <ItemGroup>
+    <PackageReference Update="Microsoft.Agents.ObjectModel" Version="$(AgentsPackageVersion)" />
+    <PackageReference Update="Microsoft.Agents.ObjectModel.Dataverse" Version="$(AgentsPackageVersion)" />
+    <PackageReference Update="Microsoft.Agents.ObjectModel.NodeGenerators" Version="$(AgentsPackageVersion)" />
+    <PackageReference Update="Microsoft.Agents.ObjectModel.PowerFx" Version="$(AgentsPackageVersion)" />
+    <PackageReference Update="Microsoft.Agents.Platform.Content" Version="$(AgentsPackageVersion)" />
+    <PackageReference Update="Microsoft.Agents.Platform.Content.Internal" Version="$(AgentsPackageVersion)" />
+  </ItemGroup>
+
+  <!-- Runtime / framework packages -->
+  <ItemGroup>
+    <PackageReference Update="Microsoft.Extensions.Hosting" Version="$(AspNetCoreVersion)" />
+    <PackageReference Update="Microsoft.Extensions.Http" Version="$(AspNetCoreVersion)" />
+    <PackageReference Update="Microsoft.Extensions.Logging.ApplicationInsights" Version="2.23.0" />
+    <PackageReference Update="Microsoft.Identity.Client" Version="4.71.1" />
+    <PackageReference Update="Microsoft.Identity.Client.Extensions.Msal" Version="4.71.1" />
+    <PackageReference Update="Microsoft.PowerFx.Interpreter" Version="$(PowerFxPackageVersion)" />
+    <PackageReference Update="Microsoft.PowerFx.LanguageServerProtocol" Version="$(PowerFxPackageVersion)" />
+    <PackageReference Update="Microsoft.VisualStudio.Threading" Version="17.13.2" />
+    <PackageReference Update="Nullable.Extended.Analyzer" Version="1.10.4539" />
+    <PackageReference Update="System.Collections.Immutable" Version="$(AspNetCoreVersion)" />
+    <PackageReference Update="System.CommandLine" Version="2.0.0-beta4.22272.1" />
+    <PackageReference Update="System.Text.Json" Version="$(AspNetCoreVersion)" />
+    <PackageReference Update="YamlDotNet" Version="11.2.1" />
+  </ItemGroup>
+
+  <!-- Test packages -->
+  <ItemGroup>
+    <PackageReference Update="Microsoft.NET.Test.Sdk" Version="17.13.0" />
+    <PackageReference Update="Moq" Version="4.16.1" />
+    <PackageReference Update="xunit" Version="2.4.1" />
+    <PackageReference Update="xunit.runner.visualstudio" Version="2.4.3" />
+  </ItemGroup>
+</Project>

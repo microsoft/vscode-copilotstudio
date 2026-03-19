@@ -1,0 +1,4 @@
+kind: ClosedListEntity
+items:
+  - id: edge01
+    displayName: TestItem

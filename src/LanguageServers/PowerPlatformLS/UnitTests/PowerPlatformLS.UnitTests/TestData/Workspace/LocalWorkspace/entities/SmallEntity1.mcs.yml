@@ -1,0 +1,16 @@
+mcs.metadata:
+  componentName: SmallEntity1
+  description: SmallEntity1 description
+kind: ClosedListEntity
+items:
+  - id: w4pOJy
+    displayName: test1
+
+  - id: OMxcpP
+    displayName: test2
+
+  - id: jaMcWK
+    displayName: test3
+
+  - id: jaMcWA
+    displayName: test4

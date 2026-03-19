@@ -1,0 +1,61 @@
+# Name: Loop And Branch
+# Topic demonstrating ConditionGroup and Foreach actions.
+kind: AdaptiveDialog
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent:
+    displayName: Loop And Branch
+    triggerQueries:
+      - loop and branch
+      - show conditions
+
+  actions:
+    - kind: SetVariable
+      id: setVar_items01
+      variable: Global.ItemList
+      value: "=["Alpha", "Beta", "Gamma"]"
+
+    - kind: ConditionGroup
+      id: conditionGroup_branch01
+      conditions:
+        - id: conditionItem_if01
+          condition: =Global.UserChoice = "premium"
+          actions:
+            - kind: SendActivity
+              id: sendMessage_premium01
+              activity:
+                text:
+                  - You have premium access.
+        - id: conditionItem_elseif01
+          condition: =Global.UserChoice = "basic"
+          actions:
+            - kind: SendActivity
+              id: sendMessage_basic01
+              activity:
+                text:
+                  - You have basic access.
+      elseActions:
+        - kind: SendActivity
+          id: sendMessage_default01
+          activity:
+            text:
+              - Unknown access level.
+
+    - kind: Foreach
+      id: foreach_items01
+      items: =Global.ItemList
+      value: Topic.CurrentItem
+      index: Topic.CurrentIndex
+      actions:
+        - kind: SendActivity
+          id: sendMessage_loop01
+          activity:
+            text:
+              - "Processing item: {Topic.CurrentItem}"
+
+    - kind: SendActivity
+      id: sendMessage_done01
+      activity:
+        text:
+          - All items processed.

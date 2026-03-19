@@ -1,0 +1,15 @@
+# Name: Helper Agent
+kind: AgentDialog
+beginDialog:
+  kind: OnToolSelected
+  id: main
+  description: "A sub-agent that provides specialized help."
+
+settings:
+  instructions: |-
+    1. Greet the user.
+    2. Answer questions about the specialized domain.
+    3. Hand back to the parent agent when done.
+
+inputType: {}
+outputType: {}

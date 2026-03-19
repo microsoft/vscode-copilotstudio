@@ -1,0 +1,7 @@
+mcs.metadata:
+  componentName: Wikipedia
+  description: |-
+    This knowledge source provides information found in wikipedia.
+    The information is retrieved by performing a search on wikipedia.
+kind: PublicSiteSearchSource
+site: https://www.wikipedia.org/

@@ -1,0 +1,8 @@
+{
+  "name": "shared",
+  "version": "1.0.0",
+  "license": "MIT",
+  "devDependencies": {
+    "yargs": "^17.7.2"
+  }
+}

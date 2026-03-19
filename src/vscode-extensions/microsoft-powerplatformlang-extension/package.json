@@ -1,0 +1,345 @@
+{
+  "name": "vscode-copilotstudio",
+  "displayName": "Copilot Studio",
+  "description": "This extension enables developers to edit their Copilot Studio agents from within Visual Studio Code. Clone an agent, get changes, preview differences, and apply updates directly back to their environments.",
+  "version": "1.0.1",
+  "publisher": "ms-CopilotStudio",
+  "author": "Microsoft Corporation",
+  "license": "MIT",
+  "galleryBanner": {
+    "color": "#0072c6",
+    "theme": "dark"
+  },
+  "icon": "CopilotStudio.png",
+  "keywords": [
+    "Agents",
+    "Copilot",
+    "CopilotStudio"
+  ],
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "AI",
+    "Azure",
+    "Chat",
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "workspaceContains:**/agent.mcs.yml"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "Yaml",
+        "extensions": [
+          ".yml",
+          ".yaml"
+        ]
+      },
+      {
+        "id": "PowerFx",
+        "extensions": [
+          ".fx1"
+        ],
+        "aliases": [
+          "Power Fx",
+          "Fx"
+        ],
+        "icon": {
+          "dark": "./icons/power-fx.svg",
+          "light": "./icons/power-fx.svg"
+        }
+      },
+      {
+        "id": "CopilotStudio",
+        "extensions": [
+          ".mcs.yaml",
+          ".mcs.yml"
+        ],
+        "configuration": "./language-configuration.json",
+        "aliases": [
+          "Microsoft Copilot Studio"
+        ],
+        "icon": {
+          "dark": "./icons/copilot-studio-wire-dark.svg",
+          "light": "./icons/copilot-studio-wire.svg"
+        }
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "mcs-objectmodel",
+          "title": "Copilot Studio",
+          "icon": "./icons/copilot-studio-wire.svg"
+        }
+      ]
+    },
+    "views": {
+      "mcs-objectmodel": [
+        {
+          "id": "agent-changes",
+          "name": "Agent Changes",
+          "icon": "./icons/copilot-studio.svg",
+          "when": "mcs.hasConnectedAgent"
+        },
+        {
+          "id": "copilot-studio-overview",
+          "name": "Getting started",
+          "icon": "./icons/copilot-studio.svg",
+          "when": "!mcs.hasConnectedAgent"
+        },
+        {
+          "id": "remote-agents",
+          "name": "Agents",
+          "icon": "./icons/copilot-studio.svg",
+          "visibility": "collapsed"
+        },
+        {
+          "id": "workspace-agents",
+          "name": "Workspace",
+          "icon": "./icons/copilot-studio.svg",
+          "visibility": "collapsed"
+        }
+      ],
+      "explorer": [
+        {
+          "id": "virtual-knowledge-files",
+          "name": "Remote Knowledge Files",
+          "icon": "./icons/copilot-studio.svg"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "microsoft-copilot-studio.refreshAgentTreeView",
+          "when": "view == remote-agents",
+          "group": "navigation"
+        },
+        {
+          "command": "microsoft-copilot-studio.switchAccount",
+          "when": "view == remote-agents",
+          "group": "navigation"
+        },
+        {
+          "command": "microsoft-copilot-studio.previewChanges",
+          "when": "view == agent-changes",
+          "group": "navigation@1"
+        },
+        {
+          "command": "microsoft-copilot-studio.getChanges",
+          "when": "view == agent-changes",
+          "group": "navigation@2"
+        },
+        {
+          "command": "microsoft-copilot-studio.applyChanges",
+          "when": "view == agent-changes",
+          "group": "navigation@3"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "microsoft-copilot-studio.cloneAgent",
+          "when": "view == remote-agents && viewItem == agentItem",
+          "group": "navigation"
+        },
+        {
+          "command": "microsoft-copilot-studio.previewChanges",
+          "when": "view == agent-changes && viewItem == changeGroup-remote",
+          "group": "inline@1"
+        },
+        {
+          "command": "microsoft-copilot-studio.getChanges",
+          "when": "view == agent-changes && viewItem == changeGroup-remote",
+          "group": "inline@2"
+        },
+        {
+          "command": "microsoft-copilot-studio.applyChanges",
+          "when": "view == agent-changes && viewItem == changeGroup-local",
+          "group": "inline"
+        }
+      ],
+      "scm/resourceGroup/context": [
+        {
+          "command": "microsoft-copilot-studio.applyChanges",
+          "when": "scmProvider == mcs && scmResourceGroup == local",
+          "group": "inline"
+        },
+        {
+          "command": "microsoft-copilot-studio.getChanges",
+          "when": "scmProvider == mcs && scmResourceGroup == remote",
+          "group": "inline"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "microsoft-copilot-studio.reportIssue",
+          "when": "true",
+          "group": "help"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "copilot-studio-overview",
+        "contents": "To get started, connect to Copilot Studio to open an existing agent. Copy the URL to the agent in the portal to your clipboard for quick access. \n[Clone agent](command:microsoft-copilot-studio.cloneAgent)\nYou can create new agents at [copilotstudio.microsoft.com](https://copilotstudio.microsoft.com/environments/~personal/create) or sign up at [copilotstudio.com](https://copilotstudio.com) to get access.",
+        "when": "true"
+      },
+      {
+        "view": "agent-changes",
+        "contents": "No differences detected.\n\n[Preview](command:microsoft-copilot-studio.previewChanges) to check the agent for updates.\n[Get](command:microsoft-copilot-studio.getChanges) to bring remote changes into your workspace.",
+        "when": "!mcs.agentChangesView.hasChanges"
+      }
+    ],
+    "configurationDefaults": {
+      "[CopilotStudio]": {
+        "editor.quickSuggestions": {
+          "other": false,
+          "comments": true,
+          "strings": true
+        },
+        "editor.wordBasedSuggestions": "off",
+        "editor.suggest.showIcons": true
+      },
+      "files.exclude": {
+        "**/.mcs": true
+      }
+    },
+    "configuration": {
+      "type": "object",
+      "title": "Copilot Studio",
+      "properties": {
+        "ms-CopilotStudio.editor.semanticTokenColorCustomizations.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enables semantic token color customizations."
+        },
+        "ms-CopilotStudio.telemetry.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable telemetry for Copilot Studio in addition to the global VS Code telemetry setting. If the global VS Code telemetry is disabled, no data is sent regardless of this setting.",
+          "tags": [
+            "telemetry",
+            "usesOnlineServices"
+          ]
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "microsoft-copilot-studio.previewChanges",
+        "title": "Copilot Studio: Preview changes",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "microsoft-copilot-studio.getChanges",
+        "title": "Copilot Studio: Get changes",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "microsoft-copilot-studio.applyChanges",
+        "title": "Copilot Studio: Apply changes",
+        "icon": "$(cloud-upload)",
+        "enablement": "!mcs.agentChangesView.hasRemoteChanges"
+      },
+      {
+        "command": "microsoft-copilot-studio.cloneAgent",
+        "title": "Copilot Studio: Clone agent",
+        "icon": "$(clone)"
+      },
+      {
+        "command": "microsoft-copilot-studio.sessionInfo",
+        "title": "Copilot Studio: Show Session Info",
+        "icon": "$(question)"
+      },
+      {
+        "command": "microsoft-copilot-studio.signIn",
+        "title": "Copilot Studio: Sign in",
+        "icon": "$(sign-in)"
+      },
+      {
+        "command": "microsoft-copilot-studio.reportIssue",
+        "title": "Copilot Studio: Report Issue",
+        "category": "Help"
+      },
+      {
+        "command": "microsoft-copilot-studio.reattachAgent",
+        "title": "Copilot Studio: Reattach Agent",
+        "icon": "$(repo-push)"
+      },
+      {
+        "command": "microsoft-copilot-studio.refreshAgentTreeView",
+        "title": "Copilot Studio: Refresh Agents",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "microsoft-copilot-studio.switchAccount",
+        "title": "Copilot Studio: Switch Account",
+        "icon": "$(sign-in)"
+      }
+    ],
+    "colors": [
+      {
+        "id": "copilotStudio.agentDirectoryBackground",
+        "description": "Background color for Copilot Studio agent directories.",
+        "defaults": {
+          "light": "#24A0A433",
+          "dark": "#B2F0E6",
+          "highContrast": "#24A0A433"
+        }
+      }
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/microsoft/vscode-copilotstudio"
+  },
+  "homepage": "https://github.com/microsoft/vscode-copilotstudio/blob/main/README.md",
+  "bugs": {
+    "url": "https://github.com/microsoft/vscode-copilotstudio/issues"
+  },
+  "scripts": {
+    "buildLsp": "node ./scripts/buildLsp.js",
+    "watchLsp": "node ./scripts/watchLsp.js",
+    "compile": "npm run buildLsp && npm run check-types && node esbuild.js",
+    "check-types": "tsc -b --noEmit",
+    "watch": "tsc -b tsconfig.json -watch -p ./",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc -b tsconfig.json --noEmit --watch ",
+    "compile-tests": "tsc -b client",
+    "watch-tests": "tsc -b client -w",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "lint": "eslint client/src",
+    "test": "vscode-test",
+    "postinstall": "(cd client && npm install)",
+    "package": "vsce package --target win32-x64 --no-dependencies --pre-release"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "20.x",
+    "@types/vscode": "^1.96.0",
+    "@typescript-eslint/eslint-plugin": "^8.30.0",
+    "@typescript-eslint/parser": "^8.30.0",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.4.1",
+    "@vscode/vsce": "^3.3.2",
+    "esbuild": "0.27.2",
+    "eslint": "^10.0.0",
+    "nerdbank-gitversioning": "^3.7.115",
+    "npm-run-all2": "^7.0.2",
+    "shared": "file:../shared",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "@types/semver": "^7.7.0",
+    "@vscode/extension-telemetry": "^1.0.0",
+    "semver": "^7.7.2",
+    "uuid": "^11.0.3"
+  },
+  "overrides": {
+    "glob": ">=11.0.2"
+  }
+}

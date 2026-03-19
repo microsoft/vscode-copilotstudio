@@ -1,0 +1,11 @@
+<botcomponent schemaname="cree9_agent.entity.SmallEntity1">
+  <componenttype>11</componenttype>
+  <description>SmallEntity1 description</description>
+  <iscustomizable>0</iscustomizable>
+  <name>SmallEntity1</name>
+  <parentbotid>
+    <schemaname>cree9_agent</schemaname>
+  </parentbotid>
+  <statecode>0</statecode>
+  <statuscode>1</statuscode>
+</botcomponent>

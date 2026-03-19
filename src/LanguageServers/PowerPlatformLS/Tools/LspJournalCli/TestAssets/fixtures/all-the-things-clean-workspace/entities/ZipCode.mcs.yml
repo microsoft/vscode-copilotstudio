@@ -1,0 +1,8 @@
+# Name: Zip Code
+# Regex entity that matches US ZIP codes (5-digit or ZIP+4 format).
+kind: RegexEntity
+pattern: "[0-9]{5}(-[0-9]{4})?"
+samples:
+  - "deliver to {98052}"
+  - "my zip code is {90210}"
+  - "ship to {10001-2345}"

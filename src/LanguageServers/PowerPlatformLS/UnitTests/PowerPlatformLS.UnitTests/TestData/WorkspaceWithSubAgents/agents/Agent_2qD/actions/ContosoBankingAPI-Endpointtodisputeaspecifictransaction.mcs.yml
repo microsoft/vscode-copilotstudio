@@ -1,0 +1,19 @@
+mcs.metadata:
+  componentName: Contoso Banking API - Endpoint to dispute a specific transaction.
+kind: TaskDialog
+modelDisplayName: Endpoint to dispute a specific transaction.
+modelDescription: This is a tool will allow the user's to dispute a specific transaction.
+outputs:
+  - propertyName: disputed.asOfDate
+
+  - propertyName: disputed.success
+
+action:
+  kind: InvokeConnectorTaskAction
+  connectionReference: crd1c_agent.shared_crd1c-5fcontoso-20banking-20api-5f099802cd293c57f0.7bcf6980a76c422e9f835d72b785b1e2
+  connectionProperties:
+    mode: Maker
+
+  operationId: DisputeTransaction
+
+outputMode: All

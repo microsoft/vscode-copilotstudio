@@ -1,0 +1,361 @@
+{
+  "metadata": {
+    "description": "All-the-things: diagnostics on non-topic document types (entity, variable, action, trigger).",
+    "workspaceRoot": "../fixtures/all-the-things-workspace",
+    "classification": "recorded",
+    "branch": "dev/stevesteiner/testcli.2",
+    "commit": "fa6143602",
+    "timestamp": "2026-02-10T22:45:01.9528659Z",
+    "branchBase": "27b3c27f3",
+    "branchDepth": 5
+  },
+  "steps": [
+    {
+      "step": "initialize",
+      "params": {
+        "processId": 0,
+        "capabilities": {},
+        "workspaceFolders": [
+          {
+            "uri": "${workspace}",
+            "name": "all-the-things-workspace"
+          }
+        ]
+      },
+      "expected": {
+        "capabilities": {
+          "codeActionProvider": {
+            "codeActionKinds": [
+              "quickfix"
+            ]
+          },
+          "completionProvider": {
+            "allCommitCharacters": [],
+            "resolveProvider": false,
+            "triggerCharacters": [
+              "\n",
+              ".",
+              ":",
+              " "
+            ]
+          },
+          "definitionProvider": true,
+          "semanticTokensProvider": {
+            "documentSelector": [
+              {
+                "language": "CopilotStudio"
+              }
+            ],
+            "full": true,
+            "legend": {
+              "tokenModifiers": [
+                "declaration",
+                "definition",
+                "readonly",
+                "static",
+                "deprecated",
+                "abstract",
+                "async",
+                "modification",
+                "documentation",
+                "defaultlibrary"
+              ],
+              "tokenTypes": [
+                "keyword",
+                "variable",
+                "function",
+                "interface",
+                "comment",
+                "namespace",
+                "type",
+                "class",
+                "enum",
+                "struct",
+                "typeparameter",
+                "parameter",
+                "property",
+                "enummember",
+                "event",
+                "method",
+                "macro",
+                "modifier",
+                "string",
+                "number",
+                "regexp",
+                "operator",
+                "decorator",
+                "default"
+              ]
+            },
+            "range": false
+          },
+          "signatureHelpProvider": {
+            "triggerCharacters": [
+              "(",
+              ","
+            ]
+          },
+          "textDocumentSync": {
+            "change": 2,
+            "openClose": true,
+            "save": {
+              "includeText": false
+            }
+          },
+          "workspace": {
+            "fileOperations": {
+              "didRename": {
+                "filters": [
+                  {
+                    "pattern": {
+                      "glob": "**/*"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "serverInfo": {
+          "name": "Power Platform Pro-Code Language Server",
+          "version": "1.0"
+        }
+      }
+    },
+    {
+      "step": "initialized"
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/entities/InvalidEntity.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:entities/InvalidEntity.mcs.yml}",
+          "textHash": "sha256:0ccd0468664430f18bfbd6b0ae1d1df04241f3c492ec622e8037dbc2d8eb489e",
+          "textBytes": 177
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 10000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/entities/InvalidEntity.mcs.yml",
+            "version": 0,
+            "diagnostics": [
+              {
+                "code": "MissingRequiredProperty",
+                "range": {
+                  "start": {
+                    "line": 4,
+                    "character": 4
+                  },
+                  "end": {
+                    "line": 5,
+                    "character": 0
+                  }
+                },
+                "severity": 1,
+                "message": "Missing required property \u0027Id\u0027",
+                "data": {}
+              },
+              {
+                "code": "MissingRequiredProperty",
+                "range": {
+                  "start": {
+                    "line": 5,
+                    "character": 4
+                  },
+                  "end": {
+                    "line": 5,
+                    "character": 9
+                  }
+                },
+                "severity": 1,
+                "message": "Missing required property \u0027Id\u0027",
+                "data": {}
+              },
+              {
+                "code": "MissingRequiredProperty",
+                "range": {
+                  "start": {
+                    "line": 5,
+                    "character": 4
+                  },
+                  "end": {
+                    "line": 5,
+                    "character": 9
+                  }
+                },
+                "severity": 1,
+                "message": "Missing required property \u0027DisplayName\u0027",
+                "data": {}
+              }
+            ]
+          }
+        }
+      ],
+      "review": "suspect",
+      "reviewNote": "Two MissingRequiredProperty errors (Id and DisplayName) at line 5 share identical range (5:4-5:9). May be correct (two missing props on one scalar node) but range overlap is unusual.",
+      "suspectId": "S5"
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/variables/InvalidScope.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:variables/InvalidScope.mcs.yml}",
+          "textHash": "sha256:05543a4abce45dcb48cd9e262971f75e23f67a45a0f3e6d29e75db4393cd68c3",
+          "textBytes": 144
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 10000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/variables/InvalidScope.mcs.yml",
+            "version": 0,
+            "diagnostics": [
+              {
+                "code": "UnknownEnumValue",
+                "range": {
+                  "start": {
+                    "line": 4,
+                    "character": 7
+                  },
+                  "end": {
+                    "line": 4,
+                    "character": 20
+                  }
+                },
+                "severity": 1,
+                "message": "The provided value for \u0027Scope\u0027 is not a recognized option for this enum property.",
+                "data": {}
+              }
+            ]
+          }
+        }
+      ],
+      "review": "confirmed",
+      "reviewNote": "Correctly reports UnknownEnumValue for invalid scope value."
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/actions/BrokenConnector.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:actions/BrokenConnector.mcs.yml}",
+          "textHash": "sha256:aeb9deeccc302b4ebc72cb0f1705f98175c01c7e03f01fd6f4b28aab46c1d221",
+          "textBytes": 268
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 10000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/actions/BrokenConnector.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ],
+      "review": "suspect",
+      "reviewNote": "Dangling connector reference (nonexistent.connector.00000000) accepted silently with zero diagnostics. Tested: adding connectionreferences.mcs.yml (with other valid refs) does NOT activate validation \u2014 server discovers the file but still returns empty diagnostics. Connector reference validation does not trigger in disconnected mode even with connectionreferences.mcs.yml present; may only work in connected (attached) scenarios.",
+      "suspectId": "S2"
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/trigger/MissingFields.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:trigger/MissingFields.mcs.yml}",
+          "textHash": "sha256:ee9c51a06cfaba86ca47eab4d42ff82701f27e487386bd53bb93534b83cfbbfa",
+          "textBytes": 132
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 10000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/trigger/MissingFields.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ],
+      "review": "suspect",
+      "reviewNote": "ExternalTriggerConfiguration with only kind: and no required fields produces zero diagnostics.",
+      "suspectId": "S3"
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/entities/InvalidEntity.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/variables/InvalidScope.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/actions/BrokenConnector.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/trigger/MissingFields.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "shutdown",
+      "expected": null
+    },
+    {
+      "step": "exit"
+    }
+  ]
+}

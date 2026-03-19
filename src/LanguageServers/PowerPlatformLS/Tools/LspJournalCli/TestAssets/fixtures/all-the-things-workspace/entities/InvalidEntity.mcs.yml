@@ -1,0 +1,7 @@
+# Name: Invalid Entity
+# Entity with invalid items — should trigger diagnostics.
+kind: ClosedListEntity
+items:
+  - displayName: ValidItem
+  - 12345
+  - id: missingDisplayName

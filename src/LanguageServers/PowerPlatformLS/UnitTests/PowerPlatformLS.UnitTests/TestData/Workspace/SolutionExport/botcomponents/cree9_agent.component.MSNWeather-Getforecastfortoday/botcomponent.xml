@@ -1,0 +1,10 @@
+<botcomponent schemaname="cree9_agent.component.MSNWeather-Getforecastfortoday">
+  <componenttype>9</componenttype>
+  <iscustomizable>0</iscustomizable>
+  <name>MSN Weather - Get forecast for today</name>
+  <parentbotid>
+    <schemaname>cree9_agent</schemaname>
+  </parentbotid>
+  <statecode>0</statecode>
+  <statuscode>1</statuscode>
+</botcomponent>

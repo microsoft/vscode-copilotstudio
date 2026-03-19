@@ -1,0 +1,12 @@
+# Name: Fallback
+# Triggered when no intent is recognized.
+kind: AdaptiveDialog
+beginDialog:
+  kind: OnUnknownIntent
+  id: main
+  actions:
+    - kind: SendActivity
+      id: sendMessage_fallback01
+      activity:
+        text:
+          - I'm sorry, I didn't understand that. Could you rephrase?

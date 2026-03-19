@@ -1,0 +1,7 @@
+# Name: UserName
+kind: Variable
+name: UserName
+scope: User
+isExternalInitializationAllowed: false
+initializationTimeoutInMilliseconds: 0
+aIVisibility: Hidden

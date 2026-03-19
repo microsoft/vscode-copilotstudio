@@ -1,0 +1,5 @@
+connectionReferences:
+  - connectionReferenceLogicalName: test_allthethings.shared_msnweather.shared-msnweather-00000000
+    connectorId: /providers/Microsoft.PowerApps/apis/shared_msnweather
+  - connectionReferenceLogicalName: test_allthethings.shared_office365.00000000
+    connectorId: /providers/Microsoft.PowerApps/apis/shared_office365

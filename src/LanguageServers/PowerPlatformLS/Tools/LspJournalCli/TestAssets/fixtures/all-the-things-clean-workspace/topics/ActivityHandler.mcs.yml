@@ -1,0 +1,31 @@
+# Name: Activity Handler
+# Triggered when a specific activity type is received.
+kind: AdaptiveDialog
+beginDialog:
+  kind: OnActivity
+  id: main
+  type: Invoke
+  actions:
+    - kind: SendActivity
+      id: sendMessage_activity01
+      activity:
+        text:
+          - An invoke activity was received.
+
+    - kind: ConditionGroup
+      id: conditionGroup_activityCheck01
+      conditions:
+        - id: conditionItem_hasPayload01
+          condition: =!IsBlank(System.Activity.Value)
+          actions:
+            - kind: SendActivity
+              id: sendMessage_payload01
+              activity:
+                text:
+                  - "Payload received: {System.Activity.Value}"
+      elseActions:
+        - kind: SendActivity
+          id: sendMessage_noPayload01
+          activity:
+            text:
+              - No payload was included in the activity.

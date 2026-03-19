@@ -1,0 +1,516 @@
+{
+  "metadata": {
+    "workspaceRoot": "../fixtures/all-the-things-clean-workspace",
+    "classification": "recorded",
+    "branch": "dev/stevesteiner/testcli.2",
+    "commit": "fa6143602",
+    "timestamp": "2026-02-10T22:45:20.9701594Z",
+    "branchBase": "27b3c27f3",
+    "branchDepth": 5
+  },
+  "steps": [
+    {
+      "step": "initialize",
+      "params": {
+        "processId": 47788,
+        "capabilities": {},
+        "workspaceFolders": [
+          {
+            "uri": "${workspace}",
+            "name": "all-the-things-clean-workspace"
+          }
+        ]
+      },
+      "expected": {
+        "capabilities": {
+          "codeActionProvider": {
+            "codeActionKinds": [
+              "quickfix"
+            ]
+          },
+          "completionProvider": {
+            "allCommitCharacters": [],
+            "resolveProvider": false,
+            "triggerCharacters": [
+              "\n",
+              ".",
+              ":",
+              " "
+            ]
+          },
+          "definitionProvider": true,
+          "semanticTokensProvider": {
+            "documentSelector": [
+              {
+                "language": "CopilotStudio"
+              }
+            ],
+            "full": true,
+            "legend": {
+              "tokenModifiers": [
+                "declaration",
+                "definition",
+                "readonly",
+                "static",
+                "deprecated",
+                "abstract",
+                "async",
+                "modification",
+                "documentation",
+                "defaultlibrary"
+              ],
+              "tokenTypes": [
+                "keyword",
+                "variable",
+                "function",
+                "interface",
+                "comment",
+                "namespace",
+                "type",
+                "class",
+                "enum",
+                "struct",
+                "typeparameter",
+                "parameter",
+                "property",
+                "enummember",
+                "event",
+                "method",
+                "macro",
+                "modifier",
+                "string",
+                "number",
+                "regexp",
+                "operator",
+                "decorator",
+                "default"
+              ]
+            },
+            "range": false
+          },
+          "signatureHelpProvider": {
+            "triggerCharacters": [
+              "(",
+              ","
+            ]
+          },
+          "textDocumentSync": {
+            "change": 2,
+            "openClose": true,
+            "save": {
+              "includeText": false
+            }
+          },
+          "workspace": {
+            "fileOperations": {
+              "didRename": {
+                "filters": [
+                  {
+                    "pattern": {
+                      "glob": "**/*"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "serverInfo": {
+          "name": "Power Platform Pro-Code Language Server",
+          "version": "1.0"
+        }
+      }
+    },
+    {
+      "step": "initialized"
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/Greeting.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:topics/Greeting.mcs.yml}",
+          "textHash": "sha256:d7449de5be2231420a239449ba5534e422ecf8b3d44128f7571bdc4bff840767",
+          "textBytes": 576
+        }
+      }
+    },
+    {
+      "step": "waitForNotification",
+      "params": {
+        "method": "textDocument/publishDiagnostics",
+        "timeoutMs": 15000
+      },
+      "expected": {
+        "diagnostics": [],
+        "uri": "${workspace}/topics/Greeting.mcs.yml",
+        "version": 0
+      }
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/variables/UserName.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:variables/UserName.mcs.yml}",
+          "textHash": "sha256:321495a5acab226c6efa1c5732df0a1ee2de7535853d717024ed713a5ebea39f",
+          "textBytes": 158
+        }
+      }
+    },
+    {
+      "step": "waitForNotification",
+      "params": {
+        "method": "textDocument/publishDiagnostics",
+        "timeoutMs": 15000
+      },
+      "expected": {
+        "diagnostics": [],
+        "uri": "${workspace}/variables/UserName.mcs.yml",
+        "version": 0
+      }
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/entities/City.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:entities/City.mcs.yml}",
+          "textHash": "sha256:337cf3cfd1e2277fc24fdbd5717d8b2a15e686bc1cd352bafefd61f33ba1f758",
+          "textBytes": 253
+        }
+      }
+    },
+    {
+      "step": "waitForNotification",
+      "params": {
+        "method": "textDocument/publishDiagnostics",
+        "timeoutMs": 15000
+      },
+      "expected": {
+        "diagnostics": [],
+        "uri": "${workspace}/entities/City.mcs.yml",
+        "version": 0
+      }
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/settings/ContentModeration.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:settings/ContentModeration.mcs.yml}",
+          "textHash": "sha256:8d7f70f2a026098b13735bcebf2b56069c93f82ea91b2d845f93f18a3d6dbbde",
+          "textBytes": 90
+        }
+      }
+    },
+    {
+      "step": "waitForNotification",
+      "params": {
+        "method": "textDocument/publishDiagnostics",
+        "timeoutMs": 15000
+      },
+      "expected": {
+        "diagnostics": [],
+        "uri": "${workspace}/settings/ContentModeration.mcs.yml",
+        "version": 0
+      }
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/Greeting.mcs.yml"
+        },
+        "position": {
+          "line": 17,
+          "character": 4
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": [
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "id: ",
+            "preselect": true,
+            "sortText": "2id"
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "actions: \n  ",
+            "sortText": "3actions"
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "condition: ",
+            "sortText": "3condition"
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "priority: ",
+            "sortText": "3priority"
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "runOnce: ",
+            "sortText": "3runOnce"
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "intent: \n  ",
+            "sortText": "3intent"
+          }
+        ]
+      }
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/variables/UserName.mcs.yml"
+        },
+        "position": {
+          "line": 3,
+          "character": 7
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": [
+          {
+            "detail": "Dialog",
+            "kind": 19,
+            "label": "Dialog",
+            "textEdit": {
+              "newText": "Dialog",
+              "range": {
+                "end": {
+                  "character": 11,
+                  "line": 3
+                },
+                "start": {
+                  "character": 7,
+                  "line": 3
+                }
+              }
+            }
+          },
+          {
+            "detail": "Conversation",
+            "kind": 19,
+            "label": "Conversation",
+            "textEdit": {
+              "newText": "Conversation",
+              "range": {
+                "end": {
+                  "character": 11,
+                  "line": 3
+                },
+                "start": {
+                  "character": 7,
+                  "line": 3
+                }
+              }
+            }
+          },
+          {
+            "detail": "User",
+            "kind": 19,
+            "label": "User",
+            "textEdit": {
+              "newText": "User",
+              "range": {
+                "end": {
+                  "character": 11,
+                  "line": 3
+                },
+                "start": {
+                  "character": 7,
+                  "line": 3
+                }
+              }
+            }
+          },
+          {
+            "detail": "Environment",
+            "kind": 19,
+            "label": "Environment",
+            "textEdit": {
+              "newText": "Environment",
+              "range": {
+                "end": {
+                  "character": 11,
+                  "line": 3
+                },
+                "start": {
+                  "character": 7,
+                  "line": 3
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/entities/City.mcs.yml"
+        },
+        "position": {
+          "line": 4,
+          "character": 4
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": [
+          {
+            "detail": "Id",
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "id: ",
+            "preselect": true,
+            "sortText": "0id",
+            "textEdit": {
+              "newText": "id",
+              "range": {
+                "end": {
+                  "character": 6,
+                  "line": 4
+                },
+                "start": {
+                  "character": 4,
+                  "line": 4
+                }
+              }
+            }
+          },
+          {
+            "detail": "Display name",
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "displayName: ",
+            "sortText": "2displayName",
+            "textEdit": {
+              "newText": "displayName",
+              "range": {
+                "end": {
+                  "character": 6,
+                  "line": 4
+                },
+                "start": {
+                  "character": 4,
+                  "line": 4
+                }
+              }
+            }
+          },
+          {
+            "detail": "Synonyms",
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "synonyms: \n  - ",
+            "sortText": "3synonyms",
+            "textEdit": {
+              "newText": "synonyms",
+              "range": {
+                "end": {
+                  "character": 6,
+                  "line": 4
+                },
+                "start": {
+                  "character": 4,
+                  "line": 4
+                }
+              }
+            }
+          },
+          {
+            "detail": "DTMF Key",
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "dtmfKey: ",
+            "sortText": "3dtmfKey",
+            "textEdit": {
+              "newText": "dtmfKey",
+              "range": {
+                "end": {
+                  "character": 6,
+                  "line": 4
+                },
+                "start": {
+                  "character": 4,
+                  "line": 4
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/settings/ContentModeration.mcs.yml"
+        },
+        "position": {
+          "line": 0,
+          "character": 6
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/Greeting.mcs.yml"
+        },
+        "position": {
+          "line": 0,
+          "character": 4
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    }
+  ]
+}

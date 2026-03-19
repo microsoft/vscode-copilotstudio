@@ -1,0 +1,28 @@
+kind: AdaptiveDialog
+beginDialog:
+  kind: OnUnknownIntent
+  id: main
+  actions:
+    - kind: ConditionGroup
+      id: conditionGroup_LktzXw
+      conditions:
+        - id: conditionItem_tlGIVo
+          condition: =System.FallbackCount < 35
+          actions:
+            - kind: SendActivity
+              id: sendMessage_QZreqo
+              activity: I'm sorry, I'm not sure how to help with that. Can you try rephrasing?
+            - kind: SendActivity
+              # duplicate Id
+              id: sendMessage_QZreqo
+              activity: I'm sorry, I'm not sure how to help with that. Can you try rephrasing? I have the same id as previous action.
+
+      elseActions:
+        - kind: SendActivity
+          id: 5aXj5M
+          activity: Let's escalate...
+        - kind: BeginDialog
+          # duplicate Id
+          id: 5aXj5M
+          # invalid reference
+          dialog: cr36e_fluxCopilot.topic.Escalate

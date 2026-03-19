@@ -1,0 +1,19 @@
+{
+  "EndpointSuffixes": {
+    "Local": "api.powerplatform.localhost",
+    "Exp": "api.exp.powerplatform.com",
+    "Dev": "api.dev.powerplatform.com",
+    "Prv": "api.prv.powerplatform.com",
+    "Test": "api.test.powerplatform.com",
+    "Preprod": "api.preprod.powerplatform.com",
+    "FirstRelease": "api.powerplatform.com",
+    "Prod": "api.powerplatform.com",
+    "GovFR": "api.gov.powerplatform.microsoft.us",
+    "Gov": "api.gov.powerplatform.microsoft.us",
+    "High": "api.high.powerplatform.microsoft.us",
+    "DoD": "api.appsplatform.us",
+    "Mooncake": "api.powerplatform.partner.microsoftonline.cn",
+    "Ex": "api.powerplatform.eaglex.ic.gov",
+    "Rx": "api.powerplatform.microsoft.scloud"
+  }
+}

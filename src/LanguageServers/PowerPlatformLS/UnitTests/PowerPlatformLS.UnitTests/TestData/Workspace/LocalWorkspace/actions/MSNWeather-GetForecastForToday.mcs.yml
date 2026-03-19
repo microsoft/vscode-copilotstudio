@@ -1,0 +1,12 @@
+mcs.metadata:
+  componentName: MSN Weather - Get forecast for today
+kind: TaskDialog
+modelDisplayName: Get forecast for today
+modelDescription: Get the forecast for the current day in the specified location.
+action:
+  kind: InvokeConnectorTaskAction
+  connectionReference: cree9_agent.shared_msnweather.shared-msnweather-4e8ecf5b-577c-4ad7-8064-ece8ede72e26
+  connectionProperties:
+    mode: Invoker
+  operationId: TodaysForecast
+outputMode: All

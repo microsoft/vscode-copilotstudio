@@ -1,0 +1,296 @@
+{
+  "metadata": {
+    "description": "Workspace indexing edge cases: empty directories, unexpected file extensions, folder-to-element-type assertions, non-standard folders, type-to-file-candidate resolution.",
+    "workspaceRoot": "../fixtures/workspace-indexing-edges",
+    "classification": "recorded",
+    "branch": "dev/stevesteiner/testcli.2",
+    "commit": "fa6143602",
+    "timestamp": "2026-02-10T22:45:41.1825508Z",
+    "branchBase": "27b3c27f3",
+    "branchDepth": 5
+  },
+  "steps": [
+    {
+      "step": "initialize",
+      "params": {
+        "processId": 0,
+        "capabilities": {},
+        "workspaceFolders": [
+          {
+            "uri": "${workspace}",
+            "name": "workspace-indexing-edges"
+          }
+        ]
+      },
+      "expected": {
+        "capabilities": {
+          "codeActionProvider": {
+            "codeActionKinds": [
+              "quickfix"
+            ]
+          },
+          "completionProvider": {
+            "allCommitCharacters": [],
+            "resolveProvider": false,
+            "triggerCharacters": [
+              "\n",
+              ".",
+              ":",
+              " "
+            ]
+          },
+          "definitionProvider": true,
+          "semanticTokensProvider": {
+            "documentSelector": [
+              {
+                "language": "CopilotStudio"
+              }
+            ],
+            "full": true,
+            "legend": {
+              "tokenModifiers": [
+                "declaration",
+                "definition",
+                "readonly",
+                "static",
+                "deprecated",
+                "abstract",
+                "async",
+                "modification",
+                "documentation",
+                "defaultlibrary"
+              ],
+              "tokenTypes": [
+                "keyword",
+                "variable",
+                "function",
+                "interface",
+                "comment",
+                "namespace",
+                "type",
+                "class",
+                "enum",
+                "struct",
+                "typeparameter",
+                "parameter",
+                "property",
+                "enummember",
+                "event",
+                "method",
+                "macro",
+                "modifier",
+                "string",
+                "number",
+                "regexp",
+                "operator",
+                "decorator",
+                "default"
+              ]
+            },
+            "range": false
+          },
+          "signatureHelpProvider": {
+            "triggerCharacters": [
+              "(",
+              ","
+            ]
+          },
+          "textDocumentSync": {
+            "change": 2,
+            "openClose": true,
+            "save": {
+              "includeText": false
+            }
+          },
+          "workspace": {
+            "fileOperations": {
+              "didRename": {
+                "filters": [
+                  {
+                    "pattern": {
+                      "glob": "**/*"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "serverInfo": {
+          "name": "Power Platform Pro-Code Language Server",
+          "version": "1.0"
+        }
+      }
+    },
+    {
+      "step": "initialized"
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/ValidTopic.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:topics/ValidTopic.mcs.yml}",
+          "textHash": "sha256:2301cc550350fdd4d8d19852c9dd55778548814e50f23d73370e00560f3e793f",
+          "textBytes": 145
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 10000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/topics/ValidTopic.mcs.yml",
+            "version": 0,
+            "diagnostics": [
+              {
+                "code": "MissingRequiredProperty",
+                "range": {
+                  "start": {
+                    "line": 2,
+                    "character": 0
+                  },
+                  "end": {
+                    "line": 6,
+                    "character": 0
+                  }
+                },
+                "severity": 1,
+                "message": "Missing required property \u0027Id\u0027",
+                "data": {}
+              },
+              {
+                "code": "MissingRequiredProperty",
+                "range": {
+                  "start": {
+                    "line": 4,
+                    "character": 6
+                  },
+                  "end": {
+                    "line": 6,
+                    "character": 0
+                  }
+                },
+                "severity": 1,
+                "message": "Missing required property \u0027Id\u0027",
+                "data": {}
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/ValidTopic.mcs.yml"
+        },
+        "position": {
+          "line": 4,
+          "character": 12
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/ValidTopic.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/actions/ValidAction.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:actions/ValidAction.mcs.yml}",
+          "textHash": "sha256:a57989eab0628a288c3b76b53e985e72a55b7167b6a7c7ad5960d24f920159d4",
+          "textBytes": 143
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 10000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/actions/ValidAction.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/actions/ValidAction.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/entities/ValidEntity.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:entities/ValidEntity.mcs.yml}",
+          "textHash": "sha256:d185eb2cc03f88f8419892d15cde285fcb51e3f0f6a794e5f61f409efdb97916",
+          "textBytes": 71
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 10000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/entities/ValidEntity.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/entities/ValidEntity.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "shutdown",
+      "expected": null
+    },
+    {
+      "step": "exit"
+    }
+  ]
+}

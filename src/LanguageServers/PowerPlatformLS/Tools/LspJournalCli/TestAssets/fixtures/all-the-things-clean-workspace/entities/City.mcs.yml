@@ -1,0 +1,15 @@
+# Name: City
+# Custom entity listing known cities.
+kind: ClosedListEntity
+items:
+  - id: city01
+    displayName: Seattle
+
+  - id: city02
+    displayName: Portland
+
+  - id: city03
+    displayName: San Francisco
+
+  - id: city04
+    displayName: Vancouver

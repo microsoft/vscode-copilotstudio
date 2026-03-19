@@ -1,0 +1,12 @@
+# Name: ConversationStart
+# Triggered when the conversation begins.
+kind: AdaptiveDialog
+beginDialog:
+  kind: OnConversationStart
+  id: main
+  actions:
+    - kind: SendActivity
+      id: sendMessage_start01
+      activity:
+        text:
+          - Welcome! I can help with many things.

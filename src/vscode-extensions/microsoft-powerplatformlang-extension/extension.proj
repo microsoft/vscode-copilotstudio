@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.Build.NoTargets">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <WorkingDirectory>$(MSBuildThisFileDirectory)</WorkingDirectory>
+    <LanguageServerHostDir>$(WorkingDirectory)..\..\LanguageServers\PowerPlatformLS\LanguageServerHost</LanguageServerHostDir>
+    <LanguageServerPublishOutDir>$(LanguageServerHostDir)\bin\$(Configuration)\$(TargetFramework)</LanguageServerPublishOutDir>
+    <LSPWinX64>$(LanguageServerPublishOutDir)\win-x64\publish</LSPWinX64>
+    <LSPWinARM64>$(LanguageServerPublishOutDir)\win-arm64\publish</LSPWinARM64>
+    <LSPOsxX64>$(LanguageServerPublishOutDir)\osx-x64\publish</LSPOsxX64>
+    <LSPOsxARM64>$(LanguageServerPublishOutDir)\osx-arm64\publish</LSPOsxARM64>
+    <LSPLinuxX64>$(LanguageServerPublishOutDir)\linux-x64\publish</LSPLinuxX64>
+    <LSPLinuxARM64>$(LanguageServerPublishOutDir)\linux-arm64\publish</LSPLinuxARM64>
+    <PreReleaseArg>$(PreReleaseArg)</PreReleaseArg>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(LanguageServerHostDir)\LanguageServerHost.csproj" />
+  </ItemGroup>
+
+  <Target Name="LanguageServerBuild" AfterTargets="Build">
+    <Exec Command="npm run check-types" WorkingDirectory="$(WorkingDirectory)" />
+    <Exec Command="node esbuild.js --production" WorkingDirectory="$(WorkingDirectory)" />
+  </Target>
+
+  <Target Name="LanguageServerPublish" AfterTargets="LanguageServerBuild">
+    <Exec Command="dotnet publish $(LanguageServerHostDir)\LanguageServerHost.csproj -c $(Configuration) -r osx-x64 --self-contained true -p:PublishSingleFile=true" WorkingDirectory="$(WorkingDirectory)" ConsoleToMsBuild="true"/>
+    <Exec Command="dotnet publish $(LanguageServerHostDir)\LanguageServerHost.csproj -c $(Configuration) -r osx-arm64 --self-contained true -p:PublishSingleFile=true" WorkingDirectory="$(WorkingDirectory)" ConsoleToMsBuild="true"/>
+    <Exec Command="dotnet publish $(LanguageServerHostDir)\LanguageServerHost.csproj -c $(Configuration) -r linux-x64 --self-contained true -p:PublishSingleFile=true" WorkingDirectory="$(WorkingDirectory)" ConsoleToMsBuild="true"/>
+    <Exec Command="dotnet publish $(LanguageServerHostDir)\LanguageServerHost.csproj -c $(Configuration) -r linux-arm64 --self-contained true -p:PublishSingleFile=true" WorkingDirectory="$(WorkingDirectory)" ConsoleToMsBuild="true"/>
+    <Exec Command="dotnet publish $(LanguageServerHostDir)\LanguageServerHost.csproj -c $(Configuration) -r win-arm64 --self-contained true -p:PublishSingleFile=true" WorkingDirectory="$(WorkingDirectory)" ConsoleToMsBuild="true"/>
+    <Exec Command="dotnet publish $(LanguageServerHostDir)\LanguageServerHost.csproj -c $(Configuration) -r win-x64 --self-contained true -p:PublishSingleFile=true" WorkingDirectory="$(WorkingDirectory)" ConsoleToMsBuild="true"/>
+  </Target>
+
+  <Target Name="VSIXPack" AfterTargets="Pack">
+    <ItemGroup>
+      <LSPWinX64ToCopy Include="$(LSPWinX64)\LanguageServerHost.exe" />
+      <LSPWinARM64ToCopy Include="$(LSPWinARM64)\LanguageServerHost.exe" />
+      <LSPOsxX64ToCopy Include="$(LSPOsxX64)\LanguageServerHost" />
+      <LSPOsxARM64ToCopy Include="$(LSPOsxARM64)\LanguageServerHost" />
+      <LSPLinuxX64ToCopy Include="$(LSPLinuxX64)\LanguageServerHost" />
+      <LSPLinuxARM64ToCopy Include="$(LSPLinuxARM64)\LanguageServerHost" />
+    </ItemGroup>
+    <Copy SourceFiles ="@(LSPWinX64ToCopy)" DestinationFolder="$(WorkingDirectory)\lspOut\%(RecursiveDir)" />
+    <Exec Command="..\node_modules\.bin\vsce package --target win32-x64 --no-dependencies $(PreReleaseArg)" WorkingDirectory="$(WorkingDirectory)" ConsoleToMsBuild="true"/>
+    <RemoveDir Directories="$(WorkingDirectory)\lspOut\" />
+    <Copy SourceFiles ="@(LSPWinARM64ToCopy)" DestinationFolder="$(WorkingDirectory)\lspOut\%(RecursiveDir)" />
+    <Exec Command="..\node_modules\.bin\vsce package --target win32-arm64 --no-dependencies $(PreReleaseArg)" WorkingDirectory="$(WorkingDirectory)" ConsoleToMsBuild="true"/>
+    <RemoveDir Directories="$(WorkingDirectory)\lspOut\" />
+    <Copy SourceFiles ="@(LSPLinuxX64ToCopy)" DestinationFolder="$(WorkingDirectory)\lspOut\%(RecursiveDir)" />
+    <Exec Command="..\node_modules\.bin\vsce package --target linux-x64 --no-dependencies $(PreReleaseArg)" WorkingDirectory="$(WorkingDirectory)" ConsoleToMsBuild="true"/>
+    <RemoveDir Directories="$(WorkingDirectory)\lspOut\" />
+    <Copy SourceFiles ="@(LSPLinuxARM64ToCopy)" DestinationFolder="$(WorkingDirectory)\lspOut\%(RecursiveDir)" />
+    <Exec Command="..\node_modules\.bin\vsce package --target linux-arm64 --no-dependencies $(PreReleaseArg)" WorkingDirectory="$(WorkingDirectory)" ConsoleToMsBuild="true"/>
+    <RemoveDir Directories="$(WorkingDirectory)\lspOut\" />
+
+    <!-- macOS will pack x64 for both targets -->
+    <Copy SourceFiles ="@(LSPOsxX64ToCopy)" DestinationFolder="$(WorkingDirectory)\lspOut\%(RecursiveDir)" />
+    <Exec Command="..\node_modules\.bin\vsce package --target darwin-x64 --no-dependencies $(PreReleaseArg)" WorkingDirectory="$(WorkingDirectory)" ConsoleToMsBuild="true"/>
+    <Exec Command="..\node_modules\.bin\vsce package --target darwin-arm64 --no-dependencies $(PreReleaseArg)" WorkingDirectory="$(WorkingDirectory)" ConsoleToMsBuild="true"/>
+    <RemoveDir Directories="$(WorkingDirectory)\lspOut\" />
+  </Target>
+</Project>
