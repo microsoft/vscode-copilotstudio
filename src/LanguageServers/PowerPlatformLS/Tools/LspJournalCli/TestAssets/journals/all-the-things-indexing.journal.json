@@ -1,0 +1,1441 @@
+{
+  "metadata": {
+    "description": "All-the-things: open every document type, check diagnostics and completions across the full surface area.",
+    "workspaceRoot": "../fixtures/all-the-things-clean-workspace",
+    "classification": "recorded",
+    "branch": "dev/stevesteiner/testcli.2",
+    "commit": "fa6143602",
+    "timestamp": "2026-02-10T22:45:06.0036837Z",
+    "branchBase": "27b3c27f3",
+    "branchDepth": 5
+  },
+  "steps": [
+    {
+      "step": "initialize",
+      "params": {
+        "processId": 0,
+        "capabilities": {},
+        "workspaceFolders": [
+          {
+            "uri": "${workspace}",
+            "name": "all-the-things-clean-workspace"
+          }
+        ]
+      },
+      "expected": {
+        "capabilities": {
+          "codeActionProvider": {
+            "codeActionKinds": [
+              "quickfix"
+            ]
+          },
+          "completionProvider": {
+            "allCommitCharacters": [],
+            "resolveProvider": false,
+            "triggerCharacters": [
+              "\n",
+              ".",
+              ":",
+              " "
+            ]
+          },
+          "definitionProvider": true,
+          "semanticTokensProvider": {
+            "documentSelector": [
+              {
+                "language": "CopilotStudio"
+              }
+            ],
+            "full": true,
+            "legend": {
+              "tokenModifiers": [
+                "declaration",
+                "definition",
+                "readonly",
+                "static",
+                "deprecated",
+                "abstract",
+                "async",
+                "modification",
+                "documentation",
+                "defaultlibrary"
+              ],
+              "tokenTypes": [
+                "keyword",
+                "variable",
+                "function",
+                "interface",
+                "comment",
+                "namespace",
+                "type",
+                "class",
+                "enum",
+                "struct",
+                "typeparameter",
+                "parameter",
+                "property",
+                "enummember",
+                "event",
+                "method",
+                "macro",
+                "modifier",
+                "string",
+                "number",
+                "regexp",
+                "operator",
+                "decorator",
+                "default"
+              ]
+            },
+            "range": false
+          },
+          "signatureHelpProvider": {
+            "triggerCharacters": [
+              "(",
+              ","
+            ]
+          },
+          "textDocumentSync": {
+            "change": 2,
+            "openClose": true,
+            "save": {
+              "includeText": false
+            }
+          },
+          "workspace": {
+            "fileOperations": {
+              "didRename": {
+                "filters": [
+                  {
+                    "pattern": {
+                      "glob": "**/*"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "serverInfo": {
+          "name": "Power Platform Pro-Code Language Server",
+          "version": "1.0"
+        }
+      }
+    },
+    {
+      "step": "initialized"
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/Greeting.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:topics/Greeting.mcs.yml}",
+          "textHash": "sha256:d7449de5be2231420a239449ba5534e422ecf8b3d44128f7571bdc4bff840767",
+          "textBytes": 576
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/topics/Greeting.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/Greeting.mcs.yml"
+        },
+        "position": {
+          "line": 17,
+          "character": 12
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/actions/GetWeather.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:actions/GetWeather.mcs.yml}",
+          "textHash": "sha256:f2fadadae05472dece493b37d20d362ca26bbb72f7a4e4e174f874242d0bee15",
+          "textBytes": 385
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/actions/GetWeather.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/actions/GetWeather.mcs.yml"
+        },
+        "position": {
+          "line": 1,
+          "character": 6
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/variables/UserName.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:variables/UserName.mcs.yml}",
+          "textHash": "sha256:321495a5acab226c6efa1c5732df0a1ee2de7535853d717024ed713a5ebea39f",
+          "textBytes": 158
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/variables/UserName.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/entities/City.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:entities/City.mcs.yml}",
+          "textHash": "sha256:337cf3cfd1e2277fc24fdbd5717d8b2a15e686bc1cd352bafefd61f33ba1f758",
+          "textBytes": 253
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/entities/City.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/knowledge/CompanyWebsite.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:knowledge/CompanyWebsite.mcs.yml}",
+          "textHash": "sha256:f7ad1bb46c09c5bf0f8761bab9014f4a261e7b328ce310636d65340982e556fd",
+          "textBytes": 138
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/knowledge/CompanyWebsite.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/skills/EchoSkill.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:skills/EchoSkill.mcs.yml}",
+          "textHash": "sha256:cf01c38f4dc2e9254df288387b67f28a6a86c29193e88dcb8ae165e3f99e4d86",
+          "textBytes": 408
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/skills/EchoSkill.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/trigger/OnNewEmail.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:trigger/OnNewEmail.mcs.yml}",
+          "textHash": "sha256:893450e4f95847707d050f43e889eba3fb5e691c0022fc9aae0db77ef79394a8",
+          "textBytes": 679
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/trigger/OnNewEmail.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/translations/Greeting.pt-BR.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:translations/Greeting.pt-BR.mcs.yml}",
+          "textHash": "sha256:acf30b505617b44ee2c169e67f142ab898516575d254b4450a77a842bb39f902",
+          "textBytes": 406
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/translations/Greeting.pt-BR.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/settings/ContentModeration.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:settings/ContentModeration.mcs.yml}",
+          "textHash": "sha256:8d7f70f2a026098b13735bcebf2b56069c93f82ea91b2d845f93f18a3d6dbbde",
+          "textBytes": 90
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/settings/ContentModeration.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/agent.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:agent.mcs.yml}",
+          "textHash": "sha256:15267372d824f10b8bfe5a3d18f285bf2d4a4d65615b9be12feaf3b15475292f",
+          "textBytes": 80
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/agent.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/settings.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:settings.mcs.yml}",
+          "textHash": "sha256:8502790b881134c5a5fc9f3d3b76106e65d62723b29fd39c5077d2417ed29208",
+          "textBytes": 308
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/settings.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/Dotted.Display.Name.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:topics/Dotted.Display.Name.mcs.yml}",
+          "textHash": "sha256:4ed2e7a1316d20493f7b85848e82aa314d900369e30118dcdfad2ef99a1ad8a2",
+          "textBytes": 410
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/topics/Dotted.Display.Name.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/ConversationStart.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:topics/ConversationStart.mcs.yml}",
+          "textHash": "sha256:7758354f9586e0eacea588c099ff93d34ccbb2137e03581b3d351a08aec50c56",
+          "textBytes": 287
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/topics/ConversationStart.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/Fallback.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:topics/Fallback.mcs.yml}",
+          "textHash": "sha256:1443ae097416d9ae6dd6aff8219b45aad54594d9076060bcae171b3157f34394",
+          "textBytes": 296
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/topics/Fallback.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/actions/CallSubAgent.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:actions/CallSubAgent.mcs.yml}",
+          "textHash": "sha256:a983e4daa088ba05931e97e5e839363009562fc57f6f01deb17ffe6ac278bcde",
+          "textBytes": 320
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/actions/CallSubAgent.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/settings/Feedback.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:settings/Feedback.mcs.yml}",
+          "textHash": "sha256:5f4b03a9195ef68a2284480e2c30194143e30783fbfbb8fdd07a7226b1e4ba41",
+          "textBytes": 102
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/settings/Feedback.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/knowledge/files/ProductGuide.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:knowledge/files/ProductGuide.mcs.yml}",
+          "textHash": "sha256:2e27156905d9f5cd3e178b2f043c7264a7b36edf0c8da5e4ffc481f97a788afb",
+          "textBytes": 100
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/knowledge/files/ProductGuide.mcs.yml",
+            "version": 0,
+            "diagnostics": [
+              {
+                "range": {
+                  "start": {
+                    "line": 0,
+                    "character": 0
+                  },
+                  "end": {
+                    "line": 0,
+                    "character": 0
+                  }
+                },
+                "severity": 3,
+                "message": "Document was not compiled under the current Agent Definition."
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/connectionreferences.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:connectionreferences.mcs.yml}",
+          "textHash": "sha256:77fea8ef2034e2542931311e791c0a4dd275124670a52749240f88248482e173",
+          "textBytes": 342
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/connectionreferences.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/actions/RunComplianceFlow.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:actions/RunComplianceFlow.mcs.yml}",
+          "textHash": "sha256:4477138bf3f59b727491a1b0e03d36684707d6f406640ff7f7cb458ef9064a7c",
+          "textBytes": 299
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/actions/RunComplianceFlow.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/actions/RunComplianceFlow.mcs.yml"
+        },
+        "position": {
+          "line": 5,
+          "character": 8
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/entities/ZipCode.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:entities/ZipCode.mcs.yml}",
+          "textHash": "sha256:56f42eb7a4518ba8894ad8368fdf943e111861b327c2c18d4c7fd1527de12902",
+          "textBytes": 225
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/entities/ZipCode.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/entities/ZipCode.mcs.yml"
+        },
+        "position": {
+          "line": 3,
+          "character": 10
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/LoopAndBranch.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:topics/LoopAndBranch.mcs.yml}",
+          "textHash": "sha256:4cd798956177a0ddbc436cff9b91b9d43153678472dae943b70f3b2e6dec00fa",
+          "textBytes": 1602
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/topics/LoopAndBranch.mcs.yml",
+            "version": 0,
+            "diagnostics": [
+              {
+                "code": "PowerFxError",
+                "range": {
+                  "start": {
+                    "line": 16,
+                    "character": 14
+                  },
+                  "end": {
+                    "line": 16,
+                    "character": 14
+                  }
+                },
+                "severity": 1,
+                "message": "Expected an operand. The formula or expression expects a valid operand. For example, you can add the operand \u00272\u0027 to the expression \u0027 1 \u002B_\u0027 so that the result is \u00273\u0027. Or, you can add the operand \u0022there\u0022 to the expression \u0027\u0022Hi \u0022\u0026 _ \u0027 so that the result is \u0027Hi there\u0027.",
+                "data": {}
+              },
+              {
+                "code": "UnexpectedCharacter",
+                "range": {
+                  "start": {
+                    "line": 16,
+                    "character": 14
+                  },
+                  "end": {
+                    "line": 16,
+                    "character": 14
+                  }
+                },
+                "severity": 1,
+                "message": "Unexpected character in expression \u0027[\u0027",
+                "data": {}
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/LoopAndBranch.mcs.yml"
+        },
+        "position": {
+          "line": 20,
+          "character": 12
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/SignInFlow.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:topics/SignInFlow.mcs.yml}",
+          "textHash": "sha256:9ce233b1a0a03acd559f6adef1cac19203bd226473e68fa0b3e21b24f0d495ef",
+          "textBytes": 1108
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/topics/SignInFlow.mcs.yml",
+            "version": 0,
+            "diagnostics": [
+              {
+                "code": "AuthenticationInputNotEnabled",
+                "range": {
+                  "start": {
+                    "line": 14,
+                    "character": 6
+                  },
+                  "end": {
+                    "line": 18,
+                    "character": 0
+                  }
+                },
+                "severity": 1,
+                "message": "Element is invalid: AuthenticationInputNotEnabled",
+                "data": {}
+              },
+              {
+                "code": "IdentifierNotRecognized",
+                "range": {
+                  "start": {
+                    "line": 23,
+                    "character": 28
+                  },
+                  "end": {
+                    "line": 23,
+                    "character": 41
+                  }
+                },
+                "severity": 1,
+                "message": "Identifier not recognized in expression: System.SignInReason = SignInReason.SignInRequired",
+                "data": {}
+              },
+              {
+                "code": "IncompatibleTypes",
+                "range": {
+                  "start": {
+                    "line": 23,
+                    "character": 42
+                  },
+                  "end": {
+                    "line": 23,
+                    "character": 43
+                  }
+                },
+                "severity": 1,
+                "message": "Incompatible type comparison in expression \u0027System.SignInReason = SignInReason.SignInRequired\u0027",
+                "data": {}
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/SignInFlow.mcs.yml"
+        },
+        "position": {
+          "line": 16,
+          "character": 12
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/RedirectTarget.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:topics/RedirectTarget.mcs.yml}",
+          "textHash": "sha256:45692514bf5fd41d73a0bd59e9127d6540ed4ade26c6d2aed06d835afc01c5e0",
+          "textBytes": 506
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/topics/RedirectTarget.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/RedirectTarget.mcs.yml"
+        },
+        "position": {
+          "line": 7,
+          "character": 8
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/ErrorHandler.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:topics/ErrorHandler.mcs.yml}",
+          "textHash": "sha256:fba3f9f66364960a6942af3ce8455df2d613bf702b572a9e4bc97f68457f2320",
+          "textBytes": 504
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/topics/ErrorHandler.mcs.yml",
+            "version": 0,
+            "diagnostics": [
+              {
+                "code": "IdentifierNotRecognized",
+                "range": {
+                  "start": {
+                    "line": 11,
+                    "character": 49
+                  },
+                  "end": {
+                    "line": 11,
+                    "character": 63
+                  }
+                },
+                "severity": 1,
+                "message": "Identifier not recognized in expression: Topic.ErrorCode",
+                "data": {}
+              },
+              {
+                "code": "IdentifierNotRecognized",
+                "range": {
+                  "start": {
+                    "line": 17,
+                    "character": 24
+                  },
+                  "end": {
+                    "line": 17,
+                    "character": 41
+                  }
+                },
+                "severity": 1,
+                "message": "Identifier not recognized in expression: Topic.ErrorMessage",
+                "data": {}
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/ErrorHandler.mcs.yml"
+        },
+        "position": {
+          "line": 7,
+          "character": 8
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/ActivityHandler.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:topics/ActivityHandler.mcs.yml}",
+          "textHash": "sha256:7efff32942a677222b06738aa051bc8c8de06023d6fb622f28ff357b5c678501",
+          "textBytes": 868
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/topics/ActivityHandler.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/ActivityHandler.mcs.yml"
+        },
+        "position": {
+          "line": 8,
+          "character": 8
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/knowledge/TeamSite.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:knowledge/TeamSite.mcs.yml}",
+          "textHash": "sha256:013cf5e9236d72bb7a96423b56c95c7cb90e7f11bf459932c8eb037a838a9ff5",
+          "textBytes": 150
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/knowledge/TeamSite.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/knowledge/TeamSite.mcs.yml"
+        },
+        "position": {
+          "line": 2,
+          "character": 6
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/settings/Autonomous.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:settings/Autonomous.mcs.yml}",
+          "textHash": "sha256:569eab7744a0a906aff8b58e37821336dd7468eafaeb4eb9b0105947bfa41286",
+          "textBytes": 156
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/settings/Autonomous.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/settings/Autonomous.mcs.yml"
+        },
+        "position": {
+          "line": 0,
+          "character": 6
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/Greeting.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/actions/GetWeather.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/variables/UserName.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/entities/City.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/knowledge/CompanyWebsite.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/skills/EchoSkill.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/trigger/OnNewEmail.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/translations/Greeting.pt-BR.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/settings/ContentModeration.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/agent.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/settings.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/Dotted.Display.Name.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/ConversationStart.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/Fallback.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/actions/CallSubAgent.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/settings/Feedback.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/knowledge/files/ProductGuide.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/connectionreferences.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/actions/RunComplianceFlow.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/entities/ZipCode.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/LoopAndBranch.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/SignInFlow.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/RedirectTarget.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/ErrorHandler.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/ActivityHandler.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/knowledge/TeamSite.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/settings/Autonomous.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "shutdown",
+      "expected": null
+    },
+    {
+      "step": "exit"
+    }
+  ]
+}

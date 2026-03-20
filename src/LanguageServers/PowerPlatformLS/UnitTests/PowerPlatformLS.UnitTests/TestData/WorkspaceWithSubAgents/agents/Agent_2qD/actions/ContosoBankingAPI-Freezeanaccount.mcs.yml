@@ -1,0 +1,19 @@
+mcs.metadata:
+  componentName: Contoso Banking API - Freeze an account
+kind: TaskDialog
+modelDisplayName: Freeze an account
+modelDescription: This is a tool will all the user to freeze their account.
+outputs:
+  - propertyName: freezeAccount.asOfDate
+
+  - propertyName: freezeAccount.success
+
+action:
+  kind: InvokeConnectorTaskAction
+  connectionReference: crd1c_agent.shared_crd1c-5fcontoso-20banking-20api-5f099802cd293c57f0.7bcf6980a76c422e9f835d72b785b1e2
+  connectionProperties:
+    mode: Maker
+
+  operationId: FreezeAccount
+
+outputMode: All

@@ -1,0 +1,11 @@
+```CopilotStudio
+# Name: Run Device Compliance Check
+kind: TaskDialog
+modelDisplayName: Run Device Compliance Check
+modelDescription: Invokes a cloud flow to check whether a device is compliant.
+action:
+  kind: InvokeFlowTaskAction
+  flowId: 4527d3de-ecfe-4498-9036-980d4c95e5e2
+outputMode: All
+
+```

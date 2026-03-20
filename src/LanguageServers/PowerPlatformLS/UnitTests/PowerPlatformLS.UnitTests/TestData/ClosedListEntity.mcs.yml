@@ -1,0 +1,10 @@
+kind: ClosedListEntity
+items:
+  - id: 123abc
+    displayName: item1
+    
+  - id: 124bcd
+    displayName: item2
+
+  - id: 125cde
+    displayName: item3

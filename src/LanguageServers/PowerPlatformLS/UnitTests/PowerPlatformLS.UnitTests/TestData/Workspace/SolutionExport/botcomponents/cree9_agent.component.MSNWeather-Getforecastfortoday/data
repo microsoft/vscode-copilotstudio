@@ -1,0 +1,91 @@
+kind: TaskDialog
+modelDisplayName: Get forecast for today
+modelDescription: Get the forecast for the current day in the specified location.
+outputs:
+  - propertyName: responses.almanac.moonPhase
+
+  - propertyName: responses.almanac.moonPhaseCode
+
+  - propertyName: responses.almanac.moonrise
+
+  - propertyName: responses.almanac.moonset
+
+  - propertyName: responses.almanac.sunrise
+
+  - propertyName: responses.almanac.sunset
+
+  - propertyName: responses.daily.created
+
+  - propertyName: responses.daily.day.cap
+
+  - propertyName: responses.daily.day.precip
+
+  - propertyName: responses.daily.day.sky
+
+  - propertyName: responses.daily.day.summary
+
+  - propertyName: responses.daily.day.windDir
+
+  - propertyName: responses.daily.day.windSpd
+
+  - propertyName: responses.daily.day.wx
+
+  - propertyName: responses.daily.night.cap
+
+  - propertyName: responses.daily.night.precip
+
+  - propertyName: responses.daily.night.sky
+
+  - propertyName: responses.daily.night.summary
+
+  - propertyName: responses.daily.night.windDir
+
+  - propertyName: responses.daily.night.windSpd
+
+  - propertyName: responses.daily.night.wx
+
+  - propertyName: responses.daily.precip
+
+  - propertyName: responses.daily.pvdrCap
+
+  - propertyName: responses.daily.rhHi
+
+  - propertyName: responses.daily.rhLo
+
+  - propertyName: responses.daily.tempHi
+
+  - propertyName: responses.daily.tempLo
+
+  - propertyName: responses.daily.uv
+
+  - propertyName: responses.daily.uvDesc
+
+  - propertyName: responses.daily.valid
+
+  - propertyName: responses.daily.windMax
+
+  - propertyName: responses.daily.windMaxDir
+
+  - propertyName: responses.source.coordinates.lat
+
+  - propertyName: responses.source.coordinates.lon
+
+  - propertyName: responses.source.location
+
+  - propertyName: units.distance
+
+  - propertyName: units.pressure
+
+  - propertyName: units.speed
+
+  - propertyName: units.temperature
+
+action:
+  kind: InvokeConnectorTaskAction
+  connectionReference: cree9_agent.shared_msnweather.shared-msnweather-4e8ecf5b-577c-4ad7-8064-ece8ede72e26
+  connectionProperties:
+    mode: Invoker
+
+  operationId: TodaysForecast
+
+outputMode: All

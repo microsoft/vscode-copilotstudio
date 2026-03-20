@@ -1,0 +1,7 @@
+kind: AdaptiveDialog
+beginDialog:
+  kind: OnInvokedAction
+  actions:
+    - kind: SetVariable
+      variable: Topic.MyVar
+      value: "=42"

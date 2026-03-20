@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Microsoft.PowerPlatformLS.Tools.LspJournalCli.UnitTests</AssemblyName>
+    <RootNamespace>Microsoft.PowerPlatformLS.Tools.LspJournalCli.UnitTests</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\LspJournalCli\LspJournalCli.csproj" />
+  </ItemGroup>
+
+</Project>

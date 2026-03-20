@@ -1,0 +1,36 @@
+mcs.metadata:
+  componentName: Greeting
+  description: This topic is triggered when the user greets the agent.
+kind: AdaptiveDialog
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent:
+    displayName: Greeting
+    includeInOnSelectIntent: false
+    triggerQueries:
+      - Good afternoon
+      - Good morning
+      - Hello
+      - Hey
+      - Hi
+
+  actions:
+    - kind: SendActivity
+      id: sendActivity_lM88KW
+      activity: "Env Var test: {Env.msdyn_SLAWebClientDeprecationAcknowledge  > 100}. The end"
+
+    - kind: SendActivity
+      id: sendMessage_abmysR
+      activity:
+        text:
+          - Hello, how can I help you today?{Env.msdyn_SLAWebClientDeprecationAcknowledge}
+        speak:
+          - Hello, <break strength="medium" /> how can I help?
+
+    - kind: BeginDialog
+      id: uWEd54
+      dialog: cr924_agentMXECGF.topic.CC_Topic1
+
+    - kind: CancelAllDialogs
+      id: cancelAllDialogs_01At22

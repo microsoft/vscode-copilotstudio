@@ -1,0 +1,24 @@
+﻿<botcomponent schemaname="cree9_agent.skill.CopilotStudioEchoSkill">
+  <componenttype>21</componenttype>
+  <name>CopilotStudioEchoSkill</name>
+  <description>Echo messages from user</description>
+  <iscustomizable>0</iscustomizable>
+  <parentbotid>
+    <schemaname>cree9_agent</schemaname>
+  </parentbotid>
+  <statecode>0</statecode>
+  <statuscode>1</statuscode>
+  <skilldefinition>
+    <manifestversion>1.0</manifestversion>
+    <privacypolicy>https://microsoft.com/</privacypolicy>
+    <appid schemaname="cree9_agent.skill.CopilotStudioEchoSkill.AppId" />
+    <appendpoint schemaname="cree9_agent.skill.CopilotStudioEchoSkill.AppEndpoint" />
+    <actions>
+      <action>
+        <activitytype>message</activitytype>
+        <actionid>message</actionid>
+        <title>Echo messages from user</title>
+      </action>
+    </actions>
+  </skilldefinition>
+</botcomponent>

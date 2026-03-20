@@ -1,0 +1,26 @@
+<ImportExportXml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" OrganizationVersion="9.2.25033.32" OrganizationSchemaType="Standard" CRMServerServiceabilityVersion="9.2.25033.00034">
+  <Entities></Entities>
+  <Roles></Roles>
+  <Workflows></Workflows>
+  <FieldSecurityProfiles></FieldSecurityProfiles>
+  <Templates />
+  <EntityMaps />
+  <EntityRelationships />
+  <OrganizationSettings />
+  <optionsets />
+  <CustomControls />
+  <EntityDataProviders />
+  <connectionreferences>
+    <connectionreference connectionreferencelogicalname="cree9_agent.shared_msnweather.shared-msnweather-4e8ecf5b-577c-4ad7-8064-ece8ede72e26">
+      <connectionreferencedisplayname>cree9_agent.shared_msnweather.shared-msnweather-4e8ecf5b-577c-4ad7-8064-ece8ede72e26</connectionreferencedisplayname>
+      <connectorid>/providers/Microsoft.PowerApps/apis/shared_msnweather</connectorid>
+      <iscustomizable>0</iscustomizable>
+      <promptingbehavior>0</promptingbehavior>
+      <statecode>0</statecode>
+      <statuscode>1</statuscode>
+    </connectionreference>
+  </connectionreferences>
+  <Languages>
+    <Language>1033</Language>
+  </Languages>
+</ImportExportXml>

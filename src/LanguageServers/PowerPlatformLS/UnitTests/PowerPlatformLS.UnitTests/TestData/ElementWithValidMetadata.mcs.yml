@@ -1,0 +1,10 @@
+mcs.metadata:
+  componentName: Book 1.xlsx
+  description: |-
+    This knowledge source provides information found in SharePoint.
+    The information is retrieved by performing a search.
+kind: KnowledgeSourceConfiguration
+# Note: This is comment note for source
+source:
+  kind: SharePointSearchSource
+  site: https://asdkt2-my.sharepoint.com/personal/nguhoa_asdkt2_onmicrosoft_com/Documents/Book1.xlsx

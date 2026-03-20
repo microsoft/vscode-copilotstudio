@@ -1,0 +1,1119 @@
+{
+  "metadata": {
+    "description": "Completion depth: property-key in nested contexts, enum-value after change, and all four trigger-character variants.",
+    "workspaceRoot": "../fixtures/all-the-things-clean-workspace",
+    "classification": "recorded",
+    "branch": "dev/stevesteiner/migrate.4",
+    "commit": "292d97d68",
+    "timestamp": "2026-02-13T04:46:01.6524784Z",
+    "branchBase": "2d59832ef",
+    "branchDepth": 2
+  },
+  "steps": [
+    {
+      "step": "initialize",
+      "params": {
+        "processId": 0,
+        "capabilities": {},
+        "workspaceFolders": [
+          {
+            "uri": "${workspace}",
+            "name": "all-the-things-clean-workspace"
+          }
+        ]
+      },
+      "expected": {
+        "capabilities": {
+          "codeActionProvider": {
+            "codeActionKinds": [
+              "quickfix"
+            ]
+          },
+          "completionProvider": {
+            "allCommitCharacters": [],
+            "resolveProvider": false,
+            "triggerCharacters": [
+              "\n",
+              ".",
+              ":",
+              " "
+            ]
+          },
+          "definitionProvider": true,
+          "semanticTokensProvider": {
+            "documentSelector": [
+              {
+                "language": "CopilotStudio"
+              }
+            ],
+            "full": true,
+            "legend": {
+              "tokenModifiers": [
+                "declaration",
+                "definition",
+                "readonly",
+                "static",
+                "deprecated",
+                "abstract",
+                "async",
+                "modification",
+                "documentation",
+                "defaultlibrary"
+              ],
+              "tokenTypes": [
+                "keyword",
+                "variable",
+                "function",
+                "interface",
+                "comment",
+                "namespace",
+                "type",
+                "class",
+                "enum",
+                "struct",
+                "typeparameter",
+                "parameter",
+                "property",
+                "enummember",
+                "event",
+                "method",
+                "macro",
+                "modifier",
+                "string",
+                "number",
+                "regexp",
+                "operator",
+                "decorator",
+                "default"
+              ]
+            },
+            "range": false
+          },
+          "signatureHelpProvider": {
+            "triggerCharacters": [
+              "(",
+              ","
+            ]
+          },
+          "textDocumentSync": {
+            "change": 2,
+            "openClose": true,
+            "save": {
+              "includeText": false
+            }
+          },
+          "workspace": {
+            "fileOperations": {
+              "didRename": {
+                "filters": [
+                  {
+                    "pattern": {
+                      "glob": "**/*"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "serverInfo": {
+          "name": "Power Platform Pro-Code Language Server",
+          "version": "1.0"
+        }
+      }
+    },
+    {
+      "step": "initialized"
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/RichActions.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:topics/RichActions.mcs.yml}",
+          "textHash": "sha256:2bb28e410c507b41371a204fee1949a3672435015aa944b67520a3103073b063",
+          "textBytes": 1203
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/topics/RichActions.mcs.yml",
+            "version": 0,
+            "diagnostics": [
+              {
+                "code": "UnknownElementError",
+                "range": {
+                  "start": {
+                    "line": 18,
+                    "character": 6
+                  },
+                  "end": {
+                    "line": 33,
+                    "character": 0
+                  }
+                },
+                "severity": 1,
+                "message": "Node is unknown to the system",
+                "data": {}
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/Greeting.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:topics/Greeting.mcs.yml}",
+          "textHash": "sha256:d7449de5be2231420a239449ba5534e422ecf8b3d44128f7571bdc4bff840767",
+          "textBytes": 576
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/topics/Greeting.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/variables/UserName.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:variables/UserName.mcs.yml}",
+          "textHash": "sha256:321495a5acab226c6efa1c5732df0a1ee2de7535853d717024ed713a5ebea39f",
+          "textBytes": 158
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/variables/UserName.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ]
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/RichActions.mcs.yml"
+        },
+        "position": {
+          "line": 14,
+          "character": 6
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": [
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "id: ",
+            "preselect": true,
+            "sortText": "0id",
+            "textEdit": {
+              "newText": "id",
+              "range": {
+                "end": {
+                  "character": 8,
+                  "line": 14
+                },
+                "start": {
+                  "character": 6,
+                  "line": 14
+                }
+              }
+            }
+          },
+          {
+            "detail": "Variable",
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "variable: ",
+            "sortText": "2variable",
+            "textEdit": {
+              "newText": "variable",
+              "range": {
+                "end": {
+                  "character": 8,
+                  "line": 14
+                },
+                "start": {
+                  "character": 6,
+                  "line": 14
+                }
+              }
+            }
+          },
+          {
+            "detail": "Value",
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "value: ",
+            "sortText": "2value",
+            "textEdit": {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 8,
+                  "line": 14
+                },
+                "start": {
+                  "character": 6,
+                  "line": 14
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "disabled: ",
+            "sortText": "3disabled",
+            "textEdit": {
+              "newText": "disabled",
+              "range": {
+                "end": {
+                  "character": 8,
+                  "line": 14
+                },
+                "start": {
+                  "character": 6,
+                  "line": 14
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "conversationOutcome: ",
+            "sortText": "3conversationOutcome",
+            "textEdit": {
+              "newText": "conversationOutcome",
+              "range": {
+                "end": {
+                  "character": 8,
+                  "line": 14
+                },
+                "start": {
+                  "character": 6,
+                  "line": 14
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "displayName: ",
+            "sortText": "3displayName",
+            "textEdit": {
+              "newText": "displayName",
+              "range": {
+                "end": {
+                  "character": 8,
+                  "line": 14
+                },
+                "start": {
+                  "character": 6,
+                  "line": 14
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "note: ",
+            "sortText": "3note",
+            "textEdit": {
+              "newText": "note",
+              "range": {
+                "end": {
+                  "character": 8,
+                  "line": 14
+                },
+                "start": {
+                  "character": 6,
+                  "line": 14
+                }
+              }
+            }
+          }
+        ]
+      },
+      "review": "stale",
+      "reviewNote": "Property-key completion inside SetVariable action (nested context beyond smoke-test) [baseline changed \u2014 re-review needed]"
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/RichActions.mcs.yml"
+        },
+        "position": {
+          "line": 22,
+          "character": 8
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": [
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "properties: \n  ",
+            "preselect": true,
+            "sortText": "3properties"
+          }
+        ]
+      },
+      "review": "stale",
+      "reviewNote": "Property-key completion inside deeply-nested IfCondition \u2192 actions list [baseline changed \u2014 re-review needed]"
+    },
+    {
+      "step": "change",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/RichActions.mcs.yml",
+          "version": 2
+        },
+        "contentChanges": [
+          {
+            "range": {
+              "start": {
+                "line": 13,
+                "character": 12
+              },
+              "end": {
+                "line": 13,
+                "character": 23
+              }
+            },
+            "text": ""
+          }
+        ]
+      },
+      "reviewNote": "Clear kind value on SetVariable action to test enum completion after edit"
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/RichActions.mcs.yml"
+        },
+        "position": {
+          "line": 13,
+          "character": 12
+        },
+        "context": {
+          "triggerKind": 1
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": [
+          {
+            "detail": "Action",
+            "documentation": "Invokes a Power Automate flow, possibly with inputs and outputs.",
+            "label": "InvokeFlowAction"
+          },
+          {
+            "detail": "Prompt",
+            "documentation": "Invokes an AI Builder prompt, possibly with inputs and outputs.",
+            "label": "InvokeAIBuilderModelAction"
+          },
+          {
+            "detail": "Wait for connector trigger",
+            "documentation": "wait for a connector\u0027s trigger to fire, possibly with inputs and outputs.",
+            "label": "WaitForConnectorTrigger"
+          },
+          {
+            "detail": "Connector action",
+            "documentation": "Invokes a connector\u0027s operation, possibly with inputs and outputs.",
+            "label": "InvokeConnectorAction"
+          },
+          {
+            "detail": "Action",
+            "documentation": "Invokes a Skill action, possibly with inputs and outputs.",
+            "label": "InvokeSkillAction"
+          },
+          {
+            "detail": "Adaptive Card",
+            "documentation": "Send an adaptive card to the user and save the response in a variable. You can also use this node to validate user input and reprompt if the input doesn\u0027t meet certain criteria.",
+            "label": "AdaptiveCardPrompt"
+          },
+          {
+            "detail": "Question",
+            "documentation": "Ask a question and save the response in a variable. You can also use this node to validate user input and reprompt if the input doesn\u0027t meet certain criteria.",
+            "label": "Question"
+          },
+          {
+            "detail": "CSAT Question",
+            "documentation": "Asks the user for a rating between 1 and 5. CSAT stands for customer satisfaction score",
+            "label": "CSATQuestion"
+          },
+          {
+            "detail": "Authenticate",
+            "documentation": "Prompts the user to sign in.",
+            "label": "OAuthInput"
+          },
+          {
+            "detail": "A sequence of actions to execute. Action scopes should not be added to a topic explicitly, it is used as part of conditions and loops.",
+            "documentation": "Action scope",
+            "label": "ActionScope"
+          },
+          {
+            "detail": "Loop through a list",
+            "documentation": "Executes a set of actions for each item in the provided list.",
+            "label": "Foreach"
+          },
+          {
+            "detail": "Redirect",
+            "label": "BeginDialog"
+          },
+          {
+            "detail": "Repeat topic",
+            "documentation": "Repeats the current dialog from the start, clearing all existing variables.",
+            "label": "RepeatDialog"
+          },
+          {
+            "detail": "ActivateExternalTrigger",
+            "documentation": "Enable an external trigger for the user. Will do not do anything if the trigger is already enabled.",
+            "label": "ActivateExternalTrigger"
+          },
+          {
+            "documentation": "Action which un-registers an external trigger based topic",
+            "label": "DisableTrigger"
+          },
+          {
+            "detail": "Replace current topic",
+            "label": "ReplaceDialog"
+          },
+          {
+            "detail": "End all topics",
+            "documentation": "Ends all current topics.",
+            "label": "CancelAllDialogs"
+          },
+          {
+            "detail": "End this topic",
+            "documentation": "Ends the current topic.",
+            "label": "CancelDialog"
+          },
+          {
+            "detail": "Clear variable values",
+            "label": "ClearAllVariables"
+          },
+          {
+            "detail": "End loop",
+            "documentation": "Used inside loops, such as for each item, to immediately exit the loop.",
+            "label": "BreakLoop"
+          },
+          {
+            "detail": "Skip to next item",
+            "documentation": "Used inside loops, such as for each item, to skip to the next item.",
+            "label": "ContinueLoop"
+          },
+          {
+            "detail": "Reset variable",
+            "documentation": "Resets the value of a variable, potentially causing re-evaluation of the default value, question or action that provides the value to this variable.",
+            "label": "ResetVariable"
+          },
+          {
+            "detail": "Modify items in a list",
+            "label": "EditTable"
+          },
+          {
+            "detail": "Modify items in a list",
+            "documentation": "Add, remove or take items from a list variable. Depending on the change type, this action can add an item to the end of the list, take an item from the beginning or the end of the list, remove an item from anywhere in the list, or clear all items from the list.",
+            "label": "EditTableV2"
+          },
+          {
+            "label": "EmitEvent"
+          },
+          {
+            "detail": "End current topic",
+            "documentation": "Ends the current dialog topic and returns control to the caller.",
+            "label": "EndDialog"
+          },
+          {
+            "detail": "Get activity members",
+            "label": "GetActivityMembers"
+          },
+          {
+            "detail": "Get conversation members",
+            "label": "GetConversationMembers"
+          },
+          {
+            "detail": "Go to action",
+            "label": "GotoAction"
+          },
+          {
+            "detail": "HTTP Request",
+            "documentation": "Choose a REST API to invoke/sends an HTTP request to an external endpoint.",
+            "label": "HttpRequestAction"
+          },
+          {
+            "detail": "Condition",
+            "label": "ConditionGroup"
+          },
+          {
+            "detail": "End conversation",
+            "documentation": "End the conversation when the user is done interacting with the bot or when the bot can\u0027t help the user any further. Channel-specific behavior applies when conversations end. For telephony, the call will hang up.",
+            "label": "EndConversation"
+          },
+          {
+            "detail": "Recognize intent",
+            "documentation": "Identifies the intent of the provided input and starts a new conversational flow",
+            "label": "RecognizeIntent"
+          },
+          {
+            "detail": "Send activity",
+            "label": "SendActivity"
+          },
+          {
+            "detail": "Transfer conversation",
+            "documentation": "Transfers the conversation to an external system.",
+            "label": "TransferConversation"
+          },
+          {
+            "detail": "Transfer conversation",
+            "documentation": "Transfers the conversation to an external system.",
+            "label": "TransferConversationV2"
+          },
+          {
+            "detail": "Set variable value",
+            "documentation": "Sets a variable to a provided value",
+            "label": "SetVariable"
+          },
+          {
+            "detail": "Set variables",
+            "documentation": "Sets variables to provided values",
+            "label": "SetMultipleVariables"
+          },
+          {
+            "detail": "Set text variable",
+            "documentation": "Sets a variable to a value that is translated when the bot\u0027s message content is translated.",
+            "label": "SetTextVariable"
+          },
+          {
+            "detail": "Parse value",
+            "documentation": "Parses a string or untyped value to the provided data type. When the input is a string, it will be treated as JSON.",
+            "label": "ParseValue"
+          },
+          {
+            "detail": "Sign out user",
+            "documentation": "Signs out the currently signed in user",
+            "label": "SignOutUser"
+          },
+          {
+            "detail": "Log custom telemetry event",
+            "label": "LogCustomTelemetryEvent"
+          },
+          {
+            "detail": "Delete activity",
+            "label": "DeleteActivity"
+          },
+          {
+            "detail": "Update activity",
+            "label": "UpdateActivity"
+          },
+          {
+            "label": "DisconnectedNodeContainer"
+          },
+          {
+            "detail": "Create search query",
+            "documentation": "Produces a search query using the conversation history and the user input.",
+            "label": "CreateSearchQuery"
+          },
+          {
+            "detail": "Custom search",
+            "documentation": "Creates search queries based on the knowledge sources selected below. This action doesn\u0027t summarize information",
+            "label": "SearchKnowledgeSources"
+          },
+          {
+            "detail": "Create generative answers",
+            "documentation": "Search for content or provide your own context, use a custom model to create a summarized response using the provided data.",
+            "label": "SearchAndSummarizeWithCustomModel"
+          },
+          {
+            "detail": "Create generative answers",
+            "documentation": "Search for content or provide your own context, use OpenAI to create a summarized response using the provided data.",
+            "label": "SearchAndSummarizeContent"
+          },
+          {
+            "detail": "Answer question with AI",
+            "documentation": "Uses AI to continue a conversation. Includes recent interactions between the user and the bot.",
+            "label": "AnswerQuestionWithAI"
+          },
+          {
+            "detail": "Action with custom model",
+            "label": "InvokeCustomModelAction"
+          }
+        ]
+      },
+      "review": "stale",
+      "reviewNote": "Enum-value completion for action kind after clearing value via change step [baseline changed \u2014 re-review needed]"
+    },
+    {
+      "step": "change",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/RichActions.mcs.yml",
+          "version": 3
+        },
+        "contentChanges": [
+          {
+            "range": {
+              "start": {
+                "line": 13,
+                "character": 12
+              },
+              "end": {
+                "line": 13,
+                "character": 12
+              }
+            },
+            "text": "SetVariable"
+          }
+        ]
+      },
+      "reviewNote": "Restore kind value to SetVariable"
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/RichActions.mcs.yml"
+        },
+        "position": {
+          "line": 4,
+          "character": 7
+        },
+        "context": {
+          "triggerKind": 2,
+          "triggerCharacter": ":"
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": []
+      },
+      "review": "stale",
+      "reviewNote": "Trigger-character \u0027:\u0027 \u2014 after kind: in beginDialog block (should offer dialog-kind enum values) [baseline changed \u2014 re-review needed]"
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/variables/UserName.mcs.yml"
+        },
+        "position": {
+          "line": 3,
+          "character": 7
+        },
+        "context": {
+          "triggerKind": 2,
+          "triggerCharacter": " "
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": [
+          {
+            "detail": "Dialog",
+            "kind": 19,
+            "label": "Dialog",
+            "textEdit": {
+              "newText": "Dialog",
+              "range": {
+                "end": {
+                  "character": 11,
+                  "line": 3
+                },
+                "start": {
+                  "character": 7,
+                  "line": 3
+                }
+              }
+            }
+          },
+          {
+            "detail": "Conversation",
+            "kind": 19,
+            "label": "Conversation",
+            "textEdit": {
+              "newText": "Conversation",
+              "range": {
+                "end": {
+                  "character": 11,
+                  "line": 3
+                },
+                "start": {
+                  "character": 7,
+                  "line": 3
+                }
+              }
+            }
+          },
+          {
+            "detail": "User",
+            "kind": 19,
+            "label": "User",
+            "textEdit": {
+              "newText": "User",
+              "range": {
+                "end": {
+                  "character": 11,
+                  "line": 3
+                },
+                "start": {
+                  "character": 7,
+                  "line": 3
+                }
+              }
+            }
+          },
+          {
+            "detail": "Environment",
+            "kind": 19,
+            "label": "Environment",
+            "textEdit": {
+              "newText": "Environment",
+              "range": {
+                "end": {
+                  "character": 11,
+                  "line": 3
+                },
+                "start": {
+                  "character": 7,
+                  "line": 3
+                }
+              }
+            }
+          }
+        ]
+      },
+      "review": "stale",
+      "reviewNote": "Trigger-character \u0027 \u0027 (space) \u2014 after scope: on UserName variable (should offer scope enum values) [baseline changed \u2014 re-review needed]"
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/RichActions.mcs.yml"
+        },
+        "position": {
+          "line": 15,
+          "character": 23
+        },
+        "context": {
+          "triggerKind": 2,
+          "triggerCharacter": "."
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": [
+          {
+            "kind": 19,
+            "label": "Topic.",
+            "textEdit": {
+              "newText": "Topic.",
+              "range": {
+                "end": {
+                  "character": 33,
+                  "line": 15
+                },
+                "start": {
+                  "character": 16,
+                  "line": 15
+                }
+              }
+            }
+          },
+          {
+            "kind": 19,
+            "label": "Global.",
+            "textEdit": {
+              "newText": "Global.",
+              "range": {
+                "end": {
+                  "character": 33,
+                  "line": 15
+                },
+                "start": {
+                  "character": 16,
+                  "line": 15
+                }
+              }
+            }
+          },
+          {
+            "kind": 19,
+            "label": "System.",
+            "textEdit": {
+              "newText": "System.",
+              "range": {
+                "end": {
+                  "character": 33,
+                  "line": 15
+                },
+                "start": {
+                  "character": 16,
+                  "line": 15
+                }
+              }
+            }
+          },
+          {
+            "kind": 19,
+            "label": "init:Topic.",
+            "textEdit": {
+              "newText": "init:Topic.",
+              "range": {
+                "end": {
+                  "character": 33,
+                  "line": 15
+                },
+                "start": {
+                  "character": 16,
+                  "line": 15
+                }
+              }
+            }
+          },
+          {
+            "kind": 19,
+            "label": "init:Global.",
+            "textEdit": {
+              "newText": "init:Global.",
+              "range": {
+                "end": {
+                  "character": 33,
+                  "line": 15
+                },
+                "start": {
+                  "character": 16,
+                  "line": 15
+                }
+              }
+            }
+          },
+          {
+            "kind": 19,
+            "label": "init:System.",
+            "textEdit": {
+              "newText": "init:System.",
+              "range": {
+                "end": {
+                  "character": 33,
+                  "line": 15
+                },
+                "start": {
+                  "character": 16,
+                  "line": 15
+                }
+              }
+            }
+          }
+        ]
+      },
+      "review": "stale",
+      "reviewNote": "Trigger-character \u0027.\u0027 (dot) \u2014 after Global. in variable reference (should offer member completions) [baseline changed \u2014 re-review needed]"
+    },
+    {
+      "step": "completion",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/Greeting.mcs.yml"
+        },
+        "position": {
+          "line": 24,
+          "character": 0
+        },
+        "context": {
+          "triggerKind": 2,
+          "triggerCharacter": "\n"
+        }
+      },
+      "expected": {
+        "isIncomplete": false,
+        "items": [
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "confirmation: \n  ",
+            "preselect": true,
+            "sortText": "3confirmation"
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "response: \n  ",
+            "sortText": "3response"
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "inputs: \n  ",
+            "sortText": "3inputs"
+          },
+          {
+            "detail": "Model Display Name",
+            "documentation": "Overrides the display name of this component when used by AI models.",
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "modelDisplayName: ",
+            "sortText": "3modelDisplayName"
+          },
+          {
+            "detail": "Model Description",
+            "documentation": "Overrides the description of this component when used by AI models.",
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "modelDescription: ",
+            "sortText": "3modelDescription"
+          },
+          {
+            "documentation": "The recognizer used to process input. By default, the Power Virtual Agents recognizer is used.",
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "recognizer: \n  ",
+            "sortText": "3recognizer"
+          },
+          {
+            "documentation": "A list of triggers that are evaluated when this topic is active or on the stack.",
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "triggers: \n  ",
+            "sortText": "3triggers"
+          },
+          {
+            "detail": "End automatically",
+            "documentation": "Defines whether the topic should automatically exit when the end of the dialog is reached. This is enabled by default and should only be disabled when additonal triggers have been defined on this topic.",
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "endAutomatically: ",
+            "sortText": "3endAutomatically"
+          },
+          {
+            "detail": "Start behavior",
+            "documentation": "Control how this topic starts",
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "startBehavior: ",
+            "sortText": "3startBehavior"
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "beginDialog: \n  ",
+            "sortText": "3beginDialog"
+          },
+          {
+            "detail": "Inputs",
+            "documentation": "Schema for the inputs to this dialog.",
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "inputType: \n  ",
+            "sortText": "3inputType"
+          },
+          {
+            "detail": "Outputs",
+            "documentation": "Schema for the results of this dialog.",
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "outputType: \n  ",
+            "sortText": "3outputType"
+          },
+          {
+            "documentation": "For internal use only",
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "conversionMetadata: \n  ",
+            "sortText": "3conversionMetadata"
+          }
+        ]
+      },
+      "review": "stale",
+      "reviewNote": "Trigger-character \u0027\\n\u0027 (newline) \u2014 on empty line inside actions block (should offer action-level completions) [baseline changed \u2014 re-review needed]"
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/RichActions.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/Greeting.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/variables/UserName.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "shutdown",
+      "expected": null
+    },
+    {
+      "step": "exit"
+    }
+  ]
+}

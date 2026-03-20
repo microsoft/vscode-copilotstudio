@@ -1,0 +1,10 @@
+# Name: Call Sub Agent
+# Invokes a connected sub-agent for delegation.
+kind: TaskDialog
+modelDisplayName: Call Sub Agent
+modelDescription: Delegates the conversation to a specialized sub-agent.
+action:
+  kind: InvokeConnectedAgentTaskAction
+  botSchemaName: test_subagent_01
+  historyType:
+    kind: ConversationHistory

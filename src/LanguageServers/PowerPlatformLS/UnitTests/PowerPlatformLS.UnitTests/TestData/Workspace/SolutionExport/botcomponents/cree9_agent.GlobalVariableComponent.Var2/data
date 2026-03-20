@@ -1,0 +1,7 @@
+# Name: Var2
+kind: Variable
+name: Var2
+scope: User
+isExternalInitializationAllowed: false
+initializationTimeoutInMilliseconds: 0
+aIVisibility: Hidden

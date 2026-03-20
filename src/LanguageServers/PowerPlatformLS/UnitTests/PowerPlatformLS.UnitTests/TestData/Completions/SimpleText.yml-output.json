@@ -1,0 +1,326 @@
+[
+  {
+    "label": "knowledgeSources: \n  ",
+    "kind": 9,
+    "sortText": "1knowledgeSources",
+    "preselect": true,
+    "insertTextMode": 2,
+    "textEdit": {
+      "range": {
+        "start": {
+          "line": 0,
+          "character": 0
+        },
+        "end": {
+          "line": 0,
+          "character": 1
+        }
+      },
+      "newText": "knowledgeSources"
+    }
+  },
+  {
+    "label": "name: ",
+    "kind": 9,
+    "sortText": "3name",
+    "insertTextMode": 2,
+    "textEdit": {
+      "range": {
+        "start": {
+          "line": 0,
+          "character": 0
+        },
+        "end": {
+          "line": 0,
+          "character": 1
+        }
+      },
+      "newText": "name"
+    }
+  },
+  {
+    "label": "displayName: ",
+    "kind": 9,
+    "sortText": "3displayName",
+    "insertTextMode": 2,
+    "textEdit": {
+      "range": {
+        "start": {
+          "line": 0,
+          "character": 0
+        },
+        "end": {
+          "line": 0,
+          "character": 1
+        }
+      },
+      "newText": "displayName"
+    }
+  },
+  {
+    "label": "description: ",
+    "kind": 9,
+    "sortText": "3description",
+    "insertTextMode": 2,
+    "textEdit": {
+      "range": {
+        "start": {
+          "line": 0,
+          "character": 0
+        },
+        "end": {
+          "line": 0,
+          "character": 1
+        }
+      },
+      "newText": "description"
+    }
+  },
+  {
+    "label": "metadata: ",
+    "kind": 9,
+    "sortText": "3metadata",
+    "insertTextMode": 2,
+    "textEdit": {
+      "range": {
+        "start": {
+          "line": 0,
+          "character": 0
+        },
+        "end": {
+          "line": 0,
+          "character": 1
+        }
+      },
+      "newText": "metadata"
+    }
+  },
+  {
+    "label": "inputType: \n  ",
+    "kind": 9,
+    "sortText": "3inputType",
+    "insertTextMode": 2,
+    "textEdit": {
+      "range": {
+        "start": {
+          "line": 0,
+          "character": 0
+        },
+        "end": {
+          "line": 0,
+          "character": 1
+        }
+      },
+      "newText": "inputType"
+    }
+  },
+  {
+    "label": "outputType: \n  ",
+    "kind": 9,
+    "sortText": "3outputType",
+    "insertTextMode": 2,
+    "textEdit": {
+      "range": {
+        "start": {
+          "line": 0,
+          "character": 0
+        },
+        "end": {
+          "line": 0,
+          "character": 1
+        }
+      },
+      "newText": "outputType"
+    }
+  },
+  {
+    "label": "historyType: \n  ",
+    "kind": 9,
+    "sortText": "3historyType",
+    "insertTextMode": 2,
+    "textEdit": {
+      "range": {
+        "start": {
+          "line": 0,
+          "character": 0
+        },
+        "end": {
+          "line": 0,
+          "character": 1
+        }
+      },
+      "newText": "historyType"
+    }
+  },
+  {
+    "label": "model: \n  ",
+    "kind": 9,
+    "sortText": "3model",
+    "insertTextMode": 2,
+    "textEdit": {
+      "range": {
+        "start": {
+          "line": 0,
+          "character": 0
+        },
+        "end": {
+          "line": 0,
+          "character": 1
+        }
+      },
+      "newText": "model"
+    }
+  },
+  {
+    "label": "instructions: ",
+    "kind": 9,
+    "sortText": "3instructions",
+    "insertTextMode": 2,
+    "textEdit": {
+      "range": {
+        "start": {
+          "line": 0,
+          "character": 0
+        },
+        "end": {
+          "line": 0,
+          "character": 1
+        }
+      },
+      "newText": "instructions"
+    }
+  },
+  {
+    "label": "responseInstructions: ",
+    "kind": 9,
+    "sortText": "3responseInstructions",
+    "insertTextMode": 2,
+    "textEdit": {
+      "range": {
+        "start": {
+          "line": 0,
+          "character": 0
+        },
+        "end": {
+          "line": 0,
+          "character": 1
+        }
+      },
+      "newText": "responseInstructions"
+    }
+  },
+  {
+    "label": "template: \n  ",
+    "kind": 9,
+    "sortText": "3template",
+    "insertTextMode": 2,
+    "textEdit": {
+      "range": {
+        "start": {
+          "line": 0,
+          "character": 0
+        },
+        "end": {
+          "line": 0,
+          "character": 1
+        }
+      },
+      "newText": "template"
+    }
+  },
+  {
+    "label": "tools: \n  ",
+    "kind": 9,
+    "sortText": "3tools",
+    "insertTextMode": 2,
+    "textEdit": {
+      "range": {
+        "start": {
+          "line": 0,
+          "character": 0
+        },
+        "end": {
+          "line": 0,
+          "character": 1
+        }
+      },
+      "newText": "tools"
+    }
+  },
+  {
+    "label": "fileSearchDataSource: \n  ",
+    "kind": 9,
+    "sortText": "3fileSearchDataSource",
+    "insertTextMode": 2,
+    "textEdit": {
+      "range": {
+        "start": {
+          "line": 0,
+          "character": 0
+        },
+        "end": {
+          "line": 0,
+          "character": 1
+        }
+      },
+      "newText": "fileSearchDataSource"
+    }
+  },
+  {
+    "label": "gptCapabilities: \n  ",
+    "kind": 9,
+    "sortText": "3gptCapabilities",
+    "insertTextMode": 2,
+    "textEdit": {
+      "range": {
+        "start": {
+          "line": 0,
+          "character": 0
+        },
+        "end": {
+          "line": 0,
+          "character": 1
+        }
+      },
+      "newText": "gptCapabilities"
+    }
+  },
+  {
+    "label": "conversationStarters: \n  ",
+    "kind": 9,
+    "sortText": "3conversationStarters",
+    "insertTextMode": 2,
+    "textEdit": {
+      "range": {
+        "start": {
+          "line": 0,
+          "character": 0
+        },
+        "end": {
+          "line": 0,
+          "character": 1
+        }
+      },
+      "newText": "conversationStarters"
+    }
+  },
+  {
+    "label": "aISettings: \n  ",
+    "kind": 9,
+    "sortText": "3aISettings",
+    "insertTextMode": 2,
+    "textEdit": {
+      "range": {
+        "start": {
+          "line": 0,
+          "character": 0
+        },
+        "end": {
+          "line": 0,
+          "character": 1
+        }
+      },
+      "newText": "aISettings"
+    }
+  }
+]

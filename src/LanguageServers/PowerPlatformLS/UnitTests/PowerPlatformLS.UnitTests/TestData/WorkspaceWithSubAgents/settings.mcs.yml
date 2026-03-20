@@ -1,0 +1,25 @@
+﻿displayName: Contoso Checking
+schemaName: crd1c_agent
+accessControlPolicy: ChatbotReaders
+authenticationMode: Integrated
+authenticationTrigger: Always
+configuration:
+  settings:
+    GenerativeActionsEnabled: true
+
+  isAgentConnectable: true
+  gPTSettings:
+    defaultSchemaName: crd1c_agent.gpt.default
+
+  aISettings:
+    useModelKnowledge: false
+    isFileAnalysisEnabled: true
+    isSemanticSearchEnabled: true
+    contentModeration: High
+    optInUseLatestModels: false
+
+  recognizer:
+    kind: GenerativeAIRecognizer
+
+template: default-2.1.0
+language: 1033

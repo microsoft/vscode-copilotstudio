@@ -1,0 +1,2 @@
+This is not an MCS YAML file.
+It should be ignored by the workspace indexer.

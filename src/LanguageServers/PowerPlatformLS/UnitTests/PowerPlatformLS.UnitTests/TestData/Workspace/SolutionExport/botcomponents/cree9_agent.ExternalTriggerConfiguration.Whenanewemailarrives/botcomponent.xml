@@ -1,0 +1,11 @@
+﻿<botcomponent schemaname="cree9_agent.ExternalTriggerConfiguration.Whenanewemailarrives">
+  <componenttype>100000000</componenttype>
+  <description>When a new email arrives (V3)</description>
+  <iscustomizable>0</iscustomizable>
+  <name>OnNewEmailV3</name>
+  <parentbotid>
+    <schemaname>cree9_agent</schemaname>
+  </parentbotid>
+  <statecode>0</statecode>
+  <statuscode>1</statuscode>
+</botcomponent>

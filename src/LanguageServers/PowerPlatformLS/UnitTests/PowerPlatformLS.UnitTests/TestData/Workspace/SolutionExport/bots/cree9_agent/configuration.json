@@ -1,0 +1,19 @@
+{
+  "$kind": "BotConfiguration",
+  "settings": {
+    "GenerativeActionsEnabled": true
+  },
+  "gPTSettings": {
+    "$kind": "GPTSettings",
+    "defaultSchemaName": "cree9_agent.gpt.default"
+  },
+  "aISettings": {
+    "$kind": "AISettings",
+    "useModelKnowledge": true,
+    "isSemanticSearchEnabled": true,
+    "optInUseLatestModels": true
+  },
+  "recognizer": {
+    "$kind": "GenerativeAIRecognizer"
+  }
+}

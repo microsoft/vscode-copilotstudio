@@ -1,0 +1,129 @@
+// See https://go.microsoft.com/fwlink/?LinkId=733558
+// for the documentation about the tasks.json format
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "watch",
+			"dependsOn": [
+				"npm: watch:tsc",
+				"npm: watch:esbuild"
+			],
+			"presentation": {
+				"reveal": "never"
+			},
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			}
+		},
+		{
+			"label": "npm: watch:esbuild",
+			"type": "npm",
+			"script": "watch:esbuild",
+			"path": "",
+			"group": "build",
+			"problemMatcher": "$esbuild-watch",
+			"isBackground": true,
+			"presentation": {
+				"group": "watch",
+				"reveal": "never"
+			},
+			"options": {
+				"cwd": "${workspaceFolder}"
+			}
+		},
+		{
+			"label": "npm: watch:tsc",
+			"type": "npm",
+			"script": "watch:tsc",
+			"path": "",
+			"group": "build",
+			"problemMatcher": "$tsc-watch",
+			"isBackground": true,
+			"presentation": {
+				"group": "watch",
+				"reveal": "never"
+			},
+			"options": {
+				"cwd": "${workspaceFolder}"
+			}
+		},
+		{
+			"label": "echo",
+			"type": "shell",
+			"command": "echo ${input:langExtPath}"
+		},
+		{
+			"label": "watchLsp",
+			"type": "npm",
+			"script": "watchLsp",
+			"path": "",
+			"problemMatcher": {
+				"owner": "typescript",
+				"fileLocation": "relative",
+				"pattern": {
+					"regexp": "^(.*):(\\d+):(\\d+)(?: - (.*))$",
+					"file": 1,
+					"line": 2,
+					"column": 3,
+					"message": 4
+				},
+				"background": {
+					"activeOnStart": true,
+					"beginsPattern": "(.)*Starting to build language server in watch mode(.)*",
+					"endsPattern": "(.)*Build succeeded(.)*"
+				}
+			},
+			"isBackground": true,
+			"presentation": {
+				"reveal": "never",
+				"group": "watchers"
+			},
+			"group": {
+				"kind": "build"
+			},
+			"options": {
+				"cwd": "${workspaceFolder}"
+			}
+		},
+		{
+			"label": "watch-tests",
+			"type": "npm",
+			"script": "watch-tests ",
+			"problemMatcher": "$tsc-watch",
+			"isBackground": true,
+			"presentation": {
+				"reveal": "never",
+				"group": "watchers"
+			},
+			"group": "build",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			}
+		},
+		{
+			"label": "composite watch",
+			"presentation": {
+				"reveal": "never",
+				"group": "watchers"
+			},
+			"dependsOrder": "parallel",
+			"dependsOn": [
+				"watch",
+				"watchLsp"
+			]
+		},
+		{
+			"label": "tasks: watch-tests",
+			"dependsOn": [
+				"watch",
+				"watch-tests"
+			],
+			"problemMatcher": [],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			}
+		}
+	]
+}

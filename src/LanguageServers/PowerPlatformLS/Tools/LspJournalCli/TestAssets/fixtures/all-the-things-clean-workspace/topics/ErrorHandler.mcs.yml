@@ -1,0 +1,21 @@
+# Name: Error Handler
+# Triggered when an error occurs during conversation execution.
+kind: AdaptiveDialog
+beginDialog:
+  kind: OnError
+  id: main
+  actions:
+    - kind: SendActivity
+      id: sendMessage_error01
+      activity:
+        text:
+          - "Something went wrong. Error code: {Topic.ErrorCode}"
+
+    - kind: SendActivity
+      id: sendMessage_error02
+      activity:
+        text:
+          - "Details: {Topic.ErrorMessage}"
+
+    - kind: CancelAllDialogs
+      id: cancelAllDialogs_error01

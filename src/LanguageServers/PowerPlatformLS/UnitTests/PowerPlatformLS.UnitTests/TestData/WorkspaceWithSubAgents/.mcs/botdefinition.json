@@ -1,0 +1,1555 @@
+{
+    "$kind": "BotDefinition",
+    "components": [
+        {
+            "$kind": "DialogComponent",
+            "version": 2150647,
+            "managedProperties": {
+                "$kind": "ManagedProperties",
+                "isCustomizable": false,
+                "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+            },
+            "auditInfo": {
+                "$kind": "AuditInfo",
+                "createdTimeUtc": "2025-05-14T10:50:44Z",
+                "modifiedTimeUtc": "2025-05-14T10:51:30Z",
+                "createdBy": "2512c543-f40f-432c-be52-e3989ed83fbe",
+                "modifiedBy": "2512c543-f40f-432c-be52-e3989ed83fbe"
+            },
+            "displayName": "Contoso Banking API - Get transaction history for an account",
+            "id": "b3eecd4c-2908-40b0-a600-05d0f3405839",
+            "parentBotComponentId": "07acab0d-22c7-4bfa-af94-1449e32e6157",
+            "parentBotId": "9ce43b4f-ae30-f011-8c4c-000d3a3b776a",
+            "shareContext": {
+                "$kind": "ContentShareContext"
+            },
+            "state": "Active",
+            "status": "Active",
+            "publisherUniqueName": "DefaultPublisherorg85151a01",
+            "schemaName": "crd1c_agent.action.ContosoBankingAPI-Gettransactionhistoryforanaccount",
+            "dialog": "kind: TaskDialog\r\nmodelDisplayName: Get transaction history for an account\r\nmodelDescription: This is a tool will retrieve the user\u0027s transaction history for the specific account provided.\r\noutputs:\r\n  - propertyName: transactions\r\n\r\naction:\r\n  kind: InvokeConnectorTaskAction\r\n  connectionReference: crd1c_agent.shared_crd1c-5fcontoso-20banking-20api-5f099802cd293c57f0.7bcf6980a76c422e9f835d72b785b1e2\r\n  connectionProperties:\r\n    mode: Maker\r\n\r\n  operationId: TransactionHistory\r\n\r\noutputMode: All"
+        },
+        {
+            "$kind": "DialogComponent",
+            "version": 2150496,
+            "managedProperties": {
+                "$kind": "ManagedProperties",
+                "isCustomizable": false,
+                "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+            },
+            "auditInfo": {
+                "$kind": "AuditInfo",
+                "createdTimeUtc": "2025-05-14T10:42:47Z",
+                "modifiedTimeUtc": "2025-05-14T10:43:31Z",
+                "createdBy": "2512c543-f40f-432c-be52-e3989ed83fbe",
+                "modifiedBy": "2512c543-f40f-432c-be52-e3989ed83fbe"
+            },
+            "displayName": "Balance Agent",
+            "id": "98423297-6d06-480b-bc18-08c72db99c7f",
+            "parentBotId": "9ce43b4f-ae30-f011-8c4c-000d3a3b776a",
+            "shareContext": {
+                "$kind": "ContentShareContext"
+            },
+            "state": "Active",
+            "status": "Active",
+            "publisherUniqueName": "DefaultPublisherorg85151a01",
+            "schemaName": "crd1c_agent.agent.Agent",
+            "dialog": "kind: AgentDialog\r\nbeginDialog:\r\n  kind: OnToolSelected\r\n  id: main\r\n  description: \u0022This agent provides balance information for user accounts. \u0022\r\n\r\nsettings:\r\n  instructions: |-\r\n    1. Fetch the user profile and their accounts using the {System.Bot.Components.Actions.\u0027crd1c_agent.action.ContosoBankingAPI-Getuserprofile\u0027.DisplayName} tool.\r\n    2. If the user didn\u0027t already specify, ask them which of their accounts is the one for which their card has been lost or stolen (show them this in a bulleted list in the format, Account: \u003CAccount Name\u003E (No. \u003CAccount Number\u003E)).\r\n    3. Ensure the choice of account is clear, if needed, clarify the choice with the user in the case there is any ambiguity between the accounts.\r\n    4. Use the {System.Bot.Components.Actions.\u0027crd1c_agent.action.ContosoBankingAPI-Getbalanceinformation\u0027.DisplayName} tool to get the balance for the account the user chose and tell them the balance.\r\n\r\ninputType: {}\r\noutputType: {}"
+        },
+        {
+            "$kind": "DialogComponent",
+            "version": 2150602,
+            "managedProperties": {
+                "$kind": "ManagedProperties",
+                "isCustomizable": false,
+                "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+            },
+            "auditInfo": {
+                "$kind": "AuditInfo",
+                "createdTimeUtc": "2025-05-14T10:43:56Z",
+                "modifiedTimeUtc": "2025-05-14T10:48:21Z",
+                "createdBy": "2512c543-f40f-432c-be52-e3989ed83fbe",
+                "modifiedBy": "2512c543-f40f-432c-be52-e3989ed83fbe"
+            },
+            "displayName": "Transfer Funds",
+            "id": "663d3b32-f845-4a4f-a854-0e07496a41bb",
+            "parentBotId": "9ce43b4f-ae30-f011-8c4c-000d3a3b776a",
+            "shareContext": {
+                "$kind": "ContentShareContext"
+            },
+            "state": "Active",
+            "status": "Active",
+            "publisherUniqueName": "DefaultPublisherorg85151a01",
+            "schemaName": "crd1c_agent.agent.Agent_7_8",
+            "dialog": "kind: AgentDialog\r\nbeginDialog:\r\n  kind: OnToolSelected\r\n  id: main\r\n  description: This agent can transfer funds between accounts.\r\n\r\nsettings:\r\n  instructions: |-\r\n    1. Fetch the user profile and their accounts using the {System.Bot.Components.Actions.\u0027crd1c_agent.action.ContosoBankingAPI-Getuserprofile\u0027.DisplayName} tool.\r\n    2. If you don\u0027t already know, ask the user which accounts they want to transfer funds to and from and how much they want to transfer.\r\n    3. Ensure the choice of accounts is clear, if needed, clarify the choice with the user in the case there is any ambiguity between the accounts.\r\n    4. Check the source account balance has enough funds to fund the transaction using the {System.Bot.Components.Actions.\u0027crd1c_agent.action.ContosoBankingAPI-Getbalanceinformation\u0027.DisplayName} tool, if it does not tell the user and you\u0027re done.\r\n    5. Ask the user to confirm the details of the transfer and if they would like to proceed.\r\n    6. Once the user has confirmed make the transfer using the {Topic.Components.Actions.\u0027crd1c_agent.action.ContosoBankingAPI-Transferfundsbetweenaccounts\u0027.DisplayName} tool. NEVER call {Topic.Components.Actions.\u0027crd1c_agent.action.ContosoBankingAPI-Transferfundsbetweenaccounts\u0027.DisplayName} without confirming the most recent information with the user.\r\n\r\ninputType: {}\r\noutputType: {}"
+        },
+        {
+            "$kind": "DialogComponent",
+            "version": 2960022,
+            "managedProperties": {
+                "$kind": "ManagedProperties",
+                "isCustomizable": false,
+                "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+            },
+            "auditInfo": {
+                "$kind": "AuditInfo",
+                "createdTimeUtc": "2025-05-14T10:29:51Z",
+                "modifiedTimeUtc": "2025-05-16T15:09:16Z",
+                "createdBy": "2512c543-f40f-432c-be52-e3989ed83fbe",
+                "modifiedBy": "2512c543-f40f-432c-be52-e3989ed83fbe"
+            },
+            "displayName": "Conversation Start",
+            "id": "6917d3ed-7a75-46e5-97fc-11c675fe1f78",
+            "parentBotId": "9ce43b4f-ae30-f011-8c4c-000d3a3b776a",
+            "description": "This system topic triggers when the agent receives an Activity indicating the beginning of a new conversation. If you do not want the agent to initiate the conversation, disable this topic.",
+            "shareContext": {
+                "$kind": "ContentShareContext"
+            },
+            "state": "Active",
+            "status": "Active",
+            "publisherUniqueName": "DefaultPublisherorg85151a01",
+            "schemaName": "crd1c_agent.topic.ConversationStart",
+            "dialog": "kind: AdaptiveDialog\r\nbeginDialog:\r\n  kind: OnConversationStart\r\n  id: main\r\n  actions:\r\n    - kind: SendActivity\r\n      id: sendMessage_M0LuhV\r\n      activity:\r\n        text:\r\n          - Hello, I\u0027m {System.Bot.Name}, a virtual assistant. Just so you are aware, I sometimes use AI to answer your questions. If you provided a website during creation, try asking me about it! Next try giving me some more knowledge by setting up generative AI.\r\n        speak:\r\n          - Hello and thank you for calling {System.Bot.Name}, powered by generative AI. How may I help you today?"
+        },
+        {
+            "$kind": "DialogComponent",
+            "version": 2150669,
+            "managedProperties": {
+                "$kind": "ManagedProperties",
+                "isCustomizable": false,
+                "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+            },
+            "auditInfo": {
+                "$kind": "AuditInfo",
+                "createdTimeUtc": "2025-05-14T10:48:46Z",
+                "modifiedTimeUtc": "2025-05-14T10:54:21Z",
+                "createdBy": "2512c543-f40f-432c-be52-e3989ed83fbe",
+                "modifiedBy": "2512c543-f40f-432c-be52-e3989ed83fbe"
+            },
+            "displayName": "Lost or Stolen Card",
+            "id": "07acab0d-22c7-4bfa-af94-1449e32e6157",
+            "parentBotId": "9ce43b4f-ae30-f011-8c4c-000d3a3b776a",
+            "shareContext": {
+                "$kind": "ContentShareContext"
+            },
+            "state": "Active",
+            "status": "Active",
+            "publisherUniqueName": "DefaultPublisherorg85151a01",
+            "schemaName": "crd1c_agent.agent.Agent_2qD",
+            "dialog": "kind: AgentDialog\r\nbeginDialog:\r\n  kind: OnToolSelected\r\n  id: main\r\n  description: This agent lets a user report a lost or stolen card\r\n\r\nsettings:\r\n  instructions: |-\r\n    1. Fetch a list of the user\u0027s accounts using {System.Bot.Components.Actions.\u0027crd1c_agent.action.ContosoBankingAPI-Getuserprofile\u0027.DisplayName}.\r\n    2. If the user didn\u0027t already specify, ask them which of their accounts is the one for which their card has been lost or stolen (show them this in a bulleted list in the format, Account: \u003CAccount Name\u003E (No. \u003CAccount Number\u003E)).\r\n    3. Freeze the account selected by the user using {Topic.Components.Actions.\u0027crd1c_agent.action.ContosoBankingAPI-Freezeanaccount\u0027.DisplayName}.\r\n    4. Get a list of recent transactions for the account using {Topic.Components.Actions.\u0027crd1c_agent.action.ContosoBankingAPI-Gettransactionhistoryforanaccount\u0027.DisplayName}.\r\n    5. Show the most recent 5 transactions to the user and ask them if there are any that they do not recognize.\r\n    6. If the user does not indicate any transactions were suspicious or fraudulent, you are done.\r\n    7. For any transactions that the user indicates are suspicious or were not made by them, call the {Topic.Components.Actions.\u0027crd1c_agent.action.ContosoBankingAPI-Endpointtodisputeaspecifictransaction.\u0027.DisplayName} and inform the user that their dispute has been raised and a member of the dispute team will be in contact with them within 7 days.\r\n\r\ninputType: {}\r\noutputType: {}"
+        },
+        {
+            "$kind": "DialogComponent",
+            "version": 2150039,
+            "managedProperties": {
+                "$kind": "ManagedProperties",
+                "isCustomizable": false,
+                "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+            },
+            "auditInfo": {
+                "$kind": "AuditInfo",
+                "createdTimeUtc": "2025-05-14T10:29:50Z",
+                "modifiedTimeUtc": "2025-05-14T10:29:50Z",
+                "createdBy": "2512c543-f40f-432c-be52-e3989ed83fbe",
+                "modifiedBy": "2512c543-f40f-432c-be52-e3989ed83fbe"
+            },
+            "displayName": "Multiple Topics Matched",
+            "id": "d526061b-4989-457e-8e77-3acec39a6219",
+            "parentBotId": "9ce43b4f-ae30-f011-8c4c-000d3a3b776a",
+            "description": "This system topic triggers when the agent matches multiple Topics with the incoming message and needs to clarify which one should be triggered.",
+            "shareContext": {
+                "$kind": "ContentShareContext"
+            },
+            "state": "Active",
+            "status": "Active",
+            "publisherUniqueName": "DefaultPublisherorg85151a01",
+            "schemaName": "crd1c_agent.topic.MultipleTopicsMatched",
+            "dialog": "kind: AdaptiveDialog\r\nbeginDialog:\r\n  kind: OnSelectIntent\r\n  id: main\r\n  triggerBehavior: Always\r\n  actions:\r\n    - kind: SetVariable\r\n      id: setVariable_M6434i\r\n      variable: init:Topic.IntentOptions\r\n      value: =System.Recognizer.IntentOptions\r\n\r\n    - kind: SetTextVariable\r\n      id: setTextVariable_0\r\n      variable: Topic.NoneOfTheseDisplayName\r\n      value: None of these\r\n\r\n    - kind: EditTable\r\n      id: sendMessage_g5Ls09\r\n      changeType: Add\r\n      itemsVariable: Topic.IntentOptions\r\n      value: \u0022={ DisplayName: Topic.NoneOfTheseDisplayName, TopicId: \\\u0022NoTopic\\\u0022, TriggerId: \\\u0022NoTrigger\\\u0022, Score: 1.0 }\u0022\r\n\r\n    - kind: Question\r\n      id: question_zf2HhP\r\n      interruptionPolicy:\r\n        allowInterruption: false\r\n\r\n      alwaysPrompt: true\r\n      variable: System.Recognizer.SelectedIntent\r\n      prompt: \u0022To clarify, did you mean:\u0022\r\n      entity:\r\n        kind: DynamicClosedListEntity\r\n        items: =Topic.IntentOptions\r\n\r\n    - kind: ConditionGroup\r\n      id: conditionGroup_60PuXb\r\n      conditions:\r\n        - id: conditionItem_rs7GgM\r\n          condition: =System.Recognizer.SelectedIntent.TopicId = \u0022NoTopic\u0022\r\n          actions:\r\n            - kind: ReplaceDialog\r\n              id: YZXRDb\r\n              dialog: crd1c_agent.topic.Fallback"
+        },
+        {
+            "$kind": "DialogComponent",
+            "version": 2150051,
+            "managedProperties": {
+                "$kind": "ManagedProperties",
+                "isCustomizable": false,
+                "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+            },
+            "auditInfo": {
+                "$kind": "AuditInfo",
+                "createdTimeUtc": "2025-05-14T10:29:51Z",
+                "modifiedTimeUtc": "2025-05-14T10:29:51Z",
+                "createdBy": "2512c543-f40f-432c-be52-e3989ed83fbe",
+                "modifiedBy": "2512c543-f40f-432c-be52-e3989ed83fbe"
+            },
+            "displayName": "End of Conversation",
+            "id": "47440ac5-cc8e-4398-887f-4ca63658180b",
+            "parentBotId": "9ce43b4f-ae30-f011-8c4c-000d3a3b776a",
+            "description": "This system topic is only triggered by a redirect action,\nand guides the user through rating their conversation with the agent.",
+            "shareContext": {
+                "$kind": "ContentShareContext"
+            },
+            "state": "Active",
+            "status": "Active",
+            "publisherUniqueName": "DefaultPublisherorg85151a01",
+            "schemaName": "crd1c_agent.topic.EndofConversation",
+            "dialog": "kind: AdaptiveDialog\r\nstartBehavior: CancelOtherTopics\r\nbeginDialog:\r\n  kind: OnSystemRedirect\r\n  id: main\r\n  actions:\r\n    - kind: Question\r\n      id: 41d42054-d4cb-4e90-b922-2b16b37fe379\r\n      conversationOutcome: ResolvedImplied\r\n      alwaysPrompt: true\r\n      variable: init:Topic.SurveyResponse\r\n      prompt: Did that answer your question?\r\n      entity: BooleanPrebuiltEntity\r\n\r\n    - kind: ConditionGroup\r\n      id: condition-0\r\n      conditions:\r\n        - id: condition-0-item-0\r\n          condition: =Topic.SurveyResponse = true\r\n          actions:\r\n            - kind: CSATQuestion\r\n              id: csat_1\r\n              conversationOutcome: ResolvedConfirmed\r\n\r\n            - kind: SendActivity\r\n              id: sendMessage_8r29O0\r\n              activity: Thanks for your feedback.\r\n\r\n            - kind: Question\r\n              id: question_1\r\n              alwaysPrompt: true\r\n              variable: init:Topic.Continue\r\n              prompt: Can I help with anything else?\r\n              entity: BooleanPrebuiltEntity\r\n\r\n            - kind: ConditionGroup\r\n              id: condition-1\r\n              conditions:\r\n                - id: condition-1-item-0\r\n                  condition: =Topic.Continue = true\r\n                  actions:\r\n                    - kind: SendActivity\r\n                      id: sendMessage_4eOE6h\r\n                      activity: Go ahead. I\u0027m listening.\r\n\r\n              elseActions:\r\n                - kind: SendActivity\r\n                  id: yHBz55\r\n                  activity: Ok, goodbye.\r\n\r\n                - kind: EndConversation\r\n                  id: jh1GMT\r\n\r\n      elseActions:\r\n        - kind: Question\r\n          id: PM68ot\r\n          alwaysPrompt: true\r\n          variable: init:Topic.TryAgain\r\n          prompt: Sorry I wasn\u0027t able to help better. Would you like to try again?\r\n          entity: BooleanPrebuiltEntity\r\n\r\n        - kind: ConditionGroup\r\n          id: KNxYBf\r\n          conditions:\r\n            - id: DPveFP\r\n              condition: =Topic.TryAgain = false\r\n              actions:\r\n                - kind: BeginDialog\r\n                  id: cngqi4\r\n                  dialog: crd1c_agent.topic.Escalate\r\n\r\n          elseActions:\r\n            - kind: SendActivity\r\n              id: GrVHEW\r\n              activity: Go ahead. I\u0027m listening."
+        },
+        {
+            "$kind": "DialogComponent",
+            "version": 2150644,
+            "managedProperties": {
+                "$kind": "ManagedProperties",
+                "isCustomizable": false,
+                "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+            },
+            "auditInfo": {
+                "$kind": "AuditInfo",
+                "createdTimeUtc": "2025-05-14T10:49:55Z",
+                "modifiedTimeUtc": "2025-05-14T10:51:08Z",
+                "createdBy": "2512c543-f40f-432c-be52-e3989ed83fbe",
+                "modifiedBy": "2512c543-f40f-432c-be52-e3989ed83fbe"
+            },
+            "displayName": "Contoso Banking API - Freeze an account",
+            "id": "45fdca05-4b8e-4838-ba9b-4cacbfe1cb2c",
+            "parentBotComponentId": "07acab0d-22c7-4bfa-af94-1449e32e6157",
+            "parentBotId": "9ce43b4f-ae30-f011-8c4c-000d3a3b776a",
+            "shareContext": {
+                "$kind": "ContentShareContext"
+            },
+            "state": "Active",
+            "status": "Active",
+            "publisherUniqueName": "DefaultPublisherorg85151a01",
+            "schemaName": "crd1c_agent.action.ContosoBankingAPI-Freezeanaccount",
+            "dialog": "kind: TaskDialog\r\nmodelDisplayName: Freeze an account\r\nmodelDescription: This is a tool will all the user to freeze their account.\r\noutputs:\r\n  - propertyName: freezeAccount.asOfDate\r\n\r\n  - propertyName: freezeAccount.success\r\n\r\naction:\r\n  kind: InvokeConnectorTaskAction\r\n  connectionReference: crd1c_agent.shared_crd1c-5fcontoso-20banking-20api-5f099802cd293c57f0.7bcf6980a76c422e9f835d72b785b1e2\r\n  connectionProperties:\r\n    mode: Maker\r\n\r\n  operationId: FreezeAccount\r\n\r\noutputMode: All"
+        },
+        {
+            "$kind": "DialogComponent",
+            "version": 2150048,
+            "managedProperties": {
+                "$kind": "ManagedProperties",
+                "isCustomizable": false,
+                "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+            },
+            "auditInfo": {
+                "$kind": "AuditInfo",
+                "createdTimeUtc": "2025-05-14T10:29:51Z",
+                "modifiedTimeUtc": "2025-05-14T10:29:51Z",
+                "createdBy": "2512c543-f40f-432c-be52-e3989ed83fbe",
+                "modifiedBy": "2512c543-f40f-432c-be52-e3989ed83fbe"
+            },
+            "displayName": "Escalate",
+            "id": "f248daae-264a-495d-a843-55b7ee31075d",
+            "parentBotId": "9ce43b4f-ae30-f011-8c4c-000d3a3b776a",
+            "description": "This system topic is triggered when the user indicates they would like to speak to a representative.\nYou can configure how the agent will handle human hand-off scenarios in the agent settings..\nIf your agent does not handle escalations, this topic should be disabled.",
+            "shareContext": {
+                "$kind": "ContentShareContext"
+            },
+            "state": "Active",
+            "status": "Active",
+            "publisherUniqueName": "DefaultPublisherorg85151a01",
+            "schemaName": "crd1c_agent.topic.Escalate",
+            "dialog": "kind: AdaptiveDialog\r\nstartBehavior: CancelOtherTopics\r\nbeginDialog:\r\n  kind: OnEscalate\r\n  id: main\r\n  intent:\r\n    displayName: Escalate\r\n    includeInOnSelectIntent: false\r\n    triggerQueries:\r\n      - Talk to agent\r\n      - Talk to a person\r\n      - Talk to someone\r\n      - Call back\r\n      - Call customer service\r\n      - Call me please\r\n      - Call support\r\n      - Call technical support\r\n      - Can an agent call me\r\n      - Can I call\r\n      - Can I get in touch with someone else\r\n      - Can I get real agent support\r\n      - Can I get transferred to a person to call\r\n      - Can I have a call in number Or can I be called\r\n      - Can I have a representative call me\r\n      - Can I schedule a call\r\n      - Can I speak to a representative\r\n      - Can I talk to a human\r\n      - Can I talk to a human assistant\r\n      - Can someone call me\r\n      - Chat with a human\r\n      - Chat with a representative\r\n      - Chat with agent\r\n      - Chat with someone please\r\n      - Connect me to a live agent\r\n      - Connect me to a person\r\n      - Could some one contact me by phone\r\n      - Customer agent\r\n      - Customer representative\r\n      - Customer service\r\n      - I need a manager to contact me\r\n      - I need customer service\r\n      - I need help from a person\r\n      - I need to speak with a live argent\r\n      - I need to talk to a specialist please\r\n      - I want to talk to customer service\r\n      - I want to proceed with live support\r\n      - I want to speak with a consultant\r\n      - I want to speak with a live tech\r\n      - I would like to speak with an associate\r\n      - I would like to talk to a technician\r\n      - Talk with tech support member\r\n\r\n  actions:\r\n    - kind: SendActivity\r\n      id: sendMessage_s39DCt\r\n      conversationOutcome: Escalated\r\n      activity: |-\r\n        Escalating to a representative is not currently configured for this agent, however this is where the agent could provide information about how to get in touch with someone another way.\r\n        \r\n        Is there anything else I can help you with?"
+        },
+        {
+            "$kind": "DialogComponent",
+            "version": 2150982,
+            "managedProperties": {
+                "$kind": "ManagedProperties",
+                "isCustomizable": false,
+                "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+            },
+            "auditInfo": {
+                "$kind": "AuditInfo",
+                "createdTimeUtc": "2025-05-14T10:40:51Z",
+                "modifiedTimeUtc": "2025-05-14T11:04:00Z",
+                "createdBy": "2512c543-f40f-432c-be52-e3989ed83fbe",
+                "modifiedBy": "2512c543-f40f-432c-be52-e3989ed83fbe"
+            },
+            "displayName": "Contoso Banking API - Get user profile",
+            "id": "876e5526-30b0-45de-a62e-6fcf612b5a25",
+            "parentBotId": "9ce43b4f-ae30-f011-8c4c-000d3a3b776a",
+            "shareContext": {
+                "$kind": "ContentShareContext"
+            },
+            "state": "Active",
+            "status": "Active",
+            "publisherUniqueName": "DefaultPublisherorg85151a01",
+            "schemaName": "crd1c_agent.action.ContosoBankingAPI-Getuserprofile",
+            "dialog": "kind: TaskDialog\r\ninputs:\r\n  - kind: ManualTaskInput\r\n    propertyName: username\r\n    value: gary@contoso.com\r\n\r\nmodelDisplayName: Get user profile\r\nmodelDescription: This is a tool that provides the user\u0027s banking profile.  The typical banking profile contains the first and last name, the address, and a list of accounts including number and type of account.\r\noutputs:\r\n  - propertyName: userProfile.accounts\r\n\r\n  - propertyName: userProfile.address.city\r\n\r\n  - propertyName: userProfile.address.state\r\n\r\n  - propertyName: userProfile.address.street1\r\n\r\n  - propertyName: userProfile.address.street2\r\n\r\n  - propertyName: userProfile.address.zipCode\r\n\r\n  - propertyName: userProfile.firstName\r\n\r\n  - propertyName: userProfile.lastName\r\n\r\n  - propertyName: userProfile.username\r\n\r\naction:\r\n  kind: InvokeConnectorTaskAction\r\n  connectionReference: crd1c_agent.shared_crd1c-5fcontoso-20banking-20api-5f099802cd293c57f0.7bcf6980a76c422e9f835d72b785b1e2\r\n  connectionProperties:\r\n    mode: Maker\r\n\r\n  operationId: GetUserProfile\r\n\r\noutputMode: All\r\ntriggerCondition: false"
+        },
+        {
+            "$kind": "DialogComponent",
+            "version": 2150030,
+            "managedProperties": {
+                "$kind": "ManagedProperties",
+                "isCustomizable": false,
+                "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+            },
+            "auditInfo": {
+                "$kind": "AuditInfo",
+                "createdTimeUtc": "2025-05-14T10:29:50Z",
+                "modifiedTimeUtc": "2025-05-14T10:29:50Z",
+                "createdBy": "2512c543-f40f-432c-be52-e3989ed83fbe",
+                "modifiedBy": "2512c543-f40f-432c-be52-e3989ed83fbe"
+            },
+            "displayName": "Conversational boosting",
+            "id": "fd55abec-0f93-4af7-9cfe-7ff2b808f054",
+            "parentBotId": "9ce43b4f-ae30-f011-8c4c-000d3a3b776a",
+            "description": "Create generative answers from knowledge sources.",
+            "shareContext": {
+                "$kind": "ContentShareContext"
+            },
+            "state": "Active",
+            "status": "Active",
+            "publisherUniqueName": "DefaultPublisherorg85151a01",
+            "schemaName": "crd1c_agent.topic.Search",
+            "dialog": "kind: AdaptiveDialog\r\nbeginDialog:\r\n  kind: OnUnknownIntent\r\n  id: main\r\n  priority: -1\r\n  actions:\r\n    - kind: SearchAndSummarizeContent\r\n      id: search-content\r\n      variable: Topic.Answer\r\n      userInput: =System.Activity.Text\r\n\r\n    - kind: ConditionGroup\r\n      id: has-answer-conditions\r\n      conditions:\r\n        - id: has-answer\r\n          condition: =!IsBlank(Topic.Answer)\r\n          actions:\r\n            - kind: EndDialog\r\n              id: end-topic\r\n              clearTopicQueue: true"
+        },
+        {
+            "$kind": "DialogComponent",
+            "version": 2150027,
+            "managedProperties": {
+                "$kind": "ManagedProperties",
+                "isCustomizable": false,
+                "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+            },
+            "auditInfo": {
+                "$kind": "AuditInfo",
+                "createdTimeUtc": "2025-05-14T10:29:50Z",
+                "modifiedTimeUtc": "2025-05-14T10:29:50Z",
+                "createdBy": "2512c543-f40f-432c-be52-e3989ed83fbe",
+                "modifiedBy": "2512c543-f40f-432c-be52-e3989ed83fbe"
+            },
+            "displayName": "On Error",
+            "id": "69bf1709-0027-42c9-a0f8-93d10864c156",
+            "parentBotId": "9ce43b4f-ae30-f011-8c4c-000d3a3b776a",
+            "description": "This system topic triggers when the agent encounters an error. When using the test chat pane, the full error description is displayed.",
+            "shareContext": {
+                "$kind": "ContentShareContext"
+            },
+            "state": "Active",
+            "status": "Active",
+            "publisherUniqueName": "DefaultPublisherorg85151a01",
+            "schemaName": "crd1c_agent.topic.OnError",
+            "dialog": "kind: AdaptiveDialog\r\nstartBehavior: UseLatestPublishedContentAndCancelOtherTopics\r\nbeginDialog:\r\n  kind: OnError\r\n  id: main\r\n  actions:\r\n    - kind: SetVariable\r\n      id: setVariable_timestamp\r\n      variable: init:Topic.CurrentTime\r\n      value: =Text(Now(), DateTimeFormat.UTC)\r\n\r\n    - kind: ConditionGroup\r\n      id: condition_1\r\n      conditions:\r\n        - id: bL4wmY\r\n          condition: =System.Conversation.InTestMode = true\r\n          actions:\r\n            - kind: SendActivity\r\n              id: sendMessage_XJBYMo\r\n              activity: |-\r\n                Error Message: {System.Error.Message}\r\n                Error Code: {System.Error.Code}\r\n                Conversation Id: {System.Conversation.Id}\r\n                Time (UTC): {Topic.CurrentTime}\r\n\r\n      elseActions:\r\n        - kind: SendActivity\r\n          id: sendMessage_dZ0gaF\r\n          activity:\r\n            text:\r\n              - |-\r\n                An error has occurred.\r\n                Error code: {System.Error.Code}\r\n                Conversation Id: {System.Conversation.Id}\r\n                Time (UTC): {Topic.CurrentTime}.\r\n            speak:\r\n              - An error has occurred, please try again.\r\n\r\n    - kind: LogCustomTelemetryEvent\r\n      id: 9KwEAn\r\n      eventName: OnErrorLog\r\n      properties: \u0022={ErrorMessage: System.Error.Message, ErrorCode: System.Error.Code, TimeUTC: Topic.CurrentTime, ConversationId: System.Conversation.Id}\u0022\r\n\r\n    - kind: CancelAllDialogs\r\n      id: NW7NyY"
+        },
+        {
+            "$kind": "DialogComponent",
+            "version": 2151015,
+            "managedProperties": {
+                "$kind": "ManagedProperties",
+                "isCustomizable": false,
+                "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+            },
+            "auditInfo": {
+                "$kind": "AuditInfo",
+                "createdTimeUtc": "2025-05-14T10:45:16Z",
+                "modifiedTimeUtc": "2025-05-14T11:10:24Z",
+                "createdBy": "2512c543-f40f-432c-be52-e3989ed83fbe",
+                "modifiedBy": "2512c543-f40f-432c-be52-e3989ed83fbe"
+            },
+            "displayName": "Contoso Banking API - Transfer funds between accounts",
+            "id": "8295a9ec-38e3-43b5-b8f7-94683fd01c27",
+            "parentBotComponentId": "663d3b32-f845-4a4f-a854-0e07496a41bb",
+            "parentBotId": "9ce43b4f-ae30-f011-8c4c-000d3a3b776a",
+            "shareContext": {
+                "$kind": "ContentShareContext"
+            },
+            "state": "Active",
+            "status": "Active",
+            "publisherUniqueName": "DefaultPublisherorg85151a01",
+            "schemaName": "crd1c_agent.action.ContosoBankingAPI-Transferfundsbetweenaccounts",
+            "dialog": "kind: TaskDialog\r\ninputs:\r\n  - kind: ManualTaskInput\r\n    propertyName: date\r\n    value: =Text(Today(), \u0022DD/MM/YYYY\u0022)\r\n\r\nmodelDisplayName: Transfer funds between accounts\r\nmodelDescription: This is a tool will all the user to transfer funds from 1 account to another.\r\noutputs:\r\n  - propertyName: transferfundsinfo.isPosted\r\n\r\n  - propertyName: transferfundsinfo.postedDate\r\n\r\naction:\r\n  kind: InvokeConnectorTaskAction\r\n  connectionReference: crd1c_agent.shared_crd1c-5fcontoso-20banking-20api-5f099802cd293c57f0.7bcf6980a76c422e9f835d72b785b1e2\r\n  connectionProperties:\r\n    mode: Maker\r\n\r\n  operationId: TransferFunds\r\n\r\noutputMode: All"
+        },
+        {
+            "$kind": "DialogComponent",
+            "version": 2150045,
+            "managedProperties": {
+                "$kind": "ManagedProperties",
+                "isCustomizable": false,
+                "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+            },
+            "auditInfo": {
+                "$kind": "AuditInfo",
+                "createdTimeUtc": "2025-05-14T10:29:51Z",
+                "modifiedTimeUtc": "2025-05-14T10:29:51Z",
+                "createdBy": "2512c543-f40f-432c-be52-e3989ed83fbe",
+                "modifiedBy": "2512c543-f40f-432c-be52-e3989ed83fbe"
+            },
+            "displayName": "Reset Conversation",
+            "id": "e9c05dff-0c0b-45ac-bc1e-a024dac3a4f2",
+            "parentBotId": "9ce43b4f-ae30-f011-8c4c-000d3a3b776a",
+            "shareContext": {
+                "$kind": "ContentShareContext"
+            },
+            "state": "Active",
+            "status": "Active",
+            "publisherUniqueName": "DefaultPublisherorg85151a01",
+            "schemaName": "crd1c_agent.topic.ResetConversation",
+            "dialog": "kind: AdaptiveDialog\r\nstartBehavior: UseLatestPublishedContentAndCancelOtherTopics\r\nbeginDialog:\r\n  kind: OnSystemRedirect\r\n  id: main\r\n  actions:\r\n    - kind: SendActivity\r\n      id: sendMessage_OPsT1O\r\n      activity: What can I help you with?\r\n\r\n    - kind: ClearAllVariables\r\n      id: clearAllVariables_73bTFR\r\n      variables: ConversationScopedVariables\r\n\r\n    - kind: CancelAllDialogs\r\n      id: cancelAllDialogs_12Gt21"
+        },
+        {
+            "$kind": "DialogComponent",
+            "version": 2150986,
+            "managedProperties": {
+                "$kind": "ManagedProperties",
+                "isCustomizable": false,
+                "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+            },
+            "auditInfo": {
+                "$kind": "AuditInfo",
+                "createdTimeUtc": "2025-05-14T10:42:00Z",
+                "modifiedTimeUtc": "2025-05-14T11:04:14Z",
+                "createdBy": "2512c543-f40f-432c-be52-e3989ed83fbe",
+                "modifiedBy": "2512c543-f40f-432c-be52-e3989ed83fbe"
+            },
+            "displayName": "Contoso Banking API - Get balance information",
+            "id": "efb2d88f-ecab-43b3-8d6c-af1fccf185ab",
+            "parentBotId": "9ce43b4f-ae30-f011-8c4c-000d3a3b776a",
+            "shareContext": {
+                "$kind": "ContentShareContext"
+            },
+            "state": "Active",
+            "status": "Active",
+            "publisherUniqueName": "DefaultPublisherorg85151a01",
+            "schemaName": "crd1c_agent.action.ContosoBankingAPI-Getbalanceinformation",
+            "dialog": "kind: TaskDialog\r\nmodelDisplayName: Get balance information\r\nmodelDescription: This is a tool will retrieve the user\u0027s balance information for the specific account provided.\r\noutputs:\r\n  - propertyName: balanceInfo.account.accountNumber\r\n\r\n  - propertyName: balanceInfo.account.type\r\n\r\n  - propertyName: balanceInfo.asOfDate\r\n\r\n  - propertyName: balanceInfo.balance\r\n\r\n  - propertyName: balanceInfo.currency\r\n\r\naction:\r\n  kind: InvokeConnectorTaskAction\r\n  connectionReference: crd1c_agent.shared_crd1c-5fcontoso-20banking-20api-5f099802cd293c57f0.7bcf6980a76c422e9f835d72b785b1e2\r\n  connectionProperties:\r\n    mode: Maker\r\n\r\n  operationId: GetBalanceInformation\r\n\r\noutputMode: All\r\ntriggerCondition: false"
+        },
+        {
+            "$kind": "DialogComponent",
+            "version": 3109658,
+            "managedProperties": {
+                "$kind": "ManagedProperties",
+                "isCustomizable": false,
+                "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+            },
+            "auditInfo": {
+                "$kind": "AuditInfo",
+                "createdTimeUtc": "2025-05-17T01:55:51Z",
+                "modifiedTimeUtc": "2025-05-18T11:19:44Z",
+                "createdBy": "586db7c1-7bb1-4283-a76d-b952c95ca48e",
+                "modifiedBy": "2512c543-f40f-432c-be52-e3989ed83fbe"
+            },
+            "displayName": "Car Loans SME",
+            "id": "6f69c5ef-6aeb-4c90-8168-c27a07a487b3",
+            "parentBotId": "9ce43b4f-ae30-f011-8c4c-000d3a3b776a",
+            "description": "When someone asks about car loans",
+            "shareContext": {
+                "$kind": "ContentShareContext"
+            },
+            "state": "Active",
+            "status": "Active",
+            "publisherUniqueName": "DefaultPublisherorg85151a01",
+            "schemaName": "crd1c_agent.action.CarLoansSME",
+            "dialog": "kind: TaskDialog\r\ninputs:\r\n  - kind: ManualTaskInput\r\n    propertyName: AgentUrl\r\n    value: contosoloans-build.azurewebsites.net\r\n\r\nmodelDisplayName: Car Loan SME Agent\r\nmodelDescription: Call this agent when asking about car loans\r\naction:\r\n  kind: InvokeExternalAgentTaskAction\r\n  connectionReference: crd1c_agent.shared_crfad-5fsdk-20agent-5f099802cd293c57f0.f285d6c60e4248fb88a2d803abc97381-j29PY7wT\r\n  connectionProperties:\r\n    mode: Maker\r\n\r\n  operationDetails:\r\n    kind: ActivityProtocolMetadata\r\n    operationId: SendActivity"
+        },
+        {
+            "$kind": "DialogComponent",
+            "version": 2151000,
+            "managedProperties": {
+                "$kind": "ManagedProperties",
+                "isCustomizable": false,
+                "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+            },
+            "auditInfo": {
+                "$kind": "AuditInfo",
+                "createdTimeUtc": "2025-05-14T10:53:52Z",
+                "modifiedTimeUtc": "2025-05-14T11:05:51Z",
+                "createdBy": "2512c543-f40f-432c-be52-e3989ed83fbe",
+                "modifiedBy": "2512c543-f40f-432c-be52-e3989ed83fbe"
+            },
+            "displayName": "Contoso Banking API - Endpoint to dispute a specific transaction.",
+            "id": "694878ab-7666-4e1b-a2d6-d6dac149c7e0",
+            "parentBotComponentId": "07acab0d-22c7-4bfa-af94-1449e32e6157",
+            "parentBotId": "9ce43b4f-ae30-f011-8c4c-000d3a3b776a",
+            "shareContext": {
+                "$kind": "ContentShareContext"
+            },
+            "state": "Active",
+            "status": "Active",
+            "publisherUniqueName": "DefaultPublisherorg85151a01",
+            "schemaName": "crd1c_agent.action.ContosoBankingAPI-Endpointtodisputeaspecifictransaction.",
+            "dialog": "kind: TaskDialog\r\nmodelDisplayName: Endpoint to dispute a specific transaction.\r\nmodelDescription: This is a tool will allow the user\u0027s to dispute a specific transaction.\r\noutputs:\r\n  - propertyName: disputed.asOfDate\r\n\r\n  - propertyName: disputed.success\r\n\r\naction:\r\n  kind: InvokeConnectorTaskAction\r\n  connectionReference: crd1c_agent.shared_crd1c-5fcontoso-20banking-20api-5f099802cd293c57f0.7bcf6980a76c422e9f835d72b785b1e2\r\n  connectionProperties:\r\n    mode: Maker\r\n\r\n  operationId: DisputeTransaction\r\n\r\noutputMode: All"
+        },
+        {
+            "$kind": "DialogComponent",
+            "version": 2150973,
+            "managedProperties": {
+                "$kind": "ManagedProperties",
+                "isCustomizable": false,
+                "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+            },
+            "auditInfo": {
+                "$kind": "AuditInfo",
+                "createdTimeUtc": "2025-05-14T11:03:06Z",
+                "modifiedTimeUtc": "2025-05-14T11:03:06Z",
+                "createdBy": "2512c543-f40f-432c-be52-e3989ed83fbe",
+                "modifiedBy": "2512c543-f40f-432c-be52-e3989ed83fbe"
+            },
+            "displayName": "Contoso Mortgages",
+            "id": "5ca9d793-c633-40c9-b61f-d78a91961731",
+            "parentBotId": "9ce43b4f-ae30-f011-8c4c-000d3a3b776a",
+            "description": "This agent helps customers with information about their mortgage accounts and products, answering common questions and carrying out common related transactions.",
+            "shareContext": {
+                "$kind": "ContentShareContext"
+            },
+            "state": "Active",
+            "status": "Active",
+            "publisherUniqueName": "DefaultPublisherorg85151a01",
+            "schemaName": "crd1c_agent.component.ContosoMortgages",
+            "dialog": "kind: TaskDialog\r\nmodelDisplayName: Contoso Mortgages\r\nmodelDescription: This agent helps customers with information about their mortgage accounts and products, answering common questions and carrying out common related transactions.\r\naction:\r\n  kind: InvokeConnectedAgentTaskAction\r\n  botSchemaName: crd1c_agent_3urOt8\r\n  historyType:\r\n    kind: ConversationHistory"
+        },
+        {
+            "$kind": "DialogComponent",
+            "version": 2150057,
+            "managedProperties": {
+                "$kind": "ManagedProperties",
+                "isCustomizable": false,
+                "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+            },
+            "auditInfo": {
+                "$kind": "AuditInfo",
+                "createdTimeUtc": "2025-05-14T10:29:52Z",
+                "modifiedTimeUtc": "2025-05-14T10:29:52Z",
+                "createdBy": "2512c543-f40f-432c-be52-e3989ed83fbe",
+                "modifiedBy": "2512c543-f40f-432c-be52-e3989ed83fbe"
+            },
+            "displayName": "Sign in",
+            "id": "13bbd3c7-18c3-443a-8838-e753e264a282",
+            "parentBotId": "9ce43b4f-ae30-f011-8c4c-000d3a3b776a",
+            "description": "This system topic triggers when the agent needs to sign in the user or require the user to sign in",
+            "shareContext": {
+                "$kind": "ContentShareContext"
+            },
+            "state": "Active",
+            "status": "Active",
+            "publisherUniqueName": "DefaultPublisherorg85151a01",
+            "schemaName": "crd1c_agent.topic.Signin",
+            "dialog": "kind: AdaptiveDialog\r\nbeginDialog:\r\n  kind: OnSignIn\r\n  id: main\r\n  actions:\r\n    - kind: ConditionGroup\r\n      id: conditionGroup_ypjGKL\r\n      conditions:\r\n        - id: conditionItem_7XYIIR\r\n          condition: =System.SignInReason = SignInReason.SignInRequired\r\n          actions:\r\n            - kind: SendActivity\r\n              id: sendMessage_1jHUNO\r\n              activity: Hello! To be able to help you, I\u0027ll need you to sign in.\r\n\r\n    - kind: OAuthInput\r\n      id: gOjhZA\r\n      title: Login\r\n      text: To continue, please login"
+        },
+        {
+            "$kind": "GptComponent",
+            "version": 2960073,
+            "managedProperties": {
+                "$kind": "ManagedProperties",
+                "isCustomizable": false,
+                "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+            },
+            "auditInfo": {
+                "$kind": "AuditInfo",
+                "createdTimeUtc": "2025-05-14T10:30:01Z",
+                "modifiedTimeUtc": "2025-05-16T15:35:32Z",
+                "createdBy": "2512c543-f40f-432c-be52-e3989ed83fbe",
+                "modifiedBy": "2512c543-f40f-432c-be52-e3989ed83fbe"
+            },
+            "displayName": "Contoso Checking",
+            "id": "f9c8463c-73e6-427a-a1a0-f97abbf278f4",
+            "parentBotId": "9ce43b4f-ae30-f011-8c4c-000d3a3b776a",
+            "description": "You assist retail banking customers by providing account balance information, facilitating fund transfers, making payments, and answering common banking questions.",
+            "shareContext": {
+                "$kind": "ContentShareContext"
+            },
+            "state": "Active",
+            "status": "Active",
+            "publisherUniqueName": "DefaultPublisherorg85151a01",
+            "schemaName": "crd1c_agent.gpt.default",
+            "metadata": "kind: GptComponentMetadata\r\ninstructions: Your name is Henry. You assist retail banking customers by providing account balance information, facilitating fund transfers, making payments, and answering common banking questions. Maintain a fun and engaging yet professional tone. Only answer questions related to banking.\r\nknowledgeSources:\r\n  kind: SearchAllKnowledgeSources\r\n\r\ngptCapabilities:\r\n  webBrowsing: false\r\n  codeInterpreter: false\r\n  generateImages: false\r\n  searchTeams: false\r\n  searchOneDriveAndSharePoint: false\r\n  searchEmails: false\r\n  searchMeetings: false\r\n\r\naISettings:\r\n  model:\r\n    kind: CurrentModels"
+        },
+        {
+            "$kind": "DialogComponent",
+            "version": 2150033,
+            "managedProperties": {
+                "$kind": "ManagedProperties",
+                "isCustomizable": false,
+                "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+            },
+            "auditInfo": {
+                "$kind": "AuditInfo",
+                "createdTimeUtc": "2025-05-14T10:29:50Z",
+                "modifiedTimeUtc": "2025-05-14T10:29:50Z",
+                "createdBy": "2512c543-f40f-432c-be52-e3989ed83fbe",
+                "modifiedBy": "2512c543-f40f-432c-be52-e3989ed83fbe"
+            },
+            "displayName": "Fallback",
+            "id": "f66fbeb0-d916-4ed3-9f0a-faba4c4b6031",
+            "parentBotId": "9ce43b4f-ae30-f011-8c4c-000d3a3b776a",
+            "description": "This system topic triggers when the user\u0027s utterance does not match any existing topics.",
+            "shareContext": {
+                "$kind": "ContentShareContext"
+            },
+            "state": "Active",
+            "status": "Active",
+            "publisherUniqueName": "DefaultPublisherorg85151a01",
+            "schemaName": "crd1c_agent.topic.Fallback",
+            "dialog": "kind: AdaptiveDialog\r\nbeginDialog:\r\n  kind: OnUnknownIntent\r\n  id: main\r\n  actions:\r\n    - kind: ConditionGroup\r\n      id: conditionGroup_LktzXw\r\n      conditions:\r\n        - id: conditionItem_tlGIVo\r\n          condition: =System.FallbackCount \u003C 3\r\n          actions:\r\n            - kind: SendActivity\r\n              id: sendMessage_QZreqo\r\n              activity: I\u0027m sorry, I\u0027m not sure how to help with that. Can you try rephrasing?\r\n\r\n      elseActions:\r\n        - kind: BeginDialog\r\n          id: 5aXj5M\r\n          dialog: crd1c_agent.topic.Escalate"
+        }
+    ],
+    "environmentVariables": [
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 889708,
+            "displayName": "Should the Peek Button Be Showed",
+            "schemaName": "msdyn_ShouldShowPeekButton",
+            "id": "996ac4cd-b3d1-42e6-bf2b-0183334b73e6",
+            "defaultValue": "no",
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 3084339,
+            "displayName": "LOB Guid List for user expansion",
+            "schemaName": "msdyn_lineofbusinessfiltertemplatefeatureuserexpansion",
+            "id": "388e09f8-7f06-47c1-8a7e-6f7786deece5",
+            "defaultValue": "00000000-00000000-00000000-00000000",
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 892356,
+            "displayName": "SLA Web Client Deprecation Acknowledge",
+            "schemaName": "msdyn_SLAWebClientDeprecationAcknowledge",
+            "id": "0587e89f-c42a-4840-a07b-98c2f29ae6b7",
+            "defaultValue": "0",
+            "valueComponent": {
+                "$kind": "EnvironmentVariableValue",
+                "version": 892371,
+                "id": "bc04821d-0613-ed11-b83f-000d3a58b59f",
+                "definitionId": "0587e89f-c42a-4840-a07b-98c2f29ae6b7",
+                "value": "0"
+            },
+            "type": "Number"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 3084326,
+            "displayName": "LOB Guid List",
+            "schemaName": "msdyn_lineofbusinessfiltertemplatefeature",
+            "id": "8eeb0773-0b68-4642-989a-e0053a07fa41",
+            "defaultValue": "00000000-00000000-00000000-00000000",
+            "type": "String"
+        },
+        {
+            "$kind": "EnvironmentVariableDefinition",
+            "version": 889707,
+            "displayName": "Should only leaf node selection be allowed",
+            "schemaName": "msdyn_AllowSelectLeafOnly",
+            "id": "aadd0b5f-cb3b-4a60-b2d6-e598fcd79fd1",
+            "defaultValue": "no",
+            "type": "Boolean"
+        }
+    ],
+    "connectionReferences": [
+        {
+            "$kind": "ConnectionReference",
+            "version": 3067378,
+            "managedProperties": {
+                "$kind": "ManagedProperties",
+                "isCustomizable": false,
+                "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+            },
+            "auditInfo": {
+                "$kind": "AuditInfo",
+                "createdTimeUtc": "2025-05-17T01:56:11Z",
+                "modifiedTimeUtc": "2025-05-17T01:56:11Z",
+                "createdBy": "586db7c1-7bb1-4283-a76d-b952c95ca48e",
+                "modifiedBy": "586db7c1-7bb1-4283-a76d-b952c95ca48e"
+            },
+            "id": "3f178348-8383-4e42-a8cf-1c6c6f479243",
+            "connectionId": "f285d6c60e4248fb88a2d803abc97381",
+            "connectorId": "/providers/Microsoft.PowerApps/apis/shared_crfad-5fsdk-20agent-5f099802cd293c57f0",
+            "connectionReferenceLogicalName": "crd1c_agent.shared_crfad-5fsdk-20agent-5f099802cd293c57f0.f285d6c60e4248fb88a2d803abc97381-j29PY7wT",
+            "displayName": "crd1c_agent.shared_crfad-5fsdk-20agent-5f099802cd293c57f0.f285d6c60e4248fb88a2d803abc97381-j29PY7wT"
+        },
+        {
+            "$kind": "ConnectionReference",
+            "version": 2150447,
+            "managedProperties": {
+                "$kind": "ManagedProperties",
+                "isCustomizable": false,
+                "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+            },
+            "auditInfo": {
+                "$kind": "AuditInfo",
+                "createdTimeUtc": "2025-05-14T10:40:50Z",
+                "modifiedTimeUtc": "2025-05-14T10:40:50Z",
+                "createdBy": "2512c543-f40f-432c-be52-e3989ed83fbe",
+                "modifiedBy": "2512c543-f40f-432c-be52-e3989ed83fbe"
+            },
+            "id": "98f3af00-522a-4f1f-ae42-6bd8cc60b436",
+            "connectionId": "7bcf6980a76c422e9f835d72b785b1e2",
+            "connectorId": "/providers/Microsoft.PowerApps/apis/shared_crd1c-5fcontoso-20banking-20api-5f099802cd293c57f0",
+            "connectionReferenceLogicalName": "crd1c_agent.shared_crd1c-5fcontoso-20banking-20api-5f099802cd293c57f0.7bcf6980a76c422e9f835d72b785b1e2",
+            "displayName": "crd1c_agent.shared_crd1c-5fcontoso-20banking-20api-5f099802cd293c57f0.7bcf6980a76c422e9f835d72b785b1e2"
+        }
+    ],
+    "connectorDefinitions": [
+        {
+            "$kind": "ConnectorDefinition",
+            "connectorId": "/providers/Microsoft.PowerApps/apis/shared_crd1c-5fcontoso-20banking-20api-5f099802cd293c57f0",
+            "version": 638828172358800374,
+            "displayName": "Contoso Banking API",
+            "description": "This is a tool that provides the user\u0027s banking information as well as functionality for transferring funds, opening a new account, getting balance information, etc.",
+            "isCustom": true,
+            "connectorType": "Solution",
+            "iconUri": "https://defaulticons.powerapps.com/defaulticons/api-dedicated.png",
+            "changedTime": "2025-05-14T11:00:35.8800374Z",
+            "hasPublicData": true,
+            "isSSOSupported": false,
+            "operations": [
+                {
+                    "$kind": "ConnectorOperation",
+                    "displayName": "Endpoint to dispute a specific transaction.",
+                    "description": "This is a tool will allow the user\u0027s to dispute a specific transaction.",
+                    "inputType": {
+                        "$kind": "Record",
+                        "properties": {
+                            "accountNumber": {
+                                "$kind": "PropertyInfo",
+                                "description": "The account number for the transaction that is disputed.",
+                                "isRequired": true,
+                                "order": 0,
+                                "type": {
+                                    "$kind": "String"
+                                }
+                            },
+                            "id": {
+                                "$kind": "PropertyInfo",
+                                "description": "The ID associated with the transaction.",
+                                "isRequired": true,
+                                "order": 1,
+                                "type": {
+                                    "$kind": "String"
+                                }
+                            }
+                        }
+                    },
+                    "outputType": {
+                        "$kind": "Record",
+                        "properties": {
+                            "disputed": {
+                                "$kind": "PropertyInfo",
+                                "order": 0,
+                                "type": {
+                                    "$kind": "Record",
+                                    "properties": {
+                                        "asOfDate": {
+                                            "$kind": "PropertyInfo",
+                                            "displayName": "Dispute Date",
+                                            "description": "The date the transaction was disputed.",
+                                            "order": 1,
+                                            "type": {
+                                                "$kind": "String"
+                                            }
+                                        },
+                                        "success": {
+                                            "$kind": "PropertyInfo",
+                                            "displayName": "Result",
+                                            "description": "The boolean flag stating if dispute transaction was successfull.",
+                                            "order": 0,
+                                            "type": {
+                                                "$kind": "Boolean"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "operationId": "DisputeTransaction"
+                },
+                {
+                    "$kind": "ConnectorOperation",
+                    "displayName": "Change account address",
+                    "description": "This is a tool will update the user\u0027s address information.",
+                    "inputType": {
+                        "$kind": "Record",
+                        "properties": {
+                            "accountNumber": {
+                                "$kind": "PropertyInfo",
+                                "description": "The account number for which the address is being changed",
+                                "isRequired": true,
+                                "order": 0,
+                                "type": {
+                                    "$kind": "String"
+                                }
+                            },
+                            "city": {
+                                "$kind": "PropertyInfo",
+                                "description": "City",
+                                "order": 3,
+                                "type": {
+                                    "$kind": "String"
+                                }
+                            },
+                            "state": {
+                                "$kind": "PropertyInfo",
+                                "description": "State",
+                                "order": 4,
+                                "type": {
+                                    "$kind": "String"
+                                }
+                            },
+                            "street1": {
+                                "$kind": "PropertyInfo",
+                                "description": "Street address line 1",
+                                "order": 1,
+                                "type": {
+                                    "$kind": "String"
+                                }
+                            },
+                            "street2": {
+                                "$kind": "PropertyInfo",
+                                "description": "Street address line 2",
+                                "order": 2,
+                                "type": {
+                                    "$kind": "String"
+                                }
+                            },
+                            "zipCode": {
+                                "$kind": "PropertyInfo",
+                                "description": "ZIP code",
+                                "order": 5,
+                                "type": {
+                                    "$kind": "String"
+                                }
+                            }
+                        }
+                    },
+                    "outputType": {
+                        "$kind": "Record",
+                        "properties": {
+                            "addressUpdated": {
+                                "$kind": "PropertyInfo",
+                                "order": 0,
+                                "type": {
+                                    "$kind": "Record",
+                                    "properties": {
+                                        "asOfDate": {
+                                            "$kind": "PropertyInfo",
+                                            "displayName": "Change Address Date",
+                                            "description": "The date the address change will be made.",
+                                            "order": 1,
+                                            "type": {
+                                                "$kind": "String"
+                                            }
+                                        },
+                                        "success": {
+                                            "$kind": "PropertyInfo",
+                                            "displayName": "Result",
+                                            "description": "The boolean flag stating if the change address was successfull.",
+                                            "order": 0,
+                                            "type": {
+                                                "$kind": "Boolean"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "operationId": "ChangeAddress"
+                },
+                {
+                    "$kind": "ConnectorOperation",
+                    "displayName": "Freeze an account",
+                    "description": "This is a tool will all the user to freeze their account.",
+                    "inputType": {
+                        "$kind": "Record",
+                        "properties": {
+                            "accountNumber": {
+                                "$kind": "PropertyInfo",
+                                "description": "The account number to be frozen",
+                                "isRequired": true,
+                                "order": 0,
+                                "type": {
+                                    "$kind": "String"
+                                }
+                            }
+                        }
+                    },
+                    "outputType": {
+                        "$kind": "Record",
+                        "properties": {
+                            "freezeAccount": {
+                                "$kind": "PropertyInfo",
+                                "order": 0,
+                                "type": {
+                                    "$kind": "Record",
+                                    "properties": {
+                                        "asOfDate": {
+                                            "$kind": "PropertyInfo",
+                                            "displayName": "Freeze Date",
+                                            "description": "The date the freeze was enabled.",
+                                            "order": 1,
+                                            "type": {
+                                                "$kind": "String"
+                                            }
+                                        },
+                                        "success": {
+                                            "$kind": "PropertyInfo",
+                                            "displayName": "Result",
+                                            "description": "The boolean flag stating if freeze account was successfull.",
+                                            "order": 0,
+                                            "type": {
+                                                "$kind": "Boolean"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "operationId": "FreezeAccount"
+                },
+                {
+                    "$kind": "ConnectorOperation",
+                    "displayName": "Make a payment",
+                    "description": "This is a tool will allow the user to make payments to specific payees.",
+                    "inputType": {
+                        "$kind": "Record",
+                        "properties": {
+                            "amount": {
+                                "$kind": "PropertyInfo",
+                                "description": "The amount to be paid",
+                                "order": 1,
+                                "type": {
+                                    "$kind": "Number"
+                                }
+                            },
+                            "date": {
+                                "$kind": "PropertyInfo",
+                                "description": "The date of the payment",
+                                "order": 3,
+                                "type": {
+                                    "$kind": "Date"
+                                }
+                            },
+                            "fromAccount": {
+                                "$kind": "PropertyInfo",
+                                "description": "The account from which the payment is made",
+                                "order": 0,
+                                "type": {
+                                    "$kind": "String"
+                                }
+                            },
+                            "payee": {
+                                "$kind": "PropertyInfo",
+                                "description": "The payee to whom the payment is made",
+                                "order": 2,
+                                "type": {
+                                    "$kind": "String"
+                                }
+                            }
+                        }
+                    },
+                    "outputType": {
+                        "$kind": "Record",
+                        "properties": {
+                            "paymentInfo": {
+                                "$kind": "PropertyInfo",
+                                "order": 0,
+                                "type": {
+                                    "$kind": "Record",
+                                    "properties": {
+                                        "isPosted": {
+                                            "$kind": "PropertyInfo",
+                                            "displayName": "Result",
+                                            "order": 0,
+                                            "type": {
+                                                "$kind": "Boolean"
+                                            }
+                                        },
+                                        "postedDate": {
+                                            "$kind": "PropertyInfo",
+                                            "order": 1,
+                                            "type": {
+                                                "$kind": "String"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "operationId": "MakePayment"
+                },
+                {
+                    "$kind": "ConnectorOperation",
+                    "displayName": "Order a new card for an account",
+                    "description": "This is a tool will order a new credit card for the user.",
+                    "inputType": {
+                        "$kind": "Record",
+                        "properties": {
+                            "accountNumber": {
+                                "$kind": "PropertyInfo",
+                                "description": "The account number to order a new card for",
+                                "isRequired": true,
+                                "order": 0,
+                                "type": {
+                                    "$kind": "String"
+                                }
+                            }
+                        }
+                    },
+                    "outputType": {
+                        "$kind": "Record",
+                        "properties": {
+                            "orderNewCard": {
+                                "$kind": "PropertyInfo",
+                                "displayName": "Balance Information",
+                                "description": "The order new card result information as an object.",
+                                "order": 0,
+                                "type": {
+                                    "$kind": "Record",
+                                    "properties": {
+                                        "asOfDate": {
+                                            "$kind": "PropertyInfo",
+                                            "displayName": "Order Card Date",
+                                            "description": "The date the new card was ordered.",
+                                            "order": 1,
+                                            "type": {
+                                                "$kind": "String"
+                                            }
+                                        },
+                                        "success": {
+                                            "$kind": "PropertyInfo",
+                                            "displayName": "Result",
+                                            "description": "The boolean flag stating if order new card was successfull.",
+                                            "order": 0,
+                                            "type": {
+                                                "$kind": "Boolean"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "operationId": "OrderNewCard"
+                },
+                {
+                    "$kind": "ConnectorOperation",
+                    "displayName": "Get transaction history for an account",
+                    "description": "This is a tool will retrieve the user\u0027s transaction history for the specific account provided.",
+                    "inputType": {
+                        "$kind": "Record",
+                        "properties": {
+                            "accountNumber": {
+                                "$kind": "PropertyInfo",
+                                "description": "The account number to retrieve transaction history for",
+                                "isRequired": true,
+                                "order": 0,
+                                "type": {
+                                    "$kind": "String"
+                                }
+                            }
+                        }
+                    },
+                    "outputType": {
+                        "$kind": "Record",
+                        "properties": {
+                            "transactions": {
+                                "$kind": "PropertyInfo",
+                                "order": 0,
+                                "type": {
+                                    "$kind": "Table",
+                                    "properties": {
+                                        "amount": {
+                                            "$kind": "PropertyInfo",
+                                            "displayName": "Amount",
+                                            "description": "The amount of the transaction.",
+                                            "order": 1,
+                                            "type": {
+                                                "$kind": "String"
+                                            }
+                                        },
+                                        "date": {
+                                            "$kind": "PropertyInfo",
+                                            "displayName": "Date",
+                                            "description": "The date of the transaction.",
+                                            "order": 3,
+                                            "type": {
+                                                "$kind": "String"
+                                            }
+                                        },
+                                        "id": {
+                                            "$kind": "PropertyInfo",
+                                            "displayName": "ID",
+                                            "description": "The unique id of the transaction.",
+                                            "order": 0,
+                                            "type": {
+                                                "$kind": "String"
+                                            }
+                                        },
+                                        "type": {
+                                            "$kind": "PropertyInfo",
+                                            "displayName": "Type",
+                                            "description": "The type of transaction.",
+                                            "order": 2,
+                                            "type": {
+                                                "$kind": "String"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "operationId": "TransactionHistory"
+                },
+                {
+                    "$kind": "ConnectorOperation",
+                    "displayName": "Transfer funds between accounts",
+                    "description": "This is a tool will all the user to transfer funds from 1 account to another.",
+                    "inputType": {
+                        "$kind": "Record",
+                        "properties": {
+                            "amount": {
+                                "$kind": "PropertyInfo",
+                                "description": "The amount to transfer",
+                                "isRequired": true,
+                                "order": 2,
+                                "type": {
+                                    "$kind": "String"
+                                }
+                            },
+                            "date": {
+                                "$kind": "PropertyInfo",
+                                "description": "The date of the transfer",
+                                "isRequired": true,
+                                "order": 3,
+                                "type": {
+                                    "$kind": "String"
+                                }
+                            },
+                            "fromaccount": {
+                                "$kind": "PropertyInfo",
+                                "description": "The account to transfer funds from",
+                                "isRequired": true,
+                                "order": 0,
+                                "type": {
+                                    "$kind": "String"
+                                }
+                            },
+                            "toaccount": {
+                                "$kind": "PropertyInfo",
+                                "description": "The account to transfer funds to",
+                                "isRequired": true,
+                                "order": 1,
+                                "type": {
+                                    "$kind": "String"
+                                }
+                            }
+                        }
+                    },
+                    "outputType": {
+                        "$kind": "Record",
+                        "properties": {
+                            "transferfundsinfo": {
+                                "$kind": "PropertyInfo",
+                                "order": 0,
+                                "type": {
+                                    "$kind": "Record",
+                                    "properties": {
+                                        "isPosted": {
+                                            "$kind": "PropertyInfo",
+                                            "displayName": "Date",
+                                            "description": "The date of the transaction.",
+                                            "order": 0,
+                                            "type": {
+                                                "$kind": "Boolean"
+                                            }
+                                        },
+                                        "postedDate": {
+                                            "$kind": "PropertyInfo",
+                                            "displayName": "Date",
+                                            "description": "The date of the transaction.",
+                                            "order": 1,
+                                            "type": {
+                                                "$kind": "String"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "operationId": "TransferFunds"
+                },
+                {
+                    "$kind": "ConnectorOperation",
+                    "displayName": "Get user profile",
+                    "description": "This is a tool that provides the user\u0027s banking profile.  The typical banking profile contains the first and last name, the address, and a list of accounts including number and type of account.",
+                    "inputType": {
+                        "$kind": "Record",
+                        "properties": {
+                            "username": {
+                                "$kind": "PropertyInfo",
+                                "description": "The username of the user",
+                                "isRequired": true,
+                                "order": 0,
+                                "type": {
+                                    "$kind": "String"
+                                }
+                            }
+                        }
+                    },
+                    "outputType": {
+                        "$kind": "Record",
+                        "properties": {
+                            "userProfile": {
+                                "$kind": "PropertyInfo",
+                                "description": "The users overall banking profile.",
+                                "order": 0,
+                                "type": {
+                                    "$kind": "Record",
+                                    "properties": {
+                                        "accounts": {
+                                            "$kind": "PropertyInfo",
+                                            "description": "The List of accounts the user has.",
+                                            "order": 4,
+                                            "type": {
+                                                "$kind": "Table",
+                                                "properties": {
+                                                    "number": {
+                                                        "$kind": "PropertyInfo",
+                                                        "displayName": "Account number",
+                                                        "description": "The account number.",
+                                                        "order": 0,
+                                                        "type": {
+                                                            "$kind": "String"
+                                                        }
+                                                    },
+                                                    "type": {
+                                                        "$kind": "PropertyInfo",
+                                                        "displayName": "Account type",
+                                                        "description": "The type of account.",
+                                                        "order": 1,
+                                                        "type": {
+                                                            "$kind": "String"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        "address": {
+                                            "$kind": "PropertyInfo",
+                                            "description": "The address of the User.",
+                                            "order": 3,
+                                            "type": {
+                                                "$kind": "Record",
+                                                "properties": {
+                                                    "city": {
+                                                        "$kind": "PropertyInfo",
+                                                        "displayName": "City",
+                                                        "description": "The city in the address given.",
+                                                        "order": 2,
+                                                        "type": {
+                                                            "$kind": "String"
+                                                        }
+                                                    },
+                                                    "state": {
+                                                        "$kind": "PropertyInfo",
+                                                        "displayName": "State",
+                                                        "description": "The state in the address given.",
+                                                        "order": 3,
+                                                        "type": {
+                                                            "$kind": "String"
+                                                        }
+                                                    },
+                                                    "street1": {
+                                                        "$kind": "PropertyInfo",
+                                                        "displayName": "Street 1 field",
+                                                        "description": "The first street field in the address given. Typically has street number and name in it.",
+                                                        "order": 0,
+                                                        "type": {
+                                                            "$kind": "String"
+                                                        }
+                                                    },
+                                                    "street2": {
+                                                        "$kind": "PropertyInfo",
+                                                        "displayName": "The second street field",
+                                                        "description": "The second street field in the address given. Typically empty, but can contain PO box information or Rural Route codes.",
+                                                        "order": 1,
+                                                        "type": {
+                                                            "$kind": "String"
+                                                        }
+                                                    },
+                                                    "zipCode": {
+                                                        "$kind": "PropertyInfo",
+                                                        "displayName": "ZIp code",
+                                                        "description": "The zip code in the address given.",
+                                                        "order": 4,
+                                                        "type": {
+                                                            "$kind": "String"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        "firstName": {
+                                            "$kind": "PropertyInfo",
+                                            "displayName": "First Name",
+                                            "description": "The account holder\u0027s first name.",
+                                            "order": 1,
+                                            "type": {
+                                                "$kind": "String"
+                                            }
+                                        },
+                                        "lastName": {
+                                            "$kind": "PropertyInfo",
+                                            "displayName": "Last Name",
+                                            "description": "The account holder\u0027s last name.",
+                                            "order": 2,
+                                            "type": {
+                                                "$kind": "String"
+                                            }
+                                        },
+                                        "username": {
+                                            "$kind": "PropertyInfo",
+                                            "displayName": "Username",
+                                            "description": "The account holder\u0027s username.",
+                                            "order": 0,
+                                            "type": {
+                                                "$kind": "String"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "operationId": "GetUserProfile"
+                },
+                {
+                    "$kind": "ConnectorOperation",
+                    "displayName": "Get balance information",
+                    "description": "This is a tool will retrieve the user\u0027s balance information for the specific account provided.",
+                    "inputType": {
+                        "$kind": "Record",
+                        "properties": {
+                            "accountNumber": {
+                                "$kind": "PropertyInfo",
+                                "description": "The account number to retrieve balance information for",
+                                "isRequired": true,
+                                "order": 0,
+                                "type": {
+                                    "$kind": "String"
+                                }
+                            }
+                        }
+                    },
+                    "outputType": {
+                        "$kind": "Record",
+                        "properties": {
+                            "balanceInfo": {
+                                "$kind": "PropertyInfo",
+                                "displayName": "Balance Information",
+                                "description": "The balance information as an object.",
+                                "order": 0,
+                                "type": {
+                                    "$kind": "Record",
+                                    "properties": {
+                                        "account": {
+                                            "$kind": "PropertyInfo",
+                                            "description": "The account object for the account provided in the request.",
+                                            "order": 0,
+                                            "type": {
+                                                "$kind": "Record",
+                                                "properties": {
+                                                    "accountNumber": {
+                                                        "$kind": "PropertyInfo",
+                                                        "displayName": "Account Number",
+                                                        "description": "The account number of the account provided in the request.",
+                                                        "order": 0,
+                                                        "type": {
+                                                            "$kind": "String"
+                                                        }
+                                                    },
+                                                    "type": {
+                                                        "$kind": "PropertyInfo",
+                                                        "displayName": "Type",
+                                                        "description": "The type of the account provided in the request.",
+                                                        "order": 1,
+                                                        "type": {
+                                                            "$kind": "String"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        "asOfDate": {
+                                            "$kind": "PropertyInfo",
+                                            "displayName": "Balance Date",
+                                            "description": "The date of the balance for the account provided in the request.",
+                                            "order": 3,
+                                            "type": {
+                                                "$kind": "String"
+                                            }
+                                        },
+                                        "balance": {
+                                            "$kind": "PropertyInfo",
+                                            "displayName": "Balance",
+                                            "description": "The balancer of the account provided in the request.",
+                                            "order": 1,
+                                            "type": {
+                                                "$kind": "String"
+                                            }
+                                        },
+                                        "currency": {
+                                            "$kind": "PropertyInfo",
+                                            "displayName": "currency",
+                                            "description": "The currency of the.balance for the account provided in the request.",
+                                            "order": 2,
+                                            "type": {
+                                                "$kind": "String"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "operationId": "GetBalanceInformation"
+                }
+            ]
+        },
+        {
+            "$kind": "ConnectorDefinition",
+            "connectorId": "/providers/Microsoft.PowerApps/apis/shared_crfad-5fsdk-20agent-5f099802cd293c57f0",
+            "version": 638830440318303370,
+            "displayName": "SDK Agent",
+            "description": "Connector for sending Activity Protocol messages to an Agent SDK",
+            "isCustom": true,
+            "connectorType": "Solution",
+            "iconUri": "https://icon",
+            "changedTime": "2025-05-17T02:00:31.830337Z",
+            "hasPublicData": false,
+            "isSSOSupported": true,
+            "operations": [
+                {
+                    "$kind": "ConnectorOperation",
+                    "displayName": "Send Activity",
+                    "description": "Sends an Activity protocol activity to an Agent SDK Hosted Agent",
+                    "inputType": {
+                        "$kind": "Record",
+                        "properties": {
+                            "activity": {
+                                "$kind": "PropertyInfo",
+                                "order": 1,
+                                "type": {
+                                    "$kind": "Any"
+                                }
+                            },
+                            "AgentUrl": {
+                                "$kind": "PropertyInfo",
+                                "displayName": "Base URL for the Agent your are connecting too",
+                                "description": "Base URL for the Agent your are connecting too",
+                                "isRequired": true,
+                                "order": 0,
+                                "type": {
+                                    "$kind": "String"
+                                }
+                            }
+                        }
+                    },
+                    "outputType": {
+                        "$kind": "Record",
+                        "properties": {
+                            "activities": {
+                                "$kind": "PropertyInfo",
+                                "description": "List of communication activities in the conversation.",
+                                "order": 0,
+                                "type": {
+                                    "$kind": "Table",
+                                    "properties": {
+                                        "Value": {
+                                            "$kind": "PropertyInfo",
+                                            "type": {
+                                                "$kind": "Any"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "operationId": "SendActivity"
+                }
+            ]
+        }
+    ],
+    "entity": {
+        "$kind": "BotEntity",
+        "version": 2960076,
+        "managedProperties": {
+            "$kind": "ManagedProperties",
+            "isCustomizable": false,
+            "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+        },
+        "auditInfo": {
+            "$kind": "AuditInfo",
+            "createdTimeUtc": "2025-05-14T10:29:34Z",
+            "modifiedTimeUtc": "2025-05-16T15:35:45Z",
+            "createdBy": "2512c543-f40f-432c-be52-e3989ed83fbe"
+        },
+        "displayName": "Contoso Checking",
+        "schemaName": "crd1c_agent",
+        "componentIdUnique": "a34b7a78-caa9-46ec-ba8f-04a9e09711c7",
+        "cdsBotId": "9ce43b4f-ae30-f011-8c4c-000d3a3b776a",
+        "accessControlPolicy": "ChatbotReaders",
+        "authenticationMode": "Integrated",
+        "authenticationTrigger": "Always",
+        "teamsAppInformation": {
+            "$kind": "ApplicationDetails",
+            "teams": {
+                "$kind": "TeamsApplicationDetails",
+                "colorIcon": "aGVsbG8="
+            }
+        },
+        "configuration": {
+            "$kind": "BotConfiguration",
+            "settings": {
+                "GenerativeActionsEnabled": true
+            },
+            "isAgentConnectable": true,
+            "gPTSettings": {
+                "$kind": "GPTSettings",
+                "defaultSchemaName": "crd1c_agent.gpt.default"
+            },
+            "aISettings": {
+                "$kind": "AISettings",
+                "useModelKnowledge": false,
+                "isFileAnalysisEnabled": true,
+                "isSemanticSearchEnabled": true,
+                "contentModeration": "High",
+                "optInUseLatestModels": false
+            },
+            "recognizer": {
+                "$kind": "GenerativeAIRecognizer"
+            }
+        },
+        "synchronizationStatus": {
+            "$kind": "BotSynchronizationDetails",
+            "contentVersion": 2,
+            "currentSynchronizationState": {
+                "$kind": "SynchronizationState",
+                "botRegistration": {
+                    "$kind": "BotRegistrationDetails",
+                    "botRegistrationIdConsumptionTime": "2025-05-14T10:29:58Z",
+                    "applicationId": "07ad3cda-d2d4-498e-91c5-a66ba0a28d54",
+                    "isAppAvailableInTenant": true
+                },
+                "provisioningStatus": "Provisioned",
+                "state": "Synchronized"
+            },
+            "lastSynchronizedOnUtc": "2025-05-16T15:35:45.2541476Z"
+        },
+        "template": "default-2.1.0",
+        "iconBase64": "aGVsbG8=",
+        "language": 1033,
+        "runtimeProvider": "PowerVirtualAgents",
+        "state": "Active",
+        "status": 1
+    }
+}

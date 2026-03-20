@@ -1,0 +1,3 @@
+# Name: Missing Fields Trigger
+# Trigger missing required fields — should trigger diagnostics.
+kind: ExternalTriggerConfiguration

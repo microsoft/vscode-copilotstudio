@@ -1,0 +1,9 @@
+<botcomponent schemaname="cree9_agent.BotSettingsComponent.Feedback">
+  <componenttype>18</componenttype>
+  <iscustomizable>0</iscustomizable>
+  <parentbotid>
+    <schemaname>cree9_agent</schemaname>
+  </parentbotid>
+  <statecode>0</statecode>
+  <statuscode>1</statuscode>
+</botcomponent>

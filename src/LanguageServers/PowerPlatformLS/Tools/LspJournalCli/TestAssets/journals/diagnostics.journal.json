@@ -1,0 +1,336 @@
+{
+  "metadata": {
+    "description": "Diagnostics: syntax errors, schema validation errors, and type mismatches.",
+    "workspaceRoot": "../fixtures/file-only-workspace",
+    "classification": "recorded",
+    "branch": "dev/stevesteiner/testcli.2",
+    "commit": "fa6143602",
+    "timestamp": "2026-02-10T22:45:24.3949993Z",
+    "branchBase": "27b3c27f3",
+    "branchDepth": 5
+  },
+  "steps": [
+    {
+      "step": "initialize",
+      "params": {
+        "processId": 0,
+        "capabilities": {},
+        "workspaceFolders": [
+          {
+            "uri": "${workspace}",
+            "name": "file-only-workspace"
+          }
+        ]
+      },
+      "expected": {
+        "capabilities": {
+          "codeActionProvider": {
+            "codeActionKinds": [
+              "quickfix"
+            ]
+          },
+          "completionProvider": {
+            "allCommitCharacters": [],
+            "resolveProvider": false,
+            "triggerCharacters": [
+              "\n",
+              ".",
+              ":",
+              " "
+            ]
+          },
+          "definitionProvider": true,
+          "semanticTokensProvider": {
+            "documentSelector": [
+              {
+                "language": "CopilotStudio"
+              }
+            ],
+            "full": true,
+            "legend": {
+              "tokenModifiers": [
+                "declaration",
+                "definition",
+                "readonly",
+                "static",
+                "deprecated",
+                "abstract",
+                "async",
+                "modification",
+                "documentation",
+                "defaultlibrary"
+              ],
+              "tokenTypes": [
+                "keyword",
+                "variable",
+                "function",
+                "interface",
+                "comment",
+                "namespace",
+                "type",
+                "class",
+                "enum",
+                "struct",
+                "typeparameter",
+                "parameter",
+                "property",
+                "enummember",
+                "event",
+                "method",
+                "macro",
+                "modifier",
+                "string",
+                "number",
+                "regexp",
+                "operator",
+                "decorator",
+                "default"
+              ]
+            },
+            "range": false
+          },
+          "signatureHelpProvider": {
+            "triggerCharacters": [
+              "(",
+              ","
+            ]
+          },
+          "textDocumentSync": {
+            "change": 2,
+            "openClose": true,
+            "save": {
+              "includeText": false
+            }
+          },
+          "workspace": {
+            "fileOperations": {
+              "didRename": {
+                "filters": [
+                  {
+                    "pattern": {
+                      "glob": "**/*"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "serverInfo": {
+          "name": "Power Platform Pro-Code Language Server",
+          "version": "1.0"
+        }
+      }
+    },
+    {
+      "step": "initialized"
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/SyntaxError.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:topics/SyntaxError.mcs.yml}",
+          "textHash": "sha256:81788bb9310343f1f9a2982ab2352749653b24644dd1da48c36f1328379c07b7",
+          "textBytes": 60
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 10000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/topics/SyntaxError.mcs.yml",
+            "version": 0,
+            "diagnostics": []
+          }
+        }
+      ],
+      "review": "suspect",
+      "reviewNote": "YAML syntax error (missing colon after beginDialog) produces zero diagnostics. Server may not validate YAML syntax.",
+      "suspectId": "S4"
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/SchemaError.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:topics/SchemaError.mcs.yml}",
+          "textHash": "sha256:eba3f8cd928f8d984f80992364cff947f71eb7679fc41909d363955ac64948df",
+          "textBytes": 122
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 10000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/topics/SchemaError.mcs.yml",
+            "version": 0,
+            "diagnostics": [
+              {
+                "code": "MissingRequiredProperty",
+                "range": {
+                  "start": {
+                    "line": 2,
+                    "character": 0
+                  },
+                  "end": {
+                    "line": 6,
+                    "character": 0
+                  }
+                },
+                "severity": 1,
+                "message": "Missing required property \u0027Id\u0027",
+                "data": {}
+              },
+              {
+                "code": "UnknownElementError",
+                "range": {
+                  "start": {
+                    "line": 4,
+                    "character": 6
+                  },
+                  "end": {
+                    "line": 6,
+                    "character": 0
+                  }
+                },
+                "severity": 1,
+                "message": "Node is unknown to the system",
+                "data": {}
+              }
+            ]
+          }
+        }
+      ],
+      "review": "confirmed",
+      "reviewNote": "Correctly reports MissingRequiredProperty for Id and UnknownElementError for InvalidNodeType."
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/TypeMismatch.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:topics/TypeMismatch.mcs.yml}",
+          "textHash": "sha256:95ae319ab91bc9dda2d4ee29b92b0e3a322c49b48291e2f0de385c6a997c08bc",
+          "textBytes": 144
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 10000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/topics/TypeMismatch.mcs.yml",
+            "version": 0,
+            "diagnostics": [
+              {
+                "code": "MissingRequiredProperty",
+                "range": {
+                  "start": {
+                    "line": 2,
+                    "character": 0
+                  },
+                  "end": {
+                    "line": 7,
+                    "character": 0
+                  }
+                },
+                "severity": 1,
+                "message": "Missing required property \u0027Id\u0027",
+                "data": {}
+              },
+              {
+                "code": "MissingRequiredProperty",
+                "range": {
+                  "start": {
+                    "line": 4,
+                    "character": 6
+                  },
+                  "end": {
+                    "line": 7,
+                    "character": 0
+                  }
+                },
+                "severity": 1,
+                "message": "Missing required property \u0027Id\u0027",
+                "data": {}
+              },
+              {
+                "code": "InvalidPropertyPath",
+                "range": {
+                  "start": {
+                    "line": 5,
+                    "character": 16
+                  },
+                  "end": {
+                    "line": 5,
+                    "character": 21
+                  }
+                },
+                "severity": 1,
+                "message": "The specified property path for \u0027Variable\u0027 is invalid or does not exist in the target object.",
+                "data": {}
+              }
+            ]
+          }
+        }
+      ],
+      "review": "confirmed",
+      "reviewNote": "Correctly reports MissingRequiredProperty and InvalidPropertyPath diagnostics."
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/SyntaxError.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/SchemaError.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "close",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/TypeMismatch.mcs.yml"
+        }
+      }
+    },
+    {
+      "step": "shutdown",
+      "expected": null
+    },
+    {
+      "step": "exit"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+kind: AdaptiveDialog
+beginDialog:
+  kind: OnRecognizedIntent
+  actions:
+    - kind: SetVariable
+      variable: 12345
+      value: not_a_number

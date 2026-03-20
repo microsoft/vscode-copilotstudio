@@ -1,0 +1,19 @@
+mcs.metadata:
+  componentName: Transfer Funds
+kind: AgentDialog
+beginDialog:
+  kind: OnToolSelected
+  id: main
+  description: This agent can transfer funds between accounts.
+
+settings:
+  instructions: |-
+    1. Fetch the user profile and their accounts using the {System.Bot.Components.Actions.'crd1c_agent.action.ContosoBankingAPI-Getuserprofile'.DisplayName} tool.
+    2. If you don't already know, ask the user which accounts they want to transfer funds to and from and how much they want to transfer.
+    3. Ensure the choice of accounts is clear, if needed, clarify the choice with the user in the case there is any ambiguity between the accounts.
+    4. Check the source account balance has enough funds to fund the transaction using the {System.Bot.Components.Actions.'crd1c_agent.action.ContosoBankingAPI-Getbalanceinformation'.DisplayName} tool, if it does not tell the user and you're done.
+    5. Ask the user to confirm the details of the transfer and if they would like to proceed.
+    6. Once the user has confirmed make the transfer using the {Topic.Components.Actions.'crd1c_agent.action.ContosoBankingAPI-Transferfundsbetweenaccounts'.DisplayName} tool. NEVER call {Topic.Components.Actions.'crd1c_agent.action.ContosoBankingAPI-Transferfundsbetweenaccounts'.DisplayName} without confirming the most recent information with the user.
+
+inputType: {}
+outputType: {}

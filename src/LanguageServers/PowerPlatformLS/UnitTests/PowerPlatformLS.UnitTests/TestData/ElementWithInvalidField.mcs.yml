@@ -1,0 +1,8 @@
+mcs.metadata:
+  componentName: Book1.xlsx
+  description: This knowledge source provides information found in Book1.xlsx SharePoint.
+invalidField: This field is invalid before kind
+kind: KnowledgeSourceConfiguration
+source:
+  kind: SharePointSearchSource
+  site: https://asdkt2-my.sharepoint.com/personal/nguhoa_asdkt2_onmicrosoft_com/Documents/Book1.xlsx

@@ -1,0 +1,51 @@
+# Name: Rich Actions Demo
+# Topic demonstrating diverse action types for element-level coverage.
+kind: AdaptiveDialog
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent:
+    displayName: Rich Actions Demo
+    triggerQueries:
+      - show me rich actions
+      - demo all actions
+
+  actions:
+    - kind: SetVariable
+      id: setVar_01
+      variable: Global.UserChoice
+      value: "=System.Activity.Text"
+
+    - kind: IfCondition
+      id: ifCond_01
+      condition: =Global.UserChoice = "help"
+      actions:
+        - kind: SendActivity
+          id: sendMessage_help01
+          activity:
+            text:
+              - You asked for help. Let me assist you.
+      elseActions:
+        - kind: SendActivity
+          id: sendMessage_other01
+          activity:
+            text:
+              - Processing your request...
+
+    - kind: BeginDialog
+      id: beginDialog_01
+      dialog: test_allthethings.topic.Greeting
+
+    - kind: EmitEvent
+      id: emitEvent_01
+      eventName: CustomEvent
+      eventValue: "=Global.UserChoice"
+
+    - kind: SendActivity
+      id: sendMessage_final01
+      activity:
+        text:
+          - All done!
+
+    - kind: EndDialog
+      id: endDialog_01

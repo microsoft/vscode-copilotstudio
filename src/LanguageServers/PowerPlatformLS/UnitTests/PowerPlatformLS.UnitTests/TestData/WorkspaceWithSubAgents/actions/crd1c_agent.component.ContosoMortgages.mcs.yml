@@ -1,0 +1,11 @@
+mcs.metadata:
+  componentName: Contoso Mortgages
+  description: This agent helps customers with information about their mortgage accounts and products, answering common questions and carrying out common related transactions.
+kind: TaskDialog
+modelDisplayName: Contoso Mortgages
+modelDescription: This agent helps customers with information about their mortgage accounts and products, answering common questions and carrying out common related transactions.
+action:
+  kind: InvokeConnectedAgentTaskAction
+  botSchemaName: crd1c_agent_3urOt8
+  historyType:
+    kind: ConversationHistory

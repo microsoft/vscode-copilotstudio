@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Sdk Name="Microsoft.Build.CentralPackageVersions" />
+
+  <PropertyGroup>
+    <NoWarn>$(NoWarn);DV2002;CS8002</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="$(AssemblyName.StartsWith('Microsoft.Agents'))">
+    <SignAssembly Condition="'$(EnableSigning)'!='False'">True</SignAssembly>
+  </PropertyGroup>
+
+  <!-- Nullable.Extended.Analyzer for all projects with Nullable enabled -->
+  <ItemGroup Condition="'$(Nullable)' == 'enable'">
+    <PackageReference Include="Nullable.Extended.Analyzer">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- Assembly signing -->
+  <PropertyGroup Condition="'$(SignAssembly)' == 'True'">
+    <DelaySign>True</DelaySign>
+    <KeyFile>$(MsBuildThisFileDirectory)build\codesign\35MSSharedLib1024.snk</KeyFile>
+    <AssemblyOriginatorKeyFile>$(MsBuildThisFileDirectory)build\codesign\35MSSharedLib1024.snk</AssemblyOriginatorKeyFile>
+    <DefineConstants>$(DefineConstants);STRONG_NAMING_ENABLED</DefineConstants>
+  </PropertyGroup>
+
+  <Target Name="PreventCopyAlwaysItems" BeforeTargets="Build">
+    <PropertyGroup>
+      <ErrorMessage>'Copy always' is not allowed for content files, use 'copy if newer'. This is equivalent to 'PreserveNewest' in the 'CopyToOutputDirectory' property in the csproj.</ErrorMessage>
+    </PropertyGroup>
+    <Error Condition="'%(None.CopyToOutputDirectory)' == 'Always' AND '$(SkipCopyIfNewerCheck)' != 'true'" Text="$(ErrorMessage)" File="%(None.FullPath)" />
+    <Error Condition="'%(AdditionalFiles.CopyToOutputDirectory)' == 'Always' AND '$(SkipCopyIfNewerCheck)' != 'true'" Text="$(ErrorMessage)" File="%(AdditionalFiles.FullPath)" />
+    <Error Condition="'%(Content.CopyToOutputDirectory)' == 'Always' AND '$(SkipCopyIfNewerCheck)' != 'true'" Text="$(ErrorMessage)" File="%(Content.FullPath)" />
+  </Target>
+</Project>

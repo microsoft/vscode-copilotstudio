@@ -1,0 +1,11 @@
+<botcomponent schemaname="cree9_agent.topic.NoNameThankYou">
+  <componenttype>9</componenttype>
+  <description>NoNameThankYou.</description>
+  <iscustomizable>0</iscustomizable>
+  <name>NoNameThankYou</name>
+  <parentbotid>
+    <schemaname>cree9_agent</schemaname>
+  </parentbotid>
+  <statecode>0</statecode>
+  <statuscode>1</statuscode>
+</botcomponent>
