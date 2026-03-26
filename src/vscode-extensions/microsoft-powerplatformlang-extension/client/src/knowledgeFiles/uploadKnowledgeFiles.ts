@@ -9,6 +9,36 @@ import { ConflictResolution, TelemetryEventsKeys } from '../constants';
 import logger from '../services/logger';
 import { ChangeType } from '../types';
 
+async function readSidecarDescription(knowledgeFilePath: string): Promise<string | undefined> {
+  const dir = path.dirname(knowledgeFilePath);
+  const basename = path.basename(knowledgeFilePath);
+
+  try {
+    const dirEntries = await fs.readdir(dir);
+    const sidecar = dirEntries.find(
+      f => f.endsWith('.mcs.yml') && f.startsWith(basename)
+    );
+    if (!sidecar) {
+      return undefined;
+    }
+    const content = await fs.readFile(path.join(dir, sidecar), 'utf8');
+
+    // Parse mcs.metadata.description
+    const descMatch = content.match(/^\s*description:\s*(".*?"|'.*?'|.*?)$/m);
+    if (descMatch) {
+      let desc = descMatch[1].trim();
+      // Strip surrounding quotes
+      if ((desc.startsWith('"') && desc.endsWith('"')) || (desc.startsWith("'") && desc.endsWith("'"))) {
+        desc = desc.slice(1, -1);
+      }
+      return desc || undefined;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function uploadKnowledgeFiles(ws: CopilotStudioWorkspace): Promise<void> {
   const { syncInfo, workspaceUri } = ws;
   if (!syncInfo || !syncInfo.dataverseEndpoint) {
@@ -211,8 +241,10 @@ export async function uploadKnowledgeFiles(ws: CopilotStudioWorkspace): Promise<
       let schema = initialSchema;
 
       try {
+        const sidecarDesc = await readSidecarDescription(fullPath);
+
         if (!wsBySchema.has(schema) && botId !== syncInfo.agentId && isChildAgent) {
-          botId = await botHandler.createBotComponent(file, schema, botId, syncInfo.agentId, isChildAgent);
+          botId = await botHandler.createBotComponent(file, schema, botId, syncInfo.agentId, isChildAgent, sidecarDesc);
         }
 
         const url = new URL(`/api/data/v9.2/botcomponents(${botId})/filedata/`, syncInfo.dataverseEndpoint);
@@ -249,6 +281,12 @@ export async function uploadKnowledgeFiles(ws: CopilotStudioWorkspace): Promise<
           throw new Error(`Failed to upload ${file}: ${response.statusCode}${details}`);
         }
 
+        // Sync description from sidecar .mcs.yml to the bot component
+        if (sidecarDesc) {
+          const componentId = wsBySchema.get(schema)?.id ?? botId;
+          await botHandler.updateBotComponentDescription(componentId, sidecarDesc);
+        }
+
         const updatedMeta = await botHandler.listWsComponentMetadata(syncInfo);
         const updated = updatedMeta.find(m => m.schemaName === schema);
         const existing = changeTrack[file] ?? {};
@@ -262,7 +300,7 @@ export async function uploadKnowledgeFiles(ws: CopilotStudioWorkspace): Promise<
           agentId: updated?.agentId ?? existing.agentId,
           agentSchemaName: updated?.agentSchemaName
         };
-        
+
         delete changeTrack[file].localChangeType;
         delete changeTrack[file].remoteChangeType;
 

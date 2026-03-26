@@ -136,10 +136,10 @@ export class botComponentHandler {
     return this.createBotComponent(name, schemaName, agentId);
   }
 
-  public async createBotComponent(name: string, schemaName: string, agentId: string, mainAgentId : string = agentId, isChildAgent: boolean = false): Promise<string> {
+  public async createBotComponent(name: string, schemaName: string, agentId: string, mainAgentId : string = agentId, isChildAgent: boolean = false, description?: string): Promise<string> {
     const data: any = {
       name,
-      description: `Knowledge source for ${name}`,
+      description: description ?? `Knowledge source for ${name}`,
       componenttype: 14,
       schemaname: schemaName
     };
@@ -200,6 +200,21 @@ export class botComponentHandler {
     }
 
     return res.body;
+  }
+
+  public async updateBotComponentDescription(botComponentId: string, description: string): Promise<void> {
+    const url = new URL(`/api/data/v9.2/botcomponents(${botComponentId})`, this.baseUrl);
+    const body = JSON.stringify({ description });
+    const res = await this.dataverseHttpRequest({
+      url,
+      method: 'PATCH',
+      body,
+      extraHeaders: { 'Content-Type': 'application/json' }
+    });
+
+    if (res.statusCode >= 400) {
+      logger.logError(TelemetryEventsKeys.UploadKnowledgeFileError, undefined, { message: `Failed to update description for ${botComponentId}: ${res.statusCode}` });
+    }
   }
 
   public async deleteBotComponent(botComponentId: string): Promise<void> {
