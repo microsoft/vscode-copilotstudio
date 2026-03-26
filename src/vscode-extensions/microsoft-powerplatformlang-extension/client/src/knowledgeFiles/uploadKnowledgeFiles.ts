@@ -23,7 +23,7 @@ async function readSidecarDescription(knowledgeFilePath: string): Promise<string
     }
     const content = await fs.readFile(path.join(dir, sidecar), 'utf8');
 
-    // Parse mcs.metadata.description
+    // Parse description field (either top-level or under mcs.metadata)
     const descMatch = content.match(/^\s*description:\s*(".*?"|'.*?'|.*?)$/m);
     if (descMatch) {
       let desc = descMatch[1].trim();
