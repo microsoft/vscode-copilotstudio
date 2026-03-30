@@ -342,12 +342,5 @@ The extension publishes LSP binaries for 6 platforms via `extension.proj`:
 ## CI/CD
 > Coming soon
 
-GitHub Actions (`.github/workflows/ci.yml`):
-- Triggers: push to main, PRs to main, manual dispatch
-- Runner: `windows-latest`
-- Steps: checkout (full history) → .NET setup → Nerdbank.GitVersioning → restore → build → pack → test
-- Currently builds and tests only the .NET language server
-
 ## Important Notes
-
 > Coming soon - additional guidelines and warnings are being finalized.
