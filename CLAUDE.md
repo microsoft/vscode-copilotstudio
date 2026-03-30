@@ -29,33 +29,38 @@ This is the Copilot Studio Extension for Visual Studio Code - a hybrid TypeScrip
 
 ### TypeScript / VS Code Extension
 
+The `package.json` is located at `src/vscode-extensions/microsoft-powerplatformlang-extension/package.json`. All npm commands must be run from that directory.
+
 ```bash
+# Change to the extension directory first
+cd src/vscode-extensions/microsoft-powerplatformlang-extension
+
 # Install dependencies
-npm install --prefix src/vscode-extensions/microsoft-powerplatformlang-extension
+npm install
 
 # Build everything (LSP + type check + esbuild bundle)
-npm run compile --prefix src/vscode-extensions/microsoft-powerplatformlang-extension
+npm run compile
 
 # Build only the C# language server for current platform
-npm run buildLsp --prefix src/vscode-extensions/microsoft-powerplatformlang-extension
+npm run buildLsp
 
 # Watch LSP for changes (rebuilds on save)
-npm run watchLsp --prefix src/vscode-extensions/microsoft-powerplatformlang-extension
+npm run watchLsp
 
 # Type check only (no emit)
-npm run check-types --prefix src/vscode-extensions/microsoft-powerplatformlang-extension
+npm run check-types
 
 # Lint
-npm run lint --prefix src/vscode-extensions/microsoft-powerplatformlang-extension
+npm run lint
 
 # Run VS Code extension tests
-npm test --prefix src/vscode-extensions/microsoft-powerplatformlang-extension
+npm test
 
 # Package VSIX (win32-x64, pre-release)
-npm run package --prefix src/vscode-extensions/microsoft-powerplatformlang-extension
+npm run package
 
 # Watch TypeScript compilation
-npm run watch --prefix src/vscode-extensions/microsoft-powerplatformlang-extension
+npm run watch
 ```
 
 ### .NET / Language Server
@@ -335,6 +340,7 @@ The extension publishes LSP binaries for 6 platforms via `extension.proj`:
 - Config: `.vscode-test.mjs`
 
 ## CI/CD
+> Coming soon
 
 GitHub Actions (`.github/workflows/ci.yml`):
 - Triggers: push to main, PRs to main, manual dispatch
