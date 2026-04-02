@@ -1,0 +1,46 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <AspNetCoreVersion>10.0.1</AspNetCoreVersion>
+    <PowerFxPackageVersion>1.5.0-build.20251008-1002</PowerFxPackageVersion>
+    <AgentsPackageVersion>1.2026.317.1</AgentsPackageVersion>
+  </PropertyGroup>
+
+  <!-- Microsoft.Agents.* packages (from CCI-Dependency feed) -->
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.Agents.ObjectModel" Version="$(AgentsPackageVersion)" />
+    <PackageVersion Include="Microsoft.Agents.ObjectModel.Dataverse" Version="$(AgentsPackageVersion)" />
+    <PackageVersion Include="Microsoft.Agents.ObjectModel.NodeGenerators" Version="$(AgentsPackageVersion)" />
+    <PackageVersion Include="Microsoft.Agents.ObjectModel.PowerFx" Version="$(AgentsPackageVersion)" />
+    <PackageVersion Include="Microsoft.Agents.Platform.Content" Version="$(AgentsPackageVersion)" />
+    <PackageVersion Include="Microsoft.Agents.Platform.Content.Internal" Version="$(AgentsPackageVersion)" />
+  </ItemGroup>
+
+  <!-- Runtime / framework packages -->
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="$(AspNetCoreVersion)" />
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="$(AspNetCoreVersion)" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.ApplicationInsights" Version="2.23.0" />
+    <PackageVersion Include="Microsoft.Identity.Client" Version="4.71.1" />
+    <PackageVersion Include="Microsoft.Identity.Client.Extensions.Msal" Version="4.71.1" />
+    <PackageVersion Include="Microsoft.PowerFx.Interpreter" Version="$(PowerFxPackageVersion)" />
+    <PackageVersion Include="Microsoft.PowerFx.LanguageServerProtocol" Version="$(PowerFxPackageVersion)" />
+    <PackageVersion Include="Microsoft.VisualStudio.Threading" Version="17.13.2" />
+    <PackageVersion Include="Nullable.Extended.Analyzer" Version="1.10.4539" />
+    <PackageVersion Include="System.Collections.Immutable" Version="$(AspNetCoreVersion)" />
+    <PackageVersion Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
+    <PackageVersion Include="System.Text.Json" Version="$(AspNetCoreVersion)" />
+    <PackageVersion Include="YamlDotNet" Version="11.2.1" />
+  </ItemGroup>
+
+  <!-- Test packages -->
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
+    <PackageVersion Include="Moq" Version="4.16.1" />
+    <PackageVersion Include="xunit" Version="2.4.1" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="2.4.3" />
+  </ItemGroup>
+</Project>

@@ -1,7 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <Sdk Name="Microsoft.Build.CentralPackageVersions" />
-
   <PropertyGroup>
     <NoWarn>$(NoWarn);DV2002;CS8002</NoWarn>
   </PropertyGroup>
