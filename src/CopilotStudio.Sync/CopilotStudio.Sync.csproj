@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Microsoft.CopilotStudio.Sync</AssemblyName>
+    <RootNamespace>$(AssemblyName)</RootNamespace>
+    <SignAssembly>True</SignAssembly>
+    <DelaySign>True</DelaySign>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Agents.ObjectModel.PowerFx" />
+    <PackageReference Include="Microsoft.Agents.Platform.Content.Internal" />
+    <PackageReference Include="Microsoft.Extensions.Http" />
+    <PackageReference Include="YamlDotNet" />
+  </ItemGroup>
+
+</Project>

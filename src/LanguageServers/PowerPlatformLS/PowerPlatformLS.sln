@@ -31,6 +31,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Impl.PullAgent", "Impl.Pull
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Contracts.FileLayout", "Contracts.FileLayout\Contracts.FileLayout.csproj", "{AFFEDFB1-74D0-7AC4-D1FA-326FFEAC2806}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CopilotStudio.Sync", "..\..\CopilotStudio.Sync\CopilotStudio.Sync.csproj", "{C8CAF829-49A0-4F69-80AB-EB89994B3E27}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -85,6 +87,10 @@ Global
 		{AFFEDFB1-74D0-7AC4-D1FA-326FFEAC2806}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{AFFEDFB1-74D0-7AC4-D1FA-326FFEAC2806}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{AFFEDFB1-74D0-7AC4-D1FA-326FFEAC2806}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C8CAF829-49A0-4F69-80AB-EB89994B3E27}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C8CAF829-49A0-4F69-80AB-EB89994B3E27}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C8CAF829-49A0-4F69-80AB-EB89994B3E27}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C8CAF829-49A0-4F69-80AB-EB89994B3E27}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
