@@ -8,7 +8,7 @@ namespace Microsoft.CopilotStudio.Sync.Dataverse;
 /// <summary>
 /// Validates schema names for Dataverse agents.
 /// </summary>
-internal static class SchemaNameValidator
+public static class SchemaNameValidator
 {
     private static readonly Regex ValidSchemaNameRegex = new(@"^[A-Za-z0-9_\-\.{}!]+$", RegexOptions.Compiled);
 
