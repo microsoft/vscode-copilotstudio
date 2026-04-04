@@ -1,26 +1,34 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 
+using Azure.Core;
+using Azure.Identity;
 using Microsoft.CopilotStudio.Sync;
-using Microsoft.Identity.Client;
-using Microsoft.Identity.Client.Extensions.Msal;
 
 namespace Microsoft.CopilotStudio.Sync.TestHarness;
 
 /// <summary>
-/// ISyncAuthProvider backed by MSAL device code flow for interactive dev-loop use.
-/// Reads COPILOT_TEST_TENANT_ID and COPILOT_TEST_CLIENT_ID from OS environment variables.
-/// Tokens are cached to disk so they persist between process invocations.
+/// ISyncAuthProvider backed by Azure.Identity interactive browser auth.
+/// On first use, opens a browser for sign-in and persists an AuthenticationRecord
+/// to disk. On subsequent runs, the record enables silent token acquisition from
+/// the persistent cache — zero browser prompts.
+///
+/// Required environment variables:
+///   COPILOT_TEST_TENANT_ID — AAD tenant ID (also used by Program.cs for AgentSyncInfo)
+///   COPILOT_TEST_CLIENT_ID — public client app registration with Dataverse API permissions
 /// </summary>
 internal sealed class AuthProvider : ISyncAuthProvider
 {
-    private readonly IPublicClientApplication _app;
     private static readonly string CacheDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "CopilotStudio.Sync.TestHarness");
 
-    private AuthProvider(IPublicClientApplication app)
+    private static readonly string AuthRecordPath = Path.Combine(CacheDir, "auth-record.json");
+
+    private readonly TokenCredential _credential;
+
+    private AuthProvider(TokenCredential credential)
     {
-        _app = app;
+        _credential = credential;
     }
 
     public static async Task<AuthProvider> CreateAsync()
@@ -28,58 +36,49 @@ internal sealed class AuthProvider : ISyncAuthProvider
         var tenantId = GetRequiredEnvVar("COPILOT_TEST_TENANT_ID");
         var clientId = GetRequiredEnvVar("COPILOT_TEST_CLIENT_ID");
 
-        var app = PublicClientApplicationBuilder
-            .Create(clientId)
-            .WithAuthority(AzureCloudInstance.AzurePublic, tenantId)
-            .Build();
+        Directory.CreateDirectory(CacheDir);
 
-        // Attach file-based token cache so tokens persist between invocations
-        var storageProperties = new StorageCreationPropertiesBuilder("msal_token_cache.bin", CacheDir)
-            .Build();
-        var cacheHelper = await MsalCacheHelper.CreateAsync(storageProperties).ConfigureAwait(false);
-        cacheHelper.RegisterCache(app.UserTokenCache);
+        var options = new InteractiveBrowserCredentialOptions
+        {
+            TenantId = tenantId,
+            ClientId = clientId,
+            TokenCachePersistenceOptions = new TokenCachePersistenceOptions
+            {
+                Name = "CopilotStudio.Sync.TestHarness",
+            },
+        };
 
-        Console.Error.WriteLine("[auth] Using device code flow (token cache: " + CacheDir + ")");
+        // Restore persisted AuthenticationRecord so the credential can find cached
+        // tokens without opening the browser.
+        if (File.Exists(AuthRecordPath))
+        {
+            using var stream = File.OpenRead(AuthRecordPath);
+            options.AuthenticationRecord = await AuthenticationRecord.DeserializeAsync(stream).ConfigureAwait(false);
+            Console.Error.WriteLine("[auth] Restored auth record — silent token acquisition enabled");
+        }
 
-        return new AuthProvider(app);
+        var credential = new InteractiveBrowserCredential(options);
+
+        // If no persisted record, authenticate now (opens browser) and persist the
+        // record for future runs.
+        if (options.AuthenticationRecord == null)
+        {
+            Console.Error.WriteLine("[auth] No cached auth record — opening browser for initial sign-in...");
+            var record = await credential.AuthenticateAsync().ConfigureAwait(false);
+            using var stream = File.Create(AuthRecordPath);
+            await record.SerializeAsync(stream).ConfigureAwait(false);
+            Console.Error.WriteLine("[auth] Auth record saved to " + AuthRecordPath);
+        }
+
+        return new AuthProvider(credential);
     }
 
     public async Task<string> AcquireTokenAsync(Uri audience, CancellationToken cancellationToken = default)
     {
         var scope = audience.ToString().TrimEnd('/') + "/.default";
-
-        // Try silent first (cached tokens from disk)
-        var accounts = await _app.GetAccountsAsync().ConfigureAwait(false);
-        var account = accounts.FirstOrDefault();
-
-        if (account != null)
-        {
-            try
-            {
-                var silent = await _app
-                    .AcquireTokenSilent([scope], account)
-                    .ExecuteAsync(cancellationToken)
-                    .ConfigureAwait(false);
-                return silent.AccessToken;
-            }
-            catch (MsalUiRequiredException)
-            {
-                // Token expired or scope not cached — fall through to device code
-            }
-        }
-
-        var result = await _app
-            .AcquireTokenWithDeviceCode([scope], deviceCodeResult =>
-            {
-                Console.Error.WriteLine();
-                Console.Error.WriteLine(deviceCodeResult.Message);
-                Console.Error.WriteLine();
-                return Task.CompletedTask;
-            })
-            .ExecuteAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        return result.AccessToken;
+        var context = new TokenRequestContext([scope]);
+        var token = await _credential.GetTokenAsync(context, cancellationToken).ConfigureAwait(false);
+        return token.Token;
     }
 
     private static string GetRequiredEnvVar(string name)

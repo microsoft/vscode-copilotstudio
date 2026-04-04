@@ -30,7 +30,7 @@ internal static class HostServices
         // 1. Logging (required by Platform.Content's DataverseClient)
         services.AddLogging();
 
-        // 2. Auth provider with persistent token cache
+        // 2. Auth provider (interactive browser, silent after first sign-in)
         var authProvider = await AuthProvider.CreateAsync().ConfigureAwait(false);
         services.AddSingleton<ISyncAuthProvider>(authProvider);
 
