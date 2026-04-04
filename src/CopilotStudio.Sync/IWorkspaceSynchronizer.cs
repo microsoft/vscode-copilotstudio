@@ -216,4 +216,27 @@ public interface IWorkspaceSynchronizer
         ISyncDataverseClient dataverseClient,
         Guid? agentId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Clones an agent and its component collections into separate workspace folders
+    /// under <paramref name="rootFolder"/>. Each asset (agent or component collection)
+    /// gets its own subfolder named after its display name. Cross-workspace references
+    /// are resolved in a second pass via <see cref="ApplyTouchupsAsync"/>.
+    /// </summary>
+    /// <param name="rootFolder">Parent directory under which workspace subfolders are created.</param>
+    /// <param name="syncInfo">Connection details for the agent (saved to each workspace).</param>
+    /// <param name="assetsToClone">Which assets to clone (agent and/or component collection IDs).</param>
+    /// <param name="agentInfo">Agent metadata including display names for folder naming.</param>
+    /// <param name="operationContextProvider">Creates operation contexts for each asset.</param>
+    /// <param name="dataverseClient">Dataverse client for server communication.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>List of workspace directories created, agent folder first if present.</returns>
+    Task<ImmutableArray<DirectoryPath>> CloneAllAssetsAsync(
+        DirectoryPath rootFolder,
+        AgentSyncInfo syncInfo,
+        AssetsToClone assetsToClone,
+        AgentInfo agentInfo,
+        IOperationContextProvider operationContextProvider,
+        ISyncDataverseClient dataverseClient,
+        CancellationToken cancellationToken);
 }

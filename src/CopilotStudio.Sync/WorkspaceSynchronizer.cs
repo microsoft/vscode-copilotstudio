@@ -33,6 +33,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
     // Folder where workflows are stored.
     private const string WorkflowFolder = "workflows";
 
+    // Folder where environment variables are projected.
+    private const string EnvironmentVariablesFolder = "environmentvariables";
+
     private static readonly AgentFilePath ChangeTokenPath = new AgentFilePath(HiddenRoot + "/changetoken.txt");
 
     /// <summary>
@@ -300,7 +303,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             // remoteChanges.Item1.Bot is non-null — guarded by the if-condition on line 234
             var remoteBot = remoteChanges.Item1.Bot!;
             var bot = CodeSerializer.Deserialize<BotEntity>(updatedEntityString) ?? remoteBot;
-            bot = bot.WithVersion(remoteBot.Version);
+            // The 3-way merge operates on settings YAML only (WithOnlySettingsYamlProperties
+            // strips IconBase64 and other metadata from original/remote). Restore non-settings
+            // properties — including IconBase64 — from the remote bot.
+            bot = remoteBot.ApplySettingsYamlProperties(bot);
             updatedChangeSetBuilder.Bot = bot;
             updatedChangeSet = updatedChangeSetBuilder.Build();
         }
@@ -747,7 +753,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         {
             FileAccessor = fileAccessor,
             Definition = updatedDefinition,
-            PathResolver = _pathResolver
+            PathResolver = _pathResolver,
+            SyncProgress = _syncProgress
         };
 
         // Write connectionreferences.mcs.yml with updated connection references from cloud.
@@ -790,6 +797,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             fileAccessor.Delete(path);
         }
 
+        // Project environment variables as environmentvariables/*.mcs.yml
+        WriteEnvironmentVariables(fileAccessor, updatedDefinition, changeset);
+
         return updatedDefinition;
     }
 
@@ -821,6 +831,49 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         }
 
         return false;
+    }
+
+    private static void WriteEnvironmentVariables(IFileAccessor fileAccessor, DefinitionBase definition, PvaComponentChangeSet changeset)
+    {
+        // Process environment variable changes: write upserts, delete removals
+        foreach (var change in changeset.EnvironmentVariableChanges)
+        {
+            if (change is EnvironmentVariableUpsert upsert && upsert.EnvironmentVariable is EnvironmentVariableDefinition envVar)
+            {
+                var path = GetEnvironmentVariablePath(envVar);
+                using var stream = fileAccessor.OpenWrite(path);
+                using var sw = new StreamWriter(stream, new UTF8Encoding(false));
+                YamlSerializer.Serialize(sw, envVar);
+            }
+            else if (change is EnvironmentVariableDelete delete)
+            {
+                // Find the env var in the definition to determine its file path for deletion
+                var deleted = definition.EnvironmentVariables.FirstOrDefault(e => e.Id.Value == delete.DefinitionId.Value);
+                if (deleted != null)
+                {
+                    var path = GetEnvironmentVariablePath(deleted);
+                    fileAccessor.Delete(path);
+                }
+            }
+        }
+
+        // If no individual changes but definition has env vars (e.g., clone), write all
+        if (changeset.EnvironmentVariableChanges.IsEmpty)
+        {
+            foreach (var envVar in definition.EnvironmentVariables)
+            {
+                var path = GetEnvironmentVariablePath(envVar);
+                using var stream = fileAccessor.OpenWrite(path);
+                using var sw = new StreamWriter(stream, new UTF8Encoding(false));
+                YamlSerializer.Serialize(sw, envVar);
+            }
+        }
+    }
+
+    internal static AgentFilePath GetEnvironmentVariablePath(EnvironmentVariableDefinition envVar)
+    {
+        var schemaName = envVar.SchemaName.Value;
+        return new AgentFilePath($"{EnvironmentVariablesFolder}/{schemaName}.mcs.yml");
     }
 
     private void WriteComponentCollection(IFileAccessor fileAccessor, BotComponentCollection? collection, CancellationToken cancellationToken)
@@ -1235,6 +1288,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
         public IComponentPathResolver PathResolver { get; init; } = null!;
 
+        public ISyncProgress? SyncProgress { get; init; }
+
         public override void Visit(UnknownBotComponentChange item)
         {
             // ignore unknown changes
@@ -1270,9 +1325,17 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 throw new InvalidOperationException($"Component is missing Id: {botComponent.SchemaNameString}");
             }
 
-            // Bot defintions from the PvaChangeSet are orphaned and not in a BotDefinition.
-            // Need a the BotDef to do things like compute file path. 
-            var groundedComponent = Definition.VerifiedGetBotComponentById(botComponent.Id);
+            // Bot definitions from the PvaChangeSet are orphaned and not in a BotDefinition.
+            // Need the BotDef to do things like compute file path.
+            // Use TryGet instead of VerifiedGet to avoid crash when a component type
+            // (e.g., SkillComponent in batch push) isn't properly round-tripped through
+            // ApplyChanges or deserialization.
+            if (!Definition.TryGetBotComponentById(botComponent.Id, out var groundedComponent))
+            {
+                SyncProgress?.Report($"Skipping component {botComponent.SchemaNameString}: not found in definition after ApplyChanges (Id: {botComponent.Id})");
+                return;
+            }
+
             var path = new AgentFilePath(PathResolver.GetComponentPath(groundedComponent, Definition));
             using var stream = FileAccessor.OpenWrite(path);
             using var textWriter = new StreamWriter(stream);
@@ -1600,7 +1663,53 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             }
         }
 
-        return definition.WithComponents(updatedComponents);
+        // Read environment variables from environmentvariables/*.mcs.yml
+        var updatedEnvVars = await ReadEnvironmentVariablesAsync(fileAccessor, definition, cancellationToken).ConfigureAwait(false);
+
+        return definition.WithComponents(updatedComponents).WithEnvironmentVariables(updatedEnvVars);
+    }
+
+    private async Task<ImmutableArray<EnvironmentVariableDefinition>> ReadEnvironmentVariablesAsync(
+        IFileAccessor fileAccessor,
+        DefinitionBase definition,
+        CancellationToken cancellationToken)
+    {
+        var envVarFiles = fileAccessor.ListFiles(EnvironmentVariablesFolder, "*.mcs.yml").ToList();
+        if (envVarFiles.Count == 0)
+        {
+            // No env var files on disk — return what's in the cloud cache
+            return definition.EnvironmentVariables;
+        }
+
+        var result = ImmutableArray.CreateBuilder<EnvironmentVariableDefinition>();
+
+        foreach (var filePath in envVarFiles)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            using var stream = fileAccessor.OpenRead(filePath);
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            var yaml = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+
+            if (CodeSerializer.Deserialize(yaml, typeof(EnvironmentVariableDefinition), null) is EnvironmentVariableDefinition envVar)
+            {
+                // Restore metadata (Id, etc.) from cloud cache if available
+                var cached = definition.EnvironmentVariables.FirstOrDefault(
+                    e => string.Equals(e.SchemaName.Value, envVar.SchemaName.Value, StringComparison.OrdinalIgnoreCase));
+                if (cached != null)
+                {
+                    var builder = envVar.ToBuilder();
+                    builder.Id = cached.Id;
+                    result.Add(builder.Build());
+                }
+                else
+                {
+                    result.Add(envVar);
+                }
+            }
+        }
+
+        return result.ToImmutable();
     }
 
     private bool IsValidFileToUpload(AgentFilePath knowledgeFile)
@@ -2120,6 +2229,86 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         }
 
         return Task.CompletedTask;
+    }
+
+    public async Task<ImmutableArray<DirectoryPath>> CloneAllAssetsAsync(
+        DirectoryPath rootFolder,
+        AgentSyncInfo syncInfo,
+        AssetsToClone assetsToClone,
+        AgentInfo agentInfo,
+        IOperationContextProvider operationContextProvider,
+        ISyncDataverseClient dataverseClient,
+        CancellationToken cancellationToken)
+    {
+        var referenceTracker = new ReferenceTracker();
+        var allOperations = await operationContextProvider.GetAllAsync(syncInfo, assetsToClone).ConfigureAwait(false);
+        var workspaceFolders = ImmutableArray.CreateBuilder<DirectoryPath>();
+
+        foreach (var operationContext in allOperations)
+        {
+            string displayName;
+            switch (operationContext)
+            {
+                case BotComponentCollectionAuthoringOperationContext cc:
+                    var collectionInfo = agentInfo.ComponentCollections.FirstOrDefault(c => c.Id == cc.BotComponentCollectionReference.CdsId);
+                    displayName = collectionInfo?.DisplayName ?? cc.BotComponentCollectionReference.CdsId.ToString();
+                    break;
+                case AuthoringOperationContext:
+                    displayName = agentInfo.DisplayName;
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unknown operation context type {operationContext.GetType()}.");
+            }
+
+            var folderName = SanitizeFolderName(displayName);
+            if (string.IsNullOrWhiteSpace(folderName))
+            {
+                throw new InvalidOperationException($"Display name '{displayName}' is not valid for a folder name.");
+            }
+
+            var folder = rootFolder.GetChildDirectoryPath(folderName);
+            var folderPath = folder.ToString();
+            if (Directory.Exists(folderPath) && Directory.GetFiles(folderPath).Length > 0)
+            {
+                throw new InvalidOperationException($"Destination path '{folder}' already exists and is not an empty directory.");
+            }
+
+            workspaceFolders.Add(folder);
+
+            await SaveSyncInfoAsync(folder, syncInfo).ConfigureAwait(false);
+            await CloneChangesAsync(folder, referenceTracker, operationContext, dataverseClient, syncInfo.AgentId, cancellationToken).ConfigureAwait(false);
+        }
+
+        // Second pass: fill in cross-workspace reference paths now that all workspaces exist.
+        foreach (var folder in workspaceFolders)
+        {
+            await ApplyTouchupsAsync(folder, referenceTracker, cancellationToken).ConfigureAwait(false);
+        }
+
+        return workspaceFolders.ToImmutable();
+    }
+
+    /// <summary>
+    /// Sanitizes a display name for use as a folder name.
+    /// Keeps alphanumeric, underscore, hyphen, space, and Unicode above 128.
+    /// Percent-encodes other ASCII characters.
+    /// Ported from CloneAgentHandler.SanitizeFolderName in the extension.
+    /// </summary>
+    internal static string SanitizeFolderName(string displayName)
+    {
+        displayName = displayName.Trim();
+
+        bool hasValidCharacters = displayName.Any(c => char.IsLetterOrDigit(c) || c == '_' || c == '-' || c > 128);
+        if (!hasValidCharacters) return string.Empty;
+
+        return System.Text.RegularExpressions.Regex.Replace(displayName, @"[\u0000-\u007F]", match =>
+        {
+            char c = match.Value[0];
+            if (char.IsLetterOrDigit(c) || c == '_' || c == '-' || c == ' ')
+                return c.ToString();
+            else
+                return "%" + ((int)c).ToString("x2");
+        });
     }
 
     public async Task<PushVerificationResult> VerifyPushAsync(
