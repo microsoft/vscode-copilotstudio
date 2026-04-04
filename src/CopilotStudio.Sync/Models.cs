@@ -77,8 +77,10 @@ public class AgentSyncInfo
 
     /// <summary>
     /// Url to copilot studio control plane. Like "https://powervamg.us-il301.gateway.prod.island.powerapps.com/"
+    /// Nullable: only needed when Island cross-validation is enabled (isIslandPreauthorized = true).
+    /// Each host derives this from its own discovery mechanism (BAP for pac, VS Code sessions for extension).
     /// </summary>
-    public Uri AgentManagementEndpoint { get; init; } = null!;
+    public Uri? AgentManagementEndpoint { get; init; }
 }
 
 public class AssetsToClone

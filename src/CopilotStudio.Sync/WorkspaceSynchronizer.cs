@@ -2135,7 +2135,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         // Clone to a temp workspace to get the server's current state
         var tempDir = Path.Combine(Path.GetTempPath(), "mcs-verify-" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(tempDir);
-        var tempWorkspace = new DirectoryPath(tempDir);
+        var tempWorkspace = new DirectoryPath(tempDir.Replace('\\', '/'));
 
         try
         {

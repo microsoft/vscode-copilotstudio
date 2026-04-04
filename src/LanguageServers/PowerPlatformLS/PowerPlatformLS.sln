@@ -33,6 +33,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Contracts.FileLayout", "Con
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CopilotStudio.Sync", "..\..\CopilotStudio.Sync\CopilotStudio.Sync.csproj", "{C8CAF829-49A0-4F69-80AB-EB89994B3E27}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CopilotStudio.Sync.TestHarness", "..\..\CopilotStudio.Sync.TestHarness\CopilotStudio.Sync.TestHarness.csproj", "{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -91,6 +93,10 @@ Global
 		{C8CAF829-49A0-4F69-80AB-EB89994B3E27}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C8CAF829-49A0-4F69-80AB-EB89994B3E27}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{C8CAF829-49A0-4F69-80AB-EB89994B3E27}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
