@@ -8,6 +8,7 @@ namespace Microsoft.CopilotStudio.Sync.E2ETests;
 /// <summary>
 /// E2E tests for clone operations. Exercises the shared library through the test CLI.
 /// </summary>
+[Collection(LiveTenantCollection.Name)]
 public sealed class CloneTests : IDisposable
 {
     private readonly ITestOutputHelper _output;

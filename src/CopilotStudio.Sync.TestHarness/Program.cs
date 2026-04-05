@@ -328,11 +328,164 @@ verifyCommand.SetHandler(async (string workspace) =>
 
 }, verifyWorkspaceOption);
 
+// ── list-agents ───────────────────────────────────────────────────────
+var listAgentsCommand = new Command("list-agents", "List agents in an environment (for discovering schema names)");
+var listEnvOption = new Option<string>("--environment", "Dataverse org URL") { IsRequired = true };
+var listFilterOption = new Option<string?>("--filter", "Optional display name substring filter");
+listAgentsCommand.AddOption(listEnvOption);
+listAgentsCommand.AddOption(listFilterOption);
+
+listAgentsCommand.SetHandler(async (string environment, string? filter) =>
+{
+    try
+    {
+        var environmentUrl = new Uri(environment.TrimEnd('/') + "/");
+        await using var services = await HostServices.BuildAsync(environmentUrl);
+
+        var authProvider = services.GetRequiredService<ISyncAuthProvider>();
+        var token = await authProvider.AcquireTokenAsync(environmentUrl, CancellationToken.None);
+
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+        var query = $"{environmentUrl}api/data/v9.2/bots?$select=name,schemaname,botid&$orderby=name";
+        var response = await http.GetStringAsync(query);
+        var doc = System.Text.Json.JsonDocument.Parse(response);
+
+        Console.WriteLine($"{"Schema Name",-40} {"Display Name",-30} {"Bot ID"}");
+        Console.WriteLine(new string('-', 110));
+
+        foreach (var bot in doc.RootElement.GetProperty("value").EnumerateArray())
+        {
+            var name = bot.GetProperty("name").GetString() ?? "";
+            var schema = bot.GetProperty("schemaname").GetString() ?? "";
+            var id = bot.GetProperty("botid").GetString() ?? "";
+
+            if (filter != null && !name.Contains(filter, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            Console.WriteLine($"{schema,-40} {name,-30} {id}");
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Error: {ex.Message}");
+        Environment.ExitCode = 1;
+    }
+}, listEnvOption, listFilterOption);
+
+// ── clone-via-bridge ──────────────────────────────────────────────────
+// Exercises the extension's actual bridge types (TokenManager, LspSyncAuthProvider,
+// LspDataverseHttpClientAccessor) with real tokens against a live tenant.
+// Used by E2E tests to compare extension-path clone output against direct CLI clone.
+var cloneViaBridgeCommand = new Command("clone-via-bridge", "Clone via extension bridge types (F3 validation)");
+var bridgeEnvOption = new Option<string>("--environment", "Dataverse org URL") { IsRequired = true };
+var bridgeEnvIdOption = new Option<string?>("--environment-id", () => Environment.GetEnvironmentVariable("COPILOT_TEST_ENVIRONMENT_ID"), "Power Platform environment ID");
+var bridgeAgentOption = new Option<string>("--agent-schema-name", "Schema name of the agent") { IsRequired = true };
+var bridgeOutputOption = new Option<string>("--output", () => "./workspace-bridge", "Output workspace directory");
+
+cloneViaBridgeCommand.AddOption(bridgeEnvOption);
+cloneViaBridgeCommand.AddOption(bridgeEnvIdOption);
+cloneViaBridgeCommand.AddOption(bridgeAgentOption);
+cloneViaBridgeCommand.AddOption(bridgeOutputOption);
+
+cloneViaBridgeCommand.SetHandler(async (string environment, string? environmentId, string agentSchemaName, string output) =>
+{
+    var sw = Stopwatch.StartNew();
+    try
+    {
+        if (string.IsNullOrEmpty(environmentId))
+        {
+            Console.Error.WriteLine("Error: --environment-id is required (or set COPILOT_TEST_ENVIRONMENT_ID env var).");
+            Environment.ExitCode = 1;
+            return;
+        }
+
+        var environmentUrl = new Uri(environment.TrimEnd('/') + "/");
+        Console.WriteLine($"Environment: {environmentUrl}");
+        Console.WriteLine("[bridge] Using extension bridge types (TokenManager → LspSyncAuthProvider → LspDataverseHttpClientAccessor)");
+
+        // 1. Acquire Dataverse token using the same interactive auth the test harness uses
+        var directAuthProvider = await Microsoft.CopilotStudio.Sync.TestHarness.AuthProvider.CreateAsync();
+        var dvToken = await directAuthProvider.AcquireTokenAsync(environmentUrl, CancellationToken.None);
+
+        // 2. Build a service provider using the extension's actual bridge types.
+        //    Island control plane is disabled (isIslandPreauthorized: false) — PAC
+        //    doesn't use it either. All data flows through Dataverse.
+        await using var services = BridgeHostServices.BuildWithBridgeTypes(environmentUrl, dvToken);
+
+        var dataverseClient = services.GetRequiredService<ISyncDataverseClient>();
+        dataverseClient.SetDataverseUrl(environmentUrl.ToString());
+
+        Console.WriteLine($"Looking up agent '{agentSchemaName}'...");
+        var agentId = await dataverseClient.GetAgentIdBySchemaNameAsync(agentSchemaName, CancellationToken.None);
+        Console.WriteLine($"Agent ID: {agentId}");
+
+        var agentInfo = await dataverseClient.GetAgentInfoAsync(agentId, CancellationToken.None);
+        Console.WriteLine($"Agent: {agentInfo.DisplayName} (schema: {agentInfo.SchemaName})");
+
+        Console.WriteLine("Fetching solution versions...");
+        var solutionVersions = await dataverseClient.GetSolutionVersionsAsync(CancellationToken.None);
+
+        var tenantId = Guid.Parse(GetRequiredEnvVar("COPILOT_TEST_TENANT_ID"));
+
+        var syncInfo = new AgentSyncInfo
+        {
+            AgentId = agentId,
+            DataverseEndpoint = environmentUrl,
+            EnvironmentId = environmentId,
+            SolutionVersions = solutionVersions,
+            AccountInfo = new AccountInfo
+            {
+                TenantId = tenantId,
+            },
+        };
+
+        var operationContextProvider = services.GetRequiredService<IOperationContextProvider>();
+        var operationContext = await operationContextProvider.GetAsync(syncInfo);
+
+        var workspaceFolder = new DirectoryPath(Path.GetFullPath(output).Replace('\\', '/'));
+        Directory.CreateDirectory(workspaceFolder.ToString().TrimEnd('/'));
+
+        var synchronizer = services.GetRequiredService<IWorkspaceSynchronizer>();
+
+        Console.WriteLine($"Saving sync info to {workspaceFolder}...");
+        await synchronizer.SaveSyncInfoAsync(workspaceFolder, syncInfo);
+
+        Console.WriteLine("[bridge] Cloning agent via extension bridge stack...");
+        var referenceTracker = new ReferenceTracker();
+        await synchronizer.CloneChangesAsync(workspaceFolder, referenceTracker, operationContext, dataverseClient, agentId, CancellationToken.None);
+
+        Console.WriteLine("[bridge] Syncing workspace metadata...");
+        await synchronizer.SyncWorkspaceAsync(workspaceFolder, operationContext, null, true, dataverseClient, agentId, null, CancellationToken.None);
+
+        await synchronizer.ApplyTouchupsAsync(workspaceFolder, referenceTracker, CancellationToken.None);
+
+        Console.WriteLine();
+        Console.WriteLine($"[bridge] Clone complete. Workspace: {workspaceFolder}");
+        PrintWorkspaceEntitySummary(workspaceFolder);
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Error: {ex.Message}");
+        Environment.ExitCode = 1;
+    }
+    finally
+    {
+        Console.WriteLine($"Elapsed: {sw.Elapsed.TotalSeconds:F1}s");
+    }
+
+}, bridgeEnvOption, bridgeEnvIdOption, bridgeAgentOption, bridgeOutputOption);
+
 // ── root ───────────────────────────────────────────────────────────────
 rootCommand.AddCommand(cloneCommand);
 rootCommand.AddCommand(pushCommand);
 rootCommand.AddCommand(pullCommand);
 rootCommand.AddCommand(verifyCommand);
+rootCommand.AddCommand(listAgentsCommand);
+rootCommand.AddCommand(cloneViaBridgeCommand);
 
 var result = await rootCommand.InvokeAsync(args);
 // InvokeAsync returns 0 on successful dispatch regardless of Environment.ExitCode.

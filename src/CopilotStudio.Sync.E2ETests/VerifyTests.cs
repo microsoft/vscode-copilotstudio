@@ -8,6 +8,7 @@ namespace Microsoft.CopilotStudio.Sync.E2ETests;
 /// <summary>
 /// E2E tests for the verify command. Exercises VerifyPushAsync through the test CLI.
 /// </summary>
+[Collection(LiveTenantCollection.Name)]
 public sealed class VerifyTests : IDisposable
 {
     private readonly ITestOutputHelper _output;
@@ -62,8 +63,9 @@ public sealed class VerifyTests : IDisposable
         _output.WriteLine("VERIFY STDOUT:\n" + verifyResult.Stdout);
 
         Assert.Equal(0, verifyResult.ExitCode);
-        // Per-entity-type output must include status markers
-        Assert.Contains("[OK", verifyResult.Stdout);
-        Assert.Contains("verified", verifyResult.Stdout);
+        // Verify must pass. When workspace matches server exactly (no changes pushed),
+        // VerifyPushAsync returns empty EntityTypes and prints the summary line only.
+        Assert.Contains("Verification results:", verifyResult.Stdout);
+        Assert.Contains("Push verification passed", verifyResult.Stdout);
     }
 }

@@ -8,6 +8,7 @@ namespace Microsoft.CopilotStudio.Sync.E2ETests;
 /// <summary>
 /// E2E tests for push and pull operations through the test CLI.
 /// </summary>
+[Collection(LiveTenantCollection.Name)]
 public sealed class PushPullTests : IDisposable
 {
     private readonly ITestOutputHelper _output;

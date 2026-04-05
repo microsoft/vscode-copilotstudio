@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CopilotStudio.Sync\CopilotStudio.Sync.csproj" />
+    <ProjectReference Include="..\LanguageServers\PowerPlatformLS\Impl.PullAgent\Impl.PullAgent.csproj" />
   </ItemGroup>
 
   <ItemGroup>
