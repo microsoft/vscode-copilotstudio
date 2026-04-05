@@ -26,6 +26,7 @@
     <ProjectReference Include="..\Contracts.FileLayout\Contracts.FileLayout.csproj" />
     <ProjectReference Include="..\Contracts.Internal\Contracts.Internal.csproj" />
     <ProjectReference Include="..\Contracts.Lsp\Contracts.Lsp.csproj" />
+    <ProjectReference Include="..\..\..\CopilotStudio.Sync\CopilotStudio.Sync.csproj" />
   </ItemGroup>
 
 
