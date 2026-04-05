@@ -17,7 +17,9 @@ namespace Microsoft.CopilotStudio.Sync.Dataverse;
 public class SyncDataverseClient : ISyncDataverseClient
 {
     private readonly IDataverseHttpClientAccessor _httpClientAccessor;
-    private string _dataverseUrl = string.Empty;
+    private readonly AsyncLocal<string> _dataverseUrl = new();
+    private string DataverseUrl => _dataverseUrl.Value
+        ?? throw new InvalidOperationException("Dataverse URL is not set. Call SetDataverseUrl before making API calls.");
 
     private static readonly JsonSerializerOptions JsonSerializerOptions = new(JsonSerializerDefaults.Web)
     {
@@ -34,7 +36,7 @@ public class SyncDataverseClient : ISyncDataverseClient
     /// <inheritdoc />
     public void SetDataverseUrl(string dataverseUrl)
     {
-        _dataverseUrl = dataverseUrl ?? throw new ArgumentNullException(nameof(dataverseUrl));
+        _dataverseUrl.Value = dataverseUrl ?? throw new ArgumentNullException(nameof(dataverseUrl));
     }
 
     public virtual async Task<AgentInfo> CreateNewAgentAsync(string displayName, string schemaName, CancellationToken cancellationToken)
@@ -45,7 +47,7 @@ public class SyncDataverseClient : ISyncDataverseClient
             ["template"] = "empty-1.0.0",
             ["schemaname"] = string.IsNullOrWhiteSpace(schemaName) ? null : schemaName
         };
-        var requestUri = $"{_dataverseUrl}/api/data/v9.2/bots";
+        var requestUri = $"{DataverseUrl}/api/data/v9.2/bots";
         var response = await SendAsync<AgentSyncInfoDetail>(HttpMethod.Post, requestUri, requestBody, expectReturn: true, cancellationToken).ConfigureAwait(false);
 
         if (response == null || response.AgentId == Guid.Empty)
@@ -58,7 +60,7 @@ public class SyncDataverseClient : ISyncDataverseClient
 
     public virtual async Task<Guid> GetAgentIdBySchemaNameAsync(string schemaName, CancellationToken cancellationToken)
     {
-        var requestUri = $"{_dataverseUrl}/api/data/v9.2/bots?$select=botid&$filter=schemaname eq '{schemaName}'";
+        var requestUri = $"{DataverseUrl}/api/data/v9.2/bots?$select=botid&$filter=schemaname eq '{schemaName}'";
         var result = await SendAsync<AgentInfoDetail>(HttpMethod.Get, requestUri, null, false, cancellationToken).ConfigureAwait(false);
         return result?.Value?.FirstOrDefault()?.AgentId ?? Guid.Empty;
     }
@@ -99,7 +101,7 @@ public class SyncDataverseClient : ISyncDataverseClient
             }
 
             var requestBody = CreateWorkflowRequestBody(workflowMetadata);
-            var updateUrl = $"{_dataverseUrl}/api/data/v9.2/workflows({workflowMetadata.WorkflowId})";
+            var updateUrl = $"{DataverseUrl}/api/data/v9.2/workflows({workflowMetadata.WorkflowId})";
             await SendAsync<object>(HttpMethod.Patch, updateUrl, requestBody, false, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
@@ -141,7 +143,7 @@ public class SyncDataverseClient : ISyncDataverseClient
 
             var createResponse = await SendAsync<JsonElement>(
                 HttpMethod.Post,
-                $"{_dataverseUrl}/api/data/v9.2/workflows",
+                $"{DataverseUrl}/api/data/v9.2/workflows",
                 requestBody,
                 expectReturn: true,
                 cancellationToken
@@ -177,7 +179,7 @@ public class SyncDataverseClient : ISyncDataverseClient
         }
 
         var filter = string.Join(" or ", names.Select(n => $"connectionreferencelogicalname eq '{n}'"));
-        var requestUri = $"{_dataverseUrl}/api/data/v9.2/connectionreferences" +
+        var requestUri = $"{DataverseUrl}/api/data/v9.2/connectionreferences" +
                          $"?$select=connectionreferenceid,connectionreferencelogicalname,connectorid" +
                          $"&$filter={Uri.EscapeDataString(filter)}";
 
@@ -187,7 +189,7 @@ public class SyncDataverseClient : ISyncDataverseClient
 
     private async Task<bool> WorkflowExistsAsync(Guid workflowId, CancellationToken cancellationToken)
     {
-        var checkUrl = $"{_dataverseUrl}/api/data/v9.2/workflows({workflowId})?$select=workflowid";
+        var checkUrl = $"{DataverseUrl}/api/data/v9.2/workflows({workflowId})?$select=workflowid";
         try
         {
             await SendAsync<object>(HttpMethod.Get, checkUrl, null, false, cancellationToken).ConfigureAwait(false);
@@ -231,7 +233,7 @@ public class SyncDataverseClient : ISyncDataverseClient
 
     private async Task ActivateWorkflowAsync(Guid workflowId, CancellationToken cancellationToken)
     {
-        var activateUrl = $"{_dataverseUrl}/api/data/v9.2/workflows({workflowId})";
+        var activateUrl = $"{DataverseUrl}/api/data/v9.2/workflows({workflowId})";
         var activateBody = new Dictionary<string, object?>
         {
             ["statecode"] = 1,
@@ -243,7 +245,7 @@ public class SyncDataverseClient : ISyncDataverseClient
 
     private async Task<List<Guid>> GetAllBotComponentIdsAsync(Guid agentId, CancellationToken cancellationToken)
     {
-        var url = $"{_dataverseUrl}/api/data/v9.2/botcomponents?$select=botcomponentid&$filter=_parentbotid_value eq {agentId}";
+        var url = $"{DataverseUrl}/api/data/v9.2/botcomponents?$select=botcomponentid&$filter=_parentbotid_value eq {agentId}";
         var result = await SendAsync<BotComponentListResponse>(HttpMethod.Get, url, null, false, cancellationToken).ConfigureAwait(false);
 
         return result?.Value?.Select(component => component.BotComponentId).ToList() ?? new List<Guid>();
@@ -257,7 +259,7 @@ public class SyncDataverseClient : ISyncDataverseClient
         }
 
         var workflowIdToBotComponentMap = new Dictionary<Guid, BotComponentWorkflowMetadata>();
-        var nextBotComponentWorkflowUrl = $"{_dataverseUrl}/api/data/v9.2/botcomponent_workflowset?$select=workflowid,botcomponentid";
+        var nextBotComponentWorkflowUrl = $"{DataverseUrl}/api/data/v9.2/botcomponent_workflowset?$select=workflowid,botcomponentid";
 
         var filterQuery = string.Join(" or ", botComponentIds.Select(id => $"botcomponentid eq {id}"));
         nextBotComponentWorkflowUrl += $"&$filter={filterQuery}";
@@ -294,7 +296,7 @@ public class SyncDataverseClient : ISyncDataverseClient
         }
 
         var workflows = new List<WorkflowMetadata>();
-        var nextWorkflowUrl = $"{_dataverseUrl}/api/data/v9.2/workflows?" +
+        var nextWorkflowUrl = $"{DataverseUrl}/api/data/v9.2/workflows?" +
                                   "$select=workflowid,name,description,type,subprocess,category,mode,scope,ondemand," +
                                   "triggeroncreate,triggerondelete,asyncautodelete,syncworkflowlogonfailure,statecode,statuscode,runas," +
                                   "istransacted,introducedversion,iscustomizable,businessprocesstype," +
@@ -366,7 +368,7 @@ public class SyncDataverseClient : ISyncDataverseClient
         ArgumentNullException.ThrowIfNull(connectionReferenceLogicalName);
         var literal = connectionReferenceLogicalName.Replace("'", "''");
         var filterExpr = $"connectionreferencelogicalname eq '{literal}'";
-        var baseUri = new Uri(new Uri(_dataverseUrl), "/api/data/v9.2/connectionreferences");
+        var baseUri = new Uri(new Uri(DataverseUrl), "/api/data/v9.2/connectionreferences");
         var requestUri = new Uri($"{baseUri}?$select=connectionreferenceid&$top=1&$filter={Uri.EscapeDataString(filterExpr)}");
 
         var queryResponse = await SendAsync<ConnectionReferenceQueryResponse>(
@@ -385,7 +387,7 @@ public class SyncDataverseClient : ISyncDataverseClient
         string connectorId,
         CancellationToken cancellationToken)
     {
-        var requestUri = new Uri(new Uri(_dataverseUrl), "/api/data/v9.2/connectionreferences");
+        var requestUri = new Uri(new Uri(DataverseUrl), "/api/data/v9.2/connectionreferences");
 
         var body = new Dictionary<string, object>
         {
@@ -406,7 +408,7 @@ public class SyncDataverseClient : ISyncDataverseClient
     {
         var solutionNames = new[] { "PowerVirtualAgents", "msdyn_RelevanceSearch", "msft_AIPlatformExtensionsComponents" };
         var filterQuery = string.Join(" or ", solutionNames.Select(s => $"uniquename eq '{s}'"));
-        var requestUri = $"{_dataverseUrl}/api/data/v9.2/solutions?$select=uniquename,version&$filter={filterQuery}";
+        var requestUri = $"{DataverseUrl}/api/data/v9.2/solutions?$select=uniquename,version&$filter={filterQuery}";
 
         var response = await SendAsync<SolutionQueryResponse>(HttpMethod.Get, requestUri, null, false, cancellationToken).ConfigureAwait(false);
 
@@ -435,7 +437,7 @@ public class SyncDataverseClient : ISyncDataverseClient
 
     public virtual async Task<AgentInfo> GetAgentInfoAsync(Guid agentId, CancellationToken cancellationToken)
     {
-        var requestUri = $"{_dataverseUrl}/api/data/v9.2/bots({agentId})" +
+        var requestUri = $"{DataverseUrl}/api/data/v9.2/bots({agentId})" +
                          "?$select=botid,name,iconbase64" +
                          "&$expand=bot_botcomponentcollection($select=schemaname,botcomponentcollectionid,name)";
 
@@ -472,7 +474,7 @@ public class SyncDataverseClient : ISyncDataverseClient
 
     public async Task DownloadKnowledgeFileAsync(string knowledgeFileFolder, BotComponentId botComponentId, string fileName, CancellationToken cancellationToken = default)
     {
-        var requestUri = new Uri(new Uri(_dataverseUrl), $"/api/data/v9.2/botcomponents({botComponentId})/filedata/$value");
+        var requestUri = new Uri(new Uri(DataverseUrl), $"/api/data/v9.2/botcomponents({botComponentId})/filedata/$value");
 
         var localPath = GetKnowledgeFileLocalPath(knowledgeFileFolder, fileName);
         var dir = Path.GetDirectoryName(localPath);
@@ -505,7 +507,7 @@ public class SyncDataverseClient : ISyncDataverseClient
 
     public async Task UploadKnowledgeFileAsync(string knowledgeFileFolder, Guid botComponentId, string fileName, CancellationToken cancellationToken = default)
     {
-        var requestUri = new Uri(new Uri(_dataverseUrl), $"/api/data/v9.2/botcomponents({botComponentId})/filedata/");
+        var requestUri = new Uri(new Uri(DataverseUrl), $"/api/data/v9.2/botcomponents({botComponentId})/filedata/");
         using var httpClient = _httpClientAccessor.CreateClient();
         using var fileStream = new FileStream(GetKnowledgeFileLocalPath(knowledgeFileFolder, fileName), FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 81920, useAsync: true);
 

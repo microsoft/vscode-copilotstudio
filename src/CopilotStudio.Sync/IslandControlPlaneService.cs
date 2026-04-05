@@ -22,7 +22,7 @@ internal class IslandControlPlaneService : IIslandControlPlaneService
     private readonly IContentAuthoringService _contentAuthoringService;
     private static readonly JsonSerializerOptions Options = ElementSerializer.CreateOptions();
     private readonly AsyncLocal<string> _baseEndpoint = new AsyncLocal<string>();
-    private CoreServicesClusterCategory _clusterCategory = CoreServicesClusterCategory.Prod;
+    private readonly AsyncLocal<CoreServicesClusterCategory?> _clusterCategory = new();
 
     public IslandControlPlaneService(ISyncAuthProvider authProvider, IContentAuthoringService contentAuthoringService)
     {
@@ -95,7 +95,7 @@ internal class IslandControlPlaneService : IIslandControlPlaneService
     public void SetConnectionContext(string baseEndpoint, CoreServicesClusterCategory clusterCategory)
     {
         SetIslandBaseEndpoint(baseEndpoint);
-        _clusterCategory = clusterCategory;
+        _clusterCategory.Value = clusterCategory;
     }
 
     public string GetBaseEndpoint()
@@ -105,7 +105,8 @@ internal class IslandControlPlaneService : IIslandControlPlaneService
 
     private HttpClient CreateAuthenticatedClient()
     {
-        var audienceUri = new Uri(GetTokenAudience(_clusterCategory));
+        var audienceUri = new Uri(GetTokenAudience(
+            _clusterCategory.Value ?? throw new InvalidOperationException("Cluster category is not set. Call SetConnectionContext before making API calls.")));
 #pragma warning disable CA2000 // handler is disposed by HttpClient (disposeHandler: true)
         var handler = new BearerTokenHandler(_authProvider, audienceUri);
 #pragma warning restore CA2000
