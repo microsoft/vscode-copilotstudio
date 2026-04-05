@@ -385,13 +385,16 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             filteredChanges.Add(change);
         }
 
-        // Filter out the Bot entity if it hasn't changed from the snapshot
+        // Filter out the Bot entity if it hasn't changed from the snapshot.
+        // Compare both settings properties AND IconBase64 — an icon-only change
+        // must not be filtered out, or WriteBotEntityAsync will write the old icon.
         var filteredBot = changeSet.Bot;
         if (filteredBot != null && originalSnapshot is BotDefinition originalBotDef && originalBotDef.Entity != null)
         {
             var originalSettings = originalBotDef.Entity.WithOnlySettingsYamlProperties();
             var newSettings = filteredBot.WithOnlySettingsYamlProperties();
-            if (originalSettings.Equals(newSettings, NodeComparison.Structural))
+            if (originalSettings.Equals(newSettings, NodeComparison.Structural)
+                && originalBotDef.Entity.IconBase64 == filteredBot.IconBase64)
             {
                 filteredBot = null;
                 anyRemoved = true;
