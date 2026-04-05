@@ -1,5 +1,6 @@
 namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 {
+    using Microsoft.CopilotStudio.Sync;
     using System;
     using System.Collections.Generic;
     using System.IO;

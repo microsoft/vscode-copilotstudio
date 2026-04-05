@@ -18,8 +18,12 @@
     using Microsoft.PowerPlatformLS.Impl.Core.Lsp;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.DependencyInjection;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models;
+    using Microsoft.CopilotStudio.Sync;
     using Microsoft.PowerPlatformLS.Impl.PullAgent;
     using Microsoft.PowerPlatformLS.UnitTests.TestUtilities;
+    using AgentFilePath = Microsoft.PowerPlatformLS.Contracts.FileLayout.AgentFilePath;
+    using DirectoryPath = Microsoft.PowerPlatformLS.Contracts.Internal.Common.DirectoryPath;
+    using FilePath = Microsoft.PowerPlatformLS.Contracts.Internal.Common.FilePath;
     using System;
     using System.Collections.Generic;
     using System.IO;
@@ -347,7 +351,12 @@
             // "https://test.agentmanagement.com"
             public void SetIslandBaseEndpoint(string baseEndpoint)
             {
-                // Nop. 
+                // Nop.
+            }
+
+            public void SetConnectionContext(string baseEndpoint, CoreServicesClusterCategory clusterCategory)
+            {
+                // Nop.
             }
         }
 

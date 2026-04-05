@@ -21,6 +21,8 @@ public class SyncDataverseClient : ISyncDataverseClient
     private string DataverseUrl => _dataverseUrl.Value
         ?? throw new InvalidOperationException("Dataverse URL is not set. Call SetDataverseUrl before making API calls.");
 
+    private const int BatchSize = 50;
+
     private static readonly JsonSerializerOptions JsonSerializerOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true,
@@ -28,9 +30,12 @@ public class SyncDataverseClient : ISyncDataverseClient
         WriteIndented = false
     };
 
-    public SyncDataverseClient(IDataverseHttpClientAccessor httpClientAccessor)
+    private readonly string _userAgent;
+
+    public SyncDataverseClient(IDataverseHttpClientAccessor httpClientAccessor, string userAgent = "CopilotStudio.Sync")
     {
         _httpClientAccessor = httpClientAccessor ?? throw new ArgumentNullException(nameof(httpClientAccessor));
+        _userAgent = userAgent;
     }
 
     /// <inheritdoc />
@@ -245,7 +250,7 @@ public class SyncDataverseClient : ISyncDataverseClient
 
     private async Task<List<Guid>> GetAllBotComponentIdsAsync(Guid agentId, CancellationToken cancellationToken)
     {
-        var url = $"{DataverseUrl}/api/data/v9.2/botcomponents?$select=botcomponentid&$filter=_parentbotid_value eq {agentId}";
+        var url = $"{DataverseUrl}/api/data/v9.2/botcomponents?$select=botcomponentid&$filter=_parentbotid_value eq {agentId} and componenttype ne 19";
         var result = await SendAsync<BotComponentListResponse>(HttpMethod.Get, url, null, false, cancellationToken).ConfigureAwait(false);
 
         return result?.Value?.Select(component => component.BotComponentId).ToList() ?? new List<Guid>();
@@ -259,35 +264,39 @@ public class SyncDataverseClient : ISyncDataverseClient
         }
 
         var workflowIdToBotComponentMap = new Dictionary<Guid, BotComponentWorkflowMetadata>();
-        var nextBotComponentWorkflowUrl = $"{DataverseUrl}/api/data/v9.2/botcomponent_workflowset?$select=workflowid,botcomponentid";
 
-        var filterQuery = string.Join(" or ", botComponentIds.Select(id => $"botcomponentid eq {id}"));
-        nextBotComponentWorkflowUrl += $"&$filter={filterQuery}";
-
-        while (!string.IsNullOrEmpty(nextBotComponentWorkflowUrl))
+        foreach (var batch in botComponentIds.Chunk(BatchSize))
         {
-            var response = await SendAsync<JsonElement>(HttpMethod.Get, nextBotComponentWorkflowUrl, null, false, cancellationToken).ConfigureAwait(false);
+            string? nextBotComponentWorkflowUrl = $"{DataverseUrl}/api/data/v9.2/botcomponent_workflowset?$select=workflowid,botcomponentid";
 
-            if (response.TryGetProperty("value", out var valueArray) && valueArray.ValueKind == JsonValueKind.Array)
+            var filterQuery = string.Join(" or ", batch.Select(id => $"botcomponentid eq {id}"));
+            nextBotComponentWorkflowUrl += $"&$filter={Uri.EscapeDataString(filterQuery)}";
+
+            while (!string.IsNullOrEmpty(nextBotComponentWorkflowUrl))
             {
-                foreach (var element in valueArray.EnumerateArray())
+                var response = await SendAsync<JsonElement>(HttpMethod.Get, nextBotComponentWorkflowUrl, null, false, cancellationToken).ConfigureAwait(false);
+
+                if (response.TryGetProperty("value", out var valueArray) && valueArray.ValueKind == JsonValueKind.Array)
                 {
-                    if (element.TryGetProperty("workflowid", out var workflowIdElement) && workflowIdElement.ValueKind == JsonValueKind.String && Guid.TryParse(workflowIdElement.GetString(), out var workflowIdentifier) && workflowIdentifier != Guid.Empty)
+                    foreach (var element in valueArray.EnumerateArray())
                     {
-                        var botComponentIdentifier = element.GetProperty("botcomponentid").GetGuid();
-                        if (!workflowIdToBotComponentMap.ContainsKey(workflowIdentifier))
+                        if (element.TryGetProperty("workflowid", out var workflowIdElement) && workflowIdElement.ValueKind == JsonValueKind.String && Guid.TryParse(workflowIdElement.GetString(), out var workflowIdentifier) && workflowIdentifier != Guid.Empty)
                         {
-                            workflowIdToBotComponentMap[workflowIdentifier] = new BotComponentWorkflowMetadata
+                            var botComponentIdentifier = element.GetProperty("botcomponentid").GetGuid();
+                            if (!workflowIdToBotComponentMap.ContainsKey(workflowIdentifier))
                             {
-                                WorkflowId = workflowIdentifier,
-                                BotComponentId = botComponentIdentifier
-                            };
+                                workflowIdToBotComponentMap[workflowIdentifier] = new BotComponentWorkflowMetadata
+                                {
+                                    WorkflowId = workflowIdentifier,
+                                    BotComponentId = botComponentIdentifier
+                                };
+                            }
                         }
                     }
                 }
-            }
 
-            nextBotComponentWorkflowUrl = response.TryGetProperty("@odata.nextLink", out var nextLinkProp) ? nextLinkProp.GetString() : null;
+                nextBotComponentWorkflowUrl = response.TryGetProperty("@odata.nextLink", out var nextLinkProp) ? nextLinkProp.GetString() : null;
+            }
         }
 
         if (workflowIdToBotComponentMap.Count == 0)
@@ -296,32 +305,36 @@ public class SyncDataverseClient : ISyncDataverseClient
         }
 
         var workflows = new List<WorkflowMetadata>();
-        var nextWorkflowUrl = $"{DataverseUrl}/api/data/v9.2/workflows?" +
-                                  "$select=workflowid,name,description,type,subprocess,category,mode,scope,ondemand," +
-                                  "triggeroncreate,triggerondelete,asyncautodelete,syncworkflowlogonfailure,statecode,statuscode,runas," +
-                                  "istransacted,introducedversion,iscustomizable,businessprocesstype," +
-                                  "iscustomprocessingstepallowedforotherpublishers,modernflowtype,primaryentity," +
-                                  "createdon,modifiedon,clientdata";
 
-        var workflowFilterQuery = string.Join(" or ", workflowIdToBotComponentMap.Keys.Select(id => $"workflowid eq {id}"));
-        nextWorkflowUrl += $"&$filter={workflowFilterQuery}";
-
-        while (!string.IsNullOrEmpty(nextWorkflowUrl))
+        foreach (var batch in workflowIdToBotComponentMap.Keys.Chunk(BatchSize))
         {
-            var response = await SendAsync<JsonElement>(HttpMethod.Get, nextWorkflowUrl, null, false, cancellationToken).ConfigureAwait(false);
-            if (response.TryGetProperty("value", out var workflowArray) && workflowArray.ValueKind == JsonValueKind.Array)
+            string? nextWorkflowUrl = $"{DataverseUrl}/api/data/v9.2/workflows?" +
+                                      "$select=workflowid,name,description,type,subprocess,category,mode,scope,ondemand," +
+                                      "triggeroncreate,triggerondelete,asyncautodelete,syncworkflowlogonfailure,statecode,statuscode,runas," +
+                                      "istransacted,introducedversion,iscustomizable,businessprocesstype," +
+                                      "iscustomprocessingstepallowedforotherpublishers,modernflowtype,primaryentity," +
+                                      "createdon,modifiedon,clientdata";
+
+            var workflowFilterQuery = string.Join(" or ", batch.Select(id => $"workflowid eq {id}"));
+            nextWorkflowUrl += $"&$filter={Uri.EscapeDataString(workflowFilterQuery)}";
+
+            while (!string.IsNullOrEmpty(nextWorkflowUrl))
             {
-                foreach (var element in workflowArray.EnumerateArray())
+                var response = await SendAsync<JsonElement>(HttpMethod.Get, nextWorkflowUrl, null, false, cancellationToken).ConfigureAwait(false);
+                if (response.TryGetProperty("value", out var workflowArray) && workflowArray.ValueKind == JsonValueKind.Array)
                 {
-                    var workflow = JsonSerializer.Deserialize<WorkflowMetadata>(element.GetRawText(), JsonSerializerOptions);
-                    if (workflow != null)
+                    foreach (var element in workflowArray.EnumerateArray())
                     {
-                        workflows.Add(workflow);
+                        var workflow = JsonSerializer.Deserialize<WorkflowMetadata>(element.GetRawText(), JsonSerializerOptions);
+                        if (workflow != null)
+                        {
+                            workflows.Add(workflow);
+                        }
                     }
                 }
-            }
 
-            nextWorkflowUrl = response.TryGetProperty("@odata.nextLink", out var nextLinkProp) ? nextLinkProp.GetString() : null;
+                nextWorkflowUrl = response.TryGetProperty("@odata.nextLink", out var nextLinkProp) ? nextLinkProp.GetString() : null;
+            }
         }
 
         return workflows.ToArray();
@@ -329,11 +342,13 @@ public class SyncDataverseClient : ISyncDataverseClient
 
     private async Task<T?> SendAsync<T>(HttpMethod httpMethod, string requestUrl, object? requestBody, bool expectReturn, CancellationToken cancellationToken)
     {
-        // Auth is handled by the DataverseHttpClientAccessor's AuthenticatedHttpClientHandler
-        using var httpClient = _httpClientAccessor.CreateClient();
+        // Auth is handled by the DataverseHttpClientAccessor's AuthenticatedHttpClientHandler.
+        // The accessor owns HttpClient lifetime — callers must not dispose.
+        var httpClient = _httpClientAccessor.CreateClient();
         using var requestMessage = new HttpRequestMessage(httpMethod, requestUrl);
         requestMessage.Headers.Add("OData-MaxVersion", "4.0");
         requestMessage.Headers.Add("OData-Version", "4.0");
+        requestMessage.Headers.UserAgent.ParseAdd(_userAgent);
 
         if (expectReturn)
         {
@@ -484,11 +499,12 @@ public class SyncDataverseClient : ISyncDataverseClient
             Directory.CreateDirectory(dir);
         }
 
-        using var httpClient = _httpClientAccessor.CreateClient();
+        var httpClient = _httpClientAccessor.CreateClient();
 
         using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
         request.Headers.Add("OData-MaxVersion", "4.0");
         request.Headers.Add("OData-Version", "4.0");
+        request.Headers.UserAgent.ParseAdd(_userAgent);
 
         using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
 
@@ -508,7 +524,7 @@ public class SyncDataverseClient : ISyncDataverseClient
     public async Task UploadKnowledgeFileAsync(string knowledgeFileFolder, Guid botComponentId, string fileName, CancellationToken cancellationToken = default)
     {
         var requestUri = new Uri(new Uri(DataverseUrl), $"/api/data/v9.2/botcomponents({botComponentId})/filedata/");
-        using var httpClient = _httpClientAccessor.CreateClient();
+        var httpClient = _httpClientAccessor.CreateClient();
         using var fileStream = new FileStream(GetKnowledgeFileLocalPath(knowledgeFileFolder, fileName), FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 81920, useAsync: true);
 
         using var request = new HttpRequestMessage(HttpMethod.Patch, requestUri)
@@ -519,6 +535,7 @@ public class SyncDataverseClient : ISyncDataverseClient
         request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
         request.Headers.Add("x-ms-file-name", fileName);
         request.Headers.Add("Accept", "application/json");
+        request.Headers.UserAgent.ParseAdd(_userAgent);
 
         using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
 

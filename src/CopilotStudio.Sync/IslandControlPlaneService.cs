@@ -23,11 +23,16 @@ internal class IslandControlPlaneService : IIslandControlPlaneService
     private static readonly JsonSerializerOptions Options = ElementSerializer.CreateOptions();
     private readonly AsyncLocal<string> _baseEndpoint = new AsyncLocal<string>();
     private readonly AsyncLocal<CoreServicesClusterCategory?> _clusterCategory = new();
+    private readonly bool _isIslandPreauthorized;
+    private readonly IHttpClientFactory? _httpClientFactory;
+    private const string BotManagementClientName = "BotManagement";
 
-    public IslandControlPlaneService(ISyncAuthProvider authProvider, IContentAuthoringService contentAuthoringService)
+    public IslandControlPlaneService(ISyncAuthProvider authProvider, IContentAuthoringService contentAuthoringService, bool isIslandPreauthorized = false, IHttpClientFactory? httpClientFactory = null)
     {
         _authProvider = authProvider;
         _contentAuthoringService = contentAuthoringService;
+        _isIslandPreauthorized = isIslandPreauthorized;
+        _httpClientFactory = httpClientFactory;
     }
 
     public async Task<PvaComponentChangeSet> SaveChangesAsync(AuthoringOperationContextBase operationContext, PvaComponentChangeSet pushChangeset, CancellationToken cancellationToken)
@@ -43,18 +48,12 @@ internal class IslandControlPlaneService : IIslandControlPlaneService
         string? changeToken,
         CancellationToken cancellationToken)
     {
-        // TEMPORARY: PAC CLI app (9cee029c-6210-4654-90bb-17e6e9d36617) is not yet preauthorized
-        // for the Copilot Studio Island resource. Once preauthorization is granted, remove this
-        // flag and the bypass branch to re-enable Island cross-validation.
-        const bool isIslandPreauthorized = false;
-
-        if (!isIslandPreauthorized)
+        if (!_isIslandPreauthorized)
         {
             using var yamlContext = YamlSerializationContext.UseYamlPassThroughSerializationContext();
             return await _contentAuthoringService.GetComponentsAsync(operationContext, changeToken, true, false, cancellationToken).ConfigureAwait(false);
         }
 
-#pragma warning disable CS0162 // Unreachable code detected — Island cross-validation kept for future preauthorization
         for (var i = 0; i < 3; i++)
         {
             var islandChangeSet = await RetrieveComponentsFromIslandAsync(operationContext, changeToken, cancellationToken).ConfigureAwait(false);
@@ -79,7 +78,6 @@ internal class IslandControlPlaneService : IIslandControlPlaneService
         }
 
         throw new ObjectModelException("Unable to retrieve components", "Unable to retrieve components");
-#pragma warning restore CS0162
     }
 
     public void SetIslandBaseEndpoint(string baseEndpoint)
@@ -105,6 +103,13 @@ internal class IslandControlPlaneService : IIslandControlPlaneService
 
     private HttpClient CreateAuthenticatedClient()
     {
+        // When an IHttpClientFactory is available (e.g., extension LSP hosts that configure auth
+        // via delegating handlers), use the named client for the BotManagement endpoint.
+        if (_httpClientFactory != null)
+        {
+            return _httpClientFactory.CreateClient(BotManagementClientName);
+        }
+
         var audienceUri = new Uri(GetTokenAudience(
             _clusterCategory.Value ?? throw new InvalidOperationException("Cluster category is not set. Call SetConnectionContext before making API calls.")));
 #pragma warning disable CA2000 // handler is disposed by HttpClient (disposeHandler: true)

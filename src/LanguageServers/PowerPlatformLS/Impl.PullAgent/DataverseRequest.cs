@@ -1,6 +1,7 @@
 ﻿namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 {
     using Microsoft.Agents.Platform.Content;
+    using Microsoft.CopilotStudio.Sync;
 
     internal abstract class DataverseRequest
     {

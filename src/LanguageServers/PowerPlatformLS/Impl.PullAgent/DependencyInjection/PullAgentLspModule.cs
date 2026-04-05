@@ -10,12 +10,11 @@
     using Microsoft.Agents.Platform.Content.Internal.Dataverse.SystemUser;
     using Microsoft.Agents.Platform.Content.Internal.Modules;
     using Microsoft.CommonLanguageServerProtocol.Framework;
+    using Microsoft.CopilotStudio.Sync;
     using Microsoft.Extensions.DependencyInjection;
-    using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common.DependencyInjection;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
-    using Microsoft.PowerPlatformLS.Impl.PullAgent.Dataverse;
     using System;
     using System.Collections.Generic;
     using System.Collections.Immutable;
@@ -36,12 +35,26 @@
             string userAgent = $"MCSVSCode-{_versionInfo.VsixVersion ?? "unknown"}";
             ServiceRegistrations.AddServices(services, userAgent);
 
+            // Bridge types: host-specific implementations required before AddSyncServices()
+            services.AddSingleton<TokenManager>();
+            services.AddSingleton<ITokenManager>(sp => sp.GetRequiredService<TokenManager>());
+            services.AddSingleton<ITokenProvider>(sp => sp.GetRequiredService<TokenManager>());
+            services.AddSingleton<LspSyncAuthProvider>();
+            services.AddSingleton<ISyncAuthProvider>(sp => sp.GetRequiredService<LspSyncAuthProvider>());
+            services.AddSingleton<LspDataverseHttpClientAccessor>();
+            services.AddSingleton<IDataverseHttpClientAccessor>(sp => sp.GetRequiredService<LspDataverseHttpClientAccessor>());
+            services.AddSingleton<ISyncProgress, LspSyncProgress>();
+
+            // Shared sync library services (replaces manual IslandControlPlane, OperationContextProvider,
+            // WorkspaceSynchronizer, ComponentPathResolver, SyncDataverseClient registrations)
+            services.AddSyncServices(userAgent, isIslandPreauthorized: true);
+
+            // PullAgent's own IFileAccessorFactory (internal, used by GetWorkspaceDetailsHandler for icon check)
+            services.AddSingleton<IFileAccessorFactory, FileAccessorFactory>();
+
             services.AddSingleton<IFeatureConfigurationProvider, FakeFeatureConfigurationProvider>();
-            services.AddSingleton<IIslandControlPlaneService, IslandControlPlaneService>();
             services.AddSingleton<IOperationLogger, LspOperationLogger>();
             services.AddSingleton<IAuthoringStatisticLogger, FakeAuthoringStatisticLogger>();
-            services.AddSingleton<Func<string, string, DataverseClient>>(sp => (dataverseUrl, accessToken) => new DataverseClient(sp.GetRequiredService<IHttpClientFactory>().CreateClient(), dataverseUrl, accessToken, userAgent));
-            services.AddSingleton<IDataverseHttpClientAccessor, DataverseHttpClientAccessor>();
             services.AddSingleton<IDataverseUserIdProvider, DataverseUserIdProvider>();
             services.AddSingleton<IExpressionSyntaxAnalyzer, PowerFxSyntaxAnalyzer>();
             services.AddSingleton<IExpressionSyntaxAnalyzerProvider, PowerFxExpressionSyntaxAnalyzerProvider>();
@@ -49,18 +62,10 @@
             services.AddSingleton<IPluginEnrichmentService, MockPluginEnrichmentService>();
             services.AddSingleton<IAIModelEnrichmentService, MockAIModelEnrichmentService>();
             services.AddSingleton<ICloudFlowDefinitionEnrichementService, MockCloudFlowDefinitionEnrichementService>();
-            services.AddSingleton<IOperationContextProvider,OperationContextProvider>();
-            services.AddSingleton<IFileAccessorFactory, FileAccessorFactory>();
-            services.AddSingleton<IWorkspaceSynchronizer, WorkspaceSynchronizer>();
-            services.AddSingleton<IComponentPathResolver, LspComponentPathResolver>();
             services.AddTransient<AuthorizeDataverseRequestHandler>();
             services.AddTransient<AuthorizeCopilotStudioRequestHandler>();
-            services.AddSingleton<TokenManager>();
-            services.AddSingleton<ITokenManager>(sp => sp.GetRequiredService<TokenManager>());
-            services.AddSingleton<ITokenProvider>(sp => sp.GetRequiredService<TokenManager>());
             AddHttpClient<AuthorizeDataverseRequestHandler>(HttpClientNames.Dataverse);
             AddHttpClient<AuthorizeCopilotStudioRequestHandler>(HttpClientNames.BotManagement);
-            services.AddHttpClient<IDataverseClient, DataverseClient>();
 
             services.AddSingleton<IMethodHandler, CloneAgentHandler>();
             services.AddSingleton<IMethodHandler, SyncPushHandler>();
@@ -125,21 +130,6 @@
                 AuthoringOperationType operationType)
             {
                 return;
-            }
-        }
-
-        internal class DataverseHttpClientAccessor : IDataverseHttpClientAccessor
-        {
-            private readonly IHttpClientFactory _httpClientFactory;
-
-            public DataverseHttpClientAccessor(IHttpClientFactory httpClientFactory)
-            {
-                _httpClientFactory = httpClientFactory;
-            }
-
-            public HttpClient CreateClient()
-            {
-                return _httpClientFactory.CreateClient(HttpClientNames.Dataverse);
             }
         }
 

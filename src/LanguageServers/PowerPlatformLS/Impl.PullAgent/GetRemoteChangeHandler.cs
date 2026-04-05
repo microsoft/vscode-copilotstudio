@@ -1,32 +1,36 @@
-﻿namespace Microsoft.PowerPlatformLS.Impl.PullAgent
+namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 {
     using Microsoft.Agents.ObjectModel;
     using Microsoft.Agents.Platform.Content;
     using Microsoft.CommonLanguageServerProtocol.Framework;
+    using Microsoft.CopilotStudio.Sync;
+    using Microsoft.CopilotStudio.Sync.Dataverse;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
-    using Microsoft.PowerPlatformLS.Impl.PullAgent.Dataverse;
     using System.Threading;
     using System.Threading.Tasks;
+    using DirectoryPath = Microsoft.PowerPlatformLS.Contracts.Internal.Common.DirectoryPath;
 
 
     [LanguageServerEndpoint("powerplatformls/getRemoteChanges", LanguageServerConstants.DefaultLanguageName)]
     internal class GetRemoteChangeHandler : IRequestHandler<SyncAgentRequest, SyncAgentResponse, RequestContext>
     {
         private readonly ITokenManager _dataverseTokenManager;
-        private readonly IOperationContextProvider _operationContextProvider;
+        private readonly CopilotStudio.Sync.IOperationContextProvider _operationContextProvider;
         private readonly ILspLogger _logger;
-        private readonly IIslandControlPlaneService _islandControlPlaneService;
-        protected readonly IWorkspaceSynchronizer _synchronizer;
-        private readonly Func<string, string, DataverseClient> _dataverseClientFactory;
+        private readonly CopilotStudio.Sync.IIslandControlPlaneService _islandControlPlaneService;
+        protected readonly CopilotStudio.Sync.IWorkspaceSynchronizer _synchronizer;
+        private readonly ISyncDataverseClient _dataverseClient;
+        private readonly LspDataverseHttpClientAccessor _dataverseHttpClientAccessor;
 
         public GetRemoteChangeHandler(
-            IIslandControlPlaneService islandControlPlaneService,
-            IWorkspaceSynchronizer agentWriter,
+            CopilotStudio.Sync.IIslandControlPlaneService islandControlPlaneService,
+            CopilotStudio.Sync.IWorkspaceSynchronizer agentWriter,
             ITokenManager dataverseTokenManager,
-            IOperationContextProvider operationContextProvider,
-            Func<string, string, DataverseClient> dataverseClientFactory,
+            CopilotStudio.Sync.IOperationContextProvider operationContextProvider,
+            ISyncDataverseClient dataverseClient,
+            LspDataverseHttpClientAccessor dataverseHttpClientAccessor,
             ILspLogger logger)
         {
             _islandControlPlaneService = islandControlPlaneService;
@@ -34,7 +38,8 @@
             _dataverseTokenManager = dataverseTokenManager ?? throw new ArgumentNullException(nameof(dataverseTokenManager));
             _operationContextProvider = operationContextProvider ?? throw new ArgumentNullException(nameof(operationContextProvider));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _dataverseClientFactory = dataverseClientFactory ?? throw new ArgumentNullException(nameof(dataverseClientFactory));
+            _dataverseClient = dataverseClient ?? throw new ArgumentNullException(nameof(dataverseClient));
+            _dataverseHttpClientAccessor = dataverseHttpClientAccessor ?? throw new ArgumentNullException(nameof(dataverseHttpClientAccessor));
         }
 
         public bool MutatesSolutionState => false;
@@ -43,13 +48,17 @@
         {
             try
             {
-                _islandControlPlaneService.SetIslandBaseEndpoint(request.EnvironmentInfo.AgentManagementUrl);
+                _islandControlPlaneService.SetConnectionContext(
+                    request.EnvironmentInfo.AgentManagementUrl,
+                    request.AccountInfo.ClusterCategory);
                 _dataverseTokenManager.SetTokens(request.DataverseAccessToken, request.CopilotStudioAccessToken);
+                _dataverseHttpClientAccessor.SetDataverseUrl(new Uri(request.EnvironmentInfo.DataverseUrl));
+                _dataverseClient.SetDataverseUrl(request.EnvironmentInfo.DataverseUrl);
+
                 var workspace = (IMcsWorkspace)context.Workspace;
-                var syncInfo = await _synchronizer.GetSyncInfoAsync(workspace.FolderPath);
+                var syncInfo = await _synchronizer.GetSyncInfoAsync(workspace.FolderPath.ToSync());
                 var operationContext = await _operationContextProvider.GetAsync(syncInfo);
-                var dataverseClient = _dataverseClientFactory(request.EnvironmentInfo.DataverseUrl, request.DataverseAccessToken);
-                var (_, localChanges) = await _synchronizer.GetRemoteChangesAsync(workspace.FolderPath, operationContext, dataverseClient, syncInfo.AgentId, cancellationToken);
+                var (_, localChanges) = await _synchronizer.GetRemoteChangesAsync(workspace.FolderPath.ToSync(), operationContext, _dataverseClient, syncInfo.AgentId, cancellationToken);
 
                 return new SyncAgentResponse
                 {

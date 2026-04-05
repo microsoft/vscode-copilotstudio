@@ -1166,9 +1166,16 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 continue;
             }
 
+            // Knowledge-file components are handled client-side (download/upload);
+            // they must not appear in the server diff changeset.
+            if (localComponent is FileAttachmentComponent)
+            {
+                continue;
+            }
+
             BotComponentId parentBotComponentId = default;
-            // Remap local botIds (which were fabricated) to real botIds from the cloud. 
-            if (localComponent.ParentBotComponentId.HasValue && localComponent is not FileAttachmentComponent)
+            // Remap local botIds (which were fabricated) to real botIds from the cloud.
+            if (localComponent.ParentBotComponentId.HasValue)
             {
                 var parentSchemaName = localDefinition.VerifiedGetBotComponentById(localComponent.ParentBotComponentId).SchemaNameString;
                 if (cloudSnapshot.TryGetComponentBySchemaName(parentSchemaName, out var cloudComponentParent))

@@ -1,5 +1,6 @@
 ﻿namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 {
+    using Microsoft.CopilotStudio.Sync;
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
     using System.Text.Json.Serialization;
 
@@ -28,22 +29,4 @@
         };
     }
 
-    internal class AccountInfo
-    {
-        public required string AccountId { get; set; }
-
-        public required Guid TenantId { get; set; }
-
-        public string? AccountEmail { get; set; }
-
-        [JsonPropertyName("clusterCategory")]
-        public CoreServicesClusterCategory? ClusterCategoryInternalStorage { get; set; }
-
-        [JsonIgnore]
-        public CoreServicesClusterCategory ClusterCategory
-        {
-            get => ClusterCategoryInternalStorage ?? CoreServicesClusterCategory.Prod;
-            set => ClusterCategoryInternalStorage = value == CoreServicesClusterCategory.Prod ? null : value;
-        }
-    }
 }
