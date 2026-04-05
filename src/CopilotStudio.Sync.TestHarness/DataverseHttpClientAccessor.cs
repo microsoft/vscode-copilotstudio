@@ -65,7 +65,24 @@ internal sealed class DataverseHttpClientAccessor : IDataverseHttpClientAccessor
             var token = await _authProvider.AcquireTokenAsync(_audience, cancellationToken)
                 .ConfigureAwait(false);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            return await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+            Console.Error.WriteLine($"[http] {request.Method} {request.RequestUri}");
+
+            var response = await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                // Truncate large error bodies to keep diagnostic output scannable
+                if (body.Length > 1000)
+                {
+                    body = body[..1000] + "... (truncated)";
+                }
+
+                Console.Error.WriteLine($"[http] {(int)response.StatusCode} {response.ReasonPhrase}: {body}");
+            }
+
+            return response;
         }
     }
 }
