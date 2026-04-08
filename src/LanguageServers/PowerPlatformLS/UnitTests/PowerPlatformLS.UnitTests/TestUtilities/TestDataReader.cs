@@ -13,7 +13,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests
         {
             if (!FileNameToContent.TryGetValue(filename, out var data))
             {
-                data = File.ReadAllText(Path.Combine(TestDataRoot, filename));
+                data = File.ReadAllText(Path.Combine(TestDataRoot, filename)).ReplaceLineEndings("\r\n");
                 FileNameToContent[filename] = data;
             }
 

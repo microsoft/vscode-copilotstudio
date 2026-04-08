@@ -46,7 +46,7 @@
 
             var json = JsonDump(list);
             var expected = TestDataReader.GetTestData(fileName + "-output.json");
-            Assert.Equal(expected, json);
+            Assert.Equal(expected.ReplaceLineEndings("\n"), json.ReplaceLineEndings("\n"));
         }
 
         private string JsonDump(object value)
