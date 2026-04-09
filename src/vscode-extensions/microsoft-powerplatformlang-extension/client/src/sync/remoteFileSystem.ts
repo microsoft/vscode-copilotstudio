@@ -1,6 +1,6 @@
 import { Uri, FileSystemProvider, FileChangeEvent, FileType, EventEmitter, Event, FileStat } from "vscode";
 import { RemoteFileRequest, GetFileResponse } from '../types';
-import { findWorkspaceForUri } from './localWorkspaces';
+import { findWorkspaceForUri, tryRepairAgentManagementEndpoint } from './localWorkspaces';
 import { lspClient, buildLspRequestPayload } from "../services/lspClient";
 import { LspMethods, TelemetryEventsKeys } from "../constants";
 import logger from "../services/logger";
@@ -34,6 +34,11 @@ export class RemoteFileSystem implements FileSystemProvider {
             if (!syncInfo) {
                 logger.logError(TelemetryEventsKeys.GetRemoteFileError, `Error fetching file: connection file .mcs::conn.json is missing, please clone again.`);
                 return new Uint8Array();
+            }
+
+            // Defensive repair for the active remote-file path.
+            if (!syncInfo.agentManagementEndpoint) {
+                await tryRepairAgentManagementEndpoint(syncInfo, workspaceUri);
             }
 
             let schemaName = uri.path.substring(1); // remove leading slash

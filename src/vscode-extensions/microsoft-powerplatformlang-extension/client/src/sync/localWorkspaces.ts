@@ -5,7 +5,9 @@ import { Disposable } from "vscode-languageclient";
 import { lspClient } from '../services/lspClient';
 import { AgentSyncInfo } from "../types";
 import { getIcon } from "../icon";
-import { isChildUri } from '../utils/genericUtils';
+import { getClusterCategory, isChildUri } from '../utils/genericUtils';
+import { getEnvironmentByIdAsync } from '../clients/bapClient';
+import { onAccountChange } from '../clients/account';
 import { LspMethods } from '../constants';
 import logger from '../services/logger';
 import { TelemetryEventsKeys } from '../constants';
@@ -44,6 +46,11 @@ let refreshInProgress = false;
 const MAX_REFRESH_ITERATIONS = 3;
 let iterations = 0;
 
+// Per-session cache of workspaces where endpoint repair was attempted and failed.
+// Prevents repeated BAP calls on every workspace refresh.
+// Cleared on auth/session changes so a sign-in can retry.
+const repairAttempted = new Set<string>();
+
 export const getAllWorkspaces = (): CopilotStudioWorkspace[] => workspaceCache;
 
 // Finds the matching workspace by checking if the uri is a child of any workspace URI.
@@ -65,6 +72,9 @@ export const hasConnectionFileInWorkspace = (workspaceUri: string): boolean => {
 };
 
 export async function initializeLocalWorkspaces(context: ExtensionContext) {
+  // Clear endpoint repair negative cache on auth changes so sign-in can retry.
+  context.subscriptions.push(await onAccountChange(() => repairAttempted.clear()));
+
   const allFileWatcher = workspace.createFileSystemWatcher('**/*.*');
   allFileWatcher.onDidChange(async (uri) => {
     const loweredPath = uri.path.toLowerCase();
@@ -73,6 +83,9 @@ export async function initializeLocalWorkspaces(context: ExtensionContext) {
       || loweredPath.endsWith('icon.png')
       || loweredPath.endsWith('settings.mcs.yml')
       || loweredPath.endsWith('collection.mcs.yml')) {
+      if (loweredPath.endsWith('.mcs/conn.json')) {
+        repairAttempted.clear(); // conn.json changed — allow repair to re-run.
+      }
       refreshAndNotify();
     }
   });
@@ -151,6 +164,51 @@ async function listWorkspaces(): Promise<CopilotStudioWorkspace[]> {
   } catch (error) {
     return [];
   }
+}
+
+/**
+ * Attempts to resolve a missing agentManagementEndpoint from the BAP single-environment API.
+ * PAC-cloned workspaces may have a null endpoint when the user lacks PP admin role for the
+ * admin-scoped BAP list. The single-environment lookup (GET /environments/{id}) may succeed
+ * where the admin list fails.
+ *
+ * If resolved, updates syncInfo in place and rewrites conn.json to disk.
+ * Returns true if the endpoint was repaired.
+ */
+export async function tryRepairAgentManagementEndpoint(syncInfo: AgentSyncInfo, workspaceUri: string): Promise<boolean> {
+  if (syncInfo.agentManagementEndpoint) {
+    return true; // Already present, nothing to repair.
+  }
+
+  if (!syncInfo.environmentId || !syncInfo.accountInfo || repairAttempted.has(workspaceUri)) {
+    return false;
+  }
+
+  try {
+    const clusterCategory = getClusterCategory(syncInfo.accountInfo);
+    const envInfo = await getEnvironmentByIdAsync(clusterCategory, syncInfo.environmentId, null);
+    if (envInfo?.agentManagementUrl) {
+      syncInfo.agentManagementEndpoint = envInfo.agentManagementUrl;
+
+      // Persist the repair to conn.json. The file watcher will trigger refreshAndNotify(),
+      // which re-enters the workspace into the cache with the repaired endpoint, causing
+      // SCM and Agent Changes filters to pick it up.
+      const workspaceFolder = Uri.parse(workspaceUri).fsPath;
+      const connFilePath = path.join(workspaceFolder, '.mcs', 'conn.json');
+      if (fs.existsSync(connFilePath)) {
+        const connData = JSON.parse(fs.readFileSync(connFilePath, 'utf-8'));
+        connData.AgentManagementEndpoint = envInfo.agentManagementUrl;
+        fs.writeFileSync(connFilePath, JSON.stringify(connData), 'utf-8');
+      }
+
+      return true;
+    }
+  } catch {
+    // BAP single-environment lookup failed — fall through to existing error.
+  }
+
+  repairAttempted.add(workspaceUri); // Don't retry until auth or conn.json changes.
+  return false;
 }
 
 function getWorkspaceIcon(workspaceType: WorkspaceType, iconFilePath?: string): WorkspaceIcon {

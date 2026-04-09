@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { resetAccount } from '../clients/account';
 import { SyncRequest, SyncResponse, WorkflowResponse } from '../types';
-import { CopilotStudioWorkspace } from './localWorkspaces';
+import { CopilotStudioWorkspace, tryRepairAgentManagementEndpoint } from './localWorkspaces';
 import { uploadKnowledgeFiles } from '../knowledgeFiles/uploadKnowledgeFiles';
 import { virtualKnowledgeFileSystemProvider } from '../knowledgeFiles/virtualKnowledgeFile';
 import { knowledgeTreeDataProvider } from '../knowledgeFiles/knowledgeFileTree';
@@ -116,6 +116,12 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
   const { syncInfo, workspaceUri } = workspace;
   if (!syncInfo) {
     throw new Error(`${displayText} failed. Connection file .mcs::conn.json is missing, please clone again.`);
+  }
+
+  // On-demand repair: resolve missing agentManagementEndpoint from BAP single-environment lookup.
+  // PAC-cloned workspaces may have null endpoint when user lacks PP admin role.
+  if (!syncInfo.agentManagementEndpoint) {
+    await tryRepairAgentManagementEndpoint(syncInfo, workspaceUri);
   }
 
   const { accountInfo, agentManagementEndpoint, dataverseEndpoint, environmentId } = syncInfo;
