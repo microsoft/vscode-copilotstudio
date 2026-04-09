@@ -13,6 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > - The CI pipeline (`.github/workflows/ci.yml`) currently builds and tests **only the .NET language server**, not the TypeScript extension.
 > - External contributors can modify TypeScript code and documentation, but **cannot validate .NET changes locally** without the internal feed.
 >
+> 
 > Proceed with awareness of these constraints.
 
 ## Project Overview
