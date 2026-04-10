@@ -83,7 +83,9 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
             // Flow B never sets tokens — should throw
             var taskB = Task.Run(async () =>
             {
+#pragma warning disable VSTHRD003 // Await on TaskCompletionSource signal, not foreign work
                 await flowASet.Task; // Wait until A has set tokens
+#pragma warning restore VSTHRD003
                 Assert.Throws<InvalidOperationException>(() => tokenManager.GetDataverseToken());
                 Assert.Throws<InvalidOperationException>(() => tokenManager.GetCopilotStudioToken());
             });
@@ -158,7 +160,9 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
 
             var taskB = Task.Run(async () =>
             {
+#pragma warning disable VSTHRD003 // Await on TaskCompletionSource signal, not foreign work
                 await flowASet.Task;
+#pragma warning restore VSTHRD003
                 // Flow B never set URL — CreateClient must throw
                 Assert.Throws<InvalidOperationException>(() => accessor.CreateClient());
             });
