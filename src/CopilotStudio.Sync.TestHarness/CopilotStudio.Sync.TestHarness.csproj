@@ -8,6 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <SignAssembly>True</SignAssembly>
+    <NoWarn>$(NoWarn);VSTHRD103</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
