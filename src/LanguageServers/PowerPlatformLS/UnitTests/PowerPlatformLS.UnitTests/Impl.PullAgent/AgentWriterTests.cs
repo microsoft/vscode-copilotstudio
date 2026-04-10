@@ -162,8 +162,13 @@ entity:
             var result = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor);
 
             Assert.NotNull(result);
-            Assert.Equal(BotElementKind.BotDefinition, result?.Kind);
-            Assert.Single(result?.Flows);
+
+            if (result != null)
+            {
+                Assert.Equal(BotElementKind.BotDefinition, result.Kind);
+                Assert.Single(result.Flows);
+            }
+            
         }
 
         [Fact]
