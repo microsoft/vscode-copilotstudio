@@ -113,7 +113,13 @@
                 context.SaveDocument(greetingUri);
 
                 var goodbyeDiagnostics = await ReadAllMessagesUntilDiagnosticsAsync(context, "Goodbye.mcs.yml");
-                Assert.Empty(goodbyeDiagnostics?.Diagnostics);
+
+                Assert.NotNull(goodbyeDiagnostics);
+
+                if (goodbyeDiagnostics != null)
+                {
+                    Assert.Empty(goodbyeDiagnostics.Diagnostics);
+                }
             }
 
             // renaming the global variable and saving may also introduce new errors
