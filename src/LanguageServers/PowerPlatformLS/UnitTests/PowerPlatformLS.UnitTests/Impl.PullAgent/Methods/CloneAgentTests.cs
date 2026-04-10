@@ -1,5 +1,6 @@
 ﻿namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
 {
+    using Microsoft.CopilotStudio.Sync;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.DependencyInjection.Extensions;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
@@ -19,6 +20,8 @@
     using System.Threading;
     using System.Threading.Tasks;
     using Xunit;
+    using AgentFilePath = Microsoft.PowerPlatformLS.Contracts.FileLayout.AgentFilePath;
+    using IFileAccessorFactory = Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessorFactory;
 
     public class CloneAgentTests
     {
@@ -150,12 +153,14 @@
 
             public void ConfigureServices(IServiceCollection services)
             {
-                // prevent disk access during tests
+                // prevent disk access during tests (both PullAgent and CopilotStudio.Sync interfaces)
                 services.RemoveAll<IFileAccessorFactory>();
                 services.AddSingleton<IFileAccessorFactory>(DiskMock);
+                services.RemoveAll<Microsoft.CopilotStudio.Sync.IFileAccessorFactory>();
+                services.AddSingleton<Microsoft.CopilotStudio.Sync.IFileAccessorFactory>(DiskMock);
 
                 // Point island for getting changesets.
-                // By injecting the island, we can skip injecting http services or other auth. 
+                // By injecting the island, we can skip injecting http services or other auth.
                 services.RemoveAll<IIslandControlPlaneService>();
                 services.AddSingleton<IIslandControlPlaneService>(MockIsland);
             }

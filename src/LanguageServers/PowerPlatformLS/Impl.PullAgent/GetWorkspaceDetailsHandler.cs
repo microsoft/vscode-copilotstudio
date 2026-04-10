@@ -1,23 +1,26 @@
-﻿namespace Microsoft.PowerPlatformLS.Impl.PullAgent
+namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 {
     using Microsoft.Agents.ObjectModel;
     using Microsoft.CommonLanguageServerProtocol.Framework;
+    using Microsoft.CopilotStudio.Sync;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
     using System;
     using System.Threading.Tasks;
+    using DirectoryPath = Microsoft.PowerPlatformLS.Contracts.Internal.Common.DirectoryPath;
+    using AgentFilePath = Microsoft.PowerPlatformLS.Contracts.FileLayout.AgentFilePath;
 
     [LanguageServerEndpoint("powerplatformls/getWorkspaceDetails", LanguageServerConstants.DefaultLanguageName)]
     internal class GetWorkspaceDetailsHandler : IRequestHandler<GetWorkspaceDetailsParams, CopilotStudioWorkspaceInfo, RequestContext>
     {
         private readonly IFileAccessorFactory _fileAccessor;
-        private readonly IWorkspaceSynchronizer _synchronizer;
+        private readonly CopilotStudio.Sync.IWorkspaceSynchronizer _synchronizer;
         private readonly ILspLogger _logger;
 
         public bool MutatesSolutionState => false;
 
-        public GetWorkspaceDetailsHandler(IFileAccessorFactory fileAccessor, IWorkspaceSynchronizer synchronizer, ILspLogger logger)
+        public GetWorkspaceDetailsHandler(IFileAccessorFactory fileAccessor, CopilotStudio.Sync.IWorkspaceSynchronizer synchronizer, ILspLogger logger)
         {
             _fileAccessor = fileAccessor;
             _synchronizer = synchronizer;
@@ -38,9 +41,9 @@
             AgentSyncInfo? syncInfo = null;
             try
             {
-                if (_synchronizer.IsSyncInfoAvailable(ws.FolderPath))
+                if (_synchronizer.IsSyncInfoAvailable(ws.FolderPath.ToSync()))
                 {
-                    syncInfo = await _synchronizer.GetSyncInfoAsync(ws.FolderPath);
+                    syncInfo = await _synchronizer.GetSyncInfoAsync(ws.FolderPath.ToSync());
                 }
             }
             catch (Exception exception)

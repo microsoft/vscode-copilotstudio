@@ -1,6 +1,7 @@
 namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
 {
     using System.Collections.Generic;
+    using Microsoft.CopilotStudio.Sync;
     using Microsoft.PowerPlatformLS.Impl.PullAgent;
     using Xunit;
 

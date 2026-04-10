@@ -32,6 +32,7 @@
     <ProjectReference Include="..\..\Impl.Language.Yaml\Impl.Language.Yaml.csproj" />
     <ProjectReference Include="..\..\Impl.YamlSourceTree\Impl.YamlSourceTree.csproj" />
     <ProjectReference Include="..\..\LanguageServerHost\LanguageServerHost.csproj" />
+    <ProjectReference Include="..\..\..\..\CopilotStudio.Sync\CopilotStudio.Sync.csproj" />
   </ItemGroup>
 
   <ItemGroup>

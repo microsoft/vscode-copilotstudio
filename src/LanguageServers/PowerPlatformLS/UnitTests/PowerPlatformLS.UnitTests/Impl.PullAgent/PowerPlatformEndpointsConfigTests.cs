@@ -7,6 +7,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
     using System.Reflection;
     using System.Text;
     using System.Threading.Tasks;
+    using Microsoft.CopilotStudio.Sync;
     using Microsoft.PowerPlatformLS.Impl.PullAgent;
     using Xunit;
 

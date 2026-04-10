@@ -1,5 +1,6 @@
 ﻿namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
 {
+    using Microsoft.CopilotStudio.Sync;
     using Microsoft.PowerPlatformLS.Contracts.Internal;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
@@ -7,6 +8,7 @@
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.DependencyInjection;
     using Microsoft.PowerPlatformLS.Impl.PullAgent;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.DependencyInjection;
+    using DirectoryPath = Microsoft.PowerPlatformLS.Contracts.Internal.Common.DirectoryPath;
     using Microsoft.PowerPlatformLS.UnitTests.TestUtilities;
     using System;
     using System.IO;

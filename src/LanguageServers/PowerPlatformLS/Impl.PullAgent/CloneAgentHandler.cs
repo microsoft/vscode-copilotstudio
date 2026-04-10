@@ -1,36 +1,39 @@
-﻿namespace Microsoft.PowerPlatformLS.Impl.PullAgent
+namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 {
     using Microsoft.Agents.Platform.Content;
     using Microsoft.Agents.Platform.Content.Exceptions;
     using Microsoft.CommonLanguageServerProtocol.Framework;
-    using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
+    using Microsoft.CopilotStudio.Sync;
+    using Microsoft.CopilotStudio.Sync.Dataverse;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
-    using Microsoft.PowerPlatformLS.Impl.PullAgent.Dataverse;
     using System.Collections.Generic;
     using System.Text.RegularExpressions;
     using System.Threading;
     using System.Threading.Tasks;
+    using DirectoryPath = Microsoft.PowerPlatformLS.Contracts.Internal.Common.DirectoryPath;
 
-    // For initial clone - writing to a new directory. 
+    // For initial clone - writing to a new directory.
     [LanguageServerEndpoint(CloneAgentRequest.MessageName, LanguageServerConstants.DefaultLanguageName)]
     internal class CloneAgentHandler : IRequestHandler<CloneAgentRequest, CloneAgentResponse, RequestContext>
     {
-        private readonly IIslandControlPlaneService _islandControlPlaneService;
-        private readonly IWorkspaceSynchronizer _workspaceSynchronizer;
+        private readonly CopilotStudio.Sync.IIslandControlPlaneService _islandControlPlaneService;
+        private readonly CopilotStudio.Sync.IWorkspaceSynchronizer _workspaceSynchronizer;
         private readonly ITokenManager _dataverseTokenManager;
         private readonly ILspLogger _logger;
-        private readonly IOperationContextProvider _operationContextProvider;
-        private readonly Func<string, string, DataverseClient> _dataverseClientFactory;
+        private readonly CopilotStudio.Sync.IOperationContextProvider _operationContextProvider;
+        private readonly ISyncDataverseClient _dataverseClient;
+        private readonly LspDataverseHttpClientAccessor _dataverseHttpClientAccessor;
 
         public bool MutatesSolutionState => true;
 
         public CloneAgentHandler(
-            IIslandControlPlaneService islandControlPlaneService,
-            IWorkspaceSynchronizer workspaceSynchronizer,
+            CopilotStudio.Sync.IIslandControlPlaneService islandControlPlaneService,
+            CopilotStudio.Sync.IWorkspaceSynchronizer workspaceSynchronizer,
             ITokenManager dataverseTokenManager,
-            Func<string, string, DataverseClient> dataverseClientFactory,
-            IOperationContextProvider operationContextProvider,
+            ISyncDataverseClient dataverseClient,
+            LspDataverseHttpClientAccessor dataverseHttpClientAccessor,
+            CopilotStudio.Sync.IOperationContextProvider operationContextProvider,
             ILspLogger logger)
         {
             _islandControlPlaneService = islandControlPlaneService;
@@ -38,7 +41,8 @@
             _dataverseTokenManager = dataverseTokenManager ?? throw new ArgumentNullException(nameof(dataverseTokenManager));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _operationContextProvider = operationContextProvider ?? throw new ArgumentNullException(nameof(operationContextProvider));
-            _dataverseClientFactory = dataverseClientFactory ?? throw new ArgumentNullException(nameof(dataverseClientFactory));
+            _dataverseClient = dataverseClient ?? throw new ArgumentNullException(nameof(dataverseClient));
+            _dataverseHttpClientAccessor = dataverseHttpClientAccessor ?? throw new ArgumentNullException(nameof(dataverseHttpClientAccessor));
         }
 
         private static DirectoryPath ValidateRequest(CloneAgentRequest request)
@@ -58,15 +62,20 @@
             return rootPath;
         }
 
-        // This will copy an agent to a new directory. 
+        // This will copy an agent to a new directory.
         public async Task<CloneAgentResponse> HandleRequestAsync(CloneAgentRequest request, RequestContext context, CancellationToken cancellationToken)
         {
             var referenceTracker = new ReferenceTracker();
 
             try
             {
-                _islandControlPlaneService.SetIslandBaseEndpoint(request.EnvironmentInfo.AgentManagementUrl);
+                _islandControlPlaneService.SetConnectionContext(
+                    request.EnvironmentInfo.AgentManagementUrl,
+                    request.AccountInfo.ClusterCategory);
                 _dataverseTokenManager.SetTokens(request.DataverseAccessToken, request.CopilotStudioAccessToken);
+                _dataverseHttpClientAccessor.SetDataverseUrl(new Uri(request.EnvironmentInfo.DataverseUrl));
+                _dataverseClient.SetDataverseUrl(request.EnvironmentInfo.DataverseUrl);
+
                 var syncInfo = request.GetSyncInfo();
                 var rootPath = ValidateRequest(request);
                 var allOperations = await _operationContextProvider.GetAllAsync(request.GetSyncInfo(), request.Assets);
@@ -104,7 +113,7 @@
                     }
 
                     var folder = rootPath.GetChildDirectoryPath(folderName);
-                    // $$$ Usages of Directory should be under file abstraction here. 
+                    // $$$ Usages of Directory should be under file abstraction here.
                     if (Directory.Exists(folder.ToString()) && (Directory.GetFiles(folder.ToString()).Any()))
                     {
                         // Folder must be empty since this is a new clone.
@@ -121,14 +130,13 @@
                         agentFolderName ??= folderName;
                     }
 
-                    await _workspaceSynchronizer.SaveSyncInfoAsync(folder, syncInfo);
-                    var dataverseClient = CreateDataverseClient(request.EnvironmentInfo.DataverseUrl, request.DataverseAccessToken);
-                    await _workspaceSynchronizer.CloneChangesAsync(folder, referenceTracker, operationContext, dataverseClient, syncInfo.AgentId, cancellationToken);
+                    await _workspaceSynchronizer.SaveSyncInfoAsync(folder.ToSync(), syncInfo);
+                    await _workspaceSynchronizer.CloneChangesAsync(folder.ToSync(), referenceTracker, operationContext, _dataverseClient, syncInfo.AgentId, cancellationToken);
                 }
 
                 foreach (var folder in touchups)
                 {
-                    await _workspaceSynchronizer.ApplyTouchupsAsync(folder, referenceTracker, cancellationToken);
+                    await _workspaceSynchronizer.ApplyTouchupsAsync(folder.ToSync(), referenceTracker, cancellationToken);
                 }
 
                 return new CloneAgentResponse()
@@ -177,11 +185,6 @@
                 else
                     return "%" + ((int)c).ToString("x2");
             });
-        }
-
-        protected virtual DataverseClient CreateDataverseClient(string dataverseUrl, string accessToken)
-        {
-            return _dataverseClientFactory(dataverseUrl, accessToken);
         }
     }
 }
