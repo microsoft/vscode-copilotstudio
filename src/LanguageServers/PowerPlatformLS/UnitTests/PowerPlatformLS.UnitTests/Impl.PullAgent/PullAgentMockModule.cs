@@ -26,9 +26,11 @@
 
         public void ConfigureServices(IServiceCollection services)
         {
-            // prevent disk access during tests
+            // prevent disk access during tests (both PullAgent and CopilotStudio.Sync interfaces)
             services.RemoveAll<IFileAccessorFactory>();
             services.AddSingleton<IFileAccessorFactory>(DiskMock);
+            services.RemoveAll<Microsoft.CopilotStudio.Sync.IFileAccessorFactory>();
+            services.AddSingleton<Microsoft.CopilotStudio.Sync.IFileAccessorFactory>(DiskMock);
 
             // mock network calls
             var httpClient = new HttpClient(HttpClientMock);
@@ -42,6 +44,7 @@
             services.RemoveAll<ITokenManager>();
             services.AddSingleton<TestTokenManager>();
             services.AddSingleton<ITokenManager>(p => { var tm = p.GetRequiredService<TestTokenManager>(); TokenProvider = tm; return tm; });
+            services.AddSingleton<ITokenProvider>(p => p.GetRequiredService<TestTokenManager>());
 
             // mock external APIs
             services.RemoveAll<IContentAuthoringService>();

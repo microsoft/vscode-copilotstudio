@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.Build.Traversal">
+  <!--
+    Traversal project for CI: allows a single dotnet restore / build / test
+    invocation across all server and test projects.
+
+    Only leaf projects are listed here. Transitive dependencies (e.g.
+    CopilotStudio.Sync, LanguageServerHost, Impl.*) are restored and
+    built automatically via ProjectReference without duplication.
+
+    Add new .csproj entries here when introducing new projects.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="LanguageServers\PowerPlatformLS\UnitTests\PowerPlatformLS.UnitTests\PowerPlatformLS.UnitTests.csproj" />
+    <ProjectReference Include="CopilotStudio.Sync.UnitTests\CopilotStudio.Sync.UnitTests.csproj" />
+    <ProjectReference Include="CopilotStudio.Sync.E2ETests\CopilotStudio.Sync.E2ETests.csproj" />
+    <ProjectReference Include="CopilotStudio.Sync.TestHarness\CopilotStudio.Sync.TestHarness.csproj" />
+  </ItemGroup>
+</Project>

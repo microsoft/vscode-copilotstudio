@@ -1,6 +1,7 @@
 ﻿namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
 {
-    using Microsoft.PowerPlatformLS.Impl.PullAgent.Dataverse;
+    using Microsoft.Agents.Platform.Content.Abstractions;
+    using Microsoft.CopilotStudio.Sync.Dataverse;
     using Moq;
     using Moq.Protected;
     using System;
@@ -13,7 +14,7 @@
     using System.Threading;
     using System.Threading.Tasks;
     using Xunit;
-    using static Microsoft.PowerPlatformLS.Impl.PullAgent.Dataverse.DataverseClient;
+    using static Microsoft.CopilotStudio.Sync.Dataverse.SyncDataverseClient;
 
     public class DataverseClientTests
     {
@@ -138,7 +139,7 @@
         [InlineData("00000000-0000-0000-0000-000000000000")]
         public async Task DownloadAllWorkflowsForAgentWithInvalidAgent(string agentIdStr)
         {
-            var client = new DataverseClient(new HttpClient(), DataverseUrl, AccessToken, UserAgent);
+            var client = CreateClientFromHttpClient(new HttpClient());
             Guid? agentId = string.IsNullOrEmpty(agentIdStr) ? null : Guid.Parse(agentIdStr);
             var workflows = await client.DownloadAllWorkflowsForAgentAsync(agentId, CancellationToken.None);
             Assert.Empty(workflows);
@@ -147,15 +148,15 @@
         [Fact]
         public async Task UpdateWorkflowAsynWithNullWorkflow()
         {
-            var client = new DataverseClient(new HttpClient(), DataverseUrl, AccessToken, UserAgent);
+            var client = CreateClientFromHttpClient(new HttpClient());
             await Assert.ThrowsAsync<ArgumentNullException>(() => client.UpdateWorkflowAsync(Guid.NewGuid(), null, CancellationToken.None));
         }
 
         [Fact]
         public async Task UpdateWorkflowAsyncWithEmptyAgent()
         {
-            var client = new DataverseClient(new HttpClient(), DataverseUrl, AccessToken, UserAgent);
-            var workflow = new DataverseClient.WorkflowMetadata { WorkflowId = Guid.NewGuid() };
+            var client = CreateClientFromHttpClient(new HttpClient());
+            var workflow = new WorkflowMetadata { WorkflowId = Guid.NewGuid() };
             await Assert.ThrowsAsync<ArgumentNullException>(() => client.UpdateWorkflowAsync(Guid.Empty, workflow, CancellationToken.None));
         }
 
@@ -165,7 +166,7 @@
             var workflowId = Guid.NewGuid();
             var agentId = Guid.NewGuid();
             int callIndex = 0;
-            var workflow = new DataverseClient.WorkflowMetadata { WorkflowId = workflowId, Name = "WorkflowToUpdate", ClientData = "clientdata" };
+            var workflow = new WorkflowMetadata { WorkflowId = workflowId, Name = "WorkflowToUpdate", ClientData = "clientdata" };
 
             var client = CreateClientWithHandler((req, index) =>
             {
@@ -184,7 +185,7 @@
             var agentId = Guid.NewGuid();
             var botComponentId = Guid.NewGuid();
             int callIndex = 0;
-            var workflow = new DataverseClient.WorkflowMetadata { WorkflowId = workflowId, Name = "WorkflowToInsert", ClientData = "clientdata" };
+            var workflow = new WorkflowMetadata { WorkflowId = workflowId, Name = "WorkflowToInsert", ClientData = "clientdata" };
 
             var client = CreateClientWithHandler((req, index) =>
             {
@@ -207,15 +208,15 @@
         [Fact]
         public async Task InsertWorkflowAsyncWithNullWorkflow()
         {
-            var client = new DataverseClient(new HttpClient(), DataverseUrl, AccessToken, UserAgent);
+            var client = CreateClientFromHttpClient(new HttpClient());
             await Assert.ThrowsAsync<ArgumentNullException>(() => client.InsertWorkflowAsync(Guid.NewGuid(), null, CancellationToken.None));
         }
 
         [Fact]
         public async Task InsertWorkflowAsyncWithEmptyAgent()
         {
-            var client = new DataverseClient(new HttpClient(), DataverseUrl, AccessToken, UserAgent);
-            var workflow = new DataverseClient.WorkflowMetadata { WorkflowId = Guid.NewGuid() };
+            var client = CreateClientFromHttpClient(new HttpClient());
+            var workflow = new WorkflowMetadata { WorkflowId = Guid.NewGuid() };
             await Assert.ThrowsAsync<ArgumentNullException>(() => client.InsertWorkflowAsync(Guid.Empty, workflow, CancellationToken.None));
         }
 
@@ -227,7 +228,7 @@
             var botComponentId = Guid.NewGuid();
             int callIndex = 0;
 
-            var workflow = new DataverseClient.WorkflowMetadata
+            var workflow = new WorkflowMetadata
             {
                 WorkflowId = workflowId,
                 Name = "WorkflowToInsert",
@@ -251,7 +252,16 @@
             Assert.Equal(2, callIndex);
         }
 
-        private DataverseClient CreateClientWithHandler(Func<HttpRequestMessage, int, Task<HttpResponseMessage>> sendAsyncFunc)
+        private static SyncDataverseClient CreateClientFromHttpClient(HttpClient httpClient)
+        {
+            var accessorMock = new Mock<IDataverseHttpClientAccessor>();
+            accessorMock.Setup(a => a.CreateClient()).Returns(httpClient);
+            var client = new SyncDataverseClient(accessorMock.Object, UserAgent);
+            client.SetDataverseUrl(DataverseUrl);
+            return client;
+        }
+
+        private SyncDataverseClient CreateClientWithHandler(Func<HttpRequestMessage, int, Task<HttpResponseMessage>> sendAsyncFunc)
         {
             int callIndex = 0;
             var handlerMock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
@@ -269,7 +279,7 @@
                });
 
             var httpClient = new HttpClient(handlerMock.Object);
-            return new DataverseClient(httpClient, DataverseUrl, AccessToken, UserAgent);
+            return CreateClientFromHttpClient(httpClient);
         }
 
         [Fact]
@@ -305,7 +315,7 @@
                });
 
             var httpClient = new HttpClient(handlerMock.Object);
-            var client = new DataverseClient(httpClient, DataverseUrl, AccessToken, UserAgent);
+            var client = CreateClientFromHttpClient(httpClient);
 
             // Act
             var exists = await client.ConnectionReferenceExistsAsync(connectionRefName, CancellationToken.None);
@@ -336,7 +346,7 @@
                });
 
             var httpClient = new HttpClient(handlerMock.Object);
-            var client = new DataverseClient(httpClient, DataverseUrl, AccessToken, UserAgent);
+            var client = CreateClientFromHttpClient(httpClient);
 
             // Act
             var exists = await client.ConnectionReferenceExistsAsync(connectionRefName, CancellationToken.None);
@@ -363,7 +373,7 @@
                });
 
             var httpClient = new HttpClient(handlerMock.Object);
-            var client = new DataverseClient(httpClient, DataverseUrl, AccessToken, UserAgent);
+            var client = CreateClientFromHttpClient(httpClient);
 
             // Act & Assert
             var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -396,7 +406,7 @@
                });
 
             var httpClient = new HttpClient(handlerMock.Object);
-            var client = new DataverseClient(httpClient, DataverseUrl, AccessToken, UserAgent);
+            var client = CreateClientFromHttpClient(httpClient);
 
             // Act
             await client.CreateConnectionReferenceAsync(connectionRefName, connectorId, CancellationToken.None);
@@ -428,7 +438,7 @@
                });
 
             var httpClient = new HttpClient(handlerMock.Object);
-            var client = new DataverseClient(httpClient, DataverseUrl, AccessToken, UserAgent);
+            var client = CreateClientFromHttpClient(httpClient);
 
             // Act & Assert
             var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -470,7 +480,7 @@
                });
 
             var httpClient = new HttpClient(handlerMock.Object);
-            var client = new DataverseClient(httpClient, DataverseUrl, AccessToken, UserAgent);
+            var client = CreateClientFromHttpClient(httpClient);
 
             // Act
             await client.EnsureConnectionReferenceExistsAsync(connectionRefName, connectorId, CancellationToken.None);
@@ -525,7 +535,7 @@
                });
 
             var httpClient = new HttpClient(handlerMock.Object);
-            var client = new DataverseClient(httpClient, DataverseUrl, AccessToken, UserAgent);
+            var client = CreateClientFromHttpClient(httpClient);
 
             // Act
             await client.EnsureConnectionReferenceExistsAsync(connectionRefName, connectorId, CancellationToken.None);
@@ -572,7 +582,7 @@
                 .Callback<HttpRequestMessage, CancellationToken>((request, _) => capturedRequest = request);
 
             var httpClient = new HttpClient(handlerMock.Object);
-            var client = new DataverseClient(httpClient, DataverseUrl, AccessToken, UserAgent);
+            var client = CreateClientFromHttpClient(httpClient);
 
             await client.CreateNewAgentAsync("TestAgent", "TestSchema", CancellationToken.None);
 
@@ -663,7 +673,7 @@
                 .Callback<HttpRequestMessage, CancellationToken>((req, _) => capturedRequest = req);
 
             var httpClient = new HttpClient(handlerMock.Object);
-            var client = new DataverseClient(httpClient, DataverseUrl, AccessToken, UserAgent);
+            var client = CreateClientFromHttpClient(httpClient);
 
             var result = await client.GetConnectionReferencesByLogicalNamesAsync(
                 new[] { "cr1" },
@@ -722,7 +732,7 @@
                 });
 
             var httpClient = new HttpClient(handlerMock.Object);
-            var client = new DataverseClient(httpClient, DataverseUrl, AccessToken, UserAgent);
+            var client = CreateClientFromHttpClient(httpClient);
 
             await client.DownloadAllWorkflowsForAgentAsync(Guid.NewGuid(), CancellationToken.None);
 
@@ -769,7 +779,7 @@
                 });
 
             var httpClient = new HttpClient(handlerMock.Object);
-            var client = new DataverseClient(httpClient, DataverseUrl, AccessToken, UserAgent);
+            var client = CreateClientFromHttpClient(httpClient);
 
             await client.DownloadAllWorkflowsForAgentAsync(Guid.NewGuid(), CancellationToken.None);
 

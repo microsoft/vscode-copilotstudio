@@ -4,12 +4,13 @@
     using Microsoft.Agents.Platform.Content;
     using Microsoft.Agents.Platform.Content.Exceptions;
     using Microsoft.CommonLanguageServerProtocol.Framework;
+    using Microsoft.CopilotStudio.Sync;
+    using Microsoft.CopilotStudio.Sync.Dataverse;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Impl.PullAgent;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
-    using Microsoft.PowerPlatformLS.Impl.PullAgent.Dataverse;
     using Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio;
     using Moq;
     using System;
@@ -22,7 +23,9 @@
     using System.Threading;
     using System.Threading.Tasks;
     using Xunit;
-    using static Microsoft.PowerPlatformLS.Impl.PullAgent.Dataverse.DataverseClient;
+    using static Microsoft.CopilotStudio.Sync.Dataverse.SyncDataverseClient;
+    using DirectoryPath = Microsoft.PowerPlatformLS.Contracts.Internal.Common.DirectoryPath;
+    using AgentFilePath = Microsoft.PowerPlatformLS.Contracts.FileLayout.AgentFilePath;
 
     public class ReattachAgentHandlerTests
     {
@@ -42,15 +45,7 @@
         public async Task ReattachAgentValidDirectoryTest()
         {
             var context = CreateTestSetup();
-
-            var handler = new TestReattachAgentHandler(
-                new Mock<IIslandControlPlaneService>().Object,
-                new TestWorkspaceSynchronizer(),
-                new TestTokenManager(),
-                (url, token) => new MockDataverseClient(),
-                CreateOperationProvider(),
-                new Mock<ILspLogger>().Object
-            );
+            var handler = TestHandlerFactory.CreateHandler(new MockDataverseClient(), new TestWorkspaceSynchronizer(), CreateOperationProvider());
 
             var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
 
@@ -65,15 +60,10 @@
         public async Task ReattachAgentDataverseFailureTest()
         {
             var context = CreateTestSetup();
-
-            var handler = new FailingDataverseReattachHandler(
-                new Mock<IIslandControlPlaneService>().Object,
-                new TestWorkspaceSynchronizer(),
-                new TestTokenManager(),
-                (url, token) => new MockDataverseClient(),
-                CreateOperationProvider(),
-                new Mock<ILspLogger>().Object
-            );
+            var failingClient = new Mock<ISyncDataverseClient>();
+            failingClient.Setup(c => c.GetAgentIdBySchemaNameAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(Guid.Empty);
+            failingClient.Setup(c => c.CreateNewAgentAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ThrowsAsync(new InvalidOperationException("Dataverse failure!"));
+            var handler = TestHandlerFactory.CreateHandler(failingClient.Object, new TestWorkspaceSynchronizer(), CreateOperationProvider());
 
             var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
 
@@ -86,15 +76,7 @@
         public async Task ReattachAgentInvalidDirectoryTest()
         {
             var context = CreateTestSetup("Workspace/InvalidWorkspace");
-
-            var handler = new TestReattachAgentHandler(
-                new Mock<IIslandControlPlaneService>().Object,
-                new TestWorkspaceSynchronizer(),
-                new TestTokenManager(),
-                (url, token) => new MockDataverseClient(),
-                CreateOperationProvider(),
-                new Mock<ILspLogger>().Object
-            );
+            var handler = TestHandlerFactory.CreateHandler(new MockDataverseClient(), new TestWorkspaceSynchronizer(), CreateOperationProvider());
 
             var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
 
@@ -107,15 +89,7 @@
         public async Task ReattachAgentWithExistingConnJsonTest()
         {
             var context = CreateTestSetup();
-
-            var handler = new TestReattachAgentHandler(
-                new Mock<IIslandControlPlaneService>().Object,
-                new TestWorkspaceSynchronizerSyncInfoExists(),
-                new TestTokenManager(),
-                (url, token) => new MockDataverseClient(),
-                CreateOperationProvider(),
-                new Mock<ILspLogger>().Object
-            );
+            var handler = TestHandlerFactory.CreateHandler(new MockDataverseClient(), new TestWorkspaceSynchronizerSyncInfoExists(), CreateOperationProvider());
 
             var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
 
@@ -129,15 +103,10 @@
         public async Task ReattachAgentRemoteAgentExistsTest()
         {
             var context = CreateTestSetup();
-
-            var handler = new TestReattachAgentHandlerExistingAgent(
-                new Mock<IIslandControlPlaneService>().Object,
-                new TestWorkspaceSynchronizer(),
-                new TestTokenManager(),
-                (url, token) => new MockDataverseClient(),
-                CreateOperationProvider(),
-                new Mock<ILspLogger>().Object
-            );
+            var existingAgentClient = new MockDataverseClient();
+            var mockClient = new Mock<ISyncDataverseClient>();
+            mockClient.Setup(c => c.GetAgentIdBySchemaNameAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(Guid.NewGuid());
+            var handler = TestHandlerFactory.CreateHandler(mockClient.Object, new TestWorkspaceSynchronizer(), CreateOperationProvider());
 
             var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
 
@@ -152,17 +121,7 @@
         public async Task SyncWorkspaceAsyncTest(bool updateWorkspaceDirectory)
         {
             var context = CreateTestSetup();
-
             var synchronizer = new TestWorkspaceSynchronizer();
-
-            var handler = new TestReattachAgentHandler(
-                new Mock<IIslandControlPlaneService>().Object,
-                synchronizer,
-                new TestTokenManager(),
-                (url, token) => new MockDataverseClient(),
-                CreateOperationProvider(),
-                new Mock<ILspLogger>().Object
-            );
 
             var operationContext = await CreateOperationProvider().GetAsync(new AgentSyncInfo
             {
@@ -183,7 +142,7 @@
             });
 
             var syncInfo = await synchronizer.SyncWorkspaceAsync(
-                new DirectoryPath(WorkspacePath),
+                new Microsoft.CopilotStudio.Sync.DirectoryPath(WorkspacePath),
                 operationContext,
                 changeToken: "token",
                 updateWorkspaceDirectory: updateWorkspaceDirectory,
@@ -203,16 +162,16 @@
         public async Task ReattachAgentDataverseBadRequestTest()
         {
             var context = CreateTestSetup();
-
             var mockLogger = new Mock<ILspLogger>();
-            var handler = new TestReattachAgentHandlerDataverseBadRequest(
-                new Mock<IIslandControlPlaneService>().Object,
-                new TestWorkspaceSynchronizer(),
-                new TestTokenManager(),
-                (url, token) => new MockDataverseClient(),
-                CreateOperationProvider(),
-                mockLogger.Object
-            );
+            var badRequestClient = new Mock<ISyncDataverseClient>();
+            badRequestClient.Setup(c => c.GetAgentIdBySchemaNameAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new DataverseBadRequestException(
+                    errorCodeName: "BadRequest",
+                    errorCodeValue: "400",
+                    serviceRequestId: Guid.NewGuid().ToString(),
+                    message: "Invalid schema name",
+                    innerException: null));
+            var handler = TestHandlerFactory.CreateHandler(badRequestClient.Object, new TestWorkspaceSynchronizer(), CreateOperationProvider(), mockLogger.Object);
 
             var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
 
@@ -225,15 +184,9 @@
         public async Task ReattachAgentWithExceptionTest()
         {
             var context = CreateTestSetup();
-
-            var handler = new TestReattachAgentHandlerWithException(
-                new Mock<IIslandControlPlaneService>().Object,
-                new TestWorkspaceSynchronizer(),
-                new TestTokenManager(),
-                (url, token) => new MockDataverseClient(),
-                CreateOperationProvider(),
-                new Mock<ILspLogger>().Object
-            );
+            var throwingClient = new Mock<ISyncDataverseClient>();
+            throwingClient.Setup(c => c.GetAgentIdBySchemaNameAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).Throws(new InvalidOperationException("invalid operation exception"));
+            var handler = TestHandlerFactory.CreateHandler(throwingClient.Object, new TestWorkspaceSynchronizer(), CreateOperationProvider());
 
             var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
 
@@ -247,21 +200,14 @@
             // This test verifies that connection provisioning logic doesn't break the reattach flow
             // when there are no portable connections (workspace has no configuration)
             var context = CreateTestSetup();
-
-            var handler = new TestReattachAgentHandlerWithConnectionTracking(
-                new Mock<IIslandControlPlaneService>().Object,
-                new TestWorkspaceSynchronizer(),
-                new TestTokenManager(),
-                (url, token) => new MockDataverseClient(),
-                CreateOperationProvider(),
-                new Mock<ILspLogger>().Object
-            );
+            var trackingClient = new MockDataverseClientWithConnectionTracking();
+            var handler = TestHandlerFactory.CreateHandler(trackingClient, new TestWorkspaceSynchronizer(), CreateOperationProvider());
 
             var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
 
             Assert.Equal(200, response.Code);
             // No connections should be provisioned since workspace has no portable connections
-            Assert.Empty(handler.MockClient.ProvisionedConnections);
+            Assert.Empty(trackingClient.ProvisionedConnections);
         }
 
         private ReattachAgentTestContext CreateTestSetup(string? customWorkspace = null)
@@ -347,20 +293,20 @@
     /// <summary>
     /// Create mock Dataverse client that simulates agent creation
     /// </summary>
-    internal class MockDataverseClient : DataverseClient
+    internal class MockDataverseClient : ISyncDataverseClient
     {
         private WorkflowMetadata[]? _workflowsForAgent;
 
         public List<(Guid? AgentId, WorkflowMetadata Metadata, string Operation)> WorkflowCalls { get; } = new();
 
-        public MockDataverseClient() : base(new HttpClient(), "https://test.crm.dynamics.com", "access-token", "MCSVSCode-1.0.0") { }
+        public void SetDataverseUrl(string dataverseUrl) { }
 
         public void SetWorkflowsForAgent(WorkflowMetadata[] workflows)
         {
             _workflowsForAgent = workflows;
         }
 
-        public override Task<AgentInfo> CreateNewAgentAsync(string newAgentName, string schemaName, CancellationToken cancellationToken)
+        public virtual Task<AgentInfo> CreateNewAgentAsync(string newAgentName, string schemaName, CancellationToken cancellationToken)
         {
             var fakeAgent = new AgentInfo
             {
@@ -371,17 +317,17 @@
             return Task.FromResult(fakeAgent);
         }
 
-        public override Task<Guid> GetAgentIdBySchemaNameAsync(string schemaName, CancellationToken cancellationToken)
+        public virtual Task<Guid> GetAgentIdBySchemaNameAsync(string schemaName, CancellationToken cancellationToken)
         {
             return Task.FromResult(Guid.Empty);
         }
 
-        public override Task<WorkflowMetadata[]> DownloadAllWorkflowsForAgentAsync(Guid? agentId, CancellationToken cancellationToken)
+        public virtual Task<WorkflowMetadata[]> DownloadAllWorkflowsForAgentAsync(Guid? agentId, CancellationToken cancellationToken)
         {
             return Task.FromResult(_workflowsForAgent ?? Array.Empty<WorkflowMetadata>());
         }
 
-        public override Task<WorkflowResponse> InsertWorkflowAsync(Guid? agentId, WorkflowMetadata? workflowMetadata, CancellationToken cancellationToken)
+        public virtual Task<WorkflowResponse> InsertWorkflowAsync(Guid? agentId, WorkflowMetadata? workflowMetadata, CancellationToken cancellationToken)
         {
             if (workflowMetadata != null)
             {
@@ -393,7 +339,7 @@
             });
         }
 
-        public override Task<WorkflowResponse> UpdateWorkflowAsync(Guid? agentId, WorkflowMetadata? workflowMetadata, CancellationToken cancellationToken)
+        public virtual Task<WorkflowResponse> UpdateWorkflowAsync(Guid? agentId, WorkflowMetadata? workflowMetadata, CancellationToken cancellationToken)
         {
             if (workflowMetadata != null)
             {
@@ -404,53 +350,47 @@
                 IsDisabled = false
             });
         }
+
+        public virtual Task<bool> ConnectionReferenceExistsAsync(string connectionReferenceLogicalName, CancellationToken cancellationToken)
+            => Task.FromResult(false);
+
+        public virtual Task CreateConnectionReferenceAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken)
+            => Task.CompletedTask;
+
+        public virtual Task EnsureConnectionReferenceExistsAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken)
+            => Task.CompletedTask;
+
+        public virtual Task<ConnectionReferenceInfo[]> GetConnectionReferencesByLogicalNamesAsync(IEnumerable<string> logicalNames, CancellationToken cancellationToken)
+            => Task.FromResult(Array.Empty<ConnectionReferenceInfo>());
+
+        public virtual Task<SolutionInfo> GetSolutionVersionsAsync(CancellationToken cancellationToken)
+            => Task.FromResult(new SolutionInfo { CopilotStudioSolutionVersion = new Version(1, 0, 0, 0) });
+
+        public virtual Task<AgentInfo> GetAgentInfoAsync(Guid agentId, CancellationToken cancellationToken)
+            => Task.FromResult(new AgentInfo { AgentId = agentId });
+
+        public virtual Task DownloadKnowledgeFileAsync(string knowledgeFileFolder, BotComponentId botComponentId, string fileName, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public virtual Task UploadKnowledgeFileAsync(string knowledgeFileFolder, Guid botComponentId, string fileName, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
     }
 
-    /// <summary>
-    /// Dataverse client that throws instead of creating agents
-    /// </summary>
-    internal class FailingDataverseClient : DataverseClient
+    internal static class TestHandlerFactory
     {
-        public FailingDataverseClient() : base(new HttpClient(), "https://fail.crm.dynamics.com", "access-token", "MCSVSCode-1.0.0") { }
-
-        public override Task<AgentInfo> CreateNewAgentAsync(string newAgentName, string schemaName, CancellationToken cancellationToken)
-            => throw new InvalidOperationException("Dataverse failure!");
-    }
-
-    internal class FailingDataverseReattachHandler : ReattachAgentHandler
-    {
-        private readonly FailingDataverseClient _client = new();
-
-        public FailingDataverseReattachHandler(
-            IIslandControlPlaneService island,
-            IWorkspaceSynchronizer workspace,
-            ITokenManager tokenManager,
-            Func<string, string, DataverseClient> dataverseClientFactory,
-            IOperationContextProvider opProvider,
-            ILspLogger logger)
-            : base(island, workspace, tokenManager, dataverseClientFactory, opProvider, logger)
-        { }
-
-        protected override DataverseClient CreateDataverseClient(string dataverseUrl, string token) => _client;
-    }
-
-    internal class TestReattachAgentHandler : ReattachAgentHandler
-    {
-        private readonly MockDataverseClient _mockDataverseClient = new();
-
-        public TestReattachAgentHandler(
-            IIslandControlPlaneService island,
-            IWorkspaceSynchronizer workspace,
-            ITokenManager tokenManager,
-            Func<string, string, DataverseClient> dataverseClientFactory,
-            IOperationContextProvider opProvider,
-            ILspLogger logger)
-            : base(island, workspace, tokenManager, dataverseClientFactory, opProvider, logger)
-        { }
-
-        protected override DataverseClient CreateDataverseClient(string dataverseUrl, string token)
+        public static ReattachAgentHandler CreateHandler(ISyncDataverseClient dataverseClient, IWorkspaceSynchronizer workspace, IOperationContextProvider opProvider, ILspLogger? logger = null)
         {
-            return _mockDataverseClient;
+            var mockAuthProvider = new Mock<ISyncAuthProvider>();
+            mockAuthProvider.Setup(a => a.AcquireTokenAsync(It.IsAny<Uri>(), It.IsAny<CancellationToken>())).ReturnsAsync("mock-token");
+            var accessor = new LspDataverseHttpClientAccessor(mockAuthProvider.Object);
+            return new ReattachAgentHandler(
+                new Mock<IIslandControlPlaneService>().Object,
+                workspace,
+                new TestTokenManager(),
+                dataverseClient,
+                accessor,
+                opProvider,
+                logger ?? new Mock<ILspLogger>().Object);
         }
     }
 
@@ -466,9 +406,9 @@
     {
         public bool ReattachCalled { get; private set; } = false;
 
-        public virtual bool IsSyncInfoAvailable(DirectoryPath workspaceFolder) => false;
+        public virtual bool IsSyncInfoAvailable(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder) => false;
 
-        public Task<AgentSyncInfo> GetSyncInfoAsync(DirectoryPath workspaceFolder)
+        public Task<AgentSyncInfo> GetSyncInfoAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder)
         {
             return Task.FromResult(new AgentSyncInfo
             {
@@ -489,34 +429,34 @@
             });
         }
 
-        public Task SaveSyncInfoAsync(DirectoryPath workspaceFolder, AgentSyncInfo connectionDetails)
+        public Task SaveSyncInfoAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, AgentSyncInfo connectionDetails)
         {
             return Task.CompletedTask;
         }
 
-        public Task<(PvaComponentChangeSet, ImmutableArray<Change>)> GetLocalChangesAsync(DirectoryPath workspaceFolder, DefinitionBase workspaceDefinition, DataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
+        public Task<(PvaComponentChangeSet, ImmutableArray<Change>)> GetLocalChangesAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, DefinitionBase workspaceDefinition, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
         {
             return Task.FromResult((new PvaComponentChangeSet(Enumerable.Empty<BotComponentChange>(), null, "token"), ImmutableArray<Change>.Empty));
         }
 
-        public Task<(PvaComponentChangeSet, ImmutableArray<Change>)> GetRemoteChangesAsync(DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, DataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
+        public Task<(PvaComponentChangeSet, ImmutableArray<Change>)> GetRemoteChangesAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
         {
             return Task.FromResult((new PvaComponentChangeSet(Enumerable.Empty<BotComponentChange>(), null, "token"), ImmutableArray<Change>.Empty));
         }
 
-        public Task CloneChangesAsync(DirectoryPath workspaceFolder, ReferenceTracker referenceTracker, AuthoringOperationContextBase operationContext, DataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
+        public Task CloneChangesAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, ReferenceTracker referenceTracker, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
             => Task.CompletedTask;
 
-        public Task ApplyTouchupsAsync(DirectoryPath workspaceFolder, ReferenceTracker referenceTracker, CancellationToken cancellation)
+        public Task ApplyTouchupsAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, ReferenceTracker referenceTracker, CancellationToken cancellation)
             => Task.CompletedTask;
 
-        public Task<DefinitionBase> PullExistingChangesAsync(DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, DefinitionBase localWorkspaceDefinition, DataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
+        public Task<DefinitionBase> PullExistingChangesAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, DefinitionBase localWorkspaceDefinition, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
             => Task.FromResult(localWorkspaceDefinition);
 
-        public Task PushChangesetAsync(DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, PvaComponentChangeSet localWorkspaceDefinition, DataverseClient dataverseClient, Guid? agentId, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken)
-            => Task.CompletedTask;
+        public Task<int> PushChangesetAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, PvaComponentChangeSet localWorkspaceDefinition, ISyncDataverseClient dataverseClient, Guid? agentId, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken)
+            => Task.FromResult(0);
 
-        public Task<WorkspaceSyncInfo> SyncWorkspaceAsync(DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, string? changeToken, bool updateWorkspaceDirectory, DataverseClient dataverseClient, Guid? agentId, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken)
+        public Task<WorkspaceSyncInfo> SyncWorkspaceAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, string? changeToken, bool updateWorkspaceDirectory, ISyncDataverseClient dataverseClient, Guid? agentId, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken)
         {
             ReattachCalled = true;
             return Task.FromResult(new WorkspaceSyncInfo
@@ -526,7 +466,7 @@
             });
         }
 
-        public virtual Task<(ImmutableArray<WorkflowResponse>, CloudFlowMetadata)> UpsertWorkflowForAgentAsync(DirectoryPath workspaceFolder, DataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
+        public virtual Task<(ImmutableArray<WorkflowResponse>, CloudFlowMetadata)> UpsertWorkflowForAgentAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
         {
             var emptyMetadata = new CloudFlowMetadata
             {
@@ -539,7 +479,7 @@
             );
         }
 
-        public Task<CloudFlowMetadata> GetWorkflowsAsync(DirectoryPath workspaceFolder, DataverseClient dataverseClient, Guid? agentId, IFileAccessor fileAccessor, CancellationToken cancellationToken)
+        public Task<CloudFlowMetadata> GetWorkflowsAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, Microsoft.CopilotStudio.Sync.IFileAccessor fileAccessor, CancellationToken cancellationToken)
         {
             return Task.FromResult(new CloudFlowMetadata
             {
@@ -548,13 +488,22 @@
             });
         }
 
-        public Task ProvisionConnectionReferencesAsync(DefinitionBase definition, DataverseClient dataverseClient, CancellationToken cancellationToken)
-            => Task.CompletedTask;        
+        public Task ProvisionConnectionReferencesAsync(DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+            => Task.CompletedTask;
+
+        public Task<DefinitionBase> ReadWorkspaceDefinitionAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, CancellationToken cancellationToken, bool checkKnowledgeFiles = false)
+            => Task.FromResult<DefinitionBase>(new BotDefinition());
+
+        public Task<PushVerificationResult> VerifyPushAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
+            => Task.FromResult(new PushVerificationResult { IsFullyAccepted = true });
+
+        public Task<ImmutableArray<Microsoft.CopilotStudio.Sync.DirectoryPath>> CloneAllAssetsAsync(Microsoft.CopilotStudio.Sync.DirectoryPath rootFolder, AgentSyncInfo syncInfo, AssetsToClone assetsToClone, AgentInfo agentInfo, IOperationContextProvider operationContextProvider, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+            => Task.FromResult(ImmutableArray<Microsoft.CopilotStudio.Sync.DirectoryPath>.Empty);
     }
 
     internal class TestWorkspaceSynchronizerSyncInfoExists : TestWorkspaceSynchronizer
     {
-        public override bool IsSyncInfoAvailable(DirectoryPath workspaceFolder) => true;
+        public override bool IsSyncInfoAvailable(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder) => true;
     }
 
     internal class TestOperationContextProvider : IOperationContextProvider
@@ -577,34 +526,6 @@
         }
     }
 
-    internal class TestReattachAgentHandlerExistingAgent : ReattachAgentHandler
-    {
-        private class MockDataverseClientWithExistingAgent : MockDataverseClient
-        {
-            public override Task<Guid> GetAgentIdBySchemaNameAsync(string schemaName, CancellationToken cancellationToken)
-            {
-                return Task.FromResult(Guid.NewGuid());
-            }
-        }
-
-        private readonly MockDataverseClientWithExistingAgent _mockDataverseClient = new();
-
-        public TestReattachAgentHandlerExistingAgent(
-            IIslandControlPlaneService island,
-            IWorkspaceSynchronizer workspace,
-            ITokenManager tokenManager,
-            Func<string, string, DataverseClient> dataverseClientFactory,
-            IOperationContextProvider opProvider,
-            ILspLogger logger)
-            : base(island, workspace, tokenManager, dataverseClientFactory, opProvider, logger)
-        { }
-
-        protected override DataverseClient CreateDataverseClient(string dataverseUrl, string token)
-        {
-            return _mockDataverseClient;
-        }
-    }
-
     internal class ReattachAgentTestContext
     {
         public required World World { get; set; }
@@ -612,50 +533,6 @@
         public required RequestContext RequestContext { get; set; }
 
         public required ReattachAgentRequest Request { get; set; }
-    }
-
-    internal class TestReattachAgentHandlerDataverseBadRequest : TestReattachAgentHandler
-    {
-        private class BadRequestClient : MockDataverseClient
-        {
-            public override Task<Guid> GetAgentIdBySchemaNameAsync(string schemaName, CancellationToken cancellationToken)
-                => throw new DataverseBadRequestException(
-                    errorCodeName: "BadRequest",
-                    errorCodeValue: "400",
-                    serviceRequestId: Guid.NewGuid().ToString(),
-                    message: $"Invalid schema name: {schemaName}",
-                    innerException: null
-                );
-        }
-
-        private readonly BadRequestClient _client = new();
-
-        public TestReattachAgentHandlerDataverseBadRequest(
-            IIslandControlPlaneService island,
-            IWorkspaceSynchronizer workspace,
-            ITokenManager tokenManager,
-            Func<string, string, DataverseClient> dataverseClientFactory,
-            IOperationContextProvider opProvider,
-            ILspLogger logger) : base(island, workspace, tokenManager, dataverseClientFactory, opProvider, logger) { }
-
-        protected override DataverseClient CreateDataverseClient(string dataverseUrl, string token) => _client;
-    }
-
-    internal class TestReattachAgentHandlerWithException : TestReattachAgentHandler
-    {
-        public TestReattachAgentHandlerWithException(
-            IIslandControlPlaneService island,
-            IWorkspaceSynchronizer workspace,
-            ITokenManager tokenManager,
-            Func<string, string, DataverseClient> dataverseClientFactory,
-            IOperationContextProvider opProvider,
-            ILspLogger logger
-        ) : base(island, workspace, tokenManager, dataverseClientFactory, opProvider, logger) { }
-
-        protected override DataverseClient CreateDataverseClient(string dataverseUrl, string token)
-        {
-            throw new InvalidOperationException("invalid operation exception");
-        }
     }
 
     internal class MockDataverseClientWithConnectionTracking : MockDataverseClient
@@ -677,28 +554,6 @@
         {
             ProvisionedConnections.Add((connectionReferenceLogicalName, connectorId));
             return Task.CompletedTask;
-        }
-    }
-
-    internal class TestReattachAgentHandlerWithConnectionTracking : ReattachAgentHandler
-    {
-        private readonly MockDataverseClientWithConnectionTracking _mockClient = new();
-
-        public MockDataverseClientWithConnectionTracking MockClient => _mockClient;
-
-        public TestReattachAgentHandlerWithConnectionTracking(
-            IIslandControlPlaneService island,
-            IWorkspaceSynchronizer workspace,
-            ITokenManager tokenManager,
-            Func<string, string, DataverseClient> dataverseClientFactory,
-            IOperationContextProvider opProvider,
-            ILspLogger logger)
-            : base(island, workspace, tokenManager, dataverseClientFactory, opProvider, logger)
-        { }
-
-        protected override DataverseClient CreateDataverseClient(string dataverseUrl, string token)
-        {
-            return _mockClient;
         }
     }
 }

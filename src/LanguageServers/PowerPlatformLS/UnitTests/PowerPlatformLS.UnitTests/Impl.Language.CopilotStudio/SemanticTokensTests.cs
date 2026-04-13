@@ -706,7 +706,7 @@
         private static void AssertTokens(ReadOnlySpan<int> data, string rawText, string expectedExplanation)
         {
             var explanation = Explain(data, rawText);
-            Assert.Equal(expectedExplanation.Trim(), explanation.Trim());
+            Assert.Equal(expectedExplanation.Trim().ReplaceLineEndings("\n"), explanation.Trim().ReplaceLineEndings("\n"));
         }
 
         private static string Explain(ReadOnlySpan<int> data, string rawText)

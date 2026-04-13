@@ -1,35 +1,38 @@
-﻿namespace Microsoft.PowerPlatformLS.Impl.PullAgent
+namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 {
     using Microsoft.Agents.ObjectModel;
     using Microsoft.Agents.Platform.Content.Exceptions;
     using Microsoft.CommonLanguageServerProtocol.Framework;
+    using Microsoft.CopilotStudio.Sync;
+    using Microsoft.CopilotStudio.Sync.Dataverse;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
-    using Microsoft.PowerPlatformLS.Impl.PullAgent.Dataverse;
     using System;
-    using System.Net.Http;
     using System.Threading;
     using System.Threading.Tasks;
+    using DirectoryPath = Microsoft.PowerPlatformLS.Contracts.Internal.Common.DirectoryPath;
 
     [LanguageServerEndpoint(ReattachAgentRequest.MessageName, LanguageServerConstants.DefaultLanguageName)]
     internal class ReattachAgentHandler : IRequestHandler<ReattachAgentRequest, ReattachAgentResponse, RequestContext>
     {
-        private readonly IIslandControlPlaneService _islandControlPlaneService;
-        private readonly IWorkspaceSynchronizer _workspaceSynchronizer;
+        private readonly CopilotStudio.Sync.IIslandControlPlaneService _islandControlPlaneService;
+        private readonly CopilotStudio.Sync.IWorkspaceSynchronizer _workspaceSynchronizer;
         private readonly ITokenManager _dataverseTokenManager;
         private readonly ILspLogger _logger;
-        private readonly IOperationContextProvider _operationContextProvider;
-        private readonly Func<string, string, DataverseClient> _dataverseClientFactory;
+        private readonly CopilotStudio.Sync.IOperationContextProvider _operationContextProvider;
+        private readonly ISyncDataverseClient _dataverseClient;
+        private readonly LspDataverseHttpClientAccessor _dataverseHttpClientAccessor;
 
         public bool MutatesSolutionState => true;
 
         public ReattachAgentHandler(
-            IIslandControlPlaneService islandControlPlaneService,
-            IWorkspaceSynchronizer workspaceSynchronizer,
+            CopilotStudio.Sync.IIslandControlPlaneService islandControlPlaneService,
+            CopilotStudio.Sync.IWorkspaceSynchronizer workspaceSynchronizer,
             ITokenManager dataverseTokenManager,
-            Func<string, string, DataverseClient> dataverseClientFactory,
-            IOperationContextProvider operationContextProvider,
+            ISyncDataverseClient dataverseClient,
+            LspDataverseHttpClientAccessor dataverseHttpClientAccessor,
+            CopilotStudio.Sync.IOperationContextProvider operationContextProvider,
             ILspLogger logger)
         {
             _islandControlPlaneService = islandControlPlaneService;
@@ -37,12 +40,13 @@
             _dataverseTokenManager = dataverseTokenManager ?? throw new ArgumentNullException(nameof(dataverseTokenManager));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _operationContextProvider = operationContextProvider ?? throw new ArgumentNullException(nameof(operationContextProvider));
-            _dataverseClientFactory = dataverseClientFactory ?? throw new ArgumentNullException(nameof(dataverseClientFactory));
+            _dataverseClient = dataverseClient ?? throw new ArgumentNullException(nameof(dataverseClient));
+            _dataverseHttpClientAccessor = dataverseHttpClientAccessor ?? throw new ArgumentNullException(nameof(dataverseHttpClientAccessor));
         }
 
         /// <summary>
         /// Handle reattach agent request.
-        /// </summary>  
+        /// </summary>
         /// <param name="request">Reattach request</param>
         /// <param name="context">Context request</param>
         /// <param name="cancellationToken">Cancelation token</param>
@@ -64,8 +68,13 @@
 
             try
             {
-                _islandControlPlaneService.SetIslandBaseEndpoint(request.EnvironmentInfo.AgentManagementUrl);
+                _islandControlPlaneService.SetConnectionContext(
+                    request.EnvironmentInfo.AgentManagementUrl,
+                    request.AccountInfo.ClusterCategory);
                 _dataverseTokenManager.SetTokens(request.DataverseAccessToken, request.CopilotStudioAccessToken);
+                _dataverseHttpClientAccessor.SetDataverseUrl(new Uri(request.EnvironmentInfo.DataverseUrl));
+                _dataverseClient.SetDataverseUrl(request.EnvironmentInfo.DataverseUrl);
+
                 var workspace = (IMcsWorkspace)context.Workspace;
                 var language = context.Language;
 
@@ -79,7 +88,7 @@
                     };
                 }
 
-                if (_workspaceSynchronizer.IsSyncInfoAvailable(workspaceFolder))
+                if (_workspaceSynchronizer.IsSyncInfoAvailable(workspaceFolder.ToSync()))
                 {
                     return new ReattachAgentResponse()
                     {
@@ -115,12 +124,11 @@
                     };
                 }
 
-                var dataverseClient = CreateDataverseClient(request.EnvironmentInfo.DataverseUrl, request.DataverseAccessToken);
-                var agentId = await dataverseClient.GetAgentIdBySchemaNameAsync(thisSchema, cancellationToken);
+                var agentId = await _dataverseClient.GetAgentIdBySchemaNameAsync(thisSchema, cancellationToken);
                 bool updateWorkspaceDirectory = false;
                 if (agentId == Guid.Empty)
                 {
-                    var newAgent = await dataverseClient.CreateNewAgentAsync(agentDisplayName, thisSchema, cancellationToken);
+                    var newAgent = await _dataverseClient.CreateNewAgentAsync(agentDisplayName, thisSchema, cancellationToken);
                     agentId = newAgent.AgentId;
                     isNewAgent = true;
 
@@ -143,12 +151,12 @@
                     AgentManagementEndpoint = new Uri(request.EnvironmentInfo.AgentManagementUrl)
                 };
 
-                await _workspaceSynchronizer.SaveSyncInfoAsync(workspaceFolder, syncInfo);
+                await _workspaceSynchronizer.SaveSyncInfoAsync(workspaceFolder.ToSync(), syncInfo);
                 var operationContext = await _operationContextProvider.GetAsync(syncInfo);
 
-                await _workspaceSynchronizer.ProvisionConnectionReferencesAsync(workspace.Definition, dataverseClient, cancellationToken);
-                var (workflowResponse, cloudFlowMetadata) = await _workspaceSynchronizer.UpsertWorkflowForAgentAsync(workspaceFolder, dataverseClient, agentId, cancellationToken);
-                await _workspaceSynchronizer.SyncWorkspaceAsync(workspaceFolder, operationContext, changeToken: null, updateWorkspaceDirectory, dataverseClient, agentId, cloudFlowMetadata, cancellationToken: cancellationToken);
+                await _workspaceSynchronizer.ProvisionConnectionReferencesAsync(workspace.Definition, _dataverseClient, cancellationToken);
+                var (workflowResponse, cloudFlowMetadata) = await _workspaceSynchronizer.UpsertWorkflowForAgentAsync(workspaceFolder.ToSync(), _dataverseClient, agentId, cancellationToken);
+                await _workspaceSynchronizer.SyncWorkspaceAsync(workspaceFolder.ToSync(), operationContext, changeToken: null, updateWorkspaceDirectory, _dataverseClient, agentId, cloudFlowMetadata, cancellationToken: cancellationToken);
 
                 return new ReattachAgentResponse()
                 {
@@ -178,11 +186,6 @@
                     AgentSyncInfo = defaultSyncInfo
                 };
             }
-        }
-
-        protected virtual DataverseClient CreateDataverseClient(string dataverseUrl, string accessToken)
-        {
-            return _dataverseClientFactory(dataverseUrl, accessToken);
         }
     }
 }

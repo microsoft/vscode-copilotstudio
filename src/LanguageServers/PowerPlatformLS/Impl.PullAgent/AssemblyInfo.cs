@@ -5,6 +5,7 @@
 using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("Microsoft.PowerPlatformLS.UnitTests" + PublicKeyConstants.InternalsVisibleToSuffix)]
+[assembly: InternalsVisibleTo("Microsoft.CopilotStudio.Sync.TestHarness" + PublicKeyConstants.InternalsVisibleToSuffix)]
 
 // PublicKeyConstants copied locally (no longer available via ObjectModel ProjectReference).
 internal static class PublicKeyConstants
