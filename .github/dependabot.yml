@@ -1,0 +1,47 @@
+# Please see the documentation for all configuration options:
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directories:
+      - "*"
+    schedule:
+      interval: daily
+    target-branch: "main"
+    labels:
+      - 'dependencies'
+    reviewers:
+      - 'microsoft/vscode-copilot-studio-approvers'
+    groups:
+      all-dependencies:
+        patterns:
+          - "*"
+  - package-ecosystem: dotnet-sdk
+    directory: /
+    schedule:
+      interval: weekly
+      day: wednesday
+    ignore:
+      - dependency-name: '*'
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+    groups:
+      dotnet-sdk:
+        patterns:
+          - "*"
+  - package-ecosystem: npm
+    directories:
+      - "/src/vscode-extensions/*"
+    schedule:
+      interval: daily
+    target-branch: "main"
+    labels:
+      - 'dependencies'
+    reviewers:
+      - 'microsoft/vscode-copilot-studio-approvers'
+    groups:
+      all-dependencies:
+        patterns:
+          - "*"
