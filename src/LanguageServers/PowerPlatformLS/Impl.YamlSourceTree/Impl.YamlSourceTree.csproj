@@ -5,6 +5,7 @@
     <RootNamespace>Microsoft.PowerPlatformLS.Impl.YamlSourceTree</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
   </PropertyGroup>
 
   <ItemGroup>

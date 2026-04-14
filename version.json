@@ -1,20 +1,23 @@
 {
   "$schema": "https://raw.githubusercontent.com/dotnet/Nerdbank.GitVersioning/main/src/NerdBank.GitVersioning/version.schema.json",
-  "version": "1.2",
+  "version": "1.0",
   "assemblyVersion": {
     "precision": "revision"
   },
   "publicReleaseRefSpec": [
-    "^refs/heads/main$",
-    "^refs/heads/vsix/releases/\\d+\\.\\d+$"
+    "^refs/heads/release/.*$"
   ],
+  "nugetPackageVersion": {
+    "semVer": 2
+  },
   "cloudBuild": {
+    "setAllVariables": true,
     "buildNumber": {
       "enabled": true
     }
   },
   "release": {
-    "branchName": "vsix/releases/{version}",
+    "branchName": "release/{version}",
     "firstUnstableTag": "prerelease"
   }
 }
