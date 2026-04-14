@@ -41,6 +41,16 @@ updates:
       - 'dependencies'
     reviewers:
       - 'microsoft/vscode-copilot-studio-approvers'
+    ignore:
+      - dependency-name: '@types/node'
+        update-types:
+          - version-update:semver-major
+      - dependency-name: 'typescript'
+        update-types:
+          - version-update:semver-major
+      - dependency-name: 'uuid'
+        update-types:
+          - version-update:semver-major
     groups:
       all-dependencies:
         patterns:

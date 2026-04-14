@@ -319,7 +319,7 @@
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
-    "@types/node": "25.x",
+    "@types/node": "20.x",
     "@types/vscode": "^1.96.0",
     "@typescript-eslint/eslint-plugin": "^8.30.0",
     "@typescript-eslint/parser": "^8.30.0",
@@ -331,13 +331,13 @@
     "nerdbank-gitversioning": "^3.7.115",
     "npm-run-all2": "^8.0.4",
     "shared": "file:../shared",
-    "typescript": "^6.0.2"
+    "typescript": "^5.7.2"
   },
   "dependencies": {
     "@types/semver": "^7.7.0",
     "@vscode/extension-telemetry": "^1.0.0",
     "semver": "^7.7.2",
-    "uuid": "^13.0.0"
+    "uuid": "^11.0.3"
   },
   "overrides": {
     "glob": ">=11.0.2"
