@@ -20,10 +20,10 @@
     using System.Threading;
     using System.Threading.Tasks;
     using Xunit;
+    using static Microsoft.CopilotStudio.Sync.Dataverse.SyncDataverseClient;
     using AgentFilePath = Microsoft.PowerPlatformLS.Contracts.FileLayout.AgentFilePath;
     using DirectoryPath = Microsoft.PowerPlatformLS.Contracts.Internal.Common.DirectoryPath;
     using SyncDirectoryPath = Microsoft.CopilotStudio.Sync.DirectoryPath;
-    using static Microsoft.CopilotStudio.Sync.Dataverse.SyncDataverseClient;
 
     public class AgentWriterTests
     {
@@ -339,60 +339,66 @@ kind: AdaptiveDialog
             Assert.Equal("", currentAgentMcsYml.Trim());
         }
 
+
         [Theory]
         [InlineData(true)]
         [InlineData(false)]
         public void KnowledgeFileSyncTest(bool hasKnowledgeFileInLocal)
         {
-            var schemaName = new FileAttachmentSchemaName("cr123.knowledge");
             var botId = Guid.NewGuid();
 
-            var fileAttachmentComponentLocal = new FileAttachmentComponent.Builder
-            {
-                Id = new BotComponentId(Guid.NewGuid()),
-                SchemaName = schemaName,
-                DisplayName = "File1",
-                Description = "description of file 1"
-            }.Build();
+            var localComponent = CreateKnowledgeComponent();
+            var cloudComponent = CreateKnowledgeComponent();
 
-            var fileAttachmentComponentCloud = new FileAttachmentComponent.Builder
-            {
-                Id = new BotComponentId(Guid.NewGuid()),
-                SchemaName = schemaName,
-                DisplayName = "File1",
-                Description = "description of file 1"
-            }.Build();
+            var localDefinition = hasKnowledgeFileInLocal
+                ? CreateDefinition(botId, localComponent)
+                : CreateDefinition(botId);
 
-            var localDefinitionBuilder = new BotDefinition.Builder
-            {
-                Entity = new BotEntity().WithCdsBotId(botId)
-            };
+            var cloudDefinition = CreateDefinition(botId, cloudComponent);
 
-            if (hasKnowledgeFileInLocal)
-            {
-                localDefinitionBuilder.Components.Add(fileAttachmentComponentLocal);
-            }
+            var synchronizer = CreateSynchronizer();
 
-            var localDefinition = localDefinitionBuilder.Build();
+            var (changeSet, changes) = synchronizer.GetLocalChanges(
+                localDefinition,
+                cloudDefinition,
+                new InMemoryFileWriter(),
+                null);
 
-            var cloudDefinition = new BotDefinition.Builder
-            {
-                Entity = new BotEntity().WithCdsBotId(botId),
-                Components = { fileAttachmentComponentCloud }
-            }.Build();
-
-            var synchronizer = new WorkspaceSynchronizer(
-                new SyncMcsFileParser(Microsoft.CopilotStudio.Sync.LspProjectorService.Instance),
-                (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)new InMemoryFileWriter(),
-                Mock.Of<IIslandControlPlaneService>(),
-                Mock.Of<ISyncProgress>(),
-                new Microsoft.CopilotStudio.Sync.LspComponentPathResolver());
-
-            var (changeSet, changes) = synchronizer.GetLocalChanges(localDefinition, cloudDefinition, null);
-
-            // Knowledge file sync change is handled in client and skip in server.
             Assert.Empty(changes);
             Assert.Empty(changeSet.BotComponentChanges);
+        }
+
+        [Theory]
+        [InlineData("New Name", "Old Name", "description", "description")]                // name changed
+        [InlineData("File1", "File1", "New description", "Old description")]              // description changed
+        [InlineData("New Name", "Old Name", "New description", "Old description")]        // both changed
+        public void KnowledgeFileSync_MetadataChanged(string localName, string cloudName, string localDescription, string cloudDescription)
+        {
+            var botId = Guid.NewGuid();
+
+            var local = CreateKnowledgeComponent(
+                name: localName,
+                description: localDescription);
+
+            var cloud = CreateKnowledgeComponent(
+                name: cloudName,
+                description: cloudDescription);
+
+            var localDef = CreateDefinition(botId, local);
+            var cloudDef = CreateDefinition(botId, cloud);
+
+            var synchronizer = CreateSynchronizer();
+
+            var (changeSet, changes) = synchronizer.GetLocalChanges(
+                localDef,
+                cloudDef,
+                new InMemoryFileWriter(),
+                null);
+
+            Assert.Single(changes);
+            Assert.Single(changeSet.BotComponentChanges);
+
+            Assert.Equal(ChangeType.Update, changes[0].ChangeType);
         }
 
         [Fact]
@@ -660,6 +666,359 @@ beginDialog:
 
             islandControlPlaneServiceMock.Verify(s => s.SaveChangesAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<PvaComponentChangeSet>(), cancel), Times.Once);
             Assert.NotNull(savedChangeSet);
+        }
+
+
+        [Fact]
+        public async Task PullExistingChangesAsyncWithWorkflows_MergesUniqueConnectionReferences()
+        {
+            var remoteWorkflowId = Guid.NewGuid();
+            var remoteWorkflowName = "RemoteWorkflow";
+
+            string schemaName = "cr123";
+            string topicSchemaName = $"{schemaName}.topic.topicWithMergeConflict";
+            var cancel = new CancellationToken();
+            var filesystem = new InMemoryFileWriter();
+            var islandControlPlaneServiceMock = new Mock<IIslandControlPlaneService>();
+            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.Sync.LspProjectorService.Instance), (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem, islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.Sync.LspComponentPathResolver());
+
+            var componentFactory = new TestBotComponentFactory(topicSchemaName);
+            var originalComponent = componentFactory.CreateDialogComponent("test dialog component");
+            var logicalName = new ConnectionReferenceLogicalName("new_sharedsendmail_9800e");
+            var existingConnection1 = new ConnectionReference.Builder
+            {
+                ConnectionReferenceLogicalName = logicalName,
+                ConnectorId = "existing_shared_sendemail"
+            };
+
+            var existingConnection2 = new ConnectionReference.Builder
+            {
+                ConnectionReferenceLogicalName = new ConnectionReferenceLogicalName("shared_conn"),
+                ConnectorId = "existing_shared_conn"
+            };
+
+            var existingConnection3 = new ConnectionReference.Builder
+            {
+                ConnectionReferenceLogicalName = new ConnectionReferenceLogicalName("conn_ref"),
+                ConnectorId = "existing_conn_ref"
+            };
+
+            var workflowRemote = new SyncDataverseClient.WorkflowMetadata
+            {
+                WorkflowId = remoteWorkflowId,
+                Name = remoteWorkflowName,
+                ClientData = @"
+                {
+                  ""properties"": {
+                    ""connectionReferences"": {
+                      ""shared_sendmail"": {
+                        ""api"": {
+                          ""name"": ""shared_sendmail""
+                        },
+                        ""connection"": {
+                          ""connectionReferenceLogicalName"": ""new_sharedsendmail_9800e""
+                        },
+                        ""runtimeSource"": ""invoker""
+                      }
+                    },
+                    ""definition"": {
+                      ""$schema"": ""https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#"",
+                      ""contentVersion"": ""1.0.0.0"",
+                      ""parameters"": {
+                        ""$authentication"": {
+                          ""defaultValue"": {},
+                          ""type"": ""SecureObject""
+                        },
+                        ""$connections"": {
+                          ""defaultValue"": {},
+                          ""type"": ""Object""
+                        }
+                      },
+                      ""triggers"": {
+                        ""manual"": {
+                          ""type"": ""Request"",
+                          ""kind"": ""Skills"",
+                          ""inputs"": {
+                            ""schema"": {
+                              ""type"": ""object"",
+                              ""properties"": {
+                                ""text"": {
+                                  ""description"": ""Input text"",
+                                  ""title"": ""Text"",
+                                  ""type"": ""string"",
+                                  ""x-ms-content-hint"": ""TEXT"",
+                                  ""x-ms-dynamically-added"": true
+                                }
+                              },
+                              ""required"": [
+                                ""text""
+                              ]
+                            }
+                          },
+                          ""metadata"": {
+                            ""operationMetadataId"": ""b8f61c18-1234-4f8a-9c5f-72fbabcdf764""
+                          }
+                        }
+                      },
+                      ""actions"": {
+                        ""Respond_to_the_agent"": {
+                          ""type"": ""Response"",
+                          ""kind"": ""Skills"",
+                          ""inputs"": {
+                            ""schema"": {
+                              ""type"": ""object"",
+                              ""properties"": {
+                                ""outtext"": {
+                                  ""title"": ""OutText"",
+                                  ""description"": """",
+                                  ""type"": ""string"",
+                                  ""x-ms-content-hint"": ""TEXT"",
+                                  ""x-ms-dynamically-added"": true
+                                }
+                              },
+                              ""additionalProperties"": {}
+                            },
+                            ""statusCode"": 200,
+                            ""body"": {
+                              ""outtext"": ""output text""
+                            }
+                          },
+                          ""runAfter"": {
+                            ""Send_an_email_notification_(V3)"": [
+                              ""SUCCEEDED""
+                            ]
+                          },
+                          ""metadata"": {
+                            ""operationMetadataId"": ""81c94f73-dd52-123g-ad3b-a4686da63cc3""
+                          }
+                        },
+                        ""Send_an_email_notification_(V3)"": {
+                          ""type"": ""OpenApiConnection"",
+                          ""inputs"": {
+                            ""parameters"": {
+                              ""request/to"": ""a@b.com"",
+                              ""request/subject"": ""Test email"",
+                              ""request/text"": ""\u003Cp class=\u0022editor-paragraph\u0022\u003Etest email content\u003C/p\u003E""
+                            },
+                            ""host"": {
+                              ""apiId"": ""/providers/Microsoft.PowerApps/apis/shared_sendmail"",
+                              ""operationId"": ""SendEmailV3"",
+                              ""connectionName"": ""shared_sendmail""
+                            }
+                          },
+                          ""runAfter"": {}
+                        }
+                      },
+                      ""outputs"": {},
+                      ""description"": ""When an agent calls the flow and send back a response.""
+                    }
+                  },
+                  ""schemaVersion"": ""1.0.0.0""
+                }"
+            };
+
+            var originalDefinition = new BotDefinition.Builder
+            {
+                Entity = new BotEntity().WithSchemaName(new BotEntitySchemaName(schemaName)),
+                Components = { originalComponent },
+                ConnectionReferences = { existingConnection1, existingConnection2, existingConnection2, existingConnection3, existingConnection3 }
+            }.Build();
+
+            WorkspaceSynchronizer.WriteCloudCache(filesystem, originalDefinition);
+            await filesystem.WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "original_token", cancel);
+
+            var previousDefinition = new BotDefinition.Builder
+            {
+                Entity = new BotEntity().WithSchemaName(new BotEntitySchemaName(schemaName)),
+                Components = { originalComponent },
+                ConnectionReferences = { existingConnection1, existingConnection2, existingConnection2, existingConnection3, existingConnection3 }
+            }.Build();
+
+            var remoteChangeSet = new PvaComponentChangeSet(
+                new List<BotComponentChange> { new BotComponentInsert(originalComponent) },
+                new BotEntity().WithSchemaName(new BotEntitySchemaName(schemaName)),
+                "remote_token"
+            );
+
+            var dataverseClient = new MockDataverseClient();
+            dataverseClient.SetWorkflowsForAgent(new[] { workflowRemote });
+            dataverseClient.SetConnectionReferences(new[]
+            {
+                new SyncDataverseClient.ConnectionReferenceInfo
+                {
+                    ConnectionReferenceId = Guid.NewGuid(),
+                    ConnectionReferenceLogicalName = "new_sharedsendmail_9800e",
+                    ConnectorId = "shared_sendmail"
+                }
+            });
+
+            islandControlPlaneServiceMock
+                .Setup(s => s.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), "original_token", cancel))
+                .ReturnsAsync(remoteChangeSet);
+
+            var mergedDefinition = await synchronizer.PullExistingChangesAsync(
+                WorkspaceFolderPath,
+                FakeOperationContext,
+                previousDefinition,
+                dataverseClient,
+                Guid.NewGuid(),
+                cancel
+            );
+
+            var connections = mergedDefinition.ConnectionReferences.ToList();
+            Assert.Equal(3, connections.Count);
+
+            Assert.Contains(connections,
+                c => c.ConnectionReferenceLogicalName == logicalName &&
+                     c.ConnectorId == "shared_sendmail");
+        }
+
+
+        [Fact]
+        public async Task PushChangesetAsyncWithWorkflows_MergesUniqueConnectionReferences()
+        {
+            string schemaName = "cr123";
+            var cancel = new CancellationToken();
+            var filesystem = new InMemoryFileWriter();
+            var islandControlPlaneServiceMock = new Mock<IIslandControlPlaneService>();
+            var loggerMock = Mock.Of<ILspLogger>();
+            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.Sync.LspProjectorService.Instance), (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem, islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.Sync.LspComponentPathResolver());
+
+            var workflowId = Guid.NewGuid();
+
+            var logicalName = new ConnectionReferenceLogicalName("new_sharedsendmail_9800e");
+
+            var existingConnection1 = new ConnectionReference.Builder
+            {
+                ConnectionReferenceLogicalName = logicalName,
+                ConnectorId = "existing_shared_sendemail"
+            };
+
+            var existingConnection2 = new ConnectionReference.Builder
+            {
+                ConnectionReferenceLogicalName = new ConnectionReferenceLogicalName("shared_conn"),
+                ConnectorId = "existing_shared_conn"
+            };
+
+            var existingConnection3 = new ConnectionReference.Builder
+            {
+                ConnectionReferenceLogicalName = new ConnectionReferenceLogicalName("conn_ref"),
+                ConnectorId = "existing_conn_ref"
+            };
+
+            var workflowJson = @"
+            {
+                ""properties"": {
+                ""connectionReferences"": {
+                    ""shared_sendmail"": {
+                    ""api"": { ""name"": ""shared_sendmail"" },
+                    ""connection"": {
+                        ""connectionReferenceLogicalName"": ""new_sharedsendmail_9800e""
+                    }
+                    }
+                }
+                }
+            }";
+
+            var workflowFolder = Path.Combine(WorkspaceFolderPath.ToString(), "workflows", workflowId.ToString()).Replace("\\", "/");
+
+            await filesystem.WriteAsync(new AgentFilePath($"{workflowFolder}/workflow.json"), workflowJson, cancel);
+
+            await filesystem.WriteAsync(new AgentFilePath($"{workflowFolder}/metadata.yml"),
+                    $"workflowId: {workflowId}\nname: LocalWorkflow", cancel);
+
+            var botDefinition = new BotDefinition.Builder
+            {
+                Entity = new BotEntity().WithSchemaName(new BotEntitySchemaName(schemaName)),
+                ConnectionReferences =
+                {
+                    existingConnection1,
+                    existingConnection2,
+                    existingConnection2,
+                    existingConnection3,
+                    existingConnection3
+                }
+            }.Build();
+
+            WorkspaceSynchronizer.WriteCloudCache(filesystem, botDefinition);
+
+            var agentId = Guid.NewGuid();
+
+            var componentFactory = new TestBotComponentFactory($"{schemaName}.topic.test");
+            var component = componentFactory.CreateDialogComponent("test dialog");
+
+            var pushChangeset = new PvaComponentChangeSet(
+                new List<BotComponentChange> { new BotComponentInsert(component) },
+                new BotEntity().WithSchemaName(new BotEntitySchemaName(schemaName)),
+                "original_token"
+            );
+
+            var dataverseClient = new MockDataverseClient();
+            dataverseClient.SetConnectionReferences(new[]
+            {
+                new SyncDataverseClient.ConnectionReferenceInfo
+                {
+                    ConnectionReferenceId = Guid.NewGuid(),
+                    ConnectionReferenceLogicalName = "new_sharedsendmail_9800e",
+                    ConnectorId = "shared_sendmail"
+                }
+            });
+
+            PvaComponentChangeSet? savedChangeSet = null;
+
+            islandControlPlaneServiceMock
+                .Setup(s => s.SaveChangesAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<PvaComponentChangeSet>(), cancel))
+                .ReturnsAsync((AuthoringOperationContextBase ctx, PvaComponentChangeSet cs, CancellationToken ct) =>
+                {
+                    savedChangeSet = cs;
+                    return cs;
+                });
+
+            var cloudFlowMetadata = new CloudFlowMetadata
+            {
+                Workflows = ImmutableArray.Create(
+                    new CloudFlowDefinition(
+                        displayName: "LocalWorkflow",
+                        isEnabled: true,
+                        workflowId: workflowId,
+                        extensionData: new RecordDataValue(
+                            ImmutableDictionary<string, DataValue>.Empty.Add(
+                                "clientdata",
+                                DataValue.Create(workflowJson)
+                            )
+                        )
+                    )
+                ),
+                ConnectionReferences = ImmutableArray.Create(
+                    new ConnectionReference.Builder
+                    {
+                        ConnectionReferenceLogicalName = logicalName,
+                        ConnectorId = "shared_sendmail"
+                    }.Build()
+                )
+            };
+
+            await synchronizer.PushChangesetAsync(
+                WorkspaceFolderPath,
+                FakeOperationContext,
+                pushChangeset,
+                dataverseClient,
+                agentId,
+                cloudFlowMetadata,
+                cancel
+            );
+
+            Assert.NotNull(savedChangeSet);
+
+            var expectedFilePath = new AgentFilePath("connectionreferences.mcs.yml");
+            Assert.Contains(expectedFilePath.ToString(), filesystem.Filenames);
+            var connections = CodeSerializer.Deserialize<ConnectionReferencesSourceFile>(await filesystem.ReadStringAsync(expectedFilePath, cancel))?.ConnectionReferences;
+            Assert.NotNull(connections);
+            Assert.Equal(3, connections!.Value.Length);
+
+            Assert.Contains(connections.Value,
+                c => c.ConnectionReferenceLogicalName == logicalName &&
+                     c.ConnectorId == "shared_sendmail");
         }
 
         [Fact]
@@ -1300,7 +1659,486 @@ beginDialog:
         }
 
 
+        [Fact]
+        public async Task CloneEnvironmentVariableAsync()
+        {
+            var filesystem = new InMemoryFileWriter();
+            var cancel = CancellationToken.None;
+            var dataverseClient = new MockDataverseClient();
+            var referenceTracker = new ReferenceTracker();
+            var lspLoggerMock = new Mock<ILspLogger>();
+
+            var envVar = new EnvironmentVariableDefinition(
+                id: new EnvironmentVariableDefinitionId(Guid.NewGuid()),
+                schemaName: new EnvironmentVariableDefinitionSchemaName("cr123.cloneTestEnvVar"),
+                displayName: "CloneTestEnvVar",
+                defaultValue: "initial value",
+                valueComponent: new EnvironmentVariableValue(value: "initial value")
+            );
+
+            var botEntity = new BotEntity().WithSchemaName(new BotEntitySchemaName("cr123"));
+            var localBotDefinition = new BotDefinition.Builder
+            {
+                Entity = botEntity,
+                EnvironmentVariables = { envVar }
+            }.Build();
+
+            var environmentVariableChanges = new List<EnvironmentVariableChange>
+            {
+                new EnvironmentVariableInsert(envVar)
+            };
+
+            var changeset = new PvaComponentChangeSet(
+                  null,
+                  null,
+                  environmentVariableChanges,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  botEntity,
+                  "envvar-token");
+
+            var contentAuthoringServiceMock = new Mock<IIslandControlPlaneService>();
+            contentAuthoringServiceMock
+                .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContext>(), null, cancel))
+                .ReturnsAsync(changeset);
+
+            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.Sync.LspProjectorService.Instance), (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem, contentAuthoringServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.Sync.LspComponentPathResolver());
+
+            Guid agentId = Guid.NewGuid();
+            await synchronizer.CloneChangesAsync(WorkspaceFolderPath, referenceTracker, FakeOperationContext, dataverseClient, agentId, cancel);
+
+            var expectedFilePath = new AgentFilePath("environmentvariables/cr123.cloneTestEnvVar.mcs.yml");
+            Assert.Contains(expectedFilePath.ToString(), filesystem.Filenames);
+
+            var content = await filesystem.ReadStringAsync(expectedFilePath, cancel);
+            Assert.Contains("CloneTestEnvVar", content);
+            Assert.Contains("initial value", content);
+        }
+
+        [Fact]
+        public async Task PullEnvironmentVariableChangesAsync()
+        {
+            string schemaName = "cr123";
+            string topicSchemaName = $"{schemaName}.topic.topicWithMergeConflict";
+            var cancel = new CancellationToken();
+            var filesystem = new InMemoryFileWriter();
+            var islandControlPlaneServiceMock = new Mock<IIslandControlPlaneService>();
+            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.Sync.LspProjectorService.Instance), (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem, islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.Sync.LspComponentPathResolver());
+
+            var componentFactory = new TestBotComponentFactory(topicSchemaName);
+            var originalComponent = componentFactory.CreateDialogComponent("test dialog component");
+
+            var cloudEnvVarUpdate = new EnvironmentVariableDefinition(
+                id: new EnvironmentVariableDefinitionId(Guid.NewGuid()),
+                schemaName: new EnvironmentVariableDefinitionSchemaName($"{schemaName}.envUpdate"),
+                displayName: "EnvUpdate",
+                defaultValue: "cloudValue",
+                valueComponent: new EnvironmentVariableValue(value: "cloudValue")
+            );
+
+            var cloudEnvVarDelete = new EnvironmentVariableDefinition(
+                id: new EnvironmentVariableDefinitionId(Guid.NewGuid()),
+                schemaName: new EnvironmentVariableDefinitionSchemaName($"{schemaName}.envDelete"),
+                displayName: "EnvDelete",
+                defaultValue: "deleteValue",
+                valueComponent: new EnvironmentVariableValue(value: "deleteValue")
+            );
+
+            var originalDefinition = new BotDefinition.Builder
+            {
+                Entity = new BotEntity().WithSchemaName(new BotEntitySchemaName(schemaName)),
+                Components = { originalComponent },
+                EnvironmentVariables = { cloudEnvVarUpdate, cloudEnvVarDelete }
+            }.Build();
+
+            WorkspaceSynchronizer.WriteCloudCache(filesystem, originalDefinition);
+            await filesystem.WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "original_token", cancel);
+
+            var previousDefinition = new BotDefinition.Builder
+            {
+                Entity = new BotEntity().WithSchemaName(new BotEntitySchemaName(schemaName)),
+                Components = { originalComponent },
+                EnvironmentVariables = { new EnvironmentVariableDefinition(
+                    id: cloudEnvVarUpdate.Id,
+                    schemaName: cloudEnvVarUpdate.SchemaName,
+                    displayName: "EnvUpdate",
+                    defaultValue: "cloudValue",
+                    valueComponent: new EnvironmentVariableValue(value: "updatedValue")
+                )}
+            }.Build();
+
+            var environmentVariableChanges = new List<EnvironmentVariableChange>
+            {
+                new EnvironmentVariableUpdate(cloudEnvVarUpdate),
+                new EnvironmentVariableDelete(cloudEnvVarDelete.Id, cloudEnvVarDelete.ValueComponent!.Id, cloudEnvVarDelete.Version)
+            };
+
+            var remoteChangeSet = new PvaComponentChangeSet(
+                 null,
+                 null,
+                 environmentVariableChanges,
+                 null,
+                 null,
+                 null,
+                 null,
+                 null,
+                 null,
+                 new BotEntity().WithSchemaName(new BotEntitySchemaName(schemaName)),
+                 "remote_token");
+
+            islandControlPlaneServiceMock
+                .Setup(s => s.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), "original_token", cancel))
+                .ReturnsAsync(remoteChangeSet);
+
+            var pulledDefinition = await synchronizer.PullExistingChangesAsync(
+                WorkspaceFolderPath,
+                FakeOperationContext,
+                previousDefinition,
+                new MockDataverseClient(),
+                Guid.NewGuid(),
+                cancel
+            );
+
+            Assert.NotNull(pulledDefinition);
+            var pulledEnvVars = pulledDefinition.EnvironmentVariables.ToList();
+            Assert.Contains(pulledEnvVars, ev => ev.SchemaName.Value == $"{schemaName}.envUpdate");
+            Assert.DoesNotContain(pulledEnvVars, ev => ev.SchemaName.Value == $"{schemaName}.envDelete");
+        }
+
+        [Fact]
+        public async Task PushEnvironmentVariableChangesetAsync()
+        {
+            string schemaName = "cr123";
+            string topicSchemaName = $"{schemaName}.topic.topicWithMergeConflict";
+            var cancel = new CancellationToken();
+            var filesystem = new InMemoryFileWriter();
+            var islandControlPlaneServiceMock = new Mock<IIslandControlPlaneService>();
+
+            var componentFactory = new TestBotComponentFactory(topicSchemaName);
+            var originalComponent = componentFactory.CreateDialogComponent("test dialog component");
+
+            var cloudEnvVarUpdate = new EnvironmentVariableDefinition(
+                id: new EnvironmentVariableDefinitionId(Guid.NewGuid()),
+                schemaName: new EnvironmentVariableDefinitionSchemaName($"{schemaName}.envUpdate"),
+                displayName: "EnvUpdate",
+                defaultValue: "cloudValue",
+                valueComponent: new EnvironmentVariableValue(value: "cloudValue")
+            );
+
+            var cloudEnvVarDelete = new EnvironmentVariableDefinition(
+                id: new EnvironmentVariableDefinitionId(Guid.NewGuid()),
+                schemaName: new EnvironmentVariableDefinitionSchemaName($"{schemaName}.envDelete"),
+                displayName: "EnvDelete",
+                defaultValue: "deleteValue",
+                valueComponent: new EnvironmentVariableValue(value: "deleteValue")
+            );
+
+            var localNewEnvVar = new EnvironmentVariableDefinition(
+                id: new EnvironmentVariableDefinitionId(Guid.NewGuid()),
+                schemaName: new EnvironmentVariableDefinitionSchemaName($"{schemaName}.envNew"),
+                displayName: "EnvNew",
+                defaultValue: "newValue",
+                valueComponent: new EnvironmentVariableValue(value: "newValue")
+            );
+
+            var environmentVariableChanges = new List<EnvironmentVariableChange>
+            {
+                new EnvironmentVariableUpdate(cloudEnvVarUpdate),
+                new EnvironmentVariableDelete(cloudEnvVarDelete.Id, cloudEnvVarDelete.ValueComponent!.Id, cloudEnvVarDelete.Version),
+                new EnvironmentVariableInsert(localNewEnvVar)
+            };
+
+            var originalDefinition = new BotDefinition.Builder
+            {
+                Entity = new BotEntity().WithSchemaName(new BotEntitySchemaName(schemaName)),
+                Components = { originalComponent },
+                EnvironmentVariables = { cloudEnvVarUpdate, cloudEnvVarDelete }
+            }.Build();
+
+            WorkspaceSynchronizer.WriteCloudCache(filesystem, originalDefinition);
+            await filesystem.WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "original_token", cancel);
+
+            var pushChangeset = new PvaComponentChangeSet(
+                null,
+                null,
+                environmentVariableChanges,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new BotEntity().WithSchemaName(new BotEntitySchemaName(schemaName)),
+                "remote_token");
+
+            PvaComponentChangeSet? savedChangeSet = null;
+
+            islandControlPlaneServiceMock
+                .Setup(s => s.SaveChangesAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<PvaComponentChangeSet>(), cancel))
+                .ReturnsAsync((AuthoringOperationContextBase ctx, PvaComponentChangeSet cs, CancellationToken ct) =>
+                {
+                    savedChangeSet = cs;
+                    return cs;
+                });
+
+            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.Sync.LspProjectorService.Instance), (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem, islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.Sync.LspComponentPathResolver());
+
+            await synchronizer.PushChangesetAsync(
+                WorkspaceFolderPath,
+                FakeOperationContext,
+                pushChangeset,
+                new MockDataverseClient(),
+                Guid.NewGuid(),
+                cloudFlowMetadata: null,
+                cancel
+            );
+
+            islandControlPlaneServiceMock.Verify(s => s.SaveChangesAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<PvaComponentChangeSet>(), cancel), Times.Once);
+            Assert.NotNull(savedChangeSet);
+
+            var pushedEnvVars = pushChangeset.EnvironmentVariableChanges.ToList();
+
+            Assert.Contains(pushedEnvVars, ev => ev is EnvironmentVariableUpdate u && u.EnvironmentVariable?.SchemaName.Value == $"{schemaName}.envUpdate");
+            Assert.Contains(pushedEnvVars, ev => ev is EnvironmentVariableInsert u && u.EnvironmentVariable?.SchemaName.Value == $"{schemaName}.envNew");
+            Assert.Contains(pushedEnvVars, ev => ev is EnvironmentVariableDelete d && d.DefinitionId.Value == cloudEnvVarDelete.Id);
+        }
+
+        [Fact]
+        public async Task EnvironmentVariable_LocalCreate_WhenFileExists()
+        {
+            var schemaName = "cr123";
+
+            var env = new EnvironmentVariableDefinition(
+                id: new EnvironmentVariableDefinitionId(Guid.NewGuid()),
+                schemaName: new EnvironmentVariableDefinitionSchemaName($"{schemaName}.env1"),
+                displayName: "env1",
+                defaultValue: "value1",
+                valueComponent: null,
+                version: 1
+            );
+
+            var localDefinition = new BotDefinition.Builder
+            {
+                Entity = new BotEntity().WithSchemaName(new BotEntitySchemaName(schemaName)),
+                EnvironmentVariables = { env }
+            }.Build();
+
+            var cloudDefinition = new BotDefinition.Builder
+            {
+                Entity = new BotEntity().WithSchemaName(new BotEntitySchemaName(schemaName)),
+            }.Build();
+
+            var fileAccessor = new InMemoryFileWriter();
+            await fileAccessor.WriteAsync(new AgentFilePath($"environmentvariables/{env.SchemaName.Value}.mcs.yml"), "content", CancellationToken.None);
+
+            var synchronizer = CreateSynchronizer();
+
+            var (changeSet, changes) = synchronizer.GetLocalChanges(localDefinition, cloudDefinition, fileAccessor, null);
+
+            Assert.Single(changes);
+            Assert.Equal(ChangeType.Create, changes[0].ChangeType);
+            Assert.Single(changeSet.EnvironmentVariableChanges);
+            Assert.IsType<EnvironmentVariableInsert>(changeSet.EnvironmentVariableChanges[0]);
+        }
+
+        [Fact]
+        public void EnvironmentVariable_NoCreate_WhenFileMissing()
+        {
+            var schemaName = "cr123";
+
+            var env = new EnvironmentVariableDefinition(
+                id: new EnvironmentVariableDefinitionId(Guid.NewGuid()),
+                schemaName: new EnvironmentVariableDefinitionSchemaName($"{schemaName}.env1"),
+                displayName: "env1",
+                defaultValue: "value1",
+                valueComponent: null,
+                version: 1
+            );
+
+            var localDefinition = new BotDefinition.Builder
+            {
+                Entity = new BotEntity().WithSchemaName(new BotEntitySchemaName(schemaName)),
+                EnvironmentVariables = { env }
+            }.Build();
+
+            var cloudDefinition = new BotDefinition.Builder
+            {
+                Entity = new BotEntity().WithSchemaName(new BotEntitySchemaName(schemaName)),
+            }.Build();
+
+            var synchronizer = CreateSynchronizer();
+
+            var (changeSet, changes) = synchronizer.GetLocalChanges(localDefinition, cloudDefinition, new InMemoryFileWriter(), null, isRemoteChange: false);
+
+            Assert.Empty(changes);
+            Assert.Empty(changeSet.EnvironmentVariableChanges);
+        }
+
+        [Fact]
+        public void EnvironmentVariable_Create_WhenRemoteChange()
+        {
+            var schemaName = "cr123";
+
+            var env = new EnvironmentVariableDefinition(
+                id: new EnvironmentVariableDefinitionId(Guid.NewGuid()),
+                schemaName: new EnvironmentVariableDefinitionSchemaName($"{schemaName}.env1"),
+                displayName: "env1",
+                defaultValue: "value1",
+                valueComponent: null,
+                version: 1
+            );
+
+            var localDefinition = new BotDefinition.Builder
+            {
+                Entity = new BotEntity().WithSchemaName(new BotEntitySchemaName(schemaName)),
+                EnvironmentVariables = { env }
+            }.Build();
+
+            var cloudDefinition = new BotDefinition.Builder
+            {
+                Entity = new BotEntity().WithSchemaName(new BotEntitySchemaName(schemaName)),
+            }.Build();
+
+            var synchronizer = CreateSynchronizer();
+
+            var (changeSet, changes) = synchronizer.GetLocalChanges(localDefinition, cloudDefinition, new InMemoryFileWriter(), null, isRemoteChange: true);
+
+            Assert.Single(changes);
+            Assert.Equal(ChangeType.Create, changes[0].ChangeType);
+            Assert.Single(changeSet.EnvironmentVariableChanges);
+            Assert.IsType<EnvironmentVariableInsert>(changeSet.EnvironmentVariableChanges[0]);
+        }
+
+        [Fact]
+        public async Task EnvironmentVariable_Update_WhenDifferent()
+        {
+            var schemaName = "cr123";
+
+            var localEnv = new EnvironmentVariableDefinition(
+                 id: new EnvironmentVariableDefinitionId(Guid.NewGuid()),
+                 schemaName: new EnvironmentVariableDefinitionSchemaName($"{schemaName}.env1"),
+                 displayName: "environment variable 1",
+                 defaultValue: "value1",
+                 valueComponent: null,
+                 version: 1
+            );
+
+            var cloudEnv = new EnvironmentVariableDefinition(
+                 id: new EnvironmentVariableDefinitionId(Guid.NewGuid()),
+                 schemaName: new EnvironmentVariableDefinitionSchemaName($"{schemaName}.env1"),
+                 displayName: "environment variable 1 version 2",
+                 defaultValue: "cloud",
+                 valueComponent: null,
+                 version: 1
+            );
+
+            var localDefinition = new BotDefinition.Builder
+            {
+                Entity = new BotEntity().WithSchemaName(new BotEntitySchemaName(schemaName)),
+                EnvironmentVariables = { localEnv }
+            }.Build();
+
+            var cloudDefinition = new BotDefinition.Builder
+            {
+                Entity = new BotEntity().WithSchemaName(new BotEntitySchemaName(schemaName)),
+                EnvironmentVariables = { cloudEnv }
+            }.Build();
+
+            var fileAccessor = new InMemoryFileWriter();
+            await fileAccessor.WriteAsync(new AgentFilePath($"environmentvariables/{localEnv.SchemaName.Value}.mcs.yml"), "content", CancellationToken.None);
+
+            var synchronizer = CreateSynchronizer();
+
+            var (changeSet, changes) = synchronizer.GetLocalChanges(localDefinition, cloudDefinition, fileAccessor, null);
+
+            Assert.Single(changes);
+            Assert.Equal(ChangeType.Update, changes[0].ChangeType);
+            Assert.Single(changeSet.EnvironmentVariableChanges);
+            Assert.IsType<EnvironmentVariableUpdate>(changeSet.EnvironmentVariableChanges[0]);
+        }
+
+        [Fact]
+        public void EnvironmentVariable_Delete_WhenMissingLocally()
+        {
+            var schemaName = "cr123";
+            var defId = new EnvironmentVariableDefinitionId(Guid.NewGuid());
+            var valueId = new EnvironmentVariableValueId(Guid.NewGuid());
+
+            var cloudEnv = new EnvironmentVariableDefinition(
+                id: defId,
+                schemaName: new EnvironmentVariableDefinitionSchemaName($"{schemaName}.env1"),
+                displayName: "env1",
+                defaultValue: "value",
+                valueComponent: new EnvironmentVariableValue(
+                    id: valueId,
+                    definitionId: defId,
+                    value: "value"
+                ),
+                version: 1
+            );
+
+            var localDefinition = new BotDefinition.Builder
+            {
+                Entity = new BotEntity().WithSchemaName(new BotEntitySchemaName(schemaName)),
+            }.Build();
+
+            var cloudDefinition = new BotDefinition.Builder
+            {
+                Entity = new BotEntity().WithSchemaName(new BotEntitySchemaName(schemaName)),
+                EnvironmentVariables = { cloudEnv }
+            }.Build();
+
+            var synchronizer = CreateSynchronizer();
+
+            var (changeSet, changes) = synchronizer.GetLocalChanges(localDefinition, cloudDefinition, new InMemoryFileWriter(), null);
+
+            Assert.Single(changes);
+            Assert.Equal(ChangeType.Delete, changes[0].ChangeType);
+            Assert.Single(changeSet.EnvironmentVariableChanges);
+            Assert.IsType<EnvironmentVariableDelete>(changeSet.EnvironmentVariableChanges[0]);
+        }
+
+        private WorkspaceSynchronizer CreateSynchronizer()
+        {
+            return new WorkspaceSynchronizer(
+                new SyncMcsFileParser(Microsoft.CopilotStudio.Sync.LspProjectorService.Instance),
+                (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)new InMemoryFileWriter(),
+                Mock.Of<IIslandControlPlaneService>(),
+                Mock.Of<ISyncProgress>(),
+                new Microsoft.CopilotStudio.Sync.LspComponentPathResolver());
+        }
+
+        private FileAttachmentComponent CreateKnowledgeComponent(string schema = "cr123.knowledge", string name = "File1", string description = "description")
+        {
+            return new FileAttachmentComponent.Builder
+            {
+                Id = new BotComponentId(Guid.NewGuid()),
+                SchemaName = new FileAttachmentSchemaName(schema),
+                DisplayName = name,
+                Description = description
+            }.Build();
+        }
+
+        private BotDefinition CreateDefinition(Guid botId, params BotComponentBase[] components)
+        {
+            var builder = new BotDefinition.Builder
+            {
+                Entity = new BotEntity().WithCdsBotId(botId)
+            };
+
+            foreach (var c in components)
+            {
+                builder.Components.Add(c);
+            }
+
+            return builder.Build();
+        }
     }
+
     internal sealed class TempDirectory : IDisposable
     {
         public string Path { get; }

@@ -221,12 +221,18 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         DefinitionBase previousDefinition, // user's view
         ISyncDataverseClient dataverseClient,
         Guid? agentId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool downloadAllKnowledgeFiles = false)
     {
         var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
 
         var workflows = await GetWorkflowsAsync(workspaceFolder, dataverseClient, agentId, fileAccessor, cancellationToken).ConfigureAwait(false);
-        previousDefinition = previousDefinition.WithFlows(workflows.Workflows).WithConnectionReferences(workflows.ConnectionReferences);
+        var mergedConnectionReferences = previousDefinition.ConnectionReferences.Concat(workflows.ConnectionReferences)
+               .Where(cr => !string.IsNullOrEmpty(cr.ConnectionReferenceLogicalName.Value))
+               .GroupBy(cr => cr.ConnectionReferenceLogicalName.Value, StringComparer.OrdinalIgnoreCase)
+               .Select(g => g.Last())
+               .ToList();
+        previousDefinition = previousDefinition.WithFlows(workflows.Workflows).WithConnectionReferences(mergedConnectionReferences);
 
         // Collect change conflicts
         var localChanges = await GetLocalChangesAsync(workspaceFolder, previousDefinition, dataverseClient, agentId, cancellationToken).ConfigureAwait(false);
@@ -329,7 +335,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             }
         }
 
-        if (newSnapshot != null)
+        if (downloadAllKnowledgeFiles && newSnapshot != null)
         {
             await Parallel.ForEachAsync(newSnapshot.Components.OfType<FileAttachmentComponent>().Where(c => !string.IsNullOrEmpty(c.DisplayName)).ToList(), new ParallelOptions
             {
@@ -532,7 +538,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         ISyncDataverseClient dataverseClient,
         Guid? agentId,
         CloudFlowMetadata? cloudFlowMetadata,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool uploadAllKnowledgeFiles = false)
     {
         // Upload will atomically:
         //  - send up changes,
@@ -545,6 +552,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
         await WriteChangeSetAsync(workspaceFolder, changeset, cloudFlowMetadata, cancellationToken).ConfigureAwait(false);
 
+        if (!uploadAllKnowledgeFiles)
+        {
+            return 0;
+        }
+
+        // Upload all knowledge files
         var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
         var snapshot = ReadCloudCacheSnapshot(fileAccessor);
         var numberOfUploadedFiles = 0;
@@ -801,7 +814,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         }
 
         // Project environment variables as environmentvariables/*.mcs.yml
-        WriteEnvironmentVariables(fileAccessor, updatedDefinition, changeset);
+        WriteEnvironmentVariables(fileAccessor, updatedDefinition, changeset, thisSchema);
 
         return updatedDefinition;
     }
@@ -836,17 +849,14 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         return false;
     }
 
-    private static void WriteEnvironmentVariables(IFileAccessor fileAccessor, DefinitionBase definition, PvaComponentChangeSet changeset)
+    private static void WriteEnvironmentVariables(IFileAccessor fileAccessor, DefinitionBase definition, PvaComponentChangeSet changeset, string agentSchemaName)
     {
         // Process environment variable changes: write upserts, delete removals
         foreach (var change in changeset.EnvironmentVariableChanges)
         {
             if (change is EnvironmentVariableUpsert upsert && upsert.EnvironmentVariable is EnvironmentVariableDefinition envVar)
             {
-                var path = GetEnvironmentVariablePath(envVar);
-                using var stream = fileAccessor.OpenWrite(path);
-                using var sw = new StreamWriter(stream, new UTF8Encoding(false));
-                YamlSerializer.Serialize(sw, envVar);
+                WriteEnvironmentVariable(fileAccessor, definition, agentSchemaName, envVar);
             }
             else if (change is EnvironmentVariableDelete delete)
             {
@@ -865,11 +875,23 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         {
             foreach (var envVar in definition.EnvironmentVariables)
             {
-                var path = GetEnvironmentVariablePath(envVar);
-                using var stream = fileAccessor.OpenWrite(path);
-                using var sw = new StreamWriter(stream, new UTF8Encoding(false));
-                YamlSerializer.Serialize(sw, envVar);
+                WriteEnvironmentVariable(fileAccessor, definition, agentSchemaName, envVar);
             }
+        }
+    }
+
+    private static void WriteEnvironmentVariable(IFileAccessor fileAccessor, DefinitionBase definition, string agentSchemaName, EnvironmentVariableDefinition? environmentVariableDefinition)
+    {
+        if (environmentVariableDefinition == null || !environmentVariableDefinition.Id.HasValue)
+        {
+            return;
+        }
+
+        if (GetAgentSchemaName(environmentVariableDefinition.SchemaName.Value) == agentSchemaName && definition.TryGetEnvironmentVariableDefinitionBySchemaName(environmentVariableDefinition.SchemaName, out var environmentVariable) && environmentVariable.Id.HasValue)
+        {
+            using Stream stream = fileAccessor.OpenWrite(GetEnvironmentVariablePath(environmentVariable));
+            using var textWriter = new StreamWriter(stream);
+            CodeSerializer.Serialize(textWriter, environmentVariable);
         }
     }
 
@@ -879,6 +901,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         return new AgentFilePath($"{EnvironmentVariablesFolder}/{schemaName}.mcs.yml");
     }
 
+    private static string GetAgentSchemaName(string fullSchema) => fullSchema[..(fullSchema.IndexOf('.') is var i && i > 0 ? i : fullSchema.Length)];
+    
     private void WriteComponentCollection(IFileAccessor fileAccessor, BotComponentCollection? collection, CancellationToken cancellationToken)
     {
         if (collection == null)
@@ -984,7 +1008,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
         if (cloudFlowMetadata != null)
         {
-            newSnapshot = newSnapshot.WithFlows(cloudFlowMetadata.Workflows).WithConnectionReferences(cloudFlowMetadata.ConnectionReferences);
+            var mergedConnectionReferences = newSnapshot.ConnectionReferences.Concat(cloudFlowMetadata.ConnectionReferences)
+                    .Where(cr => !string.IsNullOrEmpty(cr.ConnectionReferenceLogicalName.Value))
+                    .GroupBy(cr => cr.ConnectionReferenceLogicalName.Value, StringComparer.OrdinalIgnoreCase)
+                    .Select(g => g.Last())
+                    .ToList();
+            newSnapshot = newSnapshot.WithFlows(cloudFlowMetadata.Workflows).WithConnectionReferences(mergedConnectionReferences);
         }
 
         WriteCloudCache(fileAccessor, newSnapshot);
@@ -1061,7 +1090,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         }
 
         var changeToken = await GetChangeTokenOrNullAsync(fileAccessor, cancellationToken).ConfigureAwait(false);
-        var (changeSet, changes) = GetLocalChanges(workspaceDefinition, cloudSnapshot, changeToken);
+        var (changeSet, changes) = GetLocalChanges(workspaceDefinition, cloudSnapshot, fileAccessor, changeToken);
 
         var workflowChanges = GetLocalWorkflowChangesAsync(workspaceFolder, dataverseClient, agentId, fileAccessor, cloudSnapshot, cancellationToken);
         changes = changes.AddRange(await workflowChanges.ConfigureAwait(false));
@@ -1082,7 +1111,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         var cloudSnapshot = ReadCloudCacheSnapshot(fileAccessor) ?? BotDefinition.Empty;
 
         var appliedDefinition = cloudSnapshot.ApplyChanges(changeset);
-        var computeChanges = GetLocalChanges(appliedDefinition, cloudSnapshot, changeToken);
+        var computeChanges = GetLocalChanges(appliedDefinition, cloudSnapshot, fileAccessor, changeToken, isRemoteChange: true);
 
         var changes = computeChanges.Item2;
         var workflowChanges = GetRemoteWorkflowChangesAsync(dataverseClient, agentId, cloudSnapshot, cancellationToken);
@@ -1091,7 +1120,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         return (changeset, changes);
     }
 
-    public (PvaComponentChangeSet, ImmutableArray<Change>) GetLocalChanges(DefinitionBase localDefinition, DefinitionBase cloudSnapshot, string? changeToken)
+    public (PvaComponentChangeSet, ImmutableArray<Change>) GetLocalChanges(DefinitionBase localDefinition, DefinitionBase cloudSnapshot, IFileAccessor fileAccessor, string? changeToken, bool isRemoteChange = false)
     {
         var changes = ImmutableArray.CreateBuilder<Change>();
         var botComponentBuilderList = new List<BotComponentChange>();
@@ -1166,16 +1195,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 continue;
             }
 
-            // Knowledge-file components are handled client-side (download/upload);
-            // they must not appear in the server diff changeset.
-            if (localComponent is FileAttachmentComponent)
-            {
-                continue;
-            }
-
             BotComponentId parentBotComponentId = default;
             // Remap local botIds (which were fabricated) to real botIds from the cloud.
-            if (localComponent.ParentBotComponentId.HasValue)
+            if (localComponent.ParentBotComponentId.HasValue && localComponent is not FileAttachmentComponent)
             {
                 var parentSchemaName = localDefinition.VerifiedGetBotComponentById(localComponent.ParentBotComponentId).SchemaNameString;
                 if (cloudSnapshot.TryGetComponentBySchemaName(parentSchemaName, out var cloudComponentParent))
@@ -1197,12 +1219,13 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 // In new and old ... --> possible Update
                 var r1 = localComponent.RootElement == null ? null : StripMetaInfo(localComponent.RootElement);
                 var r2 = cloudComponent.RootElement == null ? null : StripMetaInfo(cloudComponent.RootElement);
-                var same =
-                    (r1 is not null) &&
-                    (r2 is not null) &&
-                    r1.Equals(r2, NodeComparison.Structural) &&
-                    (string.IsNullOrWhiteSpace(localComponent.DisplayName) || NormalizeString(localComponent.DisplayName) == NormalizeString(cloudComponent.DisplayName)) &&
-                    (string.IsNullOrWhiteSpace(localComponent.Description) || NormalizeString(localComponent.Description) == NormalizeString(cloudComponent.Description));
+                var same = (string.IsNullOrWhiteSpace(localComponent.DisplayName) || NormalizeString(localComponent.DisplayName) == NormalizeString(cloudComponent.DisplayName)) &&
+                                    (string.IsNullOrWhiteSpace(localComponent.Description) || NormalizeString(localComponent.Description) == NormalizeString(cloudComponent.Description));
+
+                if (localComponent is not FileAttachmentComponent)
+                {
+                    same = same && (r1 is not null) && (r2 is not null) && r1.Equals(r2, NodeComparison.Structural);
+                }
 
                 if (!same)
                 {
@@ -1246,12 +1269,93 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             }
         }
 
+        // Handle EnvironmentVariableDefinitions
+        var (environmentVariableChanges, changesOfEnvironmentVariables) = GetEnvironmentVariableLocalChanges(localDefinition, cloudSnapshot, fileAccessor, isRemoteChange);
+        changes.AddRange(changesOfEnvironmentVariables);
+
         var changeset = new PvaComponentChangeSet(
               botComponentBuilderList,
+              null,
+              environmentVariableChanges,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
               botEntity,
               changeToken);
 
         return (changeset, changes.ToImmutable());
+    }
+
+    private static (ImmutableArray<EnvironmentVariableChange>, ImmutableArray<Change>) GetEnvironmentVariableLocalChanges(DefinitionBase localDefinition, DefinitionBase cloudSnapshot, IFileAccessor fileAccessor, bool isRemoteChange = false)
+    {
+        var changes = ImmutableArray.CreateBuilder<Change>();
+        var environmentVariableChanges = new List<EnvironmentVariableChange>();
+        var localEnvironmentVariables = localDefinition.EnvironmentVariables.Where(ev => ev != null && GetAgentSchemaName(ev.SchemaName.Value) == localDefinition.GetRootSchemaName()).Where(ev => isRemoteChange || fileAccessor.Exists(GetEnvironmentVariablePath(ev)));
+        var cloudEnvironmentVariables = cloudSnapshot.EnvironmentVariables.Where(ev => ev != null && GetAgentSchemaName(ev.SchemaName.Value) == cloudSnapshot.GetRootSchemaName());
+        var localEnvironmentVariableDictionary = localEnvironmentVariables.ToDictionary(ev => ev.SchemaName, ev => ev);
+        var cloudEnvironmentVariableDictionary = cloudEnvironmentVariables.ToDictionary(ev => ev.SchemaName, ev => ev);
+
+        foreach (var localEnvironmentVariable in localEnvironmentVariables)
+        {
+            if (localEnvironmentVariable != null)
+            {
+                if (cloudEnvironmentVariableDictionary.TryGetValue(localEnvironmentVariable.SchemaName, out var cloudEnvironmentVariable))
+                {
+                    var same = localEnvironmentVariable.Equals(cloudEnvironmentVariable, NodeComparison.Structural);
+
+                    if (!same)
+                    {
+                        environmentVariableChanges.Add(new EnvironmentVariableUpdate(localEnvironmentVariable));
+                        changes.Add(new Change
+                        {
+                            ChangeType = ChangeType.Update,
+                            Name = localEnvironmentVariable.DisplayName ?? localEnvironmentVariable.SchemaName.Value,
+                            Uri = EnvironmentVariablesFolder + $"/{localEnvironmentVariable.SchemaName.Value}.mcs.yml",
+                            SchemaName = localEnvironmentVariable.SchemaName.Value,
+                            ChangeKind = BotElementKind.EnvironmentVariableDefinition.ToString()
+                        });
+                    }
+                }
+                else
+                {
+                    environmentVariableChanges.Add(new EnvironmentVariableInsert(localEnvironmentVariable));
+                    changes.Add(new Change
+                    {
+                        ChangeType = ChangeType.Create,
+                        Name = localEnvironmentVariable.DisplayName ?? localEnvironmentVariable.SchemaName.Value,
+                        Uri = EnvironmentVariablesFolder + $"/{localEnvironmentVariable.SchemaName.Value}.mcs.yml",
+                        SchemaName = localEnvironmentVariable.SchemaName.Value,
+                        ChangeKind = BotElementKind.EnvironmentVariableDefinition.ToString()
+                    });
+                }
+            }
+        }
+
+        foreach (var cloudEnvironmentVariable in cloudEnvironmentVariables)
+        {
+            if (cloudEnvironmentVariable.ValueComponent != null && !localEnvironmentVariableDictionary.ContainsKey(cloudEnvironmentVariable.SchemaName))
+            {
+                environmentVariableChanges.Add(new EnvironmentVariableDelete(
+                    cloudEnvironmentVariable.Id,
+                    cloudEnvironmentVariable.ValueComponent.Id,
+                    cloudEnvironmentVariable.Version
+                ));
+
+                changes.Add(new Change
+                {
+                    ChangeType = ChangeType.Delete,
+                    Name = cloudEnvironmentVariable.DisplayName ?? cloudEnvironmentVariable.SchemaName.Value,
+                    Uri = EnvironmentVariablesFolder + $"/{cloudEnvironmentVariable.SchemaName.Value}.mcs.yml",
+                    SchemaName = cloudEnvironmentVariable.SchemaName.Value,
+                    ChangeKind = BotElementKind.EnvironmentVariableDefinition.ToString()
+                });
+            }
+        }
+
+        return (environmentVariableChanges.ToImmutableArray(), changes.ToImmutable());
     }
 
     private static string NormalizeString(string? value) => string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().Trim('"').Replace("\r\n", "\n").Replace("\r", "\n");
@@ -2228,14 +2332,20 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
     private Task WriteConnectionReferencesAsync(IFileAccessor fileAccessor, DefinitionBase definition, CancellationToken cancellationToken)
     {
+        var uniqueConnectionReferences = definition.ConnectionReferences
+                .Where(cr => !string.IsNullOrEmpty(cr.ConnectionReferenceLogicalName.Value))
+                .GroupBy(cr => cr.ConnectionReferenceLogicalName.Value, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.Last())
+                .ToList();
+
         // Write connectionreferences.mcs.yml if there are any connection references
-        if (definition.ConnectionReferences.Any())
+        if (uniqueConnectionReferences.Any())
         {
             using var file = fileAccessor.OpenWrite(ConnectionReferencesPath);
             using var sw = new StreamWriter(file, Encoding.UTF8);
             using var yamlContext = YamlSerializationContext.UseStandardSerializationContextIfNotDefined(throwOnInvalidYaml: false);
 
-            CodeSerializer.SerializeConnectionReferences(sw, definition.ConnectionReferences);
+            CodeSerializer.SerializeConnectionReferences(sw, uniqueConnectionReferences);
         }
 
         return Task.CompletedTask;

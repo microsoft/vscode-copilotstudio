@@ -17,6 +17,25 @@ namespace Microsoft.PowerPlatformLS.Contracts.FileLayout
     internal static class LspProjection
     {
         /// <summary>
+        /// Conditional projection override for a rule.
+        /// </summary>
+        /// <param name="Infix">Override schema name infix including dots, e.g. ".topic."</param>
+        /// <param name="Folder">Override file folder path with trailing slash, e.g. "topics/"</param>
+        /// <param name="DotInfixBlocklist">
+        /// Optional list of infix tokens (without dots) that, if present in the filename,
+        /// indicate the filename is already qualified and should not be expanded.
+        /// </param>
+        /// <param name="Predicate">
+        /// Optional function used to determine whether this override applies for a given file or schema.
+        /// It receives:
+        /// - pathWithoutExtension (string?): file path without extension
+        /// - schemaName (string?): full schema name
+        /// Returns true if the override should be used, otherwise false.
+        /// If null, the override always applies.
+        /// </param>
+        internal readonly record struct RuleOverride(string Infix, string Folder, string[]? DotInfixBlocklist = null, Func<string?, string?, bool>? Predicate = null);
+
+        /// <summary>
         /// Projection rule for an element type.
         /// </summary>
         /// <param name="Infix">Schema name infix including dots, e.g. ".topic."</param>
@@ -26,7 +45,11 @@ namespace Microsoft.PowerPlatformLS.Contracts.FileLayout
         /// Optional list of infix tokens (without dots) that, if present in the filename,
         /// indicate the filename is already qualified and should not be expanded.
         /// </param>
-        internal readonly record struct Rule(string Infix, string Folder, bool DotPassthrough = false, string[]? DotInfixBlocklist = null);
+        /// <param name="Overrides">
+        /// Optional ordered override list. The first matching override replaces infix/folder/blocklist
+        /// for the current path or schema while preserving <paramref name="DotPassthrough"/>.
+        /// </param>
+        internal readonly record struct Rule(string Infix, string Folder, bool DotPassthrough = false, string[]? DotInfixBlocklist = null, RuleOverride[]? Overrides = null);
 
         /// <summary>
         /// Result for schema name derivation that carries whether qualified names should be preserved.
@@ -41,49 +64,137 @@ namespace Microsoft.PowerPlatformLS.Contracts.FileLayout
         /// </summary>
         internal static readonly FrozenDictionary<Type, Rule> Rules = new Dictionary<Type, Rule>
         {
-            // Dialog types (polymorphic based on element type)
             // Topics can have dots in display names, so DotPassthrough=true
-            { typeof(AdaptiveDialog), new Rule(".topic.", "topics/", true, new[] { "topic" }) },
-            { typeof(TaskDialog), new Rule(".action.", "actions/", true, new[] { "action" }) },
-            { typeof(AgentDialog), new Rule(".agent.", "agents/", false) },
+            {
+                typeof(AdaptiveDialog),
+                new Rule(".topic.", "topics/", true, new[] { "topic" })
+            },
+            {
+                typeof(TaskDialog),
+                new Rule(
+                    ".action.",
+                    "actions/",
+                    true,
+                    new[] { "action" },
+                    new[]
+                    {
+                        new RuleOverride(
+                            ".InvokeConnectedAgentTaskAction.",
+                            "agents/",
+                            new[] { "InvokeConnectedAgentTaskAction" },
+                            (path, schema) => (path?.StartsWith("agents/", StringComparison.OrdinalIgnoreCase) == true
+                                               && path?.Contains("/actions/", StringComparison.OrdinalIgnoreCase) != true)
+                                              || schema?.Contains(".InvokeConnectedAgentTaskAction.", StringComparison.OrdinalIgnoreCase) == true)
+                    })
+            },
+
+            // Agent dialogs
+            {
+                typeof(AgentDialog),
+                new Rule(".agent.", "agents/", false)
+            },
 
             // GPT
-            { typeof(GptComponentMetadata), new Rule(".gpt.", "", false) },
-            { typeof(GptComponent), new Rule(".gpt.", "", false) },
+            {
+                typeof(GptComponentMetadata),
+                new Rule(".gpt.", "", false)
+            },
+            {
+                typeof(GptComponent),
+                new Rule(".gpt.", "", false)
+            },
 
             // Knowledge
-            { typeof(KnowledgeSource), new Rule(".knowledge.", "knowledge/", true, new[] { "knowledge", "topic", "action" }) },
-            { typeof(KnowledgeSourceConfiguration), new Rule(".knowledge.", "knowledge/", true, new[] { "knowledge", "topic", "action" }) },
-            { typeof(KnowledgeSourceComponent), new Rule(".knowledge.", "knowledge/", true, new[] { "knowledge", "topic", "action" }) },
+            {
+                typeof(KnowledgeSource),
+                new Rule(".knowledge.", "knowledge/", true, new[] { "knowledge", "topic", "action" })
+            },
+            {
+                typeof(KnowledgeSourceConfiguration),
+                new Rule(".knowledge.", "knowledge/", true, new[] { "knowledge", "topic", "action" })
+            },
+            {
+                typeof(KnowledgeSourceComponent),
+                new Rule(".knowledge.", "knowledge/", true, new[] { "knowledge", "topic", "action" })
+            },
 
             // File attachments
-            { typeof(FileAttachmentComponentMetadata), new Rule(".file.", "knowledge/files/", true, new[] { "file" }) },
-            { typeof(FileAttachmentComponent), new Rule(".file.", "knowledge/files/", true, new[] { "file" }) },
+            {
+                typeof(FileAttachmentComponentMetadata),
+                new Rule(".file.", "knowledge/files/", true, new[] { "file" })
+            },
+            {
+                typeof(FileAttachmentComponent),
+                new Rule(".file.", "knowledge/files/", true, new[] { "file" })
+            },
 
             // Variables
-            { typeof(Variable), new Rule(".GlobalVariableComponent.", "variables/", false) },
-            { typeof(GlobalVariableComponent), new Rule(".GlobalVariableComponent.", "variables/", false) },
+            {
+                typeof(Variable),
+                new Rule(".GlobalVariableComponent.", "variables/", false)
+            },
+            {
+                typeof(GlobalVariableComponent),
+                new Rule(".GlobalVariableComponent.", "variables/", false)
+            },
 
             // Settings
-            { typeof(BotSettingsBase), new Rule(".BotSettingsComponent.", "settings/", false) },
-            { typeof(BotSettingsComponent), new Rule(".BotSettingsComponent.", "settings/", false) },
+            {
+                typeof(BotSettingsBase),
+                new Rule(".BotSettingsComponent.", "settings/", false)
+            },
+            {
+                typeof(BotSettingsComponent),
+                new Rule(".BotSettingsComponent.", "settings/", false)
+            },
 
             // Entities
-            { typeof(Entity), new Rule(".entity.", "entities/", false) },
-            { typeof(EntityWithAnnotatedSamples), new Rule(".entity.", "entities/", false) },
-            { typeof(CustomEntityComponent), new Rule(".entity.", "entities/", false) },
+            {
+                typeof(Entity),
+                new Rule(".entity.", "entities/", false)
+            },
+            {
+                typeof(EntityWithAnnotatedSamples),
+                new Rule(".entity.", "entities/", false)
+            },
+            {
+                typeof(CustomEntityComponent),
+                new Rule(".entity.", "entities/", false)
+            },
 
             // External triggers
-            { typeof(ExternalTriggerConfiguration), new Rule(".ExternalTriggerComponent.", "trigger/", true, new[] { "ExternalTriggerComponent" }) },
-            { typeof(ExternalTriggerComponent), new Rule(".ExternalTriggerComponent.", "trigger/", true, new[] { "ExternalTriggerComponent" }) },
+            {
+                typeof(ExternalTriggerConfiguration),
+                new Rule(".ExternalTriggerComponent.", "trigger/", true, new[] { "ExternalTriggerComponent" })
+            },
+            {
+                typeof(ExternalTriggerComponent),
+                new Rule(".ExternalTriggerComponent.", "trigger/", true, new[] { "ExternalTriggerComponent" })
+            },
 
             // Skills
-            { typeof(SkillComponent), new Rule(".skill.", "skills/", true, new[] { "skill" }) },
+            {
+                typeof(SkillComponent),
+                new Rule(".skill.", "skills/", true, new[] { "skill" })
+            },
 
-            // Translations (route to TranslationsComponent projector, uses .topic. infix for schema)
-            // Locale codes have dots (e.g., pt-BR), so DotPassthrough=true
-            { typeof(TranslationsComponent), new Rule(".topic.", "translations/", true, new[] { "topic" }) },
-            { typeof(LocalizableContentContainer), new Rule(".topic.", "translations/", true, new[] { "topic" }) },
+            // Translations (locale-aware, dot passthrough)
+            {
+                typeof(TranslationsComponent),
+                new Rule(".topic.", "translations/", true, new[] { "topic" })
+            },
+            {
+                typeof(LocalizableContentContainer),
+                new Rule(".topic.", "translations/", true, new[] { "topic" })
+            },
+            {
+                typeof(CustomMetricDefinitionComponent),
+                new Rule(".custommetric.", "custommetrics/", true, new[] { "custommetric" })
+            },
+            {
+                typeof(AgentSkillComponent),
+                new Rule(".agentskill.", "agentskills/", true, new[] { "agentskill" })
+            },
         }.ToFrozenDictionary();
 
         /// <summary>
@@ -91,7 +202,7 @@ namespace Microsoft.PowerPlatformLS.Contracts.FileLayout
         /// </summary>
         internal static string? GetRuleInfixForElementType(Type elementType)
         {
-            return TryGetRuleForElementType(elementType, out var rule) ? rule.Infix : null;
+            return TryGetRuleForElementType(elementType, null, null, out var rule) ? rule.Infix : null;
         }
 
         /// <summary>
@@ -99,7 +210,7 @@ namespace Microsoft.PowerPlatformLS.Contracts.FileLayout
         /// </summary>
         internal static string? GetRuleFolderForElementType(Type elementType)
         {
-            if (!TryGetRuleForElementType(elementType, out var rule))
+            if (!TryGetRuleForElementType(elementType, null, null, out var rule))
             {
                 return null;
             }
@@ -147,7 +258,7 @@ namespace Microsoft.PowerPlatformLS.Contracts.FileLayout
             }
 
             // Look up rule for element type
-            if (!TryGetRuleForElementType(elementType, out var rule))
+            if (!TryGetRuleForElementType(elementType, null, normalized, out var rule))
             {
                 // No rule found - return null to let caller fall back
                 return new SchemaNameResult(null, PreserveQualifiedSchemaName: false);
@@ -206,7 +317,7 @@ namespace Microsoft.PowerPlatformLS.Contracts.FileLayout
             }
 
             // Look up rule
-            if (!TryGetRuleForElementType(elementType, out var rule))
+            if (!TryGetRuleForElementType(elementType, schemaName, pathWithoutExtension, out var rule))
             {
                 return null;
             }
@@ -394,11 +505,11 @@ namespace Microsoft.PowerPlatformLS.Contracts.FileLayout
 
         #region Private Helpers
 
-        internal static bool TryGetRuleForElementType(Type elementType, out Rule rule)
+        internal static bool TryGetRuleForElementType(Type elementType, string? schemaName, string? path, out Rule rule)
         {
-            // Direct lookup first
-            if (Rules.TryGetValue(elementType, out rule))
+            if (Rules.TryGetValue(elementType, out var exactRule))
             {
+                rule = ResolveRule(exactRule, path, schemaName);
                 return true;
             }
 
@@ -415,7 +526,7 @@ namespace Microsoft.PowerPlatformLS.Contracts.FileLayout
                     if (bestMatch == null || bestMatch.IsAssignableFrom(kvp.Key))
                     {
                         bestMatch = kvp.Key;
-                        bestRule = kvp.Value;
+                        bestRule = ResolveRule(kvp.Value, path, schemaName);
                     }
                 }
             }
@@ -428,6 +539,29 @@ namespace Microsoft.PowerPlatformLS.Contracts.FileLayout
 
             rule = default;
             return false;
+        }
+
+        private static Rule ResolveRule(Rule rule, string? path, string? schemaName)
+        {
+            path = path?.Replace('\\', '/');
+
+            var overrides = rule.Overrides;
+            if (overrides != null)
+            {
+                foreach (var ruleOverride in overrides)
+                {
+                    if (ruleOverride.Predicate == null || ruleOverride.Predicate(path, schemaName))
+                    {
+                        return new Rule(
+                            ruleOverride.Infix,
+                            ruleOverride.Folder,
+                            rule.DotPassthrough,
+                            ruleOverride.DotInfixBlocklist ?? rule.DotInfixBlocklist);
+                    }
+                }
+            }
+
+            return new Rule(rule.Infix, rule.Folder, rule.DotPassthrough, rule.DotInfixBlocklist);
         }
 
         private static string? GetAgentDialogSchemaName(string pathWithoutExtension, string? botName)
@@ -628,6 +762,8 @@ namespace Microsoft.PowerPlatformLS.Contracts.FileLayout
             AddToMap(map, "topics/", typeof(AdaptiveDialog));
             // Actions
             AddToMap(map, "actions/", typeof(TaskDialog));
+            // Connected Agent
+            AddToMap(map, "agents/", typeof(TaskDialog));
             // Translations - uses AdaptiveDialog, not LocalizableContentContainer
             AddToMap(map, "translations/", typeof(AdaptiveDialog));
             // Variables
@@ -646,6 +782,12 @@ namespace Microsoft.PowerPlatformLS.Contracts.FileLayout
             AddToMap(map, "trigger/", typeof(ExternalTriggerConfiguration));
             // Test cases
             AddToMap(map, "testcases/", typeof(TestDefinitionBase));
+            // Custom metric definitions
+            AddToMap(map, "custommetrics/", typeof(CustomMetricDefinition));
+            // Agent skills
+            AddToMap(map, "agentskills/", typeof(AgentSkillMetadata));
+            // Environment variables
+            AddToMap(map, "environmentvariables/", typeof(EnvironmentVariableDefinition));
 
             return map.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.ToArray()).ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
         }

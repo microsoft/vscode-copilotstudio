@@ -201,7 +201,7 @@ class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTreeItem> {
         if (element.kind === TreeItemKind.SignIn) {
             const item = new TreeItem("Sign In", TreeItemCollapsibleState.None);
             item.iconPath = new ThemeIcon("sign-in");
-            item.command = { command: "microsoft-copilot-studio.signin", title: "Sign In" };
+            item.command = { command: "microsoft-copilot-studio.signIn", title: "Sign In" };
             return item;
         } else if (element.kind === TreeItemKind.SkuSection) {
 			const skuItem = element as SkuSectionTreeItem;

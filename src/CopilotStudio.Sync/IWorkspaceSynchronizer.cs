@@ -97,6 +97,7 @@ public interface IWorkspaceSynchronizer
     /// <param name="dataverseClient">The dataverse client to use for communication with the dataverse service.</param>
     /// <param name="agentId">The ID of the agent.</param>
     /// <param name="cancellationToken">Used to cancel the request</param>
+    /// <param name="downloadAllKnowledgeFiles">True/False to download or not all knowledge files.</param>
     /// <returns>A task representing the asynchronous operation</returns>
     Task<DefinitionBase> PullExistingChangesAsync(
         DirectoryPath workspaceFolder,
@@ -104,7 +105,8 @@ public interface IWorkspaceSynchronizer
         DefinitionBase localWorkspaceDefinition,
         ISyncDataverseClient dataverseClient,
         Guid? agentId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        bool downloadAllKnowledgeFiles = false);
 
     /// <summary>
     /// Pushes local changes to the cloud service and receives updated change information.
@@ -116,6 +118,7 @@ public interface IWorkspaceSynchronizer
     /// <param name="agentId">The ID of the agent.</param>
     /// <param name="cloudFlowMetadata">Cloud flow metadata.</param>
     /// <param name="cancellationToken">Used to cancel the request</param>
+    /// <param name="uploadAllKnowledgeFiles">True/False to upload or not all knowledge files.</param>
     /// <returns>Number of knowledge files uploaded to cloud.</returns>
     Task<int> PushChangesetAsync(
         DirectoryPath workspaceFolder,
@@ -124,7 +127,8 @@ public interface IWorkspaceSynchronizer
         ISyncDataverseClient dataverseClient,
         Guid? agentId,
         CloudFlowMetadata? cloudFlowMetadata,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        bool uploadAllKnowledgeFiles = false);
 
     /// <summary>
     /// Sync workspace to write bot definition, git ignore, change token files in .mcs.

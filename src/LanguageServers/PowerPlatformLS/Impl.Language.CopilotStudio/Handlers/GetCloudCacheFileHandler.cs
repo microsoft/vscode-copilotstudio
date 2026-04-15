@@ -94,6 +94,14 @@
                 {
                     CodeSerializer.SerializeAsMcsYml(sw, componentByName);
                 }
+                else if (originalDefinition != null && originalDefinition.TryGetEnvironmentVariableDefinitionBySchemaName(request.SchemaName, out var environmentVariable) && environmentVariable.Id.HasValue)
+                {
+                    CodeSerializer.Serialize(sw, environmentVariable);
+                }
+                else if (contextDefinition != null && contextDefinition.TryGetEnvironmentVariableDefinitionBySchemaName(request.SchemaName, out var contextEnvironmentVariable) && contextEnvironmentVariable.Id.HasValue)
+                {
+                    CodeSerializer.Serialize(sw, contextEnvironmentVariable);
+                }
                 else
                 {
                     const int NotFoundErrorCode = 404;

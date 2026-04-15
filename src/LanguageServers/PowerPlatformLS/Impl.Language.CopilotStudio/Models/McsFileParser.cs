@@ -65,7 +65,7 @@
 
             // Handle elements that are not components or agent files
             if (fileModel is BotEntity or DefinitionBase or BotComponentCollection or 
-                ReferencesSourceFile or ConnectionReferencesSourceFile)
+                ReferencesSourceFile or ConnectionReferencesSourceFile or EnvironmentVariableDefinition)
             {
                 return (null, null);
             }
@@ -182,7 +182,7 @@
 
             // Handle agent files and non-component elements that return empty schema name
             if (fileModel is BotDefinition or BotComponentCollectionDefinition or UnknownBotElement
-                or ReferencesSourceFile or ConnectionReferencesSourceFile)
+                or ReferencesSourceFile or ConnectionReferencesSourceFile or EnvironmentVariableDefinition)
             {
                 return string.Empty;
             }

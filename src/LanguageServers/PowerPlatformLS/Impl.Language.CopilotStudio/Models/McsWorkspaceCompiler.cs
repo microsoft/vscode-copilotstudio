@@ -47,6 +47,7 @@
         private (DefinitionBase, bool) CompileDefinition(IReadOnlyDictionary<FilePath, LspDocument> documents, DirectoryPath workspacePath, Dictionary<LspDocument, IEnumerable<Exception>> errors)
         {
             var components = new List<BotComponentBase>();
+            var environmentVariables = new List<EnvironmentVariableDefinition>();
 
             var baseDefinition = FirstOrDefaultDocumentOfType<DefinitionBase>();
             var settings = FirstOrDefaultDocumentOfType<BotEntity>();
@@ -79,6 +80,12 @@
                 if (mcsDocument.IsIcon)
                 {
                     iconBase64 = mcsDocument.Text;
+                    continue;
+                }
+
+                if (mcsDocument.FileModel is EnvironmentVariableDefinition environmentVariableDefinition)
+                {
+                    environmentVariables.Add(environmentVariableDefinition);
                     continue;
                 }
 
@@ -163,6 +170,14 @@
                     baseAgentDefinition.WithComponentCollections(componentCollections);
                 }                
             }
+
+            var workspaceEnvironmentVariables = result.EnvironmentVariables
+                                                    .Concat(environmentVariables)
+                                                    .Where(ev => ev.SchemaName.Value != null)
+                                                    .GroupBy(ev => ev.SchemaName.Value, StringComparer.OrdinalIgnoreCase)
+                                                    .Select(g => g.Last());
+
+            result = result.WithEnvironmentVariables(workspaceEnvironmentVariables);
 
             var additionalComponentsNotInWorkspace = result.Components.Where(IsReusableOrNonCustomizableComponent);
             var workspaceComponents = additionalComponentsNotInWorkspace.Concat(components);

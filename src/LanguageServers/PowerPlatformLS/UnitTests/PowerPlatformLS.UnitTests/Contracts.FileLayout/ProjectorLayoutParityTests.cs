@@ -56,13 +56,14 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
         }
 
         /// <summary>
-        /// DialogComponent's polymorphic folders (topics/, actions/) must be in layout.
+        /// DialogComponent's polymorphic folders (topics/, actions/, agents/) must be in layout.
         /// </summary>
         [Fact]
         public void DialogComponent_PolymorphicFolders_InLayout()
         {
             Assert.True(LspProjectionLayout.FileStructureMap.ContainsKey("topics/"), "Missing topics/ folder");
             Assert.True(LspProjectionLayout.FileStructureMap.ContainsKey("actions/"), "Missing actions/ folder");
+            Assert.True(LspProjectionLayout.FileStructureMap.ContainsKey("agents/"), "Missing agents/ folder");
             Assert.True(LspProjectionLayout.FileStructureMap.ContainsKey("agent"), "Missing agent file entry");
         }
 
@@ -115,6 +116,17 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
         {
             Assert.True(LspProjectionLayout.FileStructureMap.ContainsKey("actions/"));
             var types = LspProjectionLayout.FileStructureMap["actions/"];
+            Assert.Contains(typeof(TaskDialog), types);
+        }
+
+        /// <summary>
+        /// agents/ folder maps to TaskDialog for connected-agent task dialogs.
+        /// </summary>
+        [Fact]
+        public void AgentsFolder_MapsTo_TaskDialog()
+        {
+            Assert.True(LspProjectionLayout.FileStructureMap.ContainsKey("agents/"));
+            var types = LspProjectionLayout.FileStructureMap["agents/"];
             Assert.Contains(typeof(TaskDialog), types);
         }
 
@@ -223,14 +235,15 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
         }
 
         /// <summary>
-        /// TaskDialog should map to actions/.
+        /// TaskDialog should map to actions/ and agents/.
         /// </summary>
         [Fact]
-        public void TaskDialog_MapsTo_Actions()
+        public void TaskDialog_MapsTo_ActionsAndAgents()
         {
             Assert.True(LspProjectionLayout.TypeToFileCandidates.ContainsKey(typeof(TaskDialog)));
             var folders = LspProjectionLayout.TypeToFileCandidates[typeof(TaskDialog)];
             Assert.Contains("actions/", folders);
+            Assert.Contains("agents/", folders);
         }
 
         /// <summary>
