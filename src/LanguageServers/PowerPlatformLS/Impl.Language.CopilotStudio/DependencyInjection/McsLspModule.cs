@@ -34,7 +34,7 @@
             services.AddSingleton<IDiagnosticsProvider<McsLspDocument>, DiagnosticsProvider>();
             services.AddSingleton<IWorkspaceCompiler<DefinitionBase>, McsWorkspaceCompiler>();
             services.AddSingleton<IReferenceResolver, McsReferenceResolver>();
-            services.AddSingleton<IMcsFileParser, McsFileParser>();
+            services.AddSingleton<Contracts.FileLayout.IMcsFileParser, McsFileParser>();
             services.AddSingleton<IComponentPathResolver, LspComponentPathResolver>();
             services.AddSingleton<IStringResources, StringResources>();
             services.AddSingleton<IBotElementCompletionGenerator, BotElementCompletionGenerator>();

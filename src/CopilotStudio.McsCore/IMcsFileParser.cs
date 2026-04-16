@@ -5,8 +5,7 @@
 using Microsoft.Agents.ObjectModel;
 using Microsoft.Agents.ObjectModel.FileProjection;
 
-using Microsoft.CopilotStudio.McsCore;
-namespace Microsoft.CopilotStudio.Sync;
+namespace Microsoft.CopilotStudio.McsCore;
 
 /// <summary>
 /// Compiles a BotElement model into a BotComponentBase using projection rules.

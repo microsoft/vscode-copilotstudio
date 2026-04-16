@@ -19,13 +19,13 @@
     {
         private readonly PowerFxExpressionChecker _expressionChecker;
         private readonly IClientInformation _clientInfo;
-        private readonly IMcsFileParser _fileParser;
+        private readonly Contracts.FileLayout.IMcsFileParser _fileParser;
         private readonly IAgentFilesAnalyzer _fileReader;
         private readonly IFeatureConfiguration _featureConfiguration;
         private readonly ILspLogger _logger;
         private readonly IReferenceResolver _referenceResolver;
 
-        public McsWorkspaceCompiler(ILspLogger logger, IFeatureConfiguration featureConfiguration, IClientInformation clientInfo, IMcsFileParser fileParser, IAgentFilesAnalyzer fileReader, IReferenceResolver referenceResolver)
+        public McsWorkspaceCompiler(ILspLogger logger, IFeatureConfiguration featureConfiguration, IClientInformation clientInfo, Contracts.FileLayout.IMcsFileParser fileParser, IAgentFilesAnalyzer fileReader, IReferenceResolver referenceResolver)
         {
             _logger = logger;
             _featureConfiguration = featureConfiguration;
