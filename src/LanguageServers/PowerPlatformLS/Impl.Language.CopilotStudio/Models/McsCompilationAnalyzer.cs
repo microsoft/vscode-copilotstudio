@@ -170,7 +170,7 @@
 
             var uri = currentFileRootElement?.Syntax?.SourceUri;
 
-            if (currentFileRootElement is SourceFileElement)
+            if (currentFileRootElement is SourceFileElement || currentFileRootElement is FileAttachmentComponent)
             {
                 // Not yet rooted in BotDefinition. 
                 return currentFileRootElement; 

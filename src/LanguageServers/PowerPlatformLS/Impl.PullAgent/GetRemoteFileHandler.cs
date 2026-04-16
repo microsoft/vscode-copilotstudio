@@ -129,6 +129,12 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     {
                         CodeSerializer.SerializeAsMcsYml(sw, component.Component);
                     }
+
+                    var environmentVariable = changeSet.EnvironmentVariableChanges.OfType<EnvironmentVariableUpsert>().FirstOrDefault(b => b.EnvironmentVariable?.SchemaName.Value == request.SchemaName);
+                    if (environmentVariable?.EnvironmentVariable != null)
+                    {
+                        CodeSerializer.Serialize(sw, environmentVariable.EnvironmentVariable);
+                    }
                 }
 
                 return new GetFileResponse

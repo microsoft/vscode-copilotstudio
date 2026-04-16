@@ -83,7 +83,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     return new ReattachAgentResponse()
                     {
                         Code = 400,
-                        Message = "Agent directory is not valid for reattach.",
+                        Message = "Agent directory is not valid for reattach. Try opening root of the selected agent folder.",
                         AgentSyncInfo = defaultSyncInfo
                     };
                 }

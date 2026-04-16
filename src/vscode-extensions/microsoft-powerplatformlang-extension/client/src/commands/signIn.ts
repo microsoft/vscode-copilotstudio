@@ -4,7 +4,7 @@ import { DefaultCoreServicesClusterCategory, TelemetryEventsKeys } from '../cons
 import { signIn } from '../clients/account';
 
 export const registerSignInCommand = (context: vscode.ExtensionContext) => {
-    context.subscriptions.push(vscode.commands.registerCommand('microsoft-copilot-studio.signin', async () => {
+    context.subscriptions.push(vscode.commands.registerCommand('microsoft-copilot-studio.signIn', async () => {
         try {
             await signIn(DefaultCoreServicesClusterCategory);
         } catch (error) {

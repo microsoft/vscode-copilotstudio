@@ -21,9 +21,9 @@ public class EnvironmentVariableProjectionTests
     [Fact]
     public void GetEnvironmentVariablePath_UsesSchemaNameAsFileName()
     {
-        var envVar = CreateEnvVar("cr123_myVariable");
+        var envVar = CreateEnvVar("cr123.myVariable");
         var path = WorkspaceSynchronizer.GetEnvironmentVariablePath(envVar);
-        Assert.Equal("environmentvariables/cr123_myVariable.mcs.yml", path.ToString());
+        Assert.Equal("environmentvariables/cr123.myVariable.mcs.yml", path.ToString());
     }
 
     [Fact]
@@ -32,9 +32,9 @@ public class EnvironmentVariableProjectionTests
         // Arrange: clone returns a changeset with env var inserts
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
 
-        var envVar1 = CreateEnvVar("cr123_apiEndpoint", "API Endpoint");
-        var envVar2 = CreateEnvVar("cr123_maxRetries", "Max Retries");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: testbot")!;
+        var envVar1 = CreateEnvVar("cr123.apiEndpoint", "API Endpoint");
+        var envVar2 = CreateEnvVar("cr123.maxRetries", "Max Retries");
+        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr123")!;
 
         // Build changeset with env var changes using the full constructor
         var envVarChanges = new EnvironmentVariableChange[]
@@ -81,9 +81,9 @@ public class EnvironmentVariableProjectionTests
 
         // Assert: env var files exist
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        Assert.True(fileAccessor.Exists(new AgentFilePath("environmentvariables/cr123_apiEndpoint.mcs.yml")),
+        Assert.True(fileAccessor.Exists(new AgentFilePath("environmentvariables/cr123.apiEndpoint.mcs.yml")),
             "First env var file should be projected");
-        Assert.True(fileAccessor.Exists(new AgentFilePath("environmentvariables/cr123_maxRetries.mcs.yml")),
+        Assert.True(fileAccessor.Exists(new AgentFilePath("environmentvariables/cr123.maxRetries.mcs.yml")),
             "Second env var file should be projected");
     }
 

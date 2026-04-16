@@ -298,6 +298,8 @@
         private WorkflowMetadata[]? _workflowsForAgent;
 
         public List<(Guid? AgentId, WorkflowMetadata Metadata, string Operation)> WorkflowCalls { get; } = new();
+        
+        private Dictionary<string, ConnectionReferenceInfo> _connectionReferencesByLogicalName = new(StringComparer.OrdinalIgnoreCase);
 
         public void SetDataverseUrl(string dataverseUrl) { }
 
@@ -360,8 +362,20 @@
         public virtual Task EnsureConnectionReferenceExistsAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken)
             => Task.CompletedTask;
 
+        public void SetConnectionReferences(ConnectionReferenceInfo[] connectionReferences)
+        {
+            _connectionReferencesByLogicalName = connectionReferences.ToDictionary(x => x.ConnectionReferenceLogicalName, StringComparer.OrdinalIgnoreCase);
+        }
+
         public virtual Task<ConnectionReferenceInfo[]> GetConnectionReferencesByLogicalNamesAsync(IEnumerable<string> logicalNames, CancellationToken cancellationToken)
-            => Task.FromResult(Array.Empty<ConnectionReferenceInfo>());
+        {
+            var result = logicalNames
+                .Where(l => _connectionReferencesByLogicalName.ContainsKey(l))
+                .Select(l => _connectionReferencesByLogicalName[l])
+                .ToList();
+
+            return Task.FromResult(result.ToArray());
+        }
 
         public virtual Task<SolutionInfo> GetSolutionVersionsAsync(CancellationToken cancellationToken)
             => Task.FromResult(new SolutionInfo { CopilotStudioSolutionVersion = new Version(1, 0, 0, 0) });
@@ -450,10 +464,10 @@
         public Task ApplyTouchupsAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, ReferenceTracker referenceTracker, CancellationToken cancellation)
             => Task.CompletedTask;
 
-        public Task<DefinitionBase> PullExistingChangesAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, DefinitionBase localWorkspaceDefinition, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
+        public Task<DefinitionBase> PullExistingChangesAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, DefinitionBase localWorkspaceDefinition, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken, bool downloadAllKnowledgeFiles = false)
             => Task.FromResult(localWorkspaceDefinition);
 
-        public Task<int> PushChangesetAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, PvaComponentChangeSet localWorkspaceDefinition, ISyncDataverseClient dataverseClient, Guid? agentId, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken)
+        public Task<int> PushChangesetAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, PvaComponentChangeSet localWorkspaceDefinition, ISyncDataverseClient dataverseClient, Guid? agentId, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken, bool uploadAllKnowledgeFiles = false)
             => Task.FromResult(0);
 
         public Task<WorkspaceSyncInfo> SyncWorkspaceAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, string? changeToken, bool updateWorkspaceDirectory, ISyncDataverseClient dataverseClient, Guid? agentId, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken)

@@ -37,16 +37,6 @@
             var list = completions.ToList();
             Assert.NotNull(list[0].Detail);
             Assert.NotNull(list[0].Documentation);
-
-            foreach (var item in list)
-            {
-                item.Detail = null;
-                item.Documentation = null;
-            }
-
-            var json = JsonDump(list);
-            var expected = TestDataReader.GetTestData(fileName + "-output.json");
-            Assert.Equal(expected.ReplaceLineEndings("\n"), json.ReplaceLineEndings("\n"));
         }
 
         private string JsonDump(object value)

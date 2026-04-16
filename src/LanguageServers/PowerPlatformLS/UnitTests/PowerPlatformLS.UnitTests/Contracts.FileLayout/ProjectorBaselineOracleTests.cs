@@ -19,6 +19,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
             // Dialogs
             { "Microsoft.Agents.ObjectModel.AdaptiveDialog", "topics/Greeting", "agent1.topic.Greeting", "topics/Greeting.mcs.yml", "FilenameToTopicName", new object[] { "Greeting" }, BotName },
             { "Microsoft.Agents.ObjectModel.TaskDialog", "actions/DoSomething", "agent1.action.DoSomething", "actions/DoSomething.mcs.yml", "FilenameToActionName", new object[] { "DoSomething" }, BotName },
+             { "Microsoft.Agents.ObjectModel.TaskDialog", "agents/ConnectedAgentTool", "agent1.InvokeConnectedAgentTaskAction.ConnectedAgentTool", "agents/ConnectedAgentTool.mcs.yml", "FilenameToActionName", new object[] { "ConnectedAgentTool" }, BotName },
 
             // Agent dialog
             { "Microsoft.Agents.ObjectModel.AgentDialog", "agents/MyAgent/agent", "agent1.agent.MyAgent", "agents/MyAgent/agent.mcs.yml", "FilenameToAgentDialogName", new object[] { "agents/MyAgent/agent.mcs.yml" }, BotName },

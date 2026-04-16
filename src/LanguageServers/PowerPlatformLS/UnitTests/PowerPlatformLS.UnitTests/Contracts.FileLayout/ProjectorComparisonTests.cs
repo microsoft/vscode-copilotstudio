@@ -40,22 +40,43 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
             Assert.Equal(expectedSchemaName, projectorResult);
         }
 
+
         /// <summary>
         /// Verifies DialogComponentProjector (TaskDialog) produces correct schema names.
         /// </summary>
         [Theory]
-        [InlineData("DoSomething", "cr5f7_agent6eFv9_s.action.DoSomething")]
-        [InlineData("RunTask", "cr5f7_agent6eFv9_s.action.RunTask")]
-        [InlineData("MyAction.docx", "cr5f7_agent6eFv9_s.action.MyAction.docx")]
-        [InlineData("MyAction.v1.d1.txt", "cr5f7_agent6eFv9_s.action.MyAction.v1.d1.txt")]
-        public void ActionProjector_ProducesCorrectSchemaName(string fileName, string expectedSchemaName)
+        [InlineData("DoSomething", "cr5f7_agent6eFv9_s.action.DoSomething", "actions")]
+        [InlineData("RunTask", "cr5f7_agent6eFv9_s.action.RunTask", "actions")]
+        [InlineData("MyAction.docx", "cr5f7_agent6eFv9_s.action.MyAction.docx", "actions")]
+        [InlineData("MyAction.v1.d1.txt", "cr5f7_agent6eFv9_s.action.MyAction.v1.d1.txt", "actions")]
+        [InlineData("AgentA2Thisislongnameaspossible123", "cr5f7_agent6eFv9_s.InvokeConnectedAgentTaskAction.AgentA2Thisislongnameaspossible123", "agents")]
+        [InlineData("AgentA2Thisislongnameaspossible123.v2", "cr5f7_agent6eFv9_s.InvokeConnectedAgentTaskAction.AgentA2Thisislongnameaspossible123.v2", "agents")]
+        public void ActionProjector_ProducesCorrectSchemaName(string fileName, string expectedSchemaName, string expectedFolder)
         {
             var projector = _registry.GetForType(typeof(DialogComponent)) as IComponentProjector;
             Assert.NotNull(projector);
 
-            var projectorResult = _service.GetSchemaName($"actions/{fileName}", TestBotName, typeof(TaskDialog));
+            var projectorResult = _service.GetSchemaName($"{expectedFolder}/{fileName}", TestBotName, typeof(TaskDialog));
 
             Assert.Equal(expectedSchemaName, projectorResult);
+
+            if (projector != null)
+            {
+                var component = new DialogComponent.Builder
+                {
+                    SchemaName = expectedSchemaName,
+                    Dialog = new TaskDialog.Builder()
+                    {
+                        ModelDisplayName = "Test TaskDialog",
+                        ModelDescription = "Test TaskDialog Description"
+                    }
+                }.Build();
+
+                var context = new ProjectionContext { BotName = TestBotName };
+                var actualPath = _service.GetFilePath(component, context);
+                var expectedPath = $"{expectedFolder}/{fileName}.mcs.yml";
+                Assert.Equal(expectedPath, actualPath);
+            }
         }
 
         /// <summary>
