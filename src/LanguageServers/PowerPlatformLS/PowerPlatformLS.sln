@@ -39,6 +39,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CopilotStudio.Sync.UnitTest
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CopilotStudio.Sync.E2ETests", "..\..\CopilotStudio.Sync.E2ETests\CopilotStudio.Sync.E2ETests.csproj", "{794E556B-9BB1-4AB6-BD97-FBE513327E4A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CopilotStudio.McsCore", "..\..\CopilotStudio.McsCore\CopilotStudio.McsCore.csproj", "{D889F80C-6F53-4C04-8984-C18B957DDD04}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -241,6 +243,18 @@ Global
 		{794E556B-9BB1-4AB6-BD97-FBE513327E4A}.Release|x64.Build.0 = Release|Any CPU
 		{794E556B-9BB1-4AB6-BD97-FBE513327E4A}.Release|x86.ActiveCfg = Release|Any CPU
 		{794E556B-9BB1-4AB6-BD97-FBE513327E4A}.Release|x86.Build.0 = Release|Any CPU
+		{D889F80C-6F53-4C04-8984-C18B957DDD04}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D889F80C-6F53-4C04-8984-C18B957DDD04}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D889F80C-6F53-4C04-8984-C18B957DDD04}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D889F80C-6F53-4C04-8984-C18B957DDD04}.Debug|x64.Build.0 = Debug|Any CPU
+		{D889F80C-6F53-4C04-8984-C18B957DDD04}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{D889F80C-6F53-4C04-8984-C18B957DDD04}.Debug|x86.Build.0 = Debug|Any CPU
+		{D889F80C-6F53-4C04-8984-C18B957DDD04}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D889F80C-6F53-4C04-8984-C18B957DDD04}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D889F80C-6F53-4C04-8984-C18B957DDD04}.Release|x64.ActiveCfg = Release|Any CPU
+		{D889F80C-6F53-4C04-8984-C18B957DDD04}.Release|x64.Build.0 = Release|Any CPU
+		{D889F80C-6F53-4C04-8984-C18B957DDD04}.Release|x86.ActiveCfg = Release|Any CPU
+		{D889F80C-6F53-4C04-8984-C18B957DDD04}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
