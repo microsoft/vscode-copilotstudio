@@ -9,7 +9,6 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
     using System;
     using System.Threading.Tasks;
-    using Microsoft.CopilotStudio.McsCore;
 
     [LanguageServerEndpoint("powerplatformls/getWorkspaceDetails", LanguageServerConstants.DefaultLanguageName)]
     internal class GetWorkspaceDetailsHandler : IRequestHandler<GetWorkspaceDetailsParams, CopilotStudioWorkspaceInfo, RequestContext>

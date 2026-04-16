@@ -12,7 +12,6 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using System;
     using System.Threading;
     using System.Threading.Tasks;
-    using Microsoft.CopilotStudio.McsCore;
 
     [LanguageServerEndpoint(ReattachAgentRequest.MessageName, LanguageServerConstants.DefaultLanguageName)]
     internal class ReattachAgentHandler : IRequestHandler<ReattachAgentRequest, ReattachAgentResponse, RequestContext>

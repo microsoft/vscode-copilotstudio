@@ -11,7 +11,6 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using System.Collections.Immutable;
     using System.Threading;
     using System.Threading.Tasks;
-    using Microsoft.CopilotStudio.McsCore;
 
     [LanguageServerEndpoint("powerplatformls/syncPull", LanguageServerConstants.DefaultLanguageName)]
     internal class SyncPullHandler : SyncHandler

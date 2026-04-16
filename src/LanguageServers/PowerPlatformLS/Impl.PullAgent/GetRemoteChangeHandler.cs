@@ -11,7 +11,6 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
     using System.Threading;
     using System.Threading.Tasks;
-    using Microsoft.CopilotStudio.McsCore;
 
 
     [LanguageServerEndpoint("powerplatformls/getRemoteChanges", LanguageServerConstants.DefaultLanguageName)]

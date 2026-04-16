@@ -12,7 +12,6 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using System.Collections.Immutable;
     using System.Threading;
     using System.Threading.Tasks;
-    using Microsoft.CopilotStudio.McsCore;
 
     internal abstract class SyncHandler : IRequestHandler<SyncAgentRequest, SyncAgentResponse, RequestContext>
     {

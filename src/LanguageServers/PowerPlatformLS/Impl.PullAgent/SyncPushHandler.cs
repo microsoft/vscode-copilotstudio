@@ -13,7 +13,6 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
-    using Microsoft.CopilotStudio.McsCore;
 
 
     [LanguageServerEndpoint("powerplatformls/syncPush", LanguageServerConstants.DefaultLanguageName)]

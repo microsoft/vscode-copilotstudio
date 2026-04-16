@@ -12,7 +12,6 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using System.Text.RegularExpressions;
     using System.Threading;
     using System.Threading.Tasks;
-    using Microsoft.CopilotStudio.McsCore;
 
     // For initial clone - writing to a new directory.
     [LanguageServerEndpoint(CloneAgentRequest.MessageName, LanguageServerConstants.DefaultLanguageName)]
