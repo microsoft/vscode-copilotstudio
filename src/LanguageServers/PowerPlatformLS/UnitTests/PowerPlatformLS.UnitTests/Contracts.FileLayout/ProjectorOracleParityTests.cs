@@ -315,7 +315,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
 
         private static object? TryGetLspProjectorServiceInstance()
         {
-            var serviceType = FindType("Microsoft.PowerPlatformLS.Contracts.FileLayout.LspProjectorService");
+            var serviceType = FindType("Microsoft.CopilotStudio.McsCore.LspProjectorService");
             if (serviceType == null)
             {
                 return null;
@@ -384,7 +384,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
             string botName,
             Type elementType)
         {
-            var lspProjectionType = FindType("Microsoft.PowerPlatformLS.Contracts.FileLayout.LspProjection");
+            var lspProjectionType = FindType("Microsoft.CopilotStudio.McsCore.LspProjection");
             if (lspProjectionType == null)
             {
                 return null;
@@ -490,7 +490,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
 
         private static IReadOnlyDictionary<string, string[]>? GetFileStructureMapFromRuntime()
         {
-            var layoutType = FindType("Microsoft.PowerPlatformLS.Contracts.FileLayout.LspProjectionLayout");
+            var layoutType = FindType("Microsoft.CopilotStudio.McsCore.LspProjectionLayout");
             if (layoutType != null)
             {
                 var map = layoutType.GetField("FileStructureMap", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
@@ -509,7 +509,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
 
         private static IReadOnlyDictionary<string, string[]>? GetTypeToFileCandidatesFromRuntime()
         {
-            var layoutType = FindType("Microsoft.PowerPlatformLS.Contracts.FileLayout.LspProjectionLayout");
+            var layoutType = FindType("Microsoft.CopilotStudio.McsCore.LspProjectionLayout");
             if (layoutType != null)
             {
                 var map = layoutType.GetField("TypeToFileCandidates", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);

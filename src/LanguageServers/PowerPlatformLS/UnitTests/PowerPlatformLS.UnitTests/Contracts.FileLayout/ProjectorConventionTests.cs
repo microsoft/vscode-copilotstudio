@@ -3,6 +3,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
     using System;
     using Microsoft.Agents.ObjectModel;
     using Microsoft.Agents.ObjectModel.FileProjection;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Xunit;
 

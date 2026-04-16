@@ -5,6 +5,7 @@ using Microsoft.Agents.Platform.Content.Abstractions;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Microsoft.Extensions.DependencyInjection;
 
+using Microsoft.CopilotStudio.McsCore;
 namespace Microsoft.CopilotStudio.Sync;
 
 /// <summary>

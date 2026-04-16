@@ -5,7 +5,7 @@ using Microsoft.Agents.ObjectModel;
 using System.Collections.Frozen;
 using System.Linq;
 
-namespace Microsoft.CopilotStudio.Sync;
+namespace Microsoft.CopilotStudio.McsCore;
 
 /// <summary>
 /// Declarative projection rules for all MCS element types.

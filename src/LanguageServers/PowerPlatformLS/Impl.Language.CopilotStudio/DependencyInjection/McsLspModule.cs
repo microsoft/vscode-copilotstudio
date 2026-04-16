@@ -1,6 +1,7 @@
 ﻿namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.DependencyInjection
 {
     using Microsoft.Agents.ObjectModel;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.Agents.ObjectModel.Abstractions;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;

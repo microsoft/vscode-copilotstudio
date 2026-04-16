@@ -7,6 +7,7 @@ using Microsoft.Agents.ObjectModel.Telemetry;
 using Microsoft.Agents.Platform.Content;
 using Microsoft.Agents.Platform.Content.Abstractions;
 using Microsoft.Agents.Platform.Content.Internal.Modules;
+using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Microsoft.Extensions.DependencyInjection;

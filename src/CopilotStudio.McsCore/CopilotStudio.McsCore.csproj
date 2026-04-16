@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Agents.ObjectModel" />
+    <PackageReference Include="Microsoft.Agents.ObjectModel.PowerFx" />
   </ItemGroup>
 
 </Project>
