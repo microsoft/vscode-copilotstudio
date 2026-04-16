@@ -20,6 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\CopilotStudio.McsCore\CopilotStudio.McsCore.csproj" />
     <ProjectReference Include="..\CopilotStudio.Sync\CopilotStudio.Sync.csproj" />
   </ItemGroup>
 

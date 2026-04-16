@@ -1,6 +1,7 @@
 ﻿namespace Microsoft.PowerPlatformLS.Impl.PullAgent.DependencyInjection
 {
     using Microsoft.Agents.ObjectModel;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.Agents.ObjectModel.Abstractions;
     using Microsoft.Agents.ObjectModel.Expressions;
     using Microsoft.Agents.ObjectModel.PowerFx;

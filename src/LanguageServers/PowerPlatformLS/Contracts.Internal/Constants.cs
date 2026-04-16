@@ -1,6 +1,7 @@
 ﻿
 namespace Microsoft.PowerPlatformLS.Contracts.Internal
 {
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
     using System.Text.Json;
     using System.Text.Json.Serialization;

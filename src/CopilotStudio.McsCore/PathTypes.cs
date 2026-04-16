@@ -1,12 +1,11 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
-// Ported from om/src/vscode/LanguageServers/PowerPlatformLS/Contracts.Internal/Common/Path/ and Contracts.FileLayout/AgentFilePath.cs
 
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 
-namespace Microsoft.CopilotStudio.Sync;
+namespace Microsoft.CopilotStudio.McsCore;
 
 #region PathHelper
 
@@ -320,7 +319,7 @@ public readonly struct RelativeDirectoryPath : IEquatable<RelativeDirectoryPath>
 
 #region WorkspacePath
 
-internal enum LanguageType
+public enum LanguageType
 {
     Default = 0,
     CopilotStudio,

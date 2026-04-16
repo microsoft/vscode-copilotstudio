@@ -1,6 +1,7 @@
 namespace Microsoft.PowerPlatformLS.Contracts.FileLayout
 {
     using Microsoft.Agents.ObjectModel.FileProjection;
+    using Microsoft.CopilotStudio.McsCore;
 
     /// <summary>
     /// Shared projector registry for Language Server usage.

@@ -1,6 +1,7 @@
 ﻿
 namespace Microsoft.PowerPlatformLS.Contracts.FileLayout
 {
+    using Microsoft.CopilotStudio.McsCore;
     using System.Diagnostics.CodeAnalysis;
 
     /// <summary>

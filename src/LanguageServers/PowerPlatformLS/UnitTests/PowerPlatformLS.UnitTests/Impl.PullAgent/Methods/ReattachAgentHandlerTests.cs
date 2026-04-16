@@ -24,8 +24,7 @@
     using System.Threading.Tasks;
     using Xunit;
     using static Microsoft.CopilotStudio.Sync.Dataverse.SyncDataverseClient;
-    using DirectoryPath = Microsoft.PowerPlatformLS.Contracts.Internal.Common.DirectoryPath;
-    using AgentFilePath = Microsoft.PowerPlatformLS.Contracts.FileLayout.AgentFilePath;
+    using Microsoft.CopilotStudio.McsCore;
 
     public class ReattachAgentHandlerTests
     {
@@ -142,7 +141,7 @@
             });
 
             var syncInfo = await synchronizer.SyncWorkspaceAsync(
-                new Microsoft.CopilotStudio.Sync.DirectoryPath(WorkspacePath),
+                new Microsoft.CopilotStudio.McsCore.DirectoryPath(WorkspacePath),
                 operationContext,
                 changeToken: "token",
                 updateWorkspaceDirectory: updateWorkspaceDirectory,
@@ -420,9 +419,9 @@
     {
         public bool ReattachCalled { get; private set; } = false;
 
-        public virtual bool IsSyncInfoAvailable(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder) => false;
+        public virtual bool IsSyncInfoAvailable(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder) => false;
 
-        public Task<AgentSyncInfo> GetSyncInfoAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder)
+        public Task<AgentSyncInfo> GetSyncInfoAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder)
         {
             return Task.FromResult(new AgentSyncInfo
             {
@@ -443,34 +442,34 @@
             });
         }
 
-        public Task SaveSyncInfoAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, AgentSyncInfo connectionDetails)
+        public Task SaveSyncInfoAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AgentSyncInfo connectionDetails)
         {
             return Task.CompletedTask;
         }
 
-        public Task<(PvaComponentChangeSet, ImmutableArray<Change>)> GetLocalChangesAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, DefinitionBase workspaceDefinition, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
+        public Task<(PvaComponentChangeSet, ImmutableArray<Change>)> GetLocalChangesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, DefinitionBase workspaceDefinition, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
         {
             return Task.FromResult((new PvaComponentChangeSet(Enumerable.Empty<BotComponentChange>(), null, "token"), ImmutableArray<Change>.Empty));
         }
 
-        public Task<(PvaComponentChangeSet, ImmutableArray<Change>)> GetRemoteChangesAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
+        public Task<(PvaComponentChangeSet, ImmutableArray<Change>)> GetRemoteChangesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
         {
             return Task.FromResult((new PvaComponentChangeSet(Enumerable.Empty<BotComponentChange>(), null, "token"), ImmutableArray<Change>.Empty));
         }
 
-        public Task CloneChangesAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, ReferenceTracker referenceTracker, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
+        public Task CloneChangesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ReferenceTracker referenceTracker, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
             => Task.CompletedTask;
 
-        public Task ApplyTouchupsAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, ReferenceTracker referenceTracker, CancellationToken cancellation)
+        public Task ApplyTouchupsAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ReferenceTracker referenceTracker, CancellationToken cancellation)
             => Task.CompletedTask;
 
-        public Task<DefinitionBase> PullExistingChangesAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, DefinitionBase localWorkspaceDefinition, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken, bool downloadAllKnowledgeFiles = false)
+        public Task<DefinitionBase> PullExistingChangesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, DefinitionBase localWorkspaceDefinition, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken, bool downloadAllKnowledgeFiles = false)
             => Task.FromResult(localWorkspaceDefinition);
 
-        public Task<int> PushChangesetAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, PvaComponentChangeSet localWorkspaceDefinition, ISyncDataverseClient dataverseClient, Guid? agentId, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken, bool uploadAllKnowledgeFiles = false)
+        public Task<int> PushChangesetAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, PvaComponentChangeSet localWorkspaceDefinition, ISyncDataverseClient dataverseClient, Guid? agentId, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken, bool uploadAllKnowledgeFiles = false)
             => Task.FromResult(0);
 
-        public Task<WorkspaceSyncInfo> SyncWorkspaceAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, string? changeToken, bool updateWorkspaceDirectory, ISyncDataverseClient dataverseClient, Guid? agentId, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken)
+        public Task<WorkspaceSyncInfo> SyncWorkspaceAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, string? changeToken, bool updateWorkspaceDirectory, ISyncDataverseClient dataverseClient, Guid? agentId, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken)
         {
             ReattachCalled = true;
             return Task.FromResult(new WorkspaceSyncInfo
@@ -480,7 +479,7 @@
             });
         }
 
-        public virtual Task<(ImmutableArray<WorkflowResponse>, CloudFlowMetadata)> UpsertWorkflowForAgentAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
+        public virtual Task<(ImmutableArray<WorkflowResponse>, CloudFlowMetadata)> UpsertWorkflowForAgentAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
         {
             var emptyMetadata = new CloudFlowMetadata
             {
@@ -493,7 +492,7 @@
             );
         }
 
-        public Task<CloudFlowMetadata> GetWorkflowsAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, Microsoft.CopilotStudio.Sync.IFileAccessor fileAccessor, CancellationToken cancellationToken)
+        public Task<CloudFlowMetadata> GetWorkflowsAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, Microsoft.CopilotStudio.McsCore.IFileAccessor fileAccessor, CancellationToken cancellationToken)
         {
             return Task.FromResult(new CloudFlowMetadata
             {
@@ -505,19 +504,19 @@
         public Task ProvisionConnectionReferencesAsync(DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
             => Task.CompletedTask;
 
-        public Task<DefinitionBase> ReadWorkspaceDefinitionAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, CancellationToken cancellationToken, bool checkKnowledgeFiles = false)
+        public Task<DefinitionBase> ReadWorkspaceDefinitionAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, CancellationToken cancellationToken, bool checkKnowledgeFiles = false)
             => Task.FromResult<DefinitionBase>(new BotDefinition());
 
-        public Task<PushVerificationResult> VerifyPushAsync(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
+        public Task<PushVerificationResult> VerifyPushAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
             => Task.FromResult(new PushVerificationResult { IsFullyAccepted = true });
 
-        public Task<ImmutableArray<Microsoft.CopilotStudio.Sync.DirectoryPath>> CloneAllAssetsAsync(Microsoft.CopilotStudio.Sync.DirectoryPath rootFolder, AgentSyncInfo syncInfo, AssetsToClone assetsToClone, AgentInfo agentInfo, IOperationContextProvider operationContextProvider, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
-            => Task.FromResult(ImmutableArray<Microsoft.CopilotStudio.Sync.DirectoryPath>.Empty);
+        public Task<ImmutableArray<Microsoft.CopilotStudio.McsCore.DirectoryPath>> CloneAllAssetsAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath rootFolder, AgentSyncInfo syncInfo, AssetsToClone assetsToClone, AgentInfo agentInfo, IOperationContextProvider operationContextProvider, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+            => Task.FromResult(ImmutableArray<Microsoft.CopilotStudio.McsCore.DirectoryPath>.Empty);
     }
 
     internal class TestWorkspaceSynchronizerSyncInfoExists : TestWorkspaceSynchronizer
     {
-        public override bool IsSyncInfoAvailable(Microsoft.CopilotStudio.Sync.DirectoryPath workspaceFolder) => true;
+        public override bool IsSyncInfoAvailable(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder) => true;
     }
 
     internal class TestOperationContextProvider : IOperationContextProvider

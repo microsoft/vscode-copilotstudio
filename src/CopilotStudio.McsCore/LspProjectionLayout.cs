@@ -3,7 +3,8 @@
 
 using System.Linq;
 
-namespace Microsoft.CopilotStudio.Sync;
+
+namespace Microsoft.CopilotStudio.McsCore;
 
 /// <summary>
 /// MCS layout for the Language Server, exposing computed layout maps from <see cref="LspProjection"/>.

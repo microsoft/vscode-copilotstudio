@@ -3,6 +3,7 @@
     using Microsoft.Agents.ObjectModel;
     using Microsoft.Agents.ObjectModel.FileProjection;
     using Microsoft.Agents.ObjectModel.Syntax;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Exceptions;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models;

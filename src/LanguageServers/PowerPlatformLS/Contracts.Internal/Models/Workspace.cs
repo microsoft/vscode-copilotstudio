@@ -1,6 +1,7 @@
 namespace Microsoft.PowerPlatformLS.Contracts.Internal.Models
 {
     using Microsoft.Agents.ObjectModel;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.Extensions.FileProviders;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models.Lsp;

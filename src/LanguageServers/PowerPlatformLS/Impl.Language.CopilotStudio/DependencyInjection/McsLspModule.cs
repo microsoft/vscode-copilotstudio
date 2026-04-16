@@ -1,6 +1,7 @@
 ﻿namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.DependencyInjection
 {
     using Microsoft.Agents.ObjectModel;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.Agents.ObjectModel.Abstractions;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
@@ -33,7 +34,7 @@
             services.AddSingleton<IDiagnosticsProvider<McsLspDocument>, DiagnosticsProvider>();
             services.AddSingleton<IWorkspaceCompiler<DefinitionBase>, McsWorkspaceCompiler>();
             services.AddSingleton<IReferenceResolver, McsReferenceResolver>();
-            services.AddSingleton<IMcsFileParser, McsFileParser>();
+            services.AddSingleton<Contracts.FileLayout.IMcsFileParser, McsFileParser>();
             services.AddSingleton<IComponentPathResolver, LspComponentPathResolver>();
             services.AddSingleton<IStringResources, StringResources>();
             services.AddSingleton<IBotElementCompletionGenerator, BotElementCompletionGenerator>();

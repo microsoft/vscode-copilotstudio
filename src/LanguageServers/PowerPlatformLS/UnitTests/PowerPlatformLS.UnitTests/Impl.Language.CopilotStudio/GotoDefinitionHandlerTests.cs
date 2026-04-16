@@ -1,6 +1,7 @@
 ﻿namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
 {
     using Microsoft.CommonLanguageServerProtocol.Framework;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Handlers;

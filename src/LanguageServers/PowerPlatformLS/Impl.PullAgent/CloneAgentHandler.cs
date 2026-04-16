@@ -5,13 +5,13 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.CopilotStudio.Sync.Dataverse;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
     using System.Collections.Generic;
     using System.Text.RegularExpressions;
     using System.Threading;
     using System.Threading.Tasks;
-    using DirectoryPath = Microsoft.PowerPlatformLS.Contracts.Internal.Common.DirectoryPath;
 
     // For initial clone - writing to a new directory.
     [LanguageServerEndpoint(CloneAgentRequest.MessageName, LanguageServerConstants.DefaultLanguageName)]
@@ -130,13 +130,13 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                         agentFolderName ??= folderName;
                     }
 
-                    await _workspaceSynchronizer.SaveSyncInfoAsync(folder.ToSync(), syncInfo);
-                    await _workspaceSynchronizer.CloneChangesAsync(folder.ToSync(), referenceTracker, operationContext, _dataverseClient, syncInfo.AgentId, cancellationToken);
+                    await _workspaceSynchronizer.SaveSyncInfoAsync(folder, syncInfo);
+                    await _workspaceSynchronizer.CloneChangesAsync(folder, referenceTracker, operationContext, _dataverseClient, syncInfo.AgentId, cancellationToken);
                 }
 
                 foreach (var folder in touchups)
                 {
-                    await _workspaceSynchronizer.ApplyTouchupsAsync(folder.ToSync(), referenceTracker, cancellationToken);
+                    await _workspaceSynchronizer.ApplyTouchupsAsync(folder, referenceTracker, cancellationToken);
                 }
 
                 return new CloneAgentResponse()

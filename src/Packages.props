@@ -1,7 +1,7 @@
 <Project>
   <PropertyGroup>
     <AspNetCoreVersion>10.0.1</AspNetCoreVersion>
-    <PowerFxPackageVersion>1.5.0-build.20251008-1002</PowerFxPackageVersion>
+    <PowerFxPackageVersion>1.8.1</PowerFxPackageVersion>
     <AgentsPackageVersion>1.2026.415.1</AgentsPackageVersion>
   </PropertyGroup>
 

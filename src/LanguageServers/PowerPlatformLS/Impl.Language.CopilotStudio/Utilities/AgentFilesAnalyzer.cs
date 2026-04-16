@@ -3,6 +3,7 @@
     using Microsoft.Agents.ObjectModel;
     using Microsoft.Agents.ObjectModel.Yaml;
     using Microsoft.Extensions.FileProviders;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models;

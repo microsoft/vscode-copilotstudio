@@ -2,6 +2,7 @@
 {
     using Microsoft.Agents.ObjectModel;
     using Microsoft.Agents.ObjectModel.Syntax;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models.Lsp;

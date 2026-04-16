@@ -20,8 +20,8 @@
     using System.Threading;
     using System.Threading.Tasks;
     using Xunit;
-    using AgentFilePath = Microsoft.PowerPlatformLS.Contracts.FileLayout.AgentFilePath;
-    using IFileAccessorFactory = Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessorFactory;
+    using Microsoft.CopilotStudio.McsCore;
+    using IFileAccessorFactory = Microsoft.CopilotStudio.McsCore.IFileAccessorFactory;
 
     public class CloneAgentTests
     {
@@ -156,8 +156,8 @@
                 // prevent disk access during tests (both PullAgent and CopilotStudio.Sync interfaces)
                 services.RemoveAll<IFileAccessorFactory>();
                 services.AddSingleton<IFileAccessorFactory>(DiskMock);
-                services.RemoveAll<Microsoft.CopilotStudio.Sync.IFileAccessorFactory>();
-                services.AddSingleton<Microsoft.CopilotStudio.Sync.IFileAccessorFactory>(DiskMock);
+                services.RemoveAll<Microsoft.CopilotStudio.McsCore.IFileAccessorFactory>();
+                services.AddSingleton<Microsoft.CopilotStudio.McsCore.IFileAccessorFactory>(DiskMock);
 
                 // Point island for getting changesets.
                 // By injecting the island, we can skip injecting http services or other auth.

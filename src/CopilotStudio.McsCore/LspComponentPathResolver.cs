@@ -5,7 +5,7 @@ using System.Diagnostics;
 using Microsoft.Agents.ObjectModel;
 using Microsoft.Agents.ObjectModel.FileProjection;
 
-namespace Microsoft.CopilotStudio.Sync;
+namespace Microsoft.CopilotStudio.McsCore;
 
 /// <summary>
 /// Component path resolver that delegates to <see cref="LspProjectorService"/>.

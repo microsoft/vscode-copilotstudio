@@ -3,7 +3,7 @@
 
 using Microsoft.Agents.ObjectModel;
 
-namespace Microsoft.CopilotStudio.Sync;
+namespace Microsoft.CopilotStudio.McsCore;
 
 /// <summary>
 /// Resolves file paths for ObjectModel components based on LS projection rules.

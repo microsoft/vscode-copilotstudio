@@ -5,13 +5,13 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.CopilotStudio.Sync.Dataverse;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
     using System;
     using System.Threading;
     using System.Threading.Tasks;
-    using DirectoryPath = Microsoft.PowerPlatformLS.Contracts.Internal.Common.DirectoryPath;
 
     [LanguageServerEndpoint(ReattachAgentRequest.MessageName, LanguageServerConstants.DefaultLanguageName)]
     internal class ReattachAgentHandler : IRequestHandler<ReattachAgentRequest, ReattachAgentResponse, RequestContext>
@@ -88,7 +88,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     };
                 }
 
-                if (_workspaceSynchronizer.IsSyncInfoAvailable(workspaceFolder.ToSync()))
+                if (_workspaceSynchronizer.IsSyncInfoAvailable(workspaceFolder))
                 {
                     return new ReattachAgentResponse()
                     {
@@ -151,12 +151,12 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     AgentManagementEndpoint = new Uri(request.EnvironmentInfo.AgentManagementUrl)
                 };
 
-                await _workspaceSynchronizer.SaveSyncInfoAsync(workspaceFolder.ToSync(), syncInfo);
+                await _workspaceSynchronizer.SaveSyncInfoAsync(workspaceFolder, syncInfo);
                 var operationContext = await _operationContextProvider.GetAsync(syncInfo);
 
                 await _workspaceSynchronizer.ProvisionConnectionReferencesAsync(workspace.Definition, _dataverseClient, cancellationToken);
-                var (workflowResponse, cloudFlowMetadata) = await _workspaceSynchronizer.UpsertWorkflowForAgentAsync(workspaceFolder.ToSync(), _dataverseClient, agentId, cancellationToken);
-                await _workspaceSynchronizer.SyncWorkspaceAsync(workspaceFolder.ToSync(), operationContext, changeToken: null, updateWorkspaceDirectory, _dataverseClient, agentId, cloudFlowMetadata, cancellationToken: cancellationToken);
+                var (workflowResponse, cloudFlowMetadata) = await _workspaceSynchronizer.UpsertWorkflowForAgentAsync(workspaceFolder, _dataverseClient, agentId, cancellationToken);
+                await _workspaceSynchronizer.SyncWorkspaceAsync(workspaceFolder, operationContext, changeToken: null, updateWorkspaceDirectory, _dataverseClient, agentId, cloudFlowMetadata, cancellationToken: cancellationToken);
 
                 return new ReattachAgentResponse()
                 {

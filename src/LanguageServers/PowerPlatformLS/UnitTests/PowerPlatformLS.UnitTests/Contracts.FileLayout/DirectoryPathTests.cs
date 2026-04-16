@@ -1,5 +1,6 @@
 ﻿namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
 {
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Xunit;
 

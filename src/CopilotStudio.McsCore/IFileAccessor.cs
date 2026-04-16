@@ -4,7 +4,7 @@
 using System.Text;
 using System.Threading;
 
-namespace Microsoft.CopilotStudio.Sync;
+namespace Microsoft.CopilotStudio.McsCore;
 
 /// <summary>
 /// Abstraction over file access.

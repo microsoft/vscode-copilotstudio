@@ -3,13 +3,13 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.CopilotStudio.Sync.Dataverse;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Contracts.Internal;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
     using System.Threading;
     using System.Threading.Tasks;
-    using DirectoryPath = Microsoft.PowerPlatformLS.Contracts.Internal.Common.DirectoryPath;
 
 
     [LanguageServerEndpoint(Constants.JsonRpcMethods.GetLocalChanges, LanguageServerConstants.DefaultLanguageName)]
@@ -43,8 +43,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 _dataverseClient.SetDataverseUrl(request.EnvironmentInfo.DataverseUrl);
 
                 var workspace = (IMcsWorkspace)context.Workspace;
-                var syncInfo = await _workspaceSynchronizer.GetSyncInfoAsync(workspace.FolderPath.ToSync());
-                var (_, localChanges) = await _workspaceSynchronizer.GetLocalChangesAsync(workspace.FolderPath.ToSync(), workspace.Definition, _dataverseClient, syncInfo.AgentId, cancellationToken);
+                var syncInfo = await _workspaceSynchronizer.GetSyncInfoAsync(workspace.FolderPath);
+                var (_, localChanges) = await _workspaceSynchronizer.GetLocalChangesAsync(workspace.FolderPath, workspace.Definition, _dataverseClient, syncInfo.AgentId, cancellationToken);
 
                 return new SyncAgentResponse
                 {

@@ -17,6 +17,7 @@ using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 using static Microsoft.CopilotStudio.Sync.Dataverse.SyncDataverseClient;
 
+using Microsoft.CopilotStudio.McsCore;
 namespace Microsoft.CopilotStudio.Sync;
 
 /// <summary>

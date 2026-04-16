@@ -18,6 +18,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\CLaSP\Microsoft.CommonLanguageServerProtocol.Framework.csproj" />
     <ProjectReference Include="..\Contracts.Lsp\Contracts.Lsp.csproj" />
+    <ProjectReference Include="..\..\..\CopilotStudio.McsCore\CopilotStudio.McsCore.csproj" />
 	<PackageReference Include="Microsoft.Agents.ObjectModel"/>
   </ItemGroup>
 

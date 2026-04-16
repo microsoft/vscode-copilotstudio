@@ -4,7 +4,7 @@
 using Microsoft.Agents.ObjectModel;
 using Microsoft.Agents.ObjectModel.FileProjection;
 
-namespace Microsoft.CopilotStudio.Sync;
+namespace Microsoft.CopilotStudio.McsCore;
 
 /// <summary>
 /// Language Server projection service that delegates to <see cref="LspProjection"/> for all projection rules.

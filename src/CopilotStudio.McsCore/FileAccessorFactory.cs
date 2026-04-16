@@ -1,7 +1,8 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 // Ported from om/src/vscode/LanguageServers/PowerPlatformLS/Impl.PullAgent/File/FileWriter.cs
 
-namespace Microsoft.CopilotStudio.Sync;
+
+namespace Microsoft.CopilotStudio.McsCore;
 
 internal class FileAccessorFactory : IFileAccessorFactory
 {

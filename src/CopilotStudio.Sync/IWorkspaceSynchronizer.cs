@@ -8,6 +8,7 @@ using Microsoft.Agents.Platform.Content;
 using System.Collections.Immutable;
 using System.Threading;
 
+using Microsoft.CopilotStudio.McsCore;
 namespace Microsoft.CopilotStudio.Sync;
 
 public interface IWorkspaceSynchronizer
