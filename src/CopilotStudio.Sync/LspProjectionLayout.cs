@@ -3,6 +3,8 @@
 
 using System.Linq;
 
+using Microsoft.CopilotStudio.McsCore;
+
 namespace Microsoft.CopilotStudio.Sync;
 
 /// <summary>

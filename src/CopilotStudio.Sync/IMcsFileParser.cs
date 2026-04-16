@@ -5,6 +5,7 @@
 using Microsoft.Agents.ObjectModel;
 using Microsoft.Agents.ObjectModel.FileProjection;
 
+using Microsoft.CopilotStudio.McsCore;
 namespace Microsoft.CopilotStudio.Sync;
 
 /// <summary>

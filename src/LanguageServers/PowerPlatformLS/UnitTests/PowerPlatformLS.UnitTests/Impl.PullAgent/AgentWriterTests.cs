@@ -21,13 +21,12 @@
     using System.Threading.Tasks;
     using Xunit;
     using static Microsoft.CopilotStudio.Sync.Dataverse.SyncDataverseClient;
-    using AgentFilePath = Microsoft.PowerPlatformLS.Contracts.FileLayout.AgentFilePath;
-    using DirectoryPath = Microsoft.PowerPlatformLS.Contracts.Internal.Common.DirectoryPath;
-    using SyncDirectoryPath = Microsoft.CopilotStudio.Sync.DirectoryPath;
+    using Microsoft.CopilotStudio.McsCore;
+    // DirectoryPath now comes from Microsoft.CopilotStudio.McsCore
 
     public class AgentWriterTests
     {
-        private static readonly SyncDirectoryPath WorkspaceFolderPath = new SyncDirectoryPath(string.Empty);
+        private static readonly DirectoryPath WorkspaceFolderPath = new DirectoryPath(string.Empty);
         private static readonly DirectoryPath ContractsWorkspaceFolderPath = new DirectoryPath(string.Empty);
         private static readonly AgentFilePath BotCachePath = new AgentFilePath(".mcs/botdefinition.json");
         private static readonly AgentFilePath OldBotCachePath = new AgentFilePath(".mcs/botdefinition.yml");
@@ -83,7 +82,7 @@
             var writer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.Sync.LspProjectorService.Instance), (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem, islandControlPlaneServicMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.Sync.LspComponentPathResolver());
 
             var accessor = (Microsoft.CopilotStudio.Sync.IFileAccessor)filesystem;
-            using (var stream = accessor.OpenWrite(new Microsoft.CopilotStudio.Sync.AgentFilePath(".mcs/conn.json")))
+            using (var stream = accessor.OpenWrite(new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/conn.json")))
             using (var sw = new StreamWriter(stream))
             {
                 await sw.WriteAsync("null");
@@ -156,8 +155,8 @@ entity:
             var filesystem = new InMemoryFileWriter();
             var accessor = (Microsoft.CopilotStudio.Sync.IFileAccessor)filesystem;
 
-            var syncPath = useOldCache ? new Microsoft.CopilotStudio.Sync.AgentFilePath(OldBotCachePath.ToString()) : new Microsoft.CopilotStudio.Sync.AgentFilePath(BotCachePath.ToString());
-            await accessor.WriteAsync(syncPath, content, CancellationToken.None);
+            var syncPath = useOldCache ? new Microsoft.CopilotStudio.McsCore.AgentFilePath(OldBotCachePath.ToString()) : new Microsoft.CopilotStudio.McsCore.AgentFilePath(BotCachePath.ToString());
+            await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)accessor).WriteAsync(syncPath, content, CancellationToken.None);
 
             var result = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor);
 
@@ -257,15 +256,15 @@ entity:
                "topics/topic2.mcs.yml" // filename should have schema truncated. 
             ], actualFilenames);
 
-            var currentChangeToken = await filesystem.ReadStringAsync(new AgentFilePath(".mcs/changetoken.txt"), cancel);
+            var currentChangeToken = await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).ReadStringAsync(new AgentFilePath(".mcs/changetoken.txt"), cancel);
             Assert.Equal(changeToken1, currentChangeToken);
 
             // Empty agent.mcs.yml file written since it was missing from changeset.
-            var currentAgentMcsYml = await filesystem.ReadStringAsync(new AgentFilePath("agent.mcs.yml"), cancel);
+            var currentAgentMcsYml = await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).ReadStringAsync(new AgentFilePath("agent.mcs.yml"), cancel);
             Assert.Equal("kind: GptComponentMetadata", currentAgentMcsYml);
 
             // Ensure yaml gets display name and description. 
-            var topicYml = await filesystem.ReadStringAsync(new AgentFilePath("topics/topic2.mcs.yml"), default);
+            var topicYml = await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).ReadStringAsync(new AgentFilePath("topics/topic2.mcs.yml"), default);
 
             string expectedStart = """
 kind: AdaptiveDialog
@@ -331,11 +330,11 @@ kind: AdaptiveDialog
                "settings.mcs.yml"
             ], actualFilenames);
 
-            var currentChangeToken = await filesystem.ReadStringAsync(new AgentFilePath(".mcs/changetoken.txt"), cancel);
+            var currentChangeToken = await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).ReadStringAsync(new AgentFilePath(".mcs/changetoken.txt"), cancel);
             Assert.Equal(changeToken1, currentChangeToken);
 
             // Empty agent.mcs.yml file written since it was missing from changeset.
-            var currentAgentMcsYml = await filesystem.ReadStringAsync(new AgentFilePath("agent.mcs.yml"), cancel);
+            var currentAgentMcsYml = await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).ReadStringAsync(new AgentFilePath("agent.mcs.yml"), cancel);
             Assert.Equal("", currentAgentMcsYml.Trim());
         }
 
@@ -425,7 +424,7 @@ kind: AdaptiveDialog
                 Components = { originalComponent }
             }.Build();
             WorkspaceSynchronizer.WriteCloudCache((Microsoft.CopilotStudio.Sync.IFileAccessor)filesystem, originalDefinition);
-            await ((Microsoft.CopilotStudio.Sync.IFileAccessor)filesystem).WriteAsync(new Microsoft.CopilotStudio.Sync.AgentFilePath(".mcs/changetoken.txt"), "original_token", cancel);
+            await ((Microsoft.CopilotStudio.Sync.IFileAccessor)filesystem).WriteAsync(new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/changetoken.txt"), "original_token", cancel);
 
             // 3. Define the user's local view (previousDefinition)
             var previousDefinition = new BotDefinition.Builder
@@ -457,7 +456,7 @@ kind: AdaptiveDialog
 
             // Verify the topic file contains the merged content with conflict markers
             var pathResolver = new Microsoft.CopilotStudio.Sync.LspComponentPathResolver();
-            string actualMergedContent = await filesystem.ReadStringAsync(new AgentFilePath(pathResolver.GetComponentPath(originalComponent, originalDefinition)), cancel);
+            string actualMergedContent = await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).ReadStringAsync(new AgentFilePath(pathResolver.GetComponentPath(originalComponent, originalDefinition)), cancel);
             string expectedMergedContent = """
 mcs.metadata:
   componentName: Thank you
@@ -497,7 +496,7 @@ beginDialog:
             Assert.Equal(remoteRootElement, cachedRootElement);
 
             // Verify the change token was updated
-            string updatedToken = await filesystem.ReadStringAsync(new AgentFilePath(".mcs/changetoken.txt"), cancel);
+            string updatedToken = await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).ReadStringAsync(new AgentFilePath(".mcs/changetoken.txt"), cancel);
             Assert.Equal("remote_token", updatedToken);
         }
 
@@ -552,7 +551,7 @@ beginDialog:
             }.Build();
 
             WorkspaceSynchronizer.WriteCloudCache((Microsoft.CopilotStudio.Sync.IFileAccessor)filesystem, originalDefinition);
-            await ((Microsoft.CopilotStudio.Sync.IFileAccessor)filesystem).WriteAsync(new Microsoft.CopilotStudio.Sync.AgentFilePath(".mcs/changetoken.txt"), "original_token", cancel);
+            await ((Microsoft.CopilotStudio.Sync.IFileAccessor)filesystem).WriteAsync(new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/changetoken.txt"), "original_token", cancel);
 
             var previousDefinition = new BotDefinition.Builder
             {
@@ -661,7 +660,7 @@ beginDialog:
             );
 
             var workflowJsonPath = new AgentFilePath($"{workflowFolder}/workflow.json");
-            var workflowJsonContent = await filesystem.ReadStringAsync(workflowJsonPath, cancel);
+            var workflowJsonContent = await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).ReadStringAsync(workflowJsonPath, cancel);
             JsonDocument.Parse(workflowJsonContent);
 
             islandControlPlaneServiceMock.Verify(s => s.SaveChangesAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<PvaComponentChangeSet>(), cancel), Times.Once);
@@ -825,7 +824,7 @@ beginDialog:
             }.Build();
 
             WorkspaceSynchronizer.WriteCloudCache(filesystem, originalDefinition);
-            await filesystem.WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "original_token", cancel);
+            await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "original_token", cancel);
 
             var previousDefinition = new BotDefinition.Builder
             {
@@ -922,9 +921,9 @@ beginDialog:
 
             var workflowFolder = Path.Combine(WorkspaceFolderPath.ToString(), "workflows", workflowId.ToString()).Replace("\\", "/");
 
-            await filesystem.WriteAsync(new AgentFilePath($"{workflowFolder}/workflow.json"), workflowJson, cancel);
+            await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).WriteAsync(new AgentFilePath($"{workflowFolder}/workflow.json"), workflowJson, cancel);
 
-            await filesystem.WriteAsync(new AgentFilePath($"{workflowFolder}/metadata.yml"),
+            await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).WriteAsync(new AgentFilePath($"{workflowFolder}/metadata.yml"),
                     $"workflowId: {workflowId}\nname: LocalWorkflow", cancel);
 
             var botDefinition = new BotDefinition.Builder
@@ -1012,7 +1011,7 @@ beginDialog:
 
             var expectedFilePath = new AgentFilePath("connectionreferences.mcs.yml");
             Assert.Contains(expectedFilePath.ToString(), filesystem.Filenames);
-            var connections = CodeSerializer.Deserialize<ConnectionReferencesSourceFile>(await filesystem.ReadStringAsync(expectedFilePath, cancel))?.ConnectionReferences;
+            var connections = CodeSerializer.Deserialize<ConnectionReferencesSourceFile>(await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).ReadStringAsync(expectedFilePath, cancel))?.ConnectionReferences;
             Assert.NotNull(connections);
             Assert.Equal(3, connections!.Value.Length);
 
@@ -1026,7 +1025,7 @@ beginDialog:
         {
             using var tempWorkspace = new TempDirectory();
             var workspacePath = tempWorkspace.Path.Replace("\\", "/");
-            var workspaceFolder = new SyncDirectoryPath(workspacePath);
+            var workspaceFolder = new DirectoryPath(workspacePath);
             var islandControlPlaneServiceMock = new Mock<IIslandControlPlaneService>();
             var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.Sync.LspProjectorService.Instance), (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)new InMemoryFileWriter(), islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.Sync.LspComponentPathResolver());
 
@@ -1054,7 +1053,7 @@ beginDialog:
         public async Task GetWorkflowsAsync_TestInputAndOutputTypes()
         {
             using var tempWorkspace = new TempDirectory();
-            var workspaceFolder = new SyncDirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
+            var workspaceFolder = new DirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
             var workflowId = Guid.NewGuid();
             var agentId = Guid.NewGuid();
 
@@ -1158,7 +1157,7 @@ beginDialog:
         public async Task UpsertWorkflowForAgentAsyncWithMetadata()
         {
             using var tempWorkspace = new TempDirectory();
-            var workspaceFolder = new SyncDirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
+            var workspaceFolder = new DirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
             var workflowId = Guid.NewGuid();
             var agentId = Guid.NewGuid();
             var workflowDir = Path.Combine(workspaceFolder.ToString(), "workflows", $"TestWorkflow-{workflowId}");
@@ -1186,7 +1185,7 @@ beginDialog:
         public async Task UpsertWorkflowForAgentAsyncSkipsFoldersMissingFiles()
         {
             using var tempWorkspace = new TempDirectory();
-            var workspaceFolder = new SyncDirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
+            var workspaceFolder = new DirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
             var workflowId = Guid.NewGuid();
             var agentId = Guid.NewGuid();
             var workflowDir = Path.Combine(workspaceFolder.ToString(), "workflows", $"TestWorkflow-{workflowId}");
@@ -1213,7 +1212,7 @@ beginDialog:
         public async Task GetLocalChangesAsyncWorkflowCreated()
         {
             using var tempWorkspace = new TempDirectory();
-            var workspaceFolder = new SyncDirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
+            var workspaceFolder = new DirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
             var workflowId = Guid.NewGuid();
             var agentId = Guid.NewGuid();
             var cancel = CancellationToken.None;
@@ -1232,12 +1231,12 @@ beginDialog:
             var filesystem = new InMemoryFileWriter();
 
             await ((Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem).Create(workspaceFolder).WriteAsync(
-                new Microsoft.CopilotStudio.Sync.AgentFilePath(".mcs/botdefinition.json"),
+                new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/botdefinition.json"),
                 JsonSerializer.Serialize(emptyBotDefinition, new JsonSerializerOptions { WriteIndented = true }),
                 cancel
             );
 
-            await ((Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem).Create(workspaceFolder).WriteAsync(new Microsoft.CopilotStudio.Sync.AgentFilePath(".mcs/changetoken.txt"), "original_token", cancel);
+            await ((Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem).Create(workspaceFolder).WriteAsync(new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/changetoken.txt"), "original_token", cancel);
 
             var synchronizer = new WorkspaceSynchronizer(
                 new SyncMcsFileParser(Microsoft.CopilotStudio.Sync.LspProjectorService.Instance),
@@ -1274,7 +1273,7 @@ beginDialog:
         public async Task GetLocalChangesAsyncWorkflowUpdated()
         {
             using var tempWorkspace = new TempDirectory();
-            var workspaceFolder = new SyncDirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
+            var workspaceFolder = new DirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
             var workflowId = Guid.NewGuid();
             var cancel = CancellationToken.None;
             var filesystem = new InMemoryFileWriter();
@@ -1309,7 +1308,7 @@ beginDialog:
                 cloudSnapshot
             );
 
-            await ((Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem).Create(workspaceFolder).WriteAsync(new Microsoft.CopilotStudio.Sync.AgentFilePath(".mcs/changetoken.txt"), "token", cancel);
+            await ((Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem).Create(workspaceFolder).WriteAsync(new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/changetoken.txt"), "token", cancel);
 
             var workflowsDir = Path.Combine(workspaceFolder.ToString(), "workflows");
             Directory.CreateDirectory(workflowsDir);
@@ -1346,7 +1345,7 @@ beginDialog:
         public async Task GetLocalChangesAsyncWorkflowDeleted()
         {
             using var tempWorkspace = new TempDirectory();
-            var workspaceFolder = new SyncDirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
+            var workspaceFolder = new DirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
             var cancel = CancellationToken.None;
             var workflowId = Guid.NewGuid();
             var botEntity = new BotEntity().WithSchemaName(new BotEntitySchemaName("cr123"));
@@ -1368,7 +1367,7 @@ beginDialog:
 
             WorkspaceSynchronizer.WriteCloudCache((Microsoft.CopilotStudio.Sync.IFileAccessor)filesystem, originalDefinition);
             await ((Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem).Create(workspaceFolder)
-                .WriteAsync(new Microsoft.CopilotStudio.Sync.AgentFilePath(".mcs/changetoken.txt"), "token", cancel);
+                .WriteAsync(new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/changetoken.txt"), "token", cancel);
 
             var synchronizer = new WorkspaceSynchronizer(
                 new SyncMcsFileParser(Microsoft.CopilotStudio.Sync.LspProjectorService.Instance),
@@ -1395,13 +1394,13 @@ beginDialog:
         public async Task GetRemoteChangesAsyncWorkflowCreated()
         {
             using var tempWorkspace = new TempDirectory();
-            var workspaceFolder = new SyncDirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
+            var workspaceFolder = new DirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
             var cancel = CancellationToken.None;
             var botEntity = new BotEntity().WithSchemaName(new BotEntitySchemaName("cr123"));
             var emptyDefinition = new BotDefinition.Builder { Entity = botEntity }.Build();
             var filesystem = new InMemoryFileWriter();
             WorkspaceSynchronizer.WriteCloudCache((Microsoft.CopilotStudio.Sync.IFileAccessor)filesystem, emptyDefinition);
-            await ((Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem).Create(workspaceFolder).WriteAsync(new Microsoft.CopilotStudio.Sync.AgentFilePath(".mcs/changetoken.txt"), "", cancel);
+            await ((Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem).Create(workspaceFolder).WriteAsync(new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/changetoken.txt"), "", cancel);
 
             var islandMock = new Mock<IIslandControlPlaneService>();
             islandMock
@@ -1443,7 +1442,7 @@ beginDialog:
         public async Task GetRemoteChangesAsyncWorkflowUpdated()
         {
             using var tempWorkspace = new TempDirectory();
-            var workspaceFolder = new SyncDirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
+            var workspaceFolder = new DirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
             var cancel = CancellationToken.None;
             var workflowId = Guid.NewGuid();
             var botEntity = new BotEntity().WithSchemaName(new BotEntitySchemaName("cr123"));
@@ -1463,7 +1462,7 @@ beginDialog:
 
             var filesystem = new InMemoryFileWriter();
             WorkspaceSynchronizer.WriteCloudCache((Microsoft.CopilotStudio.Sync.IFileAccessor)filesystem, originalDefinition);
-            await ((Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem).Create(workspaceFolder).WriteAsync(new Microsoft.CopilotStudio.Sync.AgentFilePath(".mcs/changetoken.txt"), "token", cancel);
+            await ((Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem).Create(workspaceFolder).WriteAsync(new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/changetoken.txt"), "token", cancel);
 
             var islandMock = new Mock<IIslandControlPlaneService>();
             islandMock
@@ -1504,7 +1503,7 @@ beginDialog:
         public async Task GetRemoteChangesAsyncWorkflowDeleted()
         {
             using var tempWorkspace = new TempDirectory();
-            var workspaceFolder = new SyncDirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
+            var workspaceFolder = new DirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
             var cancel = CancellationToken.None;
             var workflowId = Guid.NewGuid();
             var botEntity = new BotEntity().WithSchemaName(new BotEntitySchemaName("cr123"));
@@ -1524,7 +1523,7 @@ beginDialog:
 
             var filesystem = new InMemoryFileWriter();
             WorkspaceSynchronizer.WriteCloudCache((Microsoft.CopilotStudio.Sync.IFileAccessor)filesystem, originalDefinition);
-            await ((Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem).Create(workspaceFolder).WriteAsync(new Microsoft.CopilotStudio.Sync.AgentFilePath(".mcs/changetoken.txt"), "token", cancel);
+            await ((Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem).Create(workspaceFolder).WriteAsync(new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/changetoken.txt"), "token", cancel);
 
             var islandMock = new Mock<IIslandControlPlaneService>();
             islandMock
@@ -1557,7 +1556,7 @@ beginDialog:
         public async Task GetWorkflowsAsyncRemoteEmptyClearsWorkspaceAndCache()
         {
             using var tempWorkspace = new TempDirectory();
-            var workspaceFolder = new SyncDirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
+            var workspaceFolder = new DirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
             var workflowId = Guid.NewGuid();
             var agentId = Guid.NewGuid();
 
@@ -1714,7 +1713,7 @@ beginDialog:
             var expectedFilePath = new AgentFilePath("environmentvariables/cr123.cloneTestEnvVar.mcs.yml");
             Assert.Contains(expectedFilePath.ToString(), filesystem.Filenames);
 
-            var content = await filesystem.ReadStringAsync(expectedFilePath, cancel);
+            var content = await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).ReadStringAsync(expectedFilePath, cancel);
             Assert.Contains("CloneTestEnvVar", content);
             Assert.Contains("initial value", content);
         }
@@ -1756,7 +1755,7 @@ beginDialog:
             }.Build();
 
             WorkspaceSynchronizer.WriteCloudCache(filesystem, originalDefinition);
-            await filesystem.WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "original_token", cancel);
+            await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "original_token", cancel);
 
             var previousDefinition = new BotDefinition.Builder
             {
@@ -1860,7 +1859,7 @@ beginDialog:
             }.Build();
 
             WorkspaceSynchronizer.WriteCloudCache(filesystem, originalDefinition);
-            await filesystem.WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "original_token", cancel);
+            await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "original_token", cancel);
 
             var pushChangeset = new PvaComponentChangeSet(
                 null,
@@ -1933,7 +1932,7 @@ beginDialog:
             }.Build();
 
             var fileAccessor = new InMemoryFileWriter();
-            await fileAccessor.WriteAsync(new AgentFilePath($"environmentvariables/{env.SchemaName.Value}.mcs.yml"), "content", CancellationToken.None);
+            await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)fileAccessor).WriteAsync(new AgentFilePath($"environmentvariables/{env.SchemaName.Value}.mcs.yml"), "content", CancellationToken.None);
 
             var synchronizer = CreateSynchronizer();
 
@@ -2049,7 +2048,7 @@ beginDialog:
             }.Build();
 
             var fileAccessor = new InMemoryFileWriter();
-            await fileAccessor.WriteAsync(new AgentFilePath($"environmentvariables/{localEnv.SchemaName.Value}.mcs.yml"), "content", CancellationToken.None);
+            await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)fileAccessor).WriteAsync(new AgentFilePath($"environmentvariables/{localEnv.SchemaName.Value}.mcs.yml"), "content", CancellationToken.None);
 
             var synchronizer = CreateSynchronizer();
 

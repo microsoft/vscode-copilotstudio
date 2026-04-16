@@ -7,6 +7,7 @@ using System.Collections.Immutable;
 using System.Runtime.Serialization;
 using System.Text.Json.Serialization;
 
+using Microsoft.CopilotStudio.McsCore;
 namespace Microsoft.CopilotStudio.Sync;
 
 

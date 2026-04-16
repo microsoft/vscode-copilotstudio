@@ -1,5 +1,6 @@
 ﻿namespace Microsoft.PowerPlatformLS.Contracts.Internal.Common
 {
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.Extensions.FileProviders;
 
     public interface IClientWorkspaceFileProvider

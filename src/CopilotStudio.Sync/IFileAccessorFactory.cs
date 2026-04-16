@@ -1,6 +1,8 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 // Ported from om/src/vscode/LanguageServers/PowerPlatformLS/Impl.PullAgent/File/IFileAccessorFactory.cs
 
+using Microsoft.CopilotStudio.McsCore;
+
 namespace Microsoft.CopilotStudio.Sync;
 
 internal interface IFileAccessorFactory

@@ -1,5 +1,6 @@
 ﻿namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
 {
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.Internal;
     using Microsoft.PowerPlatformLS.Impl.Core.Lsp.Uris;
     using System.Diagnostics.CodeAnalysis;

@@ -20,7 +20,7 @@
     using System.Threading;
     using System.Threading.Tasks;
     using Xunit;
-    using AgentFilePath = Microsoft.PowerPlatformLS.Contracts.FileLayout.AgentFilePath;
+    using Microsoft.CopilotStudio.McsCore;
     using IFileAccessorFactory = Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessorFactory;
 
     public class CloneAgentTests
@@ -99,7 +99,7 @@
 
         private async Task AssertFileContentAsync(string filepath, string expectedContent, InMemoryFileWriter diskMock)
         {
-            var actualContent = await diskMock.ReadStringAsync(new AgentFilePath(filepath), CancellationToken.None);
+            var actualContent = await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)diskMock).ReadStringAsync(new AgentFilePath(filepath), CancellationToken.None);
             Assert.True(expectedContent == actualContent, $"{filepath} has unexpected content.\nexpected=\n{expectedContent}\nactual=\n{actualContent}");
         }
 
@@ -265,7 +265,7 @@
 
             // Compare content.
             // Key thing is this has touched up the references ot the local dir. 
-            var refContents = await workspacesFiles[1].Value.ReadStringAsync(new AgentFilePath("references.mcs.yml"), default);
+            var refContents = await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)workspacesFiles[1].Value).ReadStringAsync(new AgentFilePath("references.mcs.yml"), default);
             Assert.Equal("componentCollections:\n  - schemaName:\n    directory: ../MyCC_333/", refContents.ReplaceLineEndings("\n"));
 
             Assert.NotNull(context); // prevent dispose

@@ -2,6 +2,7 @@
 
 namespace Microsoft.PowerPlatformLS.Contracts.Internal.Models.Lsp
 {
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Exceptions;
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;

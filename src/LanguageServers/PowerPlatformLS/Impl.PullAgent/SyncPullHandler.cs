@@ -5,12 +5,13 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.CopilotStudio.Sync.Dataverse;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
     using System.Collections.Immutable;
     using System.Threading;
     using System.Threading.Tasks;
-    using DirectoryPath = Microsoft.PowerPlatformLS.Contracts.Internal.Common.DirectoryPath;
+    using Microsoft.CopilotStudio.McsCore;
 
     [LanguageServerEndpoint("powerplatformls/syncPull", LanguageServerConstants.DefaultLanguageName)]
     internal class SyncPullHandler : SyncHandler
@@ -22,7 +23,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
         protected override async Task<(DefinitionBase, ImmutableArray<WorkflowResponse>)> ExecuteAsync(IMcsWorkspace workspace, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
         {
-            return (await _synchronizer.PullExistingChangesAsync(workspace.FolderPath.ToSync(), operationContext, workspace.Definition, dataverseClient, agentId, cancellationToken).ConfigureAwait(false), ImmutableArray<WorkflowResponse>.Empty);
+            return (await _synchronizer.PullExistingChangesAsync(workspace.FolderPath, operationContext, workspace.Definition, dataverseClient, agentId, cancellationToken).ConfigureAwait(false), ImmutableArray<WorkflowResponse>.Empty);
         }
     }
 }

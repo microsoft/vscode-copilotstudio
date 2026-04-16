@@ -4,6 +4,7 @@
     using Microsoft.Agents.ObjectModel.Syntax;
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.Extensions.DependencyInjection;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.Internal;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common.DependencyInjection;

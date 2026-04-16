@@ -1,5 +1,6 @@
 ﻿namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 {
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using System.Text;

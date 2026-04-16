@@ -4,6 +4,7 @@
 using System.Text;
 using System.Threading;
 
+using Microsoft.CopilotStudio.McsCore;
 namespace Microsoft.CopilotStudio.Sync;
 
 /// <summary>

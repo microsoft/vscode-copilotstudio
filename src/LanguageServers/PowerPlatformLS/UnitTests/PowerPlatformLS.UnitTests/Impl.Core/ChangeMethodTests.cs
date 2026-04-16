@@ -8,7 +8,7 @@
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.DependencyInjection;
     using Microsoft.PowerPlatformLS.Impl.PullAgent;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.DependencyInjection;
-    using DirectoryPath = Microsoft.PowerPlatformLS.Contracts.Internal.Common.DirectoryPath;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.UnitTests.TestUtilities;
     using System;
     using System.IO;

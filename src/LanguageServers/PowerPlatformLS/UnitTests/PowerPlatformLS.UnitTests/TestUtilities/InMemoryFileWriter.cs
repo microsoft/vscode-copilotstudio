@@ -7,8 +7,7 @@
     using System.Collections.Generic;
     using System.IO;
     using System.Linq;
-    using SyncAgentFilePath = Microsoft.CopilotStudio.Sync.AgentFilePath;
-    using SyncDirectoryPath = Microsoft.CopilotStudio.Sync.DirectoryPath;
+    using Microsoft.CopilotStudio.McsCore;
 
 
     // Test helper. Write to in-memory instead of disk.
@@ -32,7 +31,7 @@
             return writer;
         }
 
-        Microsoft.CopilotStudio.Sync.IFileAccessor Microsoft.CopilotStudio.Sync.IFileAccessorFactory.Create(SyncDirectoryPath root)
+        Microsoft.CopilotStudio.Sync.IFileAccessor Microsoft.CopilotStudio.Sync.IFileAccessorFactory.Create(DirectoryPath root)
         {
             var contractsRoot = new DirectoryPath(root.ToString());
             return (InMemoryFileWriter)Create(contractsRoot);
@@ -126,19 +125,19 @@
         public IFileAccessor Create(DirectoryPath root) => this;
 
         // CopilotStudio.Sync.IFileAccessor implementation (delegates to Contracts.FileLayout methods via string conversion)
-        bool Microsoft.CopilotStudio.Sync.IFileAccessor.Exists(SyncAgentFilePath path) => Exists(new AgentFilePath(path.ToString()));
-        void Microsoft.CopilotStudio.Sync.IFileAccessor.CreateHiddenDirectory(SyncAgentFilePath path) => CreateHiddenDirectory(new AgentFilePath(path.ToString()));
-        Stream Microsoft.CopilotStudio.Sync.IFileAccessor.OpenWrite(SyncAgentFilePath path) => OpenWrite(new AgentFilePath(path.ToString()));
-        Stream Microsoft.CopilotStudio.Sync.IFileAccessor.OpenRead(SyncAgentFilePath path) => OpenRead(new AgentFilePath(path.ToString()));
-        void Microsoft.CopilotStudio.Sync.IFileAccessor.Delete(SyncAgentFilePath path) => Delete(new AgentFilePath(path.ToString()));
-        void Microsoft.CopilotStudio.Sync.IFileAccessor.Replace(SyncAgentFilePath sourcePath, SyncAgentFilePath targetPath) => Replace(new AgentFilePath(sourcePath.ToString()), new AgentFilePath(targetPath.ToString()));
-        IEnumerable<SyncAgentFilePath> Microsoft.CopilotStudio.Sync.IFileAccessor.ListFiles(string? relativeFolder, string filePattern) =>
+        bool Microsoft.CopilotStudio.Sync.IFileAccessor.Exists(AgentFilePath path) => Exists(new AgentFilePath(path.ToString()));
+        void Microsoft.CopilotStudio.Sync.IFileAccessor.CreateHiddenDirectory(AgentFilePath path) => CreateHiddenDirectory(new AgentFilePath(path.ToString()));
+        Stream Microsoft.CopilotStudio.Sync.IFileAccessor.OpenWrite(AgentFilePath path) => OpenWrite(new AgentFilePath(path.ToString()));
+        Stream Microsoft.CopilotStudio.Sync.IFileAccessor.OpenRead(AgentFilePath path) => OpenRead(new AgentFilePath(path.ToString()));
+        void Microsoft.CopilotStudio.Sync.IFileAccessor.Delete(AgentFilePath path) => Delete(new AgentFilePath(path.ToString()));
+        void Microsoft.CopilotStudio.Sync.IFileAccessor.Replace(AgentFilePath sourcePath, AgentFilePath targetPath) => Replace(new AgentFilePath(sourcePath.ToString()), new AgentFilePath(targetPath.ToString()));
+        IEnumerable<AgentFilePath> Microsoft.CopilotStudio.Sync.IFileAccessor.ListFiles(string? relativeFolder, string filePattern) =>
             _files.Keys
                 .Where(k => relativeFolder == null || k.ToString().StartsWith(relativeFolder, StringComparison.OrdinalIgnoreCase))
-                .Select(k => new SyncAgentFilePath(k.ToString()));
+                .Select(k => new AgentFilePath(k.ToString()));
 
         // CopilotStudio.Sync.IFileAccessorFactory implementation
-        Microsoft.CopilotStudio.Sync.IFileAccessor Microsoft.CopilotStudio.Sync.IFileAccessorFactory.Create(SyncDirectoryPath root) => this;
+        Microsoft.CopilotStudio.Sync.IFileAccessor Microsoft.CopilotStudio.Sync.IFileAccessorFactory.Create(DirectoryPath root) => this;
 
         private class ReadWrapper : MemoryStream
         {

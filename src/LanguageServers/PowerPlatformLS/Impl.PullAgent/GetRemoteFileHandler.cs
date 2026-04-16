@@ -4,13 +4,14 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.CopilotStudio.Sync.Dataverse;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
     using System.Threading;
     using System.Threading.Tasks;
-    using DirectoryPath = Microsoft.PowerPlatformLS.Contracts.Internal.Common.DirectoryPath;
+    using Microsoft.CopilotStudio.McsCore;
 
 
     internal class GetFileRequest : DataverseRequest, IHasWorkspace
@@ -67,9 +68,9 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 _dataverseClient.SetDataverseUrl(request.EnvironmentInfo.DataverseUrl);
 
                 var workspace = (IMcsWorkspace)context.Workspace;
-                var syncInfo = await _synchronizer.GetSyncInfoAsync(workspace.FolderPath.ToSync());
+                var syncInfo = await _synchronizer.GetSyncInfoAsync(workspace.FolderPath);
                 var operationContext = await _operationContextProvider.GetAsync(syncInfo);
-                var (changeSet, changes) = await _synchronizer.GetRemoteChangesAsync(workspace.FolderPath.ToSync(), operationContext, _dataverseClient, syncInfo.AgentId, cancellationToken);
+                var (changeSet, changes) = await _synchronizer.GetRemoteChangesAsync(workspace.FolderPath, operationContext, _dataverseClient, syncInfo.AgentId, cancellationToken);
                 var change = changes.FirstOrDefault(m => m.SchemaName.Equals(request.SchemaName, StringComparison.OrdinalIgnoreCase));
 
                 if (change == null)

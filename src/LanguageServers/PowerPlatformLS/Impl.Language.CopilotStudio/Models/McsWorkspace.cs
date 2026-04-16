@@ -7,6 +7,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models
     using Microsoft.Agents.ObjectModel.PowerFx;
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.Extensions.FileProviders;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Contracts.Internal;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;

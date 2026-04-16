@@ -3,13 +3,13 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.Agents.ObjectModel;
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.CopilotStudio.Sync;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
     using System;
     using System.Threading.Tasks;
-    using DirectoryPath = Microsoft.PowerPlatformLS.Contracts.Internal.Common.DirectoryPath;
-    using AgentFilePath = Microsoft.PowerPlatformLS.Contracts.FileLayout.AgentFilePath;
+    using Microsoft.CopilotStudio.McsCore;
 
     [LanguageServerEndpoint("powerplatformls/getWorkspaceDetails", LanguageServerConstants.DefaultLanguageName)]
     internal class GetWorkspaceDetailsHandler : IRequestHandler<GetWorkspaceDetailsParams, CopilotStudioWorkspaceInfo, RequestContext>
@@ -41,9 +41,9 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             AgentSyncInfo? syncInfo = null;
             try
             {
-                if (_synchronizer.IsSyncInfoAvailable(ws.FolderPath.ToSync()))
+                if (_synchronizer.IsSyncInfoAvailable(ws.FolderPath))
                 {
-                    syncInfo = await _synchronizer.GetSyncInfoAsync(ws.FolderPath.ToSync());
+                    syncInfo = await _synchronizer.GetSyncInfoAsync(ws.FolderPath);
                 }
             }
             catch (Exception exception)

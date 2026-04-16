@@ -1,6 +1,7 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 
-using Microsoft.CopilotStudio.Sync;
+using Microsoft.CopilotStudio.McsCore;
+    using Microsoft.CopilotStudio.Sync;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Microsoft.CopilotStudio.Sync.TestHarness;
 using Microsoft.Extensions.DependencyInjection;

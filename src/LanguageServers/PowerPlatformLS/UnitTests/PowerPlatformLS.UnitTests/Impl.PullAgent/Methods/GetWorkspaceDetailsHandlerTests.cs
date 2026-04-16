@@ -11,7 +11,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
     using System.Threading;
     using System.Threading.Tasks;
     using Xunit;
-    using SyncDirectoryPath = Microsoft.CopilotStudio.Sync.DirectoryPath;
+    using Microsoft.CopilotStudio.McsCore;
     using WorkspaceType = Microsoft.PowerPlatformLS.Impl.PullAgent.WorkspaceType;
 
     public class GetWorkspaceDetailsHandlerTests
@@ -31,7 +31,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
 
             // Mock synchronizer: no sync info available (no conn.json)
             var synchronizer = new Mock<Microsoft.CopilotStudio.Sync.IWorkspaceSynchronizer>();
-            synchronizer.Setup(s => s.IsSyncInfoAvailable(It.IsAny<SyncDirectoryPath>())).Returns(false);
+            synchronizer.Setup(s => s.IsSyncInfoAvailable(It.IsAny<DirectoryPath>())).Returns(false);
 
             // Mock file accessor: no icon
             var fileAccessor = new InMemoryFileWriter();
@@ -70,8 +70,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
 
             // Mock synchronizer: sync info IS available
             var synchronizer = new Mock<Microsoft.CopilotStudio.Sync.IWorkspaceSynchronizer>();
-            synchronizer.Setup(s => s.IsSyncInfoAvailable(It.IsAny<SyncDirectoryPath>())).Returns(true);
-            synchronizer.Setup(s => s.GetSyncInfoAsync(It.IsAny<SyncDirectoryPath>())).ReturnsAsync(expectedSyncInfo);
+            synchronizer.Setup(s => s.IsSyncInfoAvailable(It.IsAny<DirectoryPath>())).Returns(true);
+            synchronizer.Setup(s => s.GetSyncInfoAsync(It.IsAny<DirectoryPath>())).ReturnsAsync(expectedSyncInfo);
 
             var fileFactory = new InMemoryFileAccessorFactory();
             var logger = new Mock<ILspLogger>();

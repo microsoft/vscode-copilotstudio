@@ -2,6 +2,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
 {
     using Microsoft.Agents.ObjectModel;
     using Microsoft.Agents.ObjectModel.TemplateContent;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.Internal;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;

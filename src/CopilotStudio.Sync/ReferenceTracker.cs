@@ -3,6 +3,7 @@
 
 using Microsoft.Agents.ObjectModel;
 
+using Microsoft.CopilotStudio.McsCore;
 namespace Microsoft.CopilotStudio.Sync;
 
 /// <summary>

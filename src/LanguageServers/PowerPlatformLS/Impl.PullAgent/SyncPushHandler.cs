@@ -5,6 +5,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.CopilotStudio.Sync.Dataverse;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
     using System;
@@ -12,7 +13,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
-    using DirectoryPath = Microsoft.PowerPlatformLS.Contracts.Internal.Common.DirectoryPath;
+    using Microsoft.CopilotStudio.McsCore;
 
 
     [LanguageServerEndpoint("powerplatformls/syncPush", LanguageServerConstants.DefaultLanguageName)]
@@ -25,18 +26,18 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
         protected override async Task<(DefinitionBase, ImmutableArray<WorkflowResponse>)> ExecuteAsync(IMcsWorkspace workspace, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
         {
-            var (workflowResponse, cloudFlowMetadata) = await _synchronizer.UpsertWorkflowForAgentAsync(workspace.FolderPath.ToSync(), dataverseClient, agentId, cancellationToken);
+            var (workflowResponse, cloudFlowMetadata) = await _synchronizer.UpsertWorkflowForAgentAsync(workspace.FolderPath, dataverseClient, agentId, cancellationToken);
 
             await _synchronizer.ProvisionConnectionReferencesAsync(workspace.Definition, dataverseClient, cancellationToken);
 
             // Execute the push
-            var (localChanges, changeList) = await _synchronizer.GetLocalChangesAsync(workspace.FolderPath.ToSync(), workspace.Definition, dataverseClient, agentId, cancellationToken);
+            var (localChanges, changeList) = await _synchronizer.GetLocalChangesAsync(workspace.FolderPath, workspace.Definition, dataverseClient, agentId, cancellationToken);
             if (!changeList.Any(c => c.SchemaName == "entity" || c.SchemaName == "icon"))
             {
                 localChanges = localChanges.WithBot(null);
             }
 
-            await _synchronizer.PushChangesetAsync(workspace.FolderPath.ToSync(), operationContext, localChanges, dataverseClient, agentId, cloudFlowMetadata, cancellationToken);
+            await _synchronizer.PushChangesetAsync(workspace.FolderPath, operationContext, localChanges, dataverseClient, agentId, cloudFlowMetadata, cancellationToken);
             return (workspace.Definition, workflowResponse);
         }
     }

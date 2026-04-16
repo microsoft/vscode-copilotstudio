@@ -5,13 +5,14 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.CopilotStudio.Sync.Dataverse;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
     using System.Collections.Immutable;
     using System.Threading;
     using System.Threading.Tasks;
-    using DirectoryPath = Microsoft.PowerPlatformLS.Contracts.Internal.Common.DirectoryPath;
+    using Microsoft.CopilotStudio.McsCore;
 
     internal abstract class SyncHandler : IRequestHandler<SyncAgentRequest, SyncAgentResponse, RequestContext>
     {
@@ -56,12 +57,12 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
                 var workspace = (IMcsWorkspace)context.Workspace;
 
-                var syncInfo = await _synchronizer.GetSyncInfoAsync(workspace.FolderPath.ToSync());
+                var syncInfo = await _synchronizer.GetSyncInfoAsync(workspace.FolderPath);
 
                 var operationContext = await _operationContextProvider.GetAsync(syncInfo);
 
                 var (updatedDefinition, workflowResponse) = await ExecuteAsync(workspace, operationContext, _dataverseClient, syncInfo.AgentId, cancellationToken);
-                var (_, localChanges) = await _synchronizer.GetLocalChangesAsync(workspace.FolderPath.ToSync(), updatedDefinition, _dataverseClient, syncInfo.AgentId, cancellationToken);
+                var (_, localChanges) = await _synchronizer.GetLocalChangesAsync(workspace.FolderPath, updatedDefinition, _dataverseClient, syncInfo.AgentId, cancellationToken);
 
                 return new SyncAgentResponse
                 {

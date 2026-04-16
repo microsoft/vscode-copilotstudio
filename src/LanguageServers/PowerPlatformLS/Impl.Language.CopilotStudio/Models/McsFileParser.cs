@@ -5,6 +5,7 @@
     using Microsoft.Agents.ObjectModel.Syntax;
     using Microsoft.Agents.ObjectModel.Syntax.Tokens;
     using Microsoft.Agents.ObjectModel.Yaml;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models.Lsp;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Exceptions;
