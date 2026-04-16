@@ -6,7 +6,7 @@ on:
       - main
 
 env:
-  AzDevOpsPipelineId: 31435
+  AzDevOpsPipelineId: 31673
 
 permissions:
   id-token: write 
