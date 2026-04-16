@@ -15,4 +15,19 @@
     <ProjectReference Include="CopilotStudio.Sync.E2ETests\CopilotStudio.Sync.E2ETests.csproj" />
     <ProjectReference Include="CopilotStudio.Sync.TestHarness\CopilotStudio.Sync.TestHarness.csproj" />
   </ItemGroup>
+
+  <!-- Library projects for dotnet pack -->
+  <ItemGroup>
+    <ProjectReference Include="CopilotStudio.Sync\CopilotStudio.Sync.csproj" />
+    <ProjectReference Include="LanguageServers\CLaSP\Microsoft.CommonLanguageServerProtocol.Framework.csproj" />
+    <ProjectReference Include="LanguageServers\PowerPlatformLS\Contracts.FileLayout\Contracts.FileLayout.csproj" />
+    <ProjectReference Include="LanguageServers\PowerPlatformLS\Contracts.Internal\Contracts.Internal.csproj" />
+    <ProjectReference Include="LanguageServers\PowerPlatformLS\Contracts.LSP\Contracts.LSP.csproj" />
+    <ProjectReference Include="LanguageServers\PowerPlatformLS\Impl.Core\Impl.Core.csproj" />
+    <ProjectReference Include="LanguageServers\PowerPlatformLS\Impl.Language.CopilotStudio\Impl.Language.CopilotStudio.csproj" />
+    <ProjectReference Include="LanguageServers\PowerPlatformLS\Impl.Language.PowerFx\Impl.Language.PowerFx.csproj" />
+    <ProjectReference Include="LanguageServers\PowerPlatformLS\Impl.Language.Yaml\Impl.Language.Yaml.csproj" />
+    <ProjectReference Include="LanguageServers\PowerPlatformLS\Impl.PullAgent\Impl.PullAgent.csproj" />
+    <ProjectReference Include="LanguageServers\PowerPlatformLS\Impl.YamlSourceTree\Impl.YamlSourceTree.csproj" />
+  </ItemGroup>
 </Project>
