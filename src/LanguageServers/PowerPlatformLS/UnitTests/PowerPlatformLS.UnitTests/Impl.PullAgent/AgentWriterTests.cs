@@ -39,7 +39,7 @@
             var lspLoggerMock = new Mock<ILspLogger>();
             var contentAuthoringService = islandControlPlaneServicMock.Object;
             var logger = lspLoggerMock.Object;
-            var writer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem, contentAuthoringService, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+            var writer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem, contentAuthoringService, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
 
             AgentSyncInfo info1 = new AgentSyncInfo
             {
@@ -66,7 +66,7 @@
             var filesystem = new InMemoryFileWriter();
             var islandControlPlaneServicMock = new Mock<IIslandControlPlaneService>();
             var lspLoggerMock = new Mock<ILspLogger>();
-            var writer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem, islandControlPlaneServicMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+            var writer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem, islandControlPlaneServicMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
 
             var ex = await Assert.ThrowsAsync<FileNotFoundException>(() => writer.GetSyncInfoAsync(WorkspaceFolderPath));
 
@@ -79,9 +79,9 @@
             var filesystem = new InMemoryFileWriter();
             var islandControlPlaneServicMock = new Mock<IIslandControlPlaneService>();
             var lspLoggerMock = new Mock<ILspLogger>();
-            var writer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem, islandControlPlaneServicMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+            var writer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem, islandControlPlaneServicMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
 
-            var accessor = (Microsoft.CopilotStudio.Sync.IFileAccessor)filesystem;
+            var accessor = (Microsoft.CopilotStudio.McsCore.IFileAccessor)filesystem;
             using (var stream = accessor.OpenWrite(new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/conn.json")))
             using (var sw = new StreamWriter(stream))
             {
@@ -153,10 +153,10 @@ entity:
         public async Task ReadCloudCacheSnapshotValidBotDefinition(bool useOldCache, string content)
         {
             var filesystem = new InMemoryFileWriter();
-            var accessor = (Microsoft.CopilotStudio.Sync.IFileAccessor)filesystem;
+            var accessor = (Microsoft.CopilotStudio.McsCore.IFileAccessor)filesystem;
 
             var syncPath = useOldCache ? new Microsoft.CopilotStudio.McsCore.AgentFilePath(OldBotCachePath.ToString()) : new Microsoft.CopilotStudio.McsCore.AgentFilePath(BotCachePath.ToString());
-            await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)accessor).WriteAsync(syncPath, content, CancellationToken.None);
+            await accessor.WriteAsync(syncPath, content, CancellationToken.None);
 
             var result = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor);
 
@@ -174,7 +174,7 @@ entity:
         public void ReadCloudCacheSnapshotAllowMissing()
         {
             var filesystem = new InMemoryFileWriter();
-            var accessor = (Microsoft.CopilotStudio.Sync.IFileAccessor)filesystem;
+            var accessor = (Microsoft.CopilotStudio.McsCore.IFileAccessor)filesystem;
 
             var result = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor, allowMissing: true);
 
@@ -185,7 +185,7 @@ entity:
         public void ReadCloudCacheSnapshotThrowsFileNotFound()
         {
             var filesystem = new InMemoryFileWriter();
-            var accessor = (Microsoft.CopilotStudio.Sync.IFileAccessor)filesystem;
+            var accessor = (Microsoft.CopilotStudio.McsCore.IFileAccessor)filesystem;
 
             var ex = Assert.Throws<FileNotFoundException>(() => WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor, allowMissing: false));
 
@@ -233,7 +233,7 @@ entity:
             var contentAuthoringService = mock.Object;
             var logger = lspLoggerMock.Object;
 
-            var writer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem, contentAuthoringService, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+            var writer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem, contentAuthoringService, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
 
             // Test
             var referenceTracker = new ReferenceTracker();
@@ -256,15 +256,15 @@ entity:
                "topics/topic2.mcs.yml" // filename should have schema truncated. 
             ], actualFilenames);
 
-            var currentChangeToken = await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).ReadStringAsync(new AgentFilePath(".mcs/changetoken.txt"), cancel);
+            var currentChangeToken = await filesystem.ReadStringAsync(new AgentFilePath(".mcs/changetoken.txt"), cancel);
             Assert.Equal(changeToken1, currentChangeToken);
 
             // Empty agent.mcs.yml file written since it was missing from changeset.
-            var currentAgentMcsYml = await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).ReadStringAsync(new AgentFilePath("agent.mcs.yml"), cancel);
+            var currentAgentMcsYml = await filesystem.ReadStringAsync(new AgentFilePath("agent.mcs.yml"), cancel);
             Assert.Equal("kind: GptComponentMetadata", currentAgentMcsYml);
 
             // Ensure yaml gets display name and description. 
-            var topicYml = await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).ReadStringAsync(new AgentFilePath("topics/topic2.mcs.yml"), default);
+            var topicYml = await filesystem.ReadStringAsync(new AgentFilePath("topics/topic2.mcs.yml"), default);
 
             string expectedStart = """
 kind: AdaptiveDialog
@@ -309,7 +309,7 @@ kind: AdaptiveDialog
             var contentAuthoringService = mock.Object;
             var logger = lspLoggerMock.Object;
 
-            var writer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem, contentAuthoringService, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+            var writer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem, contentAuthoringService, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
 
             // Test
             var referenceTracker = new ReferenceTracker();
@@ -330,11 +330,11 @@ kind: AdaptiveDialog
                "settings.mcs.yml"
             ], actualFilenames);
 
-            var currentChangeToken = await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).ReadStringAsync(new AgentFilePath(".mcs/changetoken.txt"), cancel);
+            var currentChangeToken = await filesystem.ReadStringAsync(new AgentFilePath(".mcs/changetoken.txt"), cancel);
             Assert.Equal(changeToken1, currentChangeToken);
 
             // Empty agent.mcs.yml file written since it was missing from changeset.
-            var currentAgentMcsYml = await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).ReadStringAsync(new AgentFilePath("agent.mcs.yml"), cancel);
+            var currentAgentMcsYml = await filesystem.ReadStringAsync(new AgentFilePath("agent.mcs.yml"), cancel);
             Assert.Equal("", currentAgentMcsYml.Trim());
         }
 
@@ -409,7 +409,7 @@ kind: AdaptiveDialog
             var cancel = new CancellationToken();
             var filesystem = new InMemoryFileWriter();
             var islandControlPlaneServiceMock = new Mock<IIslandControlPlaneService>();
-            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem, islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem, islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
 
             // 1. Define Original, Local, and Remote versions of a component
             var componentFactory = new TestBotComponentFactory(topicSchemaName);
@@ -423,8 +423,8 @@ kind: AdaptiveDialog
                 Entity = new BotEntity().WithSchemaName(new BotEntitySchemaName(schemaName)),
                 Components = { originalComponent }
             }.Build();
-            WorkspaceSynchronizer.WriteCloudCache((Microsoft.CopilotStudio.Sync.IFileAccessor)filesystem, originalDefinition);
-            await ((Microsoft.CopilotStudio.Sync.IFileAccessor)filesystem).WriteAsync(new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/changetoken.txt"), "original_token", cancel);
+            WorkspaceSynchronizer.WriteCloudCache((Microsoft.CopilotStudio.McsCore.IFileAccessor)filesystem, originalDefinition);
+            await ((Microsoft.CopilotStudio.McsCore.IFileAccessor)filesystem).WriteAsync(new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/changetoken.txt"), "original_token", cancel);
 
             // 3. Define the user's local view (previousDefinition)
             var previousDefinition = new BotDefinition.Builder
@@ -456,7 +456,7 @@ kind: AdaptiveDialog
 
             // Verify the topic file contains the merged content with conflict markers
             var pathResolver = new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver();
-            string actualMergedContent = await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).ReadStringAsync(new AgentFilePath(pathResolver.GetComponentPath(originalComponent, originalDefinition)), cancel);
+            string actualMergedContent = await filesystem.ReadStringAsync(new AgentFilePath(pathResolver.GetComponentPath(originalComponent, originalDefinition)), cancel);
             string expectedMergedContent = """
 mcs.metadata:
   componentName: Thank you
@@ -486,7 +486,7 @@ beginDialog:
             Assert.Equal(expectedMergedContent.Replace("\r\n", "\n"), actualMergedContent.Replace("\r\n", "\n"));
 
             // Verify the cloud cache was updated with the remote version
-            var updatedCache = WorkspaceSynchronizer.ReadCloudCacheSnapshot((Microsoft.CopilotStudio.Sync.IFileAccessor)filesystem);
+            var updatedCache = WorkspaceSynchronizer.ReadCloudCacheSnapshot((Microsoft.CopilotStudio.McsCore.IFileAccessor)filesystem);
             var remoteRootElement = remoteComponent?.RootElement != null ? CodeSerializer.Serialize(remoteComponent.RootElement) : null;
             string? cachedRootElement = null;
             if (updatedCache?.TryGetComponentBySchemaName(topicSchemaName, out var cachedComponent) == true)
@@ -496,7 +496,7 @@ beginDialog:
             Assert.Equal(remoteRootElement, cachedRootElement);
 
             // Verify the change token was updated
-            string updatedToken = await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).ReadStringAsync(new AgentFilePath(".mcs/changetoken.txt"), cancel);
+            string updatedToken = await filesystem.ReadStringAsync(new AgentFilePath(".mcs/changetoken.txt"), cancel);
             Assert.Equal("remote_token", updatedToken);
         }
 
@@ -511,7 +511,7 @@ beginDialog:
             var cancel = new CancellationToken();
             var filesystem = new InMemoryFileWriter();
             var islandControlPlaneServiceMock = new Mock<IIslandControlPlaneService>();
-            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem, islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem, islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
 
             var componentFactory = new TestBotComponentFactory(topicSchemaName);
             var originalComponent = componentFactory.CreateDialogComponent("test dialog component");
@@ -550,8 +550,8 @@ beginDialog:
                 }
             }.Build();
 
-            WorkspaceSynchronizer.WriteCloudCache((Microsoft.CopilotStudio.Sync.IFileAccessor)filesystem, originalDefinition);
-            await ((Microsoft.CopilotStudio.Sync.IFileAccessor)filesystem).WriteAsync(new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/changetoken.txt"), "original_token", cancel);
+            WorkspaceSynchronizer.WriteCloudCache((Microsoft.CopilotStudio.McsCore.IFileAccessor)filesystem, originalDefinition);
+            await ((Microsoft.CopilotStudio.McsCore.IFileAccessor)filesystem).WriteAsync(new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/changetoken.txt"), "original_token", cancel);
 
             var previousDefinition = new BotDefinition.Builder
             {
@@ -600,7 +600,7 @@ beginDialog:
             var filesystem = new InMemoryFileWriter();
             var islandControlPlaneServiceMock = new Mock<IIslandControlPlaneService>();
             var loggerMock = Mock.Of<ILspLogger>();
-            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem, islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem, islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
 
             var workflowId = Guid.NewGuid();
             var workflow = new CloudFlowDefinition(
@@ -626,7 +626,7 @@ beginDialog:
                 Components = { },
                 Flows = { workflow }
             }.Build();
-            WorkspaceSynchronizer.WriteCloudCache((Microsoft.CopilotStudio.Sync.IFileAccessor)filesystem, botDefinition);
+            WorkspaceSynchronizer.WriteCloudCache((Microsoft.CopilotStudio.McsCore.IFileAccessor)filesystem, botDefinition);
 
             var agentId = Guid.NewGuid();
             var componentFactory = new TestBotComponentFactory($"{schemaName}.topic.test");
@@ -660,7 +660,7 @@ beginDialog:
             );
 
             var workflowJsonPath = new AgentFilePath($"{workflowFolder}/workflow.json");
-            var workflowJsonContent = await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).ReadStringAsync(workflowJsonPath, cancel);
+            var workflowJsonContent = await filesystem.ReadStringAsync(workflowJsonPath, cancel);
             JsonDocument.Parse(workflowJsonContent);
 
             islandControlPlaneServiceMock.Verify(s => s.SaveChangesAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<PvaComponentChangeSet>(), cancel), Times.Once);
@@ -679,7 +679,7 @@ beginDialog:
             var cancel = new CancellationToken();
             var filesystem = new InMemoryFileWriter();
             var islandControlPlaneServiceMock = new Mock<IIslandControlPlaneService>();
-            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem, islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem, islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
 
             var componentFactory = new TestBotComponentFactory(topicSchemaName);
             var originalComponent = componentFactory.CreateDialogComponent("test dialog component");
@@ -824,7 +824,7 @@ beginDialog:
             }.Build();
 
             WorkspaceSynchronizer.WriteCloudCache(filesystem, originalDefinition);
-            await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "original_token", cancel);
+            await filesystem.WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "original_token", cancel);
 
             var previousDefinition = new BotDefinition.Builder
             {
@@ -881,7 +881,7 @@ beginDialog:
             var filesystem = new InMemoryFileWriter();
             var islandControlPlaneServiceMock = new Mock<IIslandControlPlaneService>();
             var loggerMock = Mock.Of<ILspLogger>();
-            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem, islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem, islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
 
             var workflowId = Guid.NewGuid();
 
@@ -921,9 +921,9 @@ beginDialog:
 
             var workflowFolder = Path.Combine(WorkspaceFolderPath.ToString(), "workflows", workflowId.ToString()).Replace("\\", "/");
 
-            await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).WriteAsync(new AgentFilePath($"{workflowFolder}/workflow.json"), workflowJson, cancel);
+            await filesystem.WriteAsync(new AgentFilePath($"{workflowFolder}/workflow.json"), workflowJson, cancel);
 
-            await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).WriteAsync(new AgentFilePath($"{workflowFolder}/metadata.yml"),
+            await filesystem.WriteAsync(new AgentFilePath($"{workflowFolder}/metadata.yml"),
                     $"workflowId: {workflowId}\nname: LocalWorkflow", cancel);
 
             var botDefinition = new BotDefinition.Builder
@@ -1011,7 +1011,7 @@ beginDialog:
 
             var expectedFilePath = new AgentFilePath("connectionreferences.mcs.yml");
             Assert.Contains(expectedFilePath.ToString(), filesystem.Filenames);
-            var connections = CodeSerializer.Deserialize<ConnectionReferencesSourceFile>(await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).ReadStringAsync(expectedFilePath, cancel))?.ConnectionReferences;
+            var connections = CodeSerializer.Deserialize<ConnectionReferencesSourceFile>(await filesystem.ReadStringAsync(expectedFilePath, cancel))?.ConnectionReferences;
             Assert.NotNull(connections);
             Assert.Equal(3, connections!.Value.Length);
 
@@ -1027,7 +1027,7 @@ beginDialog:
             var workspacePath = tempWorkspace.Path.Replace("\\", "/");
             var workspaceFolder = new DirectoryPath(workspacePath);
             var islandControlPlaneServiceMock = new Mock<IIslandControlPlaneService>();
-            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)new InMemoryFileWriter(), islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)new InMemoryFileWriter(), islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
 
             var workflowId = Guid.NewGuid();
             var agentId = Guid.NewGuid();
@@ -1123,7 +1123,7 @@ beginDialog:
 
             var filesystem = new InMemoryFileWriter();
             var islandServiceMock = new Mock<IIslandControlPlaneService>();
-            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem, islandServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem, islandServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
 
             var workflows = await synchronizer.GetWorkflowsAsync(workspaceFolder, mockDataverse, agentId, filesystem, CancellationToken.None);
 
@@ -1170,7 +1170,7 @@ beginDialog:
 
             var synchronizer = new WorkspaceSynchronizer(
                 new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
-                (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)new InMemoryFileWriter(),
+                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)new InMemoryFileWriter(),
                 Mock.Of<IIslandControlPlaneService>(),
                 Mock.Of<ISyncProgress>(),
                 new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
@@ -1197,7 +1197,7 @@ beginDialog:
 
             var synchronizer = new WorkspaceSynchronizer(
                 new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
-                (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)new InMemoryFileWriter(),
+                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)new InMemoryFileWriter(),
                 Mock.Of<IIslandControlPlaneService>(),
                 Mock.Of<ISyncProgress>(),
                 new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
@@ -1230,17 +1230,17 @@ beginDialog:
 
             var filesystem = new InMemoryFileWriter();
 
-            await ((Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem).Create(workspaceFolder).WriteAsync(
+            await ((Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem).Create(workspaceFolder).WriteAsync(
                 new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/botdefinition.json"),
                 JsonSerializer.Serialize(emptyBotDefinition, new JsonSerializerOptions { WriteIndented = true }),
                 cancel
             );
 
-            await ((Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem).Create(workspaceFolder).WriteAsync(new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/changetoken.txt"), "original_token", cancel);
+            await ((Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem).Create(workspaceFolder).WriteAsync(new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/changetoken.txt"), "original_token", cancel);
 
             var synchronizer = new WorkspaceSynchronizer(
                 new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
-                (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem,
+                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem,
                 Mock.Of<IIslandControlPlaneService>(),
                 Mock.Of<ISyncProgress>(),
                 new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
@@ -1281,7 +1281,7 @@ beginDialog:
 
             var synchronizer = new WorkspaceSynchronizer(
                 new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
-                (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem,
+                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem,
                 islandServiceMock.Object,
                 Mock.Of<ISyncProgress>(),
                 new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
@@ -1304,11 +1304,11 @@ beginDialog:
             }.Build();
 
             WorkspaceSynchronizer.WriteCloudCache(
-                ((Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem).Create(workspaceFolder),
+                ((Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem).Create(workspaceFolder),
                 cloudSnapshot
             );
 
-            await ((Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem).Create(workspaceFolder).WriteAsync(new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/changetoken.txt"), "token", cancel);
+            await ((Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem).Create(workspaceFolder).WriteAsync(new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/changetoken.txt"), "token", cancel);
 
             var workflowsDir = Path.Combine(workspaceFolder.ToString(), "workflows");
             Directory.CreateDirectory(workflowsDir);
@@ -1365,13 +1365,13 @@ beginDialog:
 
             var filesystem = new InMemoryFileWriter();
 
-            WorkspaceSynchronizer.WriteCloudCache((Microsoft.CopilotStudio.Sync.IFileAccessor)filesystem, originalDefinition);
-            await ((Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem).Create(workspaceFolder)
+            WorkspaceSynchronizer.WriteCloudCache((Microsoft.CopilotStudio.McsCore.IFileAccessor)filesystem, originalDefinition);
+            await ((Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem).Create(workspaceFolder)
                 .WriteAsync(new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/changetoken.txt"), "token", cancel);
 
             var synchronizer = new WorkspaceSynchronizer(
                 new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
-                (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem,
+                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem,
                 Mock.Of<IIslandControlPlaneService>(),
                 Mock.Of<ISyncProgress>(),
                 new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
@@ -1399,8 +1399,8 @@ beginDialog:
             var botEntity = new BotEntity().WithSchemaName(new BotEntitySchemaName("cr123"));
             var emptyDefinition = new BotDefinition.Builder { Entity = botEntity }.Build();
             var filesystem = new InMemoryFileWriter();
-            WorkspaceSynchronizer.WriteCloudCache((Microsoft.CopilotStudio.Sync.IFileAccessor)filesystem, emptyDefinition);
-            await ((Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem).Create(workspaceFolder).WriteAsync(new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/changetoken.txt"), "", cancel);
+            WorkspaceSynchronizer.WriteCloudCache((Microsoft.CopilotStudio.McsCore.IFileAccessor)filesystem, emptyDefinition);
+            await ((Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem).Create(workspaceFolder).WriteAsync(new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/changetoken.txt"), "", cancel);
 
             var islandMock = new Mock<IIslandControlPlaneService>();
             islandMock
@@ -1421,7 +1421,7 @@ beginDialog:
 
             var synchronizer = new WorkspaceSynchronizer(
                 new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
-                (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem,
+                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem,
                 islandMock.Object,
                 Mock.Of<ISyncProgress>(),
                 new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
@@ -1461,8 +1461,8 @@ beginDialog:
             }.Build();
 
             var filesystem = new InMemoryFileWriter();
-            WorkspaceSynchronizer.WriteCloudCache((Microsoft.CopilotStudio.Sync.IFileAccessor)filesystem, originalDefinition);
-            await ((Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem).Create(workspaceFolder).WriteAsync(new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/changetoken.txt"), "token", cancel);
+            WorkspaceSynchronizer.WriteCloudCache((Microsoft.CopilotStudio.McsCore.IFileAccessor)filesystem, originalDefinition);
+            await ((Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem).Create(workspaceFolder).WriteAsync(new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/changetoken.txt"), "token", cancel);
 
             var islandMock = new Mock<IIslandControlPlaneService>();
             islandMock
@@ -1482,7 +1482,7 @@ beginDialog:
 
             var synchronizer = new WorkspaceSynchronizer(
                 new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
-                (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem,
+                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem,
                 islandMock.Object,
                 Mock.Of<ISyncProgress>(),
                 new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
@@ -1522,8 +1522,8 @@ beginDialog:
             }.Build();
 
             var filesystem = new InMemoryFileWriter();
-            WorkspaceSynchronizer.WriteCloudCache((Microsoft.CopilotStudio.Sync.IFileAccessor)filesystem, originalDefinition);
-            await ((Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem).Create(workspaceFolder).WriteAsync(new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/changetoken.txt"), "token", cancel);
+            WorkspaceSynchronizer.WriteCloudCache((Microsoft.CopilotStudio.McsCore.IFileAccessor)filesystem, originalDefinition);
+            await ((Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem).Create(workspaceFolder).WriteAsync(new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/changetoken.txt"), "token", cancel);
 
             var islandMock = new Mock<IIslandControlPlaneService>();
             islandMock
@@ -1535,7 +1535,7 @@ beginDialog:
 
             var synchronizer = new WorkspaceSynchronizer(
                 new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
-                (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem,
+                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem,
                 islandMock.Object,
                 Mock.Of<ISyncProgress>(),
                 new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
@@ -1574,7 +1574,7 @@ beginDialog:
 
             var synchronizer = new WorkspaceSynchronizer(
                 new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
-                (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem,
+                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem,
                 Mock.Of<IIslandControlPlaneService>(),
                 Mock.Of<ISyncProgress>(),
                 new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
@@ -1594,7 +1594,7 @@ beginDialog:
         public async Task ProvisionConnectionReferencesAsync_ProvisionsConnections()
         {
             var islandControlPlaneServiceMock = new Mock<IIslandControlPlaneService>();
-            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)new InMemoryFileWriter(), islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)new InMemoryFileWriter(), islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
 
             var connectionReferences = new List<ConnectionReference>
             {
@@ -1628,7 +1628,7 @@ beginDialog:
         public async Task ProvisionConnectionReferencesAsync_WithNonBotDefinition_DoesNothing()
         {
             var islandControlPlaneServiceMock = new Mock<IIslandControlPlaneService>();
-            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)new InMemoryFileWriter(), islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)new InMemoryFileWriter(), islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
 
             var definition = new BotComponentCollectionDefinition();
             var mockDataverse = new MockDataverseClientWithConnectionTracking();
@@ -1642,7 +1642,7 @@ beginDialog:
         public async Task ProvisionConnectionReferencesAsync_WithNoConnections_DoesNothing()
         {
             var islandControlPlaneServiceMock = new Mock<IIslandControlPlaneService>();
-            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)new InMemoryFileWriter(), islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)new InMemoryFileWriter(), islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
 
             var botEntity = new BotEntity();
             var definition = new BotDefinition.Builder
@@ -1705,7 +1705,7 @@ beginDialog:
                 .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContext>(), null, cancel))
                 .ReturnsAsync(changeset);
 
-            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem, contentAuthoringServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem, contentAuthoringServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
 
             Guid agentId = Guid.NewGuid();
             await synchronizer.CloneChangesAsync(WorkspaceFolderPath, referenceTracker, FakeOperationContext, dataverseClient, agentId, cancel);
@@ -1713,7 +1713,7 @@ beginDialog:
             var expectedFilePath = new AgentFilePath("environmentvariables/cr123.cloneTestEnvVar.mcs.yml");
             Assert.Contains(expectedFilePath.ToString(), filesystem.Filenames);
 
-            var content = await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).ReadStringAsync(expectedFilePath, cancel);
+            var content = await filesystem.ReadStringAsync(expectedFilePath, cancel);
             Assert.Contains("CloneTestEnvVar", content);
             Assert.Contains("initial value", content);
         }
@@ -1726,7 +1726,7 @@ beginDialog:
             var cancel = new CancellationToken();
             var filesystem = new InMemoryFileWriter();
             var islandControlPlaneServiceMock = new Mock<IIslandControlPlaneService>();
-            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem, islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem, islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
 
             var componentFactory = new TestBotComponentFactory(topicSchemaName);
             var originalComponent = componentFactory.CreateDialogComponent("test dialog component");
@@ -1755,7 +1755,7 @@ beginDialog:
             }.Build();
 
             WorkspaceSynchronizer.WriteCloudCache(filesystem, originalDefinition);
-            await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "original_token", cancel);
+            await filesystem.WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "original_token", cancel);
 
             var previousDefinition = new BotDefinition.Builder
             {
@@ -1859,7 +1859,7 @@ beginDialog:
             }.Build();
 
             WorkspaceSynchronizer.WriteCloudCache(filesystem, originalDefinition);
-            await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)filesystem).WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "original_token", cancel);
+            await filesystem.WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "original_token", cancel);
 
             var pushChangeset = new PvaComponentChangeSet(
                 null,
@@ -1884,7 +1884,7 @@ beginDialog:
                     return cs;
                 });
 
-            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)filesystem, islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem, islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
 
             await synchronizer.PushChangesetAsync(
                 WorkspaceFolderPath,
@@ -1932,7 +1932,7 @@ beginDialog:
             }.Build();
 
             var fileAccessor = new InMemoryFileWriter();
-            await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)fileAccessor).WriteAsync(new AgentFilePath($"environmentvariables/{env.SchemaName.Value}.mcs.yml"), "content", CancellationToken.None);
+            await fileAccessor.WriteAsync(new AgentFilePath($"environmentvariables/{env.SchemaName.Value}.mcs.yml"), "content", CancellationToken.None);
 
             var synchronizer = CreateSynchronizer();
 
@@ -2048,7 +2048,7 @@ beginDialog:
             }.Build();
 
             var fileAccessor = new InMemoryFileWriter();
-            await ((Microsoft.PowerPlatformLS.Impl.PullAgent.IFileAccessor)fileAccessor).WriteAsync(new AgentFilePath($"environmentvariables/{localEnv.SchemaName.Value}.mcs.yml"), "content", CancellationToken.None);
+            await fileAccessor.WriteAsync(new AgentFilePath($"environmentvariables/{localEnv.SchemaName.Value}.mcs.yml"), "content", CancellationToken.None);
 
             var synchronizer = CreateSynchronizer();
 
@@ -2105,7 +2105,7 @@ beginDialog:
         {
             return new WorkspaceSynchronizer(
                 new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
-                (Microsoft.CopilotStudio.Sync.IFileAccessorFactory)new InMemoryFileWriter(),
+                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)new InMemoryFileWriter(),
                 Mock.Of<IIslandControlPlaneService>(),
                 Mock.Of<ISyncProgress>(),
                 new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());

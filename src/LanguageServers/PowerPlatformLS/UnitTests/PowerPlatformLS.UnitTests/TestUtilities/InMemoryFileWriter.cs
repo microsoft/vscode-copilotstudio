@@ -1,20 +1,15 @@
-﻿namespace Microsoft.PowerPlatformLS.UnitTests.TestUtilities
+namespace Microsoft.PowerPlatformLS.UnitTests.TestUtilities
 {
-    using Microsoft.PowerPlatformLS.Contracts.FileLayout;
-    using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
-    using Microsoft.PowerPlatformLS.Impl.PullAgent;
+    using Microsoft.CopilotStudio.McsCore;
     using System;
     using System.Collections.Generic;
     using System.IO;
     using System.Linq;
-    using Microsoft.CopilotStudio.McsCore;
 
 
     // Test helper. Write to in-memory instead of disk.
     // Useful when we need to track writers across multiple workspaces.
-    internal class InMemoryFileAccessorFactory :
-        IFileAccessorFactory,
-        Microsoft.CopilotStudio.Sync.IFileAccessorFactory
+    internal class InMemoryFileAccessorFactory : IFileAccessorFactory
     {
         private readonly Dictionary<DirectoryPath, InMemoryFileWriter> _writers = new Dictionary<DirectoryPath, InMemoryFileWriter>();
 
@@ -30,21 +25,13 @@
             _writers.Add(root, writer);
             return writer;
         }
-
-        Microsoft.CopilotStudio.Sync.IFileAccessor Microsoft.CopilotStudio.Sync.IFileAccessorFactory.Create(DirectoryPath root)
-        {
-            var contractsRoot = new DirectoryPath(root.ToString());
-            return (InMemoryFileWriter)Create(contractsRoot);
-        }
     }
 
     // Test helper. Write to in-memory instead of disk.
     // Tracks writes within a single workspace.
     internal class InMemoryFileWriter :
         IFileAccessorFactory,
-        IFileAccessor,
-        Microsoft.CopilotStudio.Sync.IFileAccessorFactory,
-        Microsoft.CopilotStudio.Sync.IFileAccessor
+        IFileAccessor
     {
         private readonly Dictionary<AgentFilePath, byte[]> _files = new Dictionary<AgentFilePath, byte[]>();
 
@@ -122,22 +109,12 @@
             _files.Remove(sourcePath);
         }
 
-        public IFileAccessor Create(DirectoryPath root) => this;
-
-        // CopilotStudio.Sync.IFileAccessor implementation (delegates to Contracts.FileLayout methods via string conversion)
-        bool Microsoft.CopilotStudio.Sync.IFileAccessor.Exists(AgentFilePath path) => Exists(new AgentFilePath(path.ToString()));
-        void Microsoft.CopilotStudio.Sync.IFileAccessor.CreateHiddenDirectory(AgentFilePath path) => CreateHiddenDirectory(new AgentFilePath(path.ToString()));
-        Stream Microsoft.CopilotStudio.Sync.IFileAccessor.OpenWrite(AgentFilePath path) => OpenWrite(new AgentFilePath(path.ToString()));
-        Stream Microsoft.CopilotStudio.Sync.IFileAccessor.OpenRead(AgentFilePath path) => OpenRead(new AgentFilePath(path.ToString()));
-        void Microsoft.CopilotStudio.Sync.IFileAccessor.Delete(AgentFilePath path) => Delete(new AgentFilePath(path.ToString()));
-        void Microsoft.CopilotStudio.Sync.IFileAccessor.Replace(AgentFilePath sourcePath, AgentFilePath targetPath) => Replace(new AgentFilePath(sourcePath.ToString()), new AgentFilePath(targetPath.ToString()));
-        IEnumerable<AgentFilePath> Microsoft.CopilotStudio.Sync.IFileAccessor.ListFiles(string? relativeFolder, string filePattern) =>
+        public IEnumerable<AgentFilePath> ListFiles(string? relativeFolder, string filePattern) =>
             _files.Keys
                 .Where(k => relativeFolder == null || k.ToString().StartsWith(relativeFolder, StringComparison.OrdinalIgnoreCase))
                 .Select(k => new AgentFilePath(k.ToString()));
 
-        // CopilotStudio.Sync.IFileAccessorFactory implementation
-        Microsoft.CopilotStudio.Sync.IFileAccessor Microsoft.CopilotStudio.Sync.IFileAccessorFactory.Create(DirectoryPath root) => this;
+        public IFileAccessor Create(DirectoryPath root) => this;
 
         private class ReadWrapper : MemoryStream
         {

@@ -492,7 +492,7 @@
             );
         }
 
-        public Task<CloudFlowMetadata> GetWorkflowsAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, Microsoft.CopilotStudio.Sync.IFileAccessor fileAccessor, CancellationToken cancellationToken)
+        public Task<CloudFlowMetadata> GetWorkflowsAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, Microsoft.CopilotStudio.McsCore.IFileAccessor fileAccessor, CancellationToken cancellationToken)
         {
             return Task.FromResult(new CloudFlowMetadata
             {

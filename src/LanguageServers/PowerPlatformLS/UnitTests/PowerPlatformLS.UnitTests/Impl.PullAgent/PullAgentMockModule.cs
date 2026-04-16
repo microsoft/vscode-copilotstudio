@@ -1,6 +1,7 @@
 ﻿namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
 {
     using Microsoft.Agents.ObjectModel;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.Agents.Platform.Content;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -29,8 +30,8 @@
             // prevent disk access during tests (both PullAgent and CopilotStudio.Sync interfaces)
             services.RemoveAll<IFileAccessorFactory>();
             services.AddSingleton<IFileAccessorFactory>(DiskMock);
-            services.RemoveAll<Microsoft.CopilotStudio.Sync.IFileAccessorFactory>();
-            services.AddSingleton<Microsoft.CopilotStudio.Sync.IFileAccessorFactory>(DiskMock);
+            services.RemoveAll<Microsoft.CopilotStudio.McsCore.IFileAccessorFactory>();
+            services.AddSingleton<Microsoft.CopilotStudio.McsCore.IFileAccessorFactory>(DiskMock);
 
             // mock network calls
             var httpClient = new HttpClient(HttpClientMock);
