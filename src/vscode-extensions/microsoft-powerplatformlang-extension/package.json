@@ -319,25 +319,25 @@
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
-    "@types/node": "20.x",
+    "@types/node": "25.x",
     "@types/vscode": "^1.96.0",
     "@typescript-eslint/eslint-plugin": "^8.30.0",
     "@typescript-eslint/parser": "^8.30.0",
-    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.4.1",
     "@vscode/vsce": "^3.3.2",
-    "esbuild": "0.27.2",
+    "esbuild": "0.28.0",
     "eslint": "^10.0.0",
     "nerdbank-gitversioning": "^3.7.115",
-    "npm-run-all2": "^7.0.2",
+    "npm-run-all2": "^8.0.4",
     "shared": "file:../shared",
-    "typescript": "^5.7.2"
+    "typescript": "^6.0.3"
   },
   "dependencies": {
     "@types/semver": "^7.7.0",
     "@vscode/extension-telemetry": "^1.0.0",
     "semver": "^7.7.2",
-    "uuid": "^11.0.3"
+    "uuid": "^13.0.0"
   },
   "overrides": {
     "glob": ">=11.0.2"
