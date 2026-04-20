@@ -1,0 +1,130 @@
+name: Release Build and Publish
+
+# Fires when a GitHub Release is published. The release MUST be cut from a
+# release/X.Y.Z branch (target_commitish matching 'release/*'); releases cut
+# from main or feature branches are ignored with a clear error message.
+#
+# On match, triggers the ADO VSIX-Release pipeline with:
+#   variables.ProjectBranch = <release/X.Y.Z branch name>
+# The ADO pipeline then rebuilds from source on that branch and - after a
+# required approval on the vscode-copilotstudio-release environment - publishes
+# stable NuGet packages to the CopilotStudio-VSIX-packages internal feed.
+# VS Marketplace publish is intentionally not part of day-one scope (see the
+# commented block at the end of VSIX-Release.yml).
+#
+# SETUP (one-time, before this workflow can succeed):
+#   1) Create the VSIX-Release pipeline definition in Azure DevOps pointing at
+#      Microsoft.Botframework.Builds/VSCode-CopilotStudio/VSIX-Release.yml.
+#   2) Note the numeric pipeline id and set the GitHub Actions repository
+#      variable AZDEVOPS_RELEASE_PIPELINE_ID to that id.
+#   3) In Azure DevOps, create an environment named
+#      'vscode-copilotstudio-release' with required approvers listing at least
+#      andersonf@microsoft.com. Without this environment, the ADO release stage
+#      will block indefinitely (fail-safe).
+
+on:
+  release:
+    types: [published]
+
+env:
+  # Must be set as a repo-level Actions variable once the ADO pipeline exists.
+  # If unset, the first step below prints a clear error and exits.
+  AzDevOpsPipelineId: ${{ vars.AZDEVOPS_RELEASE_PIPELINE_ID }}
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  trigger-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate configuration and release target
+        id: validate
+        run: |
+          if [ -z "${AzDevOpsPipelineId}" ]; then
+            echo "::error title=Missing configuration::GitHub Actions variable AZDEVOPS_RELEASE_PIPELINE_ID is not set. The VSIX-Release ADO pipeline must be created in ADO and its numeric id stored in this variable before a release can run."
+            exit 1
+          fi
+
+          target_ref='${{ github.event.release.target_commitish }}'
+          tag_name='${{ github.event.release.tag_name }}'
+          echo "Release tag:   $tag_name"
+          echo "Target ref:    $target_ref"
+
+          case "$target_ref" in
+            release/*)
+              echo "Target ref matches release/* - proceeding."
+              echo "release_branch=$target_ref" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error title=Invalid release target::This release was cut from '$target_ref'. The release pipeline only runs against release/X.Y.Z branches. Create a release branch, push it, then publish a release against it."
+              exit 1
+              ;;
+          esac
+
+      - name: Get Azure DevOps Access Token
+        id: getToken
+        uses: "./.github/actions/get-ado-token"
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          organization: ${{ vars.AZDEVOPS_ORGANIZATION }}
+
+      - name: Trigger Azure DevOps Release Pipeline
+        id: trigger
+        run: |
+          response=$(curl -s -X POST \
+            -H "Authorization: Bearer ${{ steps.getToken.outputs.token }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+                  "resources": {
+                    "repositories": {
+                      "self": { "refName": "refs/heads/main" }
+                    }
+                  },
+                  "variables": {
+                    "ProjectBranch": { "value": "${{ steps.validate.outputs.release_branch }}" }
+                  }
+                }' \
+            ${{ vars.AZDEVOPS_URL }}/_apis/pipelines/${{ env.AzDevOpsPipelineId }}/runs?api-version=7.1)
+
+          run_id=$(echo "$response" | jq -r .id)
+          if [ "$run_id" = "null" ] || [ -z "$run_id" ]; then
+            echo "::error title=Trigger Failed::Failed to trigger ADO release pipeline. Response: $response"
+            exit 1
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          weblink=$(echo "$response" | jq -r ._links.web.href)
+          echo "ADO run started: $weblink"
+
+      - name: Monitor Pipeline Run
+        # Release runs include a required-approval wait, so this monitor may legitimately
+        # run for hours. Cap generously; tighten later once approval latency is known.
+        timeout-minutes: 480
+        run: |
+          run_id=${{ steps.trigger.outputs.run_id }}
+          status="inProgress"
+          while [ "$status" = "inProgress" ] || [ "$status" = "notStarted" ] || [ "$status" = "canceling" ]; do
+            response=$(curl -s -X GET \
+              -H "Authorization: Bearer ${{ steps.getToken.outputs.token }}" \
+              ${{ vars.AZDEVOPS_URL }}/_apis/pipelines/${{ env.AzDevOpsPipelineId }}/runs/$run_id?api-version=7.1)
+            status=$(echo "$response" | jq -r .state)
+            result=$(echo "$response" | jq -r .result)
+            weblink=$(echo "$response" | jq -r ._links.web.href)
+            echo "Pipeline status: $status"
+            echo "Result:          $result"
+            echo "WebLink:         $weblink"
+            if [ "$status" = "completed" ]; then
+              if [ "$result" = "succeeded" ]; then
+                echo "Release pipeline succeeded"
+                exit 0
+              else
+                echo "::error title=ADO Release Pipeline Failed::Pipeline failed with result: $result. See $weblink"
+                exit 1
+              fi
+            fi
+            sleep 30
+          done
