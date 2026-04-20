@@ -37,7 +37,9 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
 
             var executeTask = listener.ExecuteTask;
             Assert.NotNull(executeTask);
+#pragma warning disable VSTHRD003 // Awaiting BackgroundService.ExecuteTask is the behavior under test
             var execEx = await Record.ExceptionAsync(() => executeTask!);
+#pragma warning restore VSTHRD003
             Assert.Null(execEx);
 
             serverMock.Verify(s => s.WaitForExitAsync(), Times.Once);
