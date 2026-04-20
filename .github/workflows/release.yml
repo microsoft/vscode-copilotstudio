@@ -1,0 +1,107 @@
+name: Release build
+
+on:
+  release:
+    types: [released]
+
+# The ADO release pipeline does not exist yet. Replace the placeholder below
+# (AzDevOpsReleasePipelineId) with the real pipeline ID once it has been
+# created. The release pipeline is expected to produce stable VSIX/NuPkg
+# artifacts and publish them to the VS Code Marketplace and internal feeds.
+env:
+  AzDevOpsReleasePipelineId: 0 # TODO: replace with the stable-release ADO pipeline ID
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_BRANCH: ${{ github.event.release.target_commitish }}
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+
+    steps:
+    - name: Validate release source branch
+      run: |
+        echo "Release tag:    $RELEASE_TAG"
+        echo "Release target: $RELEASE_BRANCH"
+        if [[ ! "$RELEASE_BRANCH" =~ ^releases/.+ ]]; then
+          echo "::error title=Invalid release target::GitHub releases must be cut from a 'releases/*' branch. Got target_commitish='$RELEASE_BRANCH'. Re-create the release from the GitHub UI selecting a 'releases/*' branch as the target."
+          exit 1
+        fi
+
+    - name: Validate release pipeline ID is configured
+      run: |
+        if [ "${{ env.AzDevOpsReleasePipelineId }}" = "0" ] || [ -z "${{ env.AzDevOpsReleasePipelineId }}" ]; then
+          echo "::error title=Release pipeline not configured::AzDevOpsReleasePipelineId is not set. Update .github/workflows/release.yml with the real ADO release pipeline ID."
+          exit 1
+        fi
+
+    - uses: actions/checkout@v4
+
+    - name: Get Azure DevOps Access Token
+      id: getToken
+      uses: "./.github/actions/get-ado-token"
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        organization: ${{ vars.AZDEVOPS_ORGANIZATION }}
+
+    - name: Trigger Azure DevOps Release Pipeline
+      id: trigger
+      run: |
+        payload=$(jq -cn \
+          --arg ref "refs/heads/${RELEASE_BRANCH}" \
+          --arg branch "${RELEASE_BRANCH}" \
+          --arg tag "${RELEASE_TAG}" \
+          '{
+            resources: { repositories: { self: { refName: $ref } } },
+            variables: {
+              ProjectBranch: { value: $branch },
+              ReleaseTag:    { value: $tag }
+            }
+          }')
+        echo "Request payload: $payload"
+        response=$(curl -s -X POST \
+          -H "Authorization: Bearer ${{ steps.getToken.outputs.token }}" \
+          -H "Content-Type: application/json" \
+          -d "$payload" \
+          ${{ vars.AZDEVOPS_URL }}/_apis/pipelines/${{ env.AzDevOpsReleasePipelineId }}/runs?api-version=7.1)
+        run_id=$(echo "$response" | jq -r .id)
+        if [ "$run_id" = "null" ] || [ -z "$run_id" ]; then
+          echo "::error title=Trigger Failed::Failed to trigger ADO release pipeline. Response: $response"
+          exit 1
+        fi
+        echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+        weblink=$(echo "$response" | jq -r ._links.web.href)
+        echo "Triggered run: $weblink"
+
+    - name: Monitor Pipeline Run
+      timeout-minutes: 60
+      run: |
+        run_id=${{ steps.trigger.outputs.run_id }}
+        status="inProgress"
+        while [ "$status" = "inProgress" ] || [ "$status" = "notStarted" ] || [ "$status" = "canceling" ]; do
+          response=$(curl -s -X GET \
+            -H "Authorization: Bearer ${{ steps.getToken.outputs.token }}" \
+            ${{ vars.AZDEVOPS_URL }}/_apis/pipelines/${{ env.AzDevOpsReleasePipelineId }}/runs/$run_id?api-version=7.1)
+          status=$(echo "$response" | jq -r .state)
+          r1=$(echo "$response" | jq -r .result)
+          weblink=$(echo "$response" | jq -r ._links.web.href)
+          echo "Pipeline status: $status"
+          echo "Result response: $r1"
+          echo "WebLink: $weblink"
+          if [ "$status" = "completed" ]; then
+            result=$(echo "$response" | jq -r .result)
+            if [ "$result" = "succeeded" ]; then
+              echo "Release pipeline succeeded"
+              exit 0
+            else
+              echo "::error title=ADO Pipeline Failed::Release pipeline failed with result: $result"
+              exit 1
+            fi
+          fi
+          sleep 10
+        done
