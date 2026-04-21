@@ -24,7 +24,19 @@ namespace Microsoft.PowerPlatformLS.Impl.Core
             var streamTask = stream.RunAsync(stoppingToken);
 
             logger.LogInformation("Language Server Listening!");
-            await streamTask;
+            try
+            {
+                await streamTask;
+            }
+            catch (IOException ex)
+            {
+                // An IPC peer-close surfacing as IOException/SocketException must not
+                // propagate out of this BackgroundService. With the default
+                // HostOptions.BackgroundServiceExceptionBehavior (StopHost) it would
+                // terminate the LSP host process, which the client then surfaces as
+                // "Object reference not set to an instance of an object." on the next RPC.
+                logger.LogInformation("IPC transport closed: {message}", ex.Message);
+            }
 
             logger.LogInformation("Stream Ended. Waiting for Exit signal...");
             await server.WaitForExitAsync();
