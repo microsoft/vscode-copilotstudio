@@ -40,7 +40,18 @@ namespace Microsoft.PowerPlatformLS.Impl.Core
                 if (message is JsonRpcResponse errorMessage)
                 {
                     _logger.LogWarning($"Error message. Sending message back: '{errorMessage.GetType().Name}' with Error ({errorMessage.Error?.Code}): {errorMessage.Error?.Message}");
-                    await _transport.SendAsync(errorMessage, stoppingToken).ConfigureAwait(false);
+                    try
+                    {
+                        await _transport.SendAsync(errorMessage, stoppingToken).ConfigureAwait(false);
+                    }
+                    catch (IOException ex)
+                    {
+                        // Peer (VS Code extension host) closed the IPC pipe. Treat as a graceful
+                        // transport shutdown instead of letting IOException escape RunAsync and
+                        // trigger BackgroundServiceStoppingHost on the IHost.
+                        _logger.LogInformation($"IPC transport closed while sending error response; {ex.Message}");
+                        break;
+                    }
                 }
                 else if (message is LspJsonRpcMessage lspMessage)
                 {
