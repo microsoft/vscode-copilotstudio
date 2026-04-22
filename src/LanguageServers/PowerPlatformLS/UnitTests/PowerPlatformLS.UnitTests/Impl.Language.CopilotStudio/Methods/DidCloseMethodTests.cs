@@ -4,14 +4,12 @@
     using Microsoft.PowerPlatformLS.Contracts.Internal;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
-    using Microsoft.PowerPlatformLS.Impl.PullAgent;
     using System;
-    using System.Collections.Generic;
     using System.IO;
     using System.Linq;
-    using System.Text;
     using System.Threading.Tasks;
     using Xunit;
+    using Range = PowerPlatformLS.Contracts.Lsp.Models.Range;
 
     public class DidCloseMethodTests
     {
@@ -86,6 +84,51 @@
             var messageReceived = world.MessagesReceived.FirstOrDefault();
             var jsonRpcMessage = Assert.IsType<LspJsonRpcMessage>(messageReceived);
             Assert.Equal(Constants.JsonRpcMethods.AgentDirectoryChange, jsonRpcMessage.Method);
+        }
+
+        [Theory]
+        [InlineData("Invalid")]
+        [InlineData("Maker")]
+        [InlineData("Invoker")]
+        public async Task DidChange_InvalidContent_DoesNotCrash(string updatedMode)
+        {
+            var workspacePath = Path.GetFullPath(Path.Combine("TestData", "Workspace", "LocalWorkspace"));
+            var world = new World(workspacePath);
+
+            var path = Path.Combine(workspacePath, "actions", "MSNWeather-GetForecastForToday.mcs.yml");
+            var doc = world.GetDocument(path);
+
+            var handler = world.GetRequiredServices<IMethodHandler>()
+                .OfType<INotificationHandler<OnDidChangeParams, RequestContext>>()
+                .First();
+            
+            var request = new OnDidChangeParams
+            {
+                TextDocument = new VersionedTextDocumentIdentifier
+                {
+                    Uri = doc!.Uri,
+                    Version = 0
+                },
+                ContentChanges = new[]
+                {
+                    new TextDocumentChangeEvent
+                    {
+                        Text = updatedMode,
+                        Range = new Range
+                        {
+                            Start = new Position { Line = 9, Character = 10 },
+                            End = new Position { Line = 9, Character = 10 + updatedMode.Length }
+                        },
+                        RangeLength = updatedMode.Length
+                    }
+                }
+            };
+
+            var requestContext = world.GetRequestContext(doc!, 0);
+
+            await handler.HandleNotificationAsync(request, requestContext, default);
+
+            Assert.True(true);
         }
     }
 }

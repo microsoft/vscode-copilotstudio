@@ -39,8 +39,17 @@
         public Compilation<DefinitionBase> Compile(IReadOnlyDictionary<FilePath, LspDocument> documents, DirectoryPath workspacePath, bool isFull = false)
         {
             var errors = new Dictionary<LspDocument, IEnumerable<Exception>>();
-            var (bot, validateAcrossComponents) = CompileDefinition(documents, workspacePath, errors);
-            bot = bot.ValidateFromMcsWorkspace(validateAcrossComponents, _expressionChecker, _featureConfiguration);
+            var (bot, validateAcrossComponents) = CompileDefinition(documents, workspacePath, errors); 
+            
+            try
+            {
+                bot = bot.ValidateFromMcsWorkspace(validateAcrossComponents, _expressionChecker, _featureConfiguration);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Validation from MCS workspace failed: {ex.Message}.");
+            }
+
             return new(bot, errors);
         }
 
