@@ -340,7 +340,7 @@ The extension publishes LSP binaries for 6 platforms via `extension.proj`:
 - Config: `.vscode-test.mjs`
 
 ## CI/CD
-> Coming soon
+> Additional guidelines coming soon.
 
 ## Important Notes
 > Coming soon - additional guidelines and warnings are being finalized.
