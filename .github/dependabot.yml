@@ -17,6 +17,16 @@ updates:
       all-dependencies:
         patterns:
           - "*"
+        # Filters which update types are rolled into the grouped PR.
+        # Majors are release decisions for this consumer app, not
+        # dependency updates — keep them out of the group.
+        # Note: unlike the npm ecosystem below, there is no top-level
+        # `ignore` here, so a nuget major may still arrive as an
+        # individual PR. Add a matching `ignore` block if that
+        # becomes noisy.
+        update-types:
+          - "minor"
+          - "patch"
   - package-ecosystem: npm
     directories:
       - "/src/vscode-extensions/*"
@@ -27,6 +37,14 @@ updates:
       - 'dependencies'
     reviewers:
       - 'microsoft/vscode-copilot-studio-approvers'
+    # Companion to the group-level `update-types` filter below.
+    # When a group excludes an update type, dependabot falls back to
+    # creating an *individual* PR for that dependency. This ignore
+    # suppresses that fallback so no major-bump PRs are created at all.
+    # Do not rely on this alone to filter grouped updates — dependabot
+    # does not apply `ignore` rules to members of a group
+    # (dependabot/dependabot-core#10122); group-level `update-types`
+    # is what actually filters the grouped PR.
     ignore:
       - dependency-name: '*'
         update-types:
@@ -35,3 +53,12 @@ updates:
       all-dependencies:
         patterns:
           - "*"
+        # Filters which update types are rolled into the grouped PR.
+        # Without this, the grouped PR includes majors even when they
+        # match the top-level `ignore` above (known dependabot bug
+        # dependabot/dependabot-core#10122). PR #180 was the repro:
+        # @types/node 20.x → 25.x slipped into an all-dependencies group
+        # even though the ignore rule was live in main.
+        update-types:
+          - "minor"
+          - "patch"
