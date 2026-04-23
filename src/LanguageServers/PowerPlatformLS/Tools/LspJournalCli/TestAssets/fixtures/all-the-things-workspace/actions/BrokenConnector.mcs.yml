@@ -1,6 +1,5 @@
-mcs.metadata:
-  componentName: Broken Connector
-  description: Action referencing a nonexistent connector — should trigger diagnostics.
+# Name: Broken Connector
+# Action referencing a nonexistent connector — should trigger diagnostics.
 kind: TaskDialog
 modelDisplayName: Broken Action
 action:

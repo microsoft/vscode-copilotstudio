@@ -1,5 +1,4 @@
-mcs.metadata:
-  componentName: Team Site
-  description: Knowledge source that searches a SharePoint team site.
+# Name: Team Site
+# Knowledge source that searches a SharePoint team site.
 kind: SharePointSearchSource
 site: https://contoso.sharepoint.com/sites/hr

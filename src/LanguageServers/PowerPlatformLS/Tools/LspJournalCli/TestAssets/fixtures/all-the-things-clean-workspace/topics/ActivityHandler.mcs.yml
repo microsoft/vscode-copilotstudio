@@ -1,6 +1,5 @@
-mcs.metadata:
-  componentName: Activity Handler
-  description: Triggered when a specific activity type is received.
+# Name: Activity Handler
+# Triggered when a specific activity type is received.
 kind: AdaptiveDialog
 beginDialog:
   kind: OnActivity
@@ -9,7 +8,9 @@ beginDialog:
   actions:
     - kind: SendActivity
       id: sendMessage_activity01
-      activity: An invoke activity was received.
+      activity:
+        text:
+          - An invoke activity was received.
 
     - kind: ConditionGroup
       id: conditionGroup_activityCheck01
@@ -19,9 +20,12 @@ beginDialog:
           actions:
             - kind: SendActivity
               id: sendMessage_payload01
-              activity: "Payload received: {System.Activity.Value}"
-
+              activity:
+                text:
+                  - "Payload received: {System.Activity.Value}"
       elseActions:
         - kind: SendActivity
           id: sendMessage_noPayload01
-          activity: No payload was included in the activity.
+          activity:
+            text:
+              - No payload was included in the activity.

@@ -1,6 +1,5 @@
-mcs.metadata:
-  componentName: City
-  description: Custom entity listing known cities.
+# Name: City
+# Custom entity listing known cities.
 kind: ClosedListEntity
 items:
   - id: city01

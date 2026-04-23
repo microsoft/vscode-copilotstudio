@@ -1,6 +1,5 @@
-mcs.metadata:
-  componentName: Sign In Flow
-  description: Topic demonstrating OAuthInput for user authentication.
+# Name: Sign In Flow
+# Topic demonstrating OAuthInput for user authentication.
 kind: AdaptiveDialog
 beginDialog:
   kind: OnRecognizedIntent
@@ -26,13 +25,18 @@ beginDialog:
           actions:
             - kind: SendActivity
               id: sendMessage_signInRequired01
-              activity: You need to sign in before I can help you.
-
+              activity:
+                text:
+                  - You need to sign in before I can help you.
       elseActions:
         - kind: SendActivity
           id: sendMessage_welcome01
-          activity: Welcome back! You are now signed in.
+          activity:
+            text:
+              - Welcome back! You are now signed in.
 
     - kind: SendActivity
       id: sendMessage_authDone01
-      activity: Authentication flow complete.
+      activity:
+        text:
+          - Authentication flow complete.

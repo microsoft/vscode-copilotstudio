@@ -1,6 +1,5 @@
-mcs.metadata:
-  componentName: Greeting (pt-BR)
-  description: Greeting topic translated to Brazilian Portuguese.
+# Name: Greeting (pt-BR)
+# Greeting topic translated to Brazilian Portuguese.
 kind: AdaptiveDialog
 beginDialog:
   kind: OnRecognizedIntent
@@ -16,4 +15,6 @@ beginDialog:
   actions:
     - kind: SendActivity
       id: sendMessage_greet01
-      activity: Olá, como posso ajudá-lo hoje?
+      activity:
+        text:
+          - Olá, como posso ajudá-lo hoje?

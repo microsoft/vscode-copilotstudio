@@ -1,6 +1,5 @@
-mcs.metadata:
-  componentName: When a new email arrives (V3)
-  description: Triggered when a new email arrives in a specified folder.
+# Name: When a new email arrives (V3)
+# Triggered when a new email arrives in a specified folder.
 kind: ExternalTriggerConfiguration
 externalTriggerSource:
   kind: ConnectorTriggerDefinition

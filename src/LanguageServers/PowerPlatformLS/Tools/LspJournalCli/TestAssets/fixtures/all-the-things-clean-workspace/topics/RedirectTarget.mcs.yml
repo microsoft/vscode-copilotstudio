@@ -1,6 +1,5 @@
-mcs.metadata:
-  componentName: Redirect Target
-  description: This topic activates only when redirected to by another topic.
+# Name: Redirect Target
+# This topic activates only when redirected to by another topic.
 kind: AdaptiveDialog
 beginDialog:
   kind: OnRedirect
@@ -8,11 +7,15 @@ beginDialog:
   actions:
     - kind: SendActivity
       id: sendMessage_redirect01
-      activity: You were redirected to this topic.
+      activity:
+        text:
+          - You were redirected to this topic.
 
     - kind: SendActivity
       id: sendMessage_redirect02
-      activity: Performing the redirected action now.
+      activity:
+        text:
+          - Performing the redirected action now.
 
     - kind: CancelAllDialogs
       id: cancelAllDialogs_redirect01

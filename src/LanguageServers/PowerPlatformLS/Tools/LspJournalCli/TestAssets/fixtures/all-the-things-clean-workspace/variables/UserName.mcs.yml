@@ -1,5 +1,4 @@
-mcs.metadata:
-  componentName: UserName
+# Name: UserName
 kind: Variable
 name: UserName
 scope: User

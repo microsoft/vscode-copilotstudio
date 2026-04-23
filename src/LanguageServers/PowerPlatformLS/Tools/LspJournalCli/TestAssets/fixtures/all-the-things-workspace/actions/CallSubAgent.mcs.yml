@@ -1,6 +1,5 @@
-mcs.metadata:
-  componentName: Call Sub Agent
-  description: Invokes a connected sub-agent for delegation.
+# Name: Call Sub Agent
+# Invokes a connected sub-agent for delegation.
 kind: TaskDialog
 modelDisplayName: Call Sub Agent
 modelDescription: Delegates the conversation to a specialized sub-agent.

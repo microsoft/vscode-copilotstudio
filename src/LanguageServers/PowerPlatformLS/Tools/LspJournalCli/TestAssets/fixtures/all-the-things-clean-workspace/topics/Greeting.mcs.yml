@@ -1,6 +1,5 @@
-mcs.metadata:
-  componentName: Greeting
-  description: This topic is triggered when the user greets the agent.
+# Name: Greeting
+# This topic is triggered when the user greets the agent.
 kind: AdaptiveDialog
 beginDialog:
   kind: OnRecognizedIntent

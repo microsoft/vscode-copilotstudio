@@ -1,6 +1,5 @@
-mcs.metadata:
-  componentName: Fallback
-  description: Triggered when no intent is recognized.
+# Name: Fallback
+# Triggered when no intent is recognized.
 kind: AdaptiveDialog
 beginDialog:
   kind: OnUnknownIntent
@@ -8,4 +7,6 @@ beginDialog:
   actions:
     - kind: SendActivity
       id: sendMessage_fallback01
-      activity: I'm sorry, I didn't understand that. Could you rephrase?
+      activity:
+        text:
+          - I'm sorry, I didn't understand that. Could you rephrase?

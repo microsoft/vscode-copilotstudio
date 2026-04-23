@@ -1,6 +1,5 @@
-mcs.metadata:
-  componentName: Dotted.Display.Name
-  description: Topic with dots in the filename — tests DotPassthrough projection.
+# Name: Dotted.Display.Name
+# Topic with dots in the filename — tests DotPassthrough projection.
 kind: AdaptiveDialog
 beginDialog:
   kind: OnRecognizedIntent
@@ -13,4 +12,6 @@ beginDialog:
   actions:
     - kind: SendActivity
       id: sendMessage_dotted01
-      activity: This topic has dots in its filename.
+      activity:
+        text:
+          - This topic has dots in its filename.

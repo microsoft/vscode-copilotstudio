@@ -1,10 +1,9 @@
-mcs.metadata:
-  componentName: Helper Agent
+# Name: Helper Agent
 kind: AgentDialog
 beginDialog:
   kind: OnToolSelected
   id: main
-  description: A sub-agent that provides specialized help.
+  description: "A sub-agent that provides specialized help."
 
 settings:
   instructions: |-
