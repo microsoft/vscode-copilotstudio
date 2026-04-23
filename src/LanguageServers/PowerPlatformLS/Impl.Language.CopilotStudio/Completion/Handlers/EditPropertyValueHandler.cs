@@ -1,9 +1,9 @@
 ﻿namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Completion.Handlers
 {
-    using Microsoft.Agents.ObjectModel.Syntax;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Completion.Generators;
+    using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Resources;
     using Schema = Microsoft.Agents.ObjectModel.Schema;
     using System;
@@ -58,7 +58,7 @@
                 }
                 else if (propertyInfo.ElementKind == Schema.ElementType.PrimitiveOrEnum)
                 {
-                    if (_completionGenerator.TryGenerateCompletionSnippets(propertyInfo.PrimitiveKind, out var snippets))
+                    if (_completionGenerator.TryGenerateCompletionSnippets(propertyInfo.PrimitiveKind, (requestContext.Workspace as McsWorkspace)?.CompilationAnalyzer?.RootDefinition, out var snippets))
                     {
                         foreach (var snippet in snippets)
                         {

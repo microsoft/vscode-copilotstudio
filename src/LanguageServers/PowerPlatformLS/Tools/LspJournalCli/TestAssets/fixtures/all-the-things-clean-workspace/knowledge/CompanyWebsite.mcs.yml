@@ -1,4 +1,5 @@
-# Name: Company Website
-# Knowledge source that searches the company website.
+mcs.metadata:
+  componentName: Company Website
+  description: Knowledge source that searches the company website.
 kind: PublicSiteSearchSource
 site: https://www.example.com/

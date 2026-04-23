@@ -1,4 +1,5 @@
-# Name: Get Weather Forecast
+mcs.metadata:
+  componentName: Get Weather Forecast
 kind: TaskDialog
 modelDisplayName: Get forecast for today
 modelDescription: Get the forecast for the current day in the specified location.
@@ -7,5 +8,7 @@ action:
   connectionReference: test_allthethings.shared_msnweather.shared-msnweather-00000000
   connectionProperties:
     mode: Invoker
+
   operationId: TodaysForecast
+
 outputMode: All

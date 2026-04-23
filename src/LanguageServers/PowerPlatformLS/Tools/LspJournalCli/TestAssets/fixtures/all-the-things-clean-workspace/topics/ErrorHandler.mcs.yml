@@ -1,5 +1,6 @@
-# Name: Error Handler
-# Triggered when an error occurs during conversation execution.
+mcs.metadata:
+  componentName: Error Handler
+  description: Triggered when an error occurs during conversation execution.
 kind: AdaptiveDialog
 beginDialog:
   kind: OnError
@@ -7,15 +8,11 @@ beginDialog:
   actions:
     - kind: SendActivity
       id: sendMessage_error01
-      activity:
-        text:
-          - "Something went wrong. Error code: {Topic.ErrorCode}"
+      activity: "Something went wrong. Error code: {Topic.ErrorCode}"
 
     - kind: SendActivity
       id: sendMessage_error02
-      activity:
-        text:
-          - "Details: {Topic.ErrorMessage}"
+      activity: "Details: {Topic.ErrorMessage}"
 
     - kind: CancelAllDialogs
       id: cancelAllDialogs_error01

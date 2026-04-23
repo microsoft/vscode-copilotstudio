@@ -2,5 +2,7 @@ accessControlPolicy: Any
 configuration:
   publishOnCreate: true
   isLightweightBot: true
+  GPTSettings:
+    defaultSchemaName: cree9_agent.gpt.default
 language: 1033
 name: Agent

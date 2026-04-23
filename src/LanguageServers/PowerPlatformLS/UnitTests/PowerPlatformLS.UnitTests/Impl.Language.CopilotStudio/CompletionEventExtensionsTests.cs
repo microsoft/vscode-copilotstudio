@@ -241,5 +241,56 @@
 
             Assert.Null(completionEvent); // outside of array. 
         }
+
+        [Fact]
+        public void Triage_GptComponent()
+        {
+            var world = new World();
+            var doc = world.AddFile("settings.mcs.yml");
+
+            string search = "defaultSchemaName: cree9_agent.|";
+
+            var requestContext = world.GetRequestContext(doc, search);
+            var completionEvent = requestContext.Triage(new());
+            var e2 = Assert.IsType<EditPropertyValueCompletionEvent>(completionEvent);
+
+            Assert.Equal("defaultSchemaName", e2.PropertyName);
+            var parent = Assert.IsType<MappingObjectSyntax>(e2.Parent);
+            var parentElement = parent.GetElement();
+
+            Assert.NotNull(e2.Element);
+            Assert.Equal(BotElementKind.GPTSettings, e2.Element!.Kind);
+            Assert.Same(parentElement, e2.Element);
+        }
+
+        [Fact]
+        public void ResolveElementForMapping_RootMapping()
+        {
+            var world = new World();
+            var doc = world.AddFile("settings.mcs.yml");
+            var rootElement = world.GetFileElement(doc);
+            var rootMapping = Assert.IsType<MappingObjectSyntax>(rootElement.Syntax);
+
+            var resolved = CompletionEventExtensions.ResolveElementForMapping(rootMapping);
+
+            Assert.Same(rootMapping.GetElement(), resolved);
+        }
+
+        [Fact]
+        public void ResolveElementForMapping_NestedElement()
+        {
+            var world = new World();
+            var doc = world.AddFile("settings.mcs.yml");
+
+            var requestContext = world.GetRequestContext(doc, "defaultSchemaName: cree9_agent.|");
+            var token = (SyntaxToken)world.GetFileElement(doc).Syntax!.GetSyntaxNodeAtPosition(requestContext.Index);
+            var nestedMapping = token.ParentOfType<MappingObjectSyntax>();
+            Assert.NotNull(nestedMapping);
+
+            var resolved = CompletionEventExtensions.ResolveElementForMapping(nestedMapping!);
+
+            Assert.NotNull(resolved);
+            Assert.Equal(BotElementKind.GPTSettings, resolved.Kind);
+        }
     }
 }
