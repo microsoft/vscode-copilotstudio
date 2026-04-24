@@ -60,12 +60,18 @@
                 {
                     // example:
                     // key: value
+                    var parentObject = (MappingObjectSyntax?)kvp.Parent ?? throw new InvalidOperationException("Need parent on kvp");
+                    var element = elementAtCursor;
+                    if (elementAtCursor is BotEntity)
+                    {
+                        element = ResolveElementForMapping(parentObject);
+                    }
 
                     return new EditPropertyValueCompletionEvent
                     {
-                        Parent = ((MappingObjectSyntax?)kvp.Parent) ?? throw new InvalidOperationException("Need parent on kvp"),
+                        Parent = parentObject,
                         PropertyName = kvp.PropertyName.Value ?? throw new InvalidOperationException("Missing property value for edit"),
-                        Element = elementAtCursor,
+                        Element = element,
                         CurrentToken = syntaxTokenAtCursor
                     };
                 }
@@ -417,6 +423,37 @@
                 mappingKeyValueSyntax = null;
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Resolves the BotElement for a MappingObjectSyntax for single element or nested element (e.g., GPTSettings inside BotEntity)
+        /// </summary>
+        internal static BotElement ResolveElementForMapping(MappingObjectSyntax mapping)
+        {
+            var propertyPath = new Stack<string>();
+            SyntaxNode currentNode = mapping;
+
+            while (currentNode.Parent is IMappingKeyValueSyntax parentKvp && parentKvp.PropertyName.Value is string propertyName && parentKvp.Parent is MappingObjectSyntax grandParent)
+            {
+                propertyPath.Push(propertyName);
+                currentNode = grandParent;
+            }
+
+            var element = currentNode.GetElement();
+
+            while (propertyPath.Count > 0)
+            {
+                if (BotElementReflection.GetPropertyValueOrNull(element, propertyPath.Pop()) is BotElement childElement)
+                {
+                    element = childElement;
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            return element;
         }
 
         // Get Power Fx CheckResult from a ExpressionBase. 

@@ -2,7 +2,6 @@
 {
     using Microsoft.Agents.ObjectModel;
     using Schema = Microsoft.Agents.ObjectModel.Schema;
-    using System;
     using System.Collections.Immutable;
     using System.Diagnostics.CodeAnalysis;
 
@@ -23,9 +22,33 @@
             return AllProperties.TryGetValue((kind, propertyName), out property);
         }
 
-        public bool TryGenerateCompletionSnippets(Schema.PrimitiveKind kind, out ImmutableArray<string> snippets)
+        public bool TryGenerateCompletionSnippets(Schema.PrimitiveKind kind, DefinitionBase? definition, out ImmutableArray<string> snippets)
         {
-            return PrimitiveSnippets.TryGetValue(kind, out snippets);
+            if (PrimitiveSnippets.TryGetValue(kind, out snippets))
+            {
+                return true;
+            }
+
+            if (definition != null && definition is BotDefinition botDefinition)
+            {
+                snippets = GetSchemaNameSnippets(kind, botDefinition);
+                if (!snippets.IsEmpty)
+                {
+                    return true;
+                }
+            }
+
+            snippets = default;
+            return false;
+        }
+
+        private static ImmutableArray<string> GetSchemaNameSnippets(Schema.PrimitiveKind kind, BotDefinition botDefinition)
+        {
+            return kind switch
+            {
+                Schema.PrimitiveKind.GptComponentSchemaNameReference => [.. botDefinition.Components.OfType<GptComponent>().Select(c => c.SchemaNameString).Where(s => s != null)],
+                _ => ImmutableArray<string>.Empty
+            };
         }
 
         private static IReadOnlyDictionary<Schema.PrimitiveKind, ImmutableArray<string>> BuildPrimitiveSnippets()

@@ -63,12 +63,21 @@
 [4:2-18]Property: isLightweightBot
 [4:18-20]Operator: : 
 [4:20-24]Keyword: true
-[5:0-8]Property: language
-[5:8-10]Operator: : 
-[5:10-14]Number: 1033
-[6:0-4]Property: name
-[6:4-6]Operator: : 
-[6:6-11]String: Agent
+[5:2-13]Property: GPTSettings
+[5:13-14]Operator: :
+[6:4-21]Property: defaultSchemaName
+[6:21-23]Operator: : 
+[6:23-34]Namespace: cree9_agent
+[6:34-35]Operator: .
+[6:35-38]Namespace: gpt
+[6:38-39]Operator: .
+[6:39-46]EnumMember: default
+[7:0-8]Property: language
+[7:8-10]Operator: : 
+[7:10-14]Number: 1033
+[8:0-4]Property: name
+[8:4-6]Operator: : 
+[8:6-11]String: Agent
 """;
             AssertTokens(semanticTokenData, doc.Text, expectedText);
         }
