@@ -35,7 +35,6 @@
         private const string AccountId = "testAccount";
         private const string AccountEmail = "testEmail";
         private const string DataverseUrl = "https://test.crm.dynamics.com";
-        private const string AgentManagementUrl = "https://test.agentmanagement.com";
         private const string SolutionName = "TestSolution";
         private const string CopilotStudioToken = "CopilotStudioToken";
         private const string DataverseToken = "DataverseToken";
@@ -127,7 +126,6 @@
                 AgentId = Guid.NewGuid(),
                 EnvironmentId = EnvironmentId,
                 DataverseEndpoint = new Uri(DataverseUrl),
-                AgentManagementEndpoint = new Uri(AgentManagementUrl),
                 AccountInfo = new AccountInfo
                 {
                     AccountId = AccountId,
@@ -241,7 +239,6 @@
                 EnvironmentInfo = new EnvironmentInfo
                 {
                     DataverseUrl = DataverseUrl,
-                    AgentManagementUrl = AgentManagementUrl,
                     EnvironmentId = EnvironmentId,
                     DisplayName = "Test Environment"
                 },
@@ -397,7 +394,6 @@
             mockAuthProvider.Setup(a => a.AcquireTokenAsync(It.IsAny<Uri>(), It.IsAny<CancellationToken>())).ReturnsAsync("mock-token");
             var accessor = new LspDataverseHttpClientAccessor(mockAuthProvider.Object);
             return new ReattachAgentHandler(
-                new Mock<IIslandControlPlaneService>().Object,
                 workspace,
                 new TestTokenManager(),
                 dataverseClient,
@@ -428,7 +424,6 @@
                 AgentId = Guid.NewGuid(),
                 EnvironmentId = "TestEnv",
                 DataverseEndpoint = new Uri("https://test.crm.dynamics.com"),
-                AgentManagementEndpoint = new Uri("https://test.agentmanagement.com"),
                 AccountInfo = new AccountInfo
                 {
                     AccountId = "testAccount",

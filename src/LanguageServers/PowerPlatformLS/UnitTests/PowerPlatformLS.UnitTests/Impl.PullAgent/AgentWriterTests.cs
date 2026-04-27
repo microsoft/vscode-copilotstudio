@@ -48,7 +48,6 @@
                 DataverseEndpoint = new Uri("https://contoso.com/id1"),
                 SolutionVersions = new SolutionInfo { CopilotStudioSolutionVersion = Version.Parse("100.0.0") },
                 AccountInfo = new AccountInfo { AccountId = "foo@bar.com", TenantId = Guid.NewGuid(), ClusterCategory = CoreServicesClusterCategory.Prod, AccountEmail = "foo" },
-                AgentManagementEndpoint = new Uri("https://contoso.com/id2")
             };
 
             await writer.SaveSyncInfoAsync(WorkspaceFolderPath, info1);

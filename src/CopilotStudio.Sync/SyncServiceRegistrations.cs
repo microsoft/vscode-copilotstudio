@@ -20,14 +20,11 @@ public static class SyncServiceRegistrations
     /// <see cref="Microsoft.Agents.Platform.Content.Abstractions.IDataverseHttpClientAccessor"/>
     /// before calling this method.
     /// </summary>
-    public static void AddSyncServices(this IServiceCollection services, string userAgent = "CopilotStudio.Sync", bool isIslandPreauthorized = false)
+    public static void AddSyncServices(this IServiceCollection services, string userAgent = "CopilotStudio.Sync")
     {
         services.AddSingleton<IIslandControlPlaneService>(sp =>
             new IslandControlPlaneService(
-                sp.GetRequiredService<ISyncAuthProvider>(),
-                sp.GetRequiredService<IContentAuthoringService>(),
-                isIslandPreauthorized,
-                sp.GetService<IHttpClientFactory>()));
+                sp.GetRequiredService<IContentAuthoringService>()));
         services.AddSingleton<IOperationContextProvider, OperationContextProvider>();
         services.AddSingleton<ISyncDataverseClient>(sp =>
             new SyncDataverseClient(sp.GetRequiredService<IDataverseHttpClientAccessor>(), userAgent));

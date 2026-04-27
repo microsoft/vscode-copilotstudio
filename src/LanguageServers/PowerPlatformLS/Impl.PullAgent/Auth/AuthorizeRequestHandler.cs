@@ -26,9 +26,4 @@
     {
         protected override string GetToken(ITokenProvider tokenProvider) => tokenProvider.GetDataverseToken();
     }
-
-    internal class AuthorizeCopilotStudioRequestHandler(ITokenProvider tokenProvider) : AuthorizeRequestHandler(tokenProvider)
-    {
-        protected override string GetToken(ITokenProvider tokenProvider) => tokenProvider.GetCopilotStudioToken();
-    }
 }

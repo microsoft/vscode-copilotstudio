@@ -23,10 +23,6 @@ namespace Microsoft.CopilotStudio.Sync.TestHarness;
 /// token. This mirrors how the VS Code extension wires auth — the only difference
 /// from <see cref="HostServices"/> is the auth/HTTP plumbing layer.
 ///
-/// Island control plane is disabled (isIslandPreauthorized: false) — matching PAC
-/// behavior. The Island path is an extension-specific cross-validation layer, not
-/// required for clone/push/pull correctness.
-///
 /// Used by the clone-via-bridge command to prove extension-path clone output matches
 /// the direct CLI clone output (F3 acceptance criteria).
 /// </summary>
@@ -43,7 +39,7 @@ internal static class BridgeHostServices
         //    TokenManager stores the Dataverse token via AsyncLocal — same pattern the
         //    extension uses when the VS Code client passes tokens per-request.
         var tokenManager = new TokenManager();
-        tokenManager.SetTokens(dataverseToken, copilotStudioToken: "unused-island-disabled");
+        tokenManager.SetTokens(dataverseToken, copilotStudioToken: "unused");
 
         services.AddSingleton<TokenManager>(tokenManager);
         services.AddSingleton<ITokenManager>(tokenManager);
@@ -75,9 +71,7 @@ internal static class BridgeHostServices
         services.AddSingleton<IAIModelEnrichmentService, StubAIModelEnrichmentService>();
         services.AddSingleton<ICloudFlowDefinitionEnrichementService, StubCloudFlowDefinitionEnrichementService>();
 
-        // 6. Shared library services — isIslandPreauthorized: false matches PAC behavior.
-        //    The Island control plane is an extension-specific cross-validation layer;
-        //    all data flows through Dataverse regardless.
+        // 6. Shared library services — all component data flows through Dataverse.
         services.AddSingleton<IWorkspaceSynchronizer, WorkspaceSynchronizer>();
         services.AddSingleton<IOperationContextProvider, OperationContextProvider>();
         services.AddSingleton<ISyncDataverseClient, SyncDataverseClient>();

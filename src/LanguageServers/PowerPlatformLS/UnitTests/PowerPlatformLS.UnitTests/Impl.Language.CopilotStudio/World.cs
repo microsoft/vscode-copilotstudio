@@ -345,17 +345,6 @@
             {
                 throw new NotImplementedException();
             }
-
-            // "https://test.agentmanagement.com"
-            public void SetIslandBaseEndpoint(string baseEndpoint)
-            {
-                // Nop.
-            }
-
-            public void SetConnectionContext(string baseEndpoint, CoreServicesClusterCategory clusterCategory)
-            {
-                // Nop.
-            }
         }
 
         // Get an IIslandControlPlaneService that can be used to clone this world.

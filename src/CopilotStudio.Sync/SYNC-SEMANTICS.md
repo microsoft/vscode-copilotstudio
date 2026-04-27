@@ -65,7 +65,7 @@ workflows/
 .mcs/                                  ← hidden state (gitignored)
   conn.json                            ← AgentSyncInfo (Dataverse URL, environment ID, account)
   botdefinition.json                   ← cloud cache — full server definition at last sync
-  changetoken.txt                      ← opaque delta sync token from Island Control Plane
+  changetoken.txt                      ← opaque delta sync token from Dataverse
   .gitignore                           ← contains "*" — entire directory is hidden from git
 ```
 
@@ -91,21 +91,21 @@ collection workspaces. These paths are filled in during a two-pass clone
 
 Entry point: `CloneChangesAsync` (single agent) or `CloneAllAssetsAsync` (agent + component collections).
 
-1. Call Island Control Plane `GetComponentsAsync` with `changeToken: null` to get the full component set.
+1. Call Dataverse `GetComponentsAsync` with `changeToken: null` to get the full component set.
 2. Apply the changeset to an empty `BotDefinition` or `BotComponentCollectionDefinition`.
 3. Write hidden state: `.mcs/botdefinition.json` (cloud cache), `.mcs/changetoken.txt`, `.mcs/conn.json`, `.mcs/.gitignore`.
 4. Write workspace files: `settings.mcs.yml`, `icon.png`, `agent.mcs.yml`, `connectionreferences.mcs.yml`, `references.mcs.yml`, all component `.mcs.yml` files, environment variables, and workflows.
 5. If no `GptComponentMetadata` component exists in the changeset (newly created agent with no metadata), write a default empty `agent.mcs.yml`.
 6. For multi-asset clones: second pass calls `ApplyTouchupsAsync` to resolve cross-workspace relative paths in `references.mcs.yml`.
 
-Workflows are fetched from Dataverse separately (`GetWorkflowsAsync`) because they are not part of the Island Control Plane component set. Each workflow produces a `workflows/{name}-{guid}/` directory containing `metadata.yml` and `workflow.json`.
+Workflows are fetched from Dataverse separately (`GetWorkflowsAsync`) because they are not part of the bot component set returned by `GetComponentsAsync`. Each workflow produces a `workflows/{name}-{guid}/` directory containing `metadata.yml` and `workflow.json`.
 
 ### Pull
 
 Entry point: `PullExistingChangesAsync`.
 
 1. Fetch workflows from Dataverse and merge into the definition.
-2. Compute local changes (workspace files vs cloud cache) and remote changes (Island CP with change token).
+2. Compute local changes (workspace files vs cloud cache) and remote changes (Dataverse with change token).
 3. Detect conflicts: components edited both locally and remotely (matching schema names).
 4. For each conflict, perform a 3-way merge:
    - YAML content: structural diff/merge via `DiffFinder`/`MergeOutput` with whitespace-insensitive comparison.
@@ -119,7 +119,7 @@ Entry point: `PullExistingChangesAsync`.
 
 Entry point: `PushChangesetAsync`.
 
-1. Call Island Control Plane `SaveChangesAsync` with the local changeset. This is atomic: the server receives inserts/updates/deletes and returns confirmation changes with new version numbers and a new change token.
+1. Call Dataverse `SaveChangesAsync` with the local changeset. This is atomic: the server receives inserts/updates/deletes and returns confirmation changes with new version numbers and a new change token.
 2. Update cloud cache with the returned changeset.
 3. Upload knowledge files (file attachments) to blob storage, max 5 parallel.
 4. Write updated workspace files and change token.
@@ -173,7 +173,7 @@ This detects silent push rejection — the server reports success but does not p
 
 **What it is**: Conversational topics — the primary authored content in a Copilot Studio agent. Each topic is a dialog tree with trigger phrases, message nodes, condition branches, and action steps.
 
-**Clone**: Island CP returns `DialogComponent` entries with `kind: AdaptiveDialog`. The projection rule strips the bot schema prefix and `.topic.` infix to derive the filename. Written as `topics/{shortName}.mcs.yml` via `CodeSerializer.SerializeAsMcsYml`.
+**Clone**: Dataverse returns `DialogComponent` entries with `kind: AdaptiveDialog`. The projection rule strips the bot schema prefix and `.topic.` infix to derive the filename. Written as `topics/{shortName}.mcs.yml` via `CodeSerializer.SerializeAsMcsYml`.
 
 **Push**: Local changes detected by structural comparison of `RootElement` (ignoring `mcs.metadata`). The changeset includes inserts, updates, and deletes. Topics are the one entity type with confirmed round-trip push success — edits persist server-side.
 
@@ -283,7 +283,7 @@ The action wrapper itself is a `DialogComponent` in `botdefinition.json`. The re
 
 **What it is**: Agent-scoped global variables. The projector and round-trip tests exist in the extension codebase (`ProjectorOracleParityTests.GlobalVariableComponent_RoundTrip`), and the test fixtures use `scope: User` variables.
 
-**Live testing (one case)**: Created one global variable (`GlobalTestVar`, scope: Global, type: String, draft-only) in UsefulTestAgent. The Island CP's component set contained only `DialogComponent` and `GptComponent` kinds — no `GlobalVariableComponent` appeared. The variable was present only as an inline `variable: Global.GlobalTestVar` reference in the topic YAML. Both pac clone and extension pull produced identical results: no `variables/` directory.
+**Live testing (one case)**: Created one global variable (`GlobalTestVar`, scope: Global, type: String, draft-only) in UsefulTestAgent. The server's component set contained only `DialogComponent` and `GptComponent` kinds — no `GlobalVariableComponent` appeared. The variable was present only as an inline `variable: Global.GlobalTestVar` reference in the topic YAML. Both pac clone and extension pull produced identical results: no `variables/` directory.
 
 Whether the server emits `GlobalVariableComponent` under other conditions (different scope, type, publish state, or API version) is untested. The extension fixture uses `scope: User` variables, which may represent either a planned server capability or a prior API version's behavior.
 
@@ -329,7 +329,7 @@ Whether the server emits `GlobalVariableComponent` under other conditions (diffe
 
 **What it is**: A portable file listing connection references needed by the agent. Used for provisioning connections in a new environment.
 
-**Clone**: `WriteConnectionReferencesAsync` serializes `definition.ConnectionReferences` if any exist. Connection references come from two sources: the Island CP component set (for agent components) and workflow metadata (for cloud flow connections).
+**Clone**: `WriteConnectionReferencesAsync` serializes `definition.ConnectionReferences` if any exist. Connection references come from two sources: the Dataverse component set (for agent components) and workflow metadata (for cloud flow connections).
 
 **Push**: Not pushed through the changeset. Connection references are server-managed. `ProvisionConnectionReferencesAsync` can create missing connection references via Dataverse API.
 
@@ -452,11 +452,11 @@ The projectors are implemented and tested. If the server begins emitting these c
 
 The `.mcs/` directory is the sync system's internal bookkeeping. It is gitignored (`.mcs/.gitignore` contains `*`).
 
-**`conn.json`** — `AgentSyncInfo`: Dataverse endpoint URL, environment ID, account info, agent or component collection ID, solution versions, and (optionally) the Island Control Plane management endpoint. Written once on clone; read on every sync operation.
+**`conn.json`** — `AgentSyncInfo`: Dataverse endpoint URL, environment ID, account info, agent or component collection ID, and solution versions. Written once on clone; read on every sync operation.
 
 **`botdefinition.json`** — Cloud cache: the full `DefinitionBase` (including all components, flows, connection references, environment variables) serialized as JSON at the last sync point. Used as the "original" in 3-way merge and as the baseline for local change detection. Updated after every clone, push, and pull.
 
-**`changetoken.txt`** — Opaque delta sync token from the Island Control Plane. Passed to `GetComponentsAsync` to receive only components that changed since the token was issued. A null token requests the full component set (used on clone).
+**`changetoken.txt`** — Opaque delta sync token from Dataverse. Passed to `GetComponentsAsync` to receive only components that changed since the token was issued. A null token requests the full component set (used on clone).
 
 **Legacy migration**: If `botdefinition.json` does not exist but `botdefinition.yml` does (old YAML format), `ReadCloudCacheSnapshot` reads the YAML file instead. New writes always use JSON.
 

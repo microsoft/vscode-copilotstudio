@@ -48,7 +48,7 @@
 
             // Shared sync library services (replaces manual IslandControlPlane, OperationContextProvider,
             // WorkspaceSynchronizer, ComponentPathResolver, SyncDataverseClient registrations)
-            services.AddSyncServices(userAgent, isIslandPreauthorized: true);
+            services.AddSyncServices(userAgent);
 
             // PullAgent's own IFileAccessorFactory (internal, used by GetWorkspaceDetailsHandler for icon check)
             services.AddSingleton<IFileAccessorFactory, FileAccessorFactory>();
@@ -64,9 +64,7 @@
             services.AddSingleton<IAIModelEnrichmentService, MockAIModelEnrichmentService>();
             services.AddSingleton<ICloudFlowDefinitionEnrichementService, MockCloudFlowDefinitionEnrichementService>();
             services.AddTransient<AuthorizeDataverseRequestHandler>();
-            services.AddTransient<AuthorizeCopilotStudioRequestHandler>();
             AddHttpClient<AuthorizeDataverseRequestHandler>(HttpClientNames.Dataverse);
-            AddHttpClient<AuthorizeCopilotStudioRequestHandler>(HttpClientNames.BotManagement);
 
             services.AddSingleton<IMethodHandler, CloneAgentHandler>();
             services.AddSingleton<IMethodHandler, SyncPushHandler>();

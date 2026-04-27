@@ -8,8 +8,7 @@ namespace Microsoft.CopilotStudio.Sync.TestHarness;
 
 /// <summary>
 /// IDataverseHttpClientAccessor that creates HttpClients with bearer token auth
-/// via ISyncAuthProvider. Mirrors the BearerTokenHandler pattern from
-/// IslandControlPlaneService.
+/// via ISyncAuthProvider.
 /// </summary>
 internal sealed class DataverseHttpClientAccessor : IDataverseHttpClientAccessor
 {

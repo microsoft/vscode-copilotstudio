@@ -22,7 +22,6 @@
         private const string AccountId = "testAccount";
         private const string AccountEmail = "testEmail";
         private const string DataverseUrl = "https://test.crm.dynamics.com";
-        private const string AgentManagementUrl = "https://test.agentmanagement.com";
         private const string CopilotStudioToken = "CopilotStudioToken";
         private const string DataverseToken = "DataverseToken";
 
@@ -251,7 +250,6 @@
                 EnvironmentInfo = new EnvironmentInfo
                 {
                     DataverseUrl = DataverseUrl,
-                    AgentManagementUrl = AgentManagementUrl,
                     EnvironmentId = EnvironmentId,
                     DisplayName = "Test Environment"
                 },

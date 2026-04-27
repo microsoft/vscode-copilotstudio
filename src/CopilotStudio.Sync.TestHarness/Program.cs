@@ -134,7 +134,6 @@ pushCommand.SetHandler(async (string workspace) =>
 
         var syncInfo = await synchronizer.GetSyncInfoAsync(workspaceFolder);
         dataverseClient.SetDataverseUrl(syncInfo.DataverseEndpoint.ToString());
-        SetIslandContextIfAvailable(services, syncInfo);
 
         Console.WriteLine($"Agent ID: {syncInfo.AgentId}");
 
@@ -225,7 +224,6 @@ pullCommand.SetHandler(async (string workspace) =>
 
         var syncInfo = await synchronizer.GetSyncInfoAsync(workspaceFolder);
         dataverseClient.SetDataverseUrl(syncInfo.DataverseEndpoint.ToString());
-        SetIslandContextIfAvailable(services, syncInfo);
 
         Console.WriteLine($"Agent ID: {syncInfo.AgentId}");
 
@@ -305,7 +303,6 @@ verifyCommand.SetHandler(async (string workspace) =>
 
         var syncInfo = await synchronizer.GetSyncInfoAsync(workspaceFolder);
         dataverseClient.SetDataverseUrl(syncInfo.DataverseEndpoint.ToString());
-        SetIslandContextIfAvailable(services, syncInfo);
 
         Console.WriteLine($"Agent ID: {syncInfo.AgentId}");
 
@@ -413,8 +410,7 @@ cloneViaBridgeCommand.SetHandler(async (string environment, string? environmentI
         var dvToken = await directAuthProvider.AcquireTokenAsync(environmentUrl, CancellationToken.None);
 
         // 2. Build a service provider using the extension's actual bridge types.
-        //    Island control plane is disabled (isIslandPreauthorized: false) — PAC
-        //    doesn't use it either. All data flows through Dataverse.
+        //    All component data flows through Dataverse.
         await using var services = BridgeHostServices.BuildWithBridgeTypes(environmentUrl, dvToken);
 
         var dataverseClient = services.GetRequiredService<ISyncDataverseClient>();
@@ -499,17 +495,6 @@ return Environment.ExitCode != 0 ? Environment.ExitCode : result;
 static DirectoryPath ResolveWorkspace(string workspace)
 {
     return new DirectoryPath(Path.GetFullPath(workspace).Replace('\\', '/'));
-}
-
-static void SetIslandContextIfAvailable(IServiceProvider services, AgentSyncInfo syncInfo)
-{
-    if (syncInfo.AgentManagementEndpoint != null)
-    {
-        var islandService = services.GetRequiredService<IIslandControlPlaneService>();
-        islandService.SetConnectionContext(
-            syncInfo.AgentManagementEndpoint.ToString(),
-            syncInfo.AccountInfo?.ClusterCategory ?? CoreServicesClusterCategory.Prod);
-    }
 }
 
 static string GetRequiredEnvVar(string name)

@@ -28,7 +28,6 @@
         private const string TestEnvironment = "testEnvironment";
         private const string TestAccount = "testAccount";
         private const string AccountEmail = "testAccount@contoso.com";
-        private const string AgentManagementHost = "https://test.agentmanagement.com";
         private const string DataverseEndpoint = "https://test.crm.dynamics.com";
         private const int MinorVersion = 1001234;
         private const string CopilotStudioAccessToken = "testCopilotStudioAccessToken";
@@ -57,14 +56,8 @@
             TestAssert.StringArrayEqual([".mcs/.gitignore", ".mcs/botdefinition.json", ".mcs/changetoken.txt", ".mcs/conn.json", "agent.mcs.yml"], pullMockModule.DiskMock.Filenames);
             await AssertFileContentAsync(".mcs/.gitignore", "*", pullMockModule.DiskMock);
             await AssertFileContentAsync(".mcs/botdefinition.json", "{\"$kind\":\"BotDefinition\"}", pullMockModule.DiskMock);
-            await AssertFileContentAsync(".mcs/changetoken.txt", "TestHttpMethodHandler change token", pullMockModule.DiskMock);
-            await AssertFileContentAsync(".mcs/conn.json", $"{{\"DataverseEndpoint\":\"{DataverseEndpoint}\",\"EnvironmentId\":\"{TestEnvironment}\",\"AccountInfo\":{{\"AccountId\":\"{TestAccount}\",\"TenantId\":\"{tenantId}\",\"AccountEmail\":\"{AccountEmail}\",\"clusterCategory\":null}},\"AgentId\":\"{agentId}\",\"ComponentCollectionId\":null,\"SolutionVersions\":{{\"SolutionVersions\":{{\"msdyn_RelevanceSearch\":\"0.{MinorVersion}\",\"msft_AIPlatformExtensionsComponents\":\"0.{MinorVersion}\"}},\"CopilotStudioSolutionVersion\":\"0.{MinorVersion}\"}},\"AgentManagementEndpoint\":\"{AgentManagementHost}\"}}", pullMockModule.DiskMock);
-
-            // assert network calls sequence
-            Assert.NotEmpty(pullMockModule.HttpClientMock.Requests);
-            var expectedUrl = $"{AgentManagementHost}/api/botmanagement/v1/environments/{TestEnvironment}/bots/{agentId}/content/botcomponents";
-            var httpRequest = pullMockModule.HttpClientMock.Requests.Single(r => r.RequestUri?.AbsoluteUri == expectedUrl);
-            Assert.Equal(expectedUrl, httpRequest.RequestUri?.AbsoluteUri);
+            await AssertFileContentAsync(".mcs/changetoken.txt", "PullAgentMockModule change token", pullMockModule.DiskMock);
+            await AssertFileContentAsync(".mcs/conn.json", $"{{\"DataverseEndpoint\":\"{DataverseEndpoint}\",\"EnvironmentId\":\"{TestEnvironment}\",\"AccountInfo\":{{\"AccountId\":\"{TestAccount}\",\"TenantId\":\"{tenantId}\",\"AccountEmail\":\"{AccountEmail}\",\"clusterCategory\":null}},\"AgentId\":\"{agentId}\",\"ComponentCollectionId\":null,\"SolutionVersions\":{{\"SolutionVersions\":{{\"msdyn_RelevanceSearch\":\"0.{MinorVersion}\",\"msft_AIPlatformExtensionsComponents\":\"0.{MinorVersion}\"}},\"CopilotStudioSolutionVersion\":\"0.{MinorVersion}\"}}}}", pullMockModule.DiskMock);
 
             // assert external dependency
             Assert.NotEmpty(pullMockModule.ContentAuthoringMock.GetComponentsRequests);
@@ -118,7 +111,6 @@
                 EnvironmentInfo = new EnvironmentInfo
                 {
                     DataverseUrl = DataverseEndpoint,
-                    AgentManagementUrl = AgentManagementHost,
                     EnvironmentId = TestEnvironment,
                     DisplayName = "Test Environment",
                 },

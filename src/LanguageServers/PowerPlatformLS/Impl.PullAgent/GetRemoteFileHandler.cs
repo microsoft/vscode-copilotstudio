@@ -30,13 +30,11 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         private readonly ITokenManager _dataverseTokenManager;
         private readonly CopilotStudio.Sync.IOperationContextProvider _operationContextProvider;
         private readonly ILspLogger _logger;
-        private readonly CopilotStudio.Sync.IIslandControlPlaneService _islandControlPlaneService;
         protected readonly CopilotStudio.Sync.IWorkspaceSynchronizer _synchronizer;
         private readonly ISyncDataverseClient _dataverseClient;
         private readonly LspDataverseHttpClientAccessor _dataverseHttpClientAccessor;
 
         public GetRemoteFileHandler(
-            CopilotStudio.Sync.IIslandControlPlaneService islandControlPlaneService,
             CopilotStudio.Sync.IWorkspaceSynchronizer agentWriter,
             ITokenManager dataverseTokenManager,
             CopilotStudio.Sync.IOperationContextProvider operationContextProvider,
@@ -44,7 +42,6 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             LspDataverseHttpClientAccessor dataverseHttpClientAccessor,
             ILspLogger logger)
         {
-            _islandControlPlaneService = islandControlPlaneService;
             _synchronizer = agentWriter ?? throw new ArgumentNullException(nameof(agentWriter));
             _dataverseTokenManager = dataverseTokenManager ?? throw new ArgumentNullException(nameof(dataverseTokenManager));
             _operationContextProvider = operationContextProvider ?? throw new ArgumentNullException(nameof(operationContextProvider));
@@ -59,9 +56,6 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         {
             try
             {
-                _islandControlPlaneService.SetConnectionContext(
-                    request.EnvironmentInfo.AgentManagementUrl,
-                    request.AccountInfo.ClusterCategory);
                 _dataverseTokenManager.SetTokens(request.DataverseAccessToken, request.CopilotStudioAccessToken);
                 _dataverseHttpClientAccessor.SetDataverseUrl(new Uri(request.EnvironmentInfo.DataverseUrl));
                 _dataverseClient.SetDataverseUrl(request.EnvironmentInfo.DataverseUrl);

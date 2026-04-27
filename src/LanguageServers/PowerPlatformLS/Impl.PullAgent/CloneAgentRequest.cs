@@ -25,7 +25,6 @@
             EnvironmentId = EnvironmentInfo.EnvironmentId,
             SolutionVersions = SolutionVersions,
             AccountInfo = AccountInfo,
-            AgentManagementEndpoint = new Uri(EnvironmentInfo.AgentManagementUrl),
         };
     }
 

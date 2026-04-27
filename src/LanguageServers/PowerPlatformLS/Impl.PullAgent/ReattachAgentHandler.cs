@@ -16,7 +16,6 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     [LanguageServerEndpoint(ReattachAgentRequest.MessageName, LanguageServerConstants.DefaultLanguageName)]
     internal class ReattachAgentHandler : IRequestHandler<ReattachAgentRequest, ReattachAgentResponse, RequestContext>
     {
-        private readonly CopilotStudio.Sync.IIslandControlPlaneService _islandControlPlaneService;
         private readonly CopilotStudio.Sync.IWorkspaceSynchronizer _workspaceSynchronizer;
         private readonly ITokenManager _dataverseTokenManager;
         private readonly ILspLogger _logger;
@@ -27,7 +26,6 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         public bool MutatesSolutionState => true;
 
         public ReattachAgentHandler(
-            CopilotStudio.Sync.IIslandControlPlaneService islandControlPlaneService,
             CopilotStudio.Sync.IWorkspaceSynchronizer workspaceSynchronizer,
             ITokenManager dataverseTokenManager,
             ISyncDataverseClient dataverseClient,
@@ -35,7 +33,6 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             CopilotStudio.Sync.IOperationContextProvider operationContextProvider,
             ILspLogger logger)
         {
-            _islandControlPlaneService = islandControlPlaneService;
             _workspaceSynchronizer = workspaceSynchronizer ?? throw new ArgumentNullException(nameof(workspaceSynchronizer));
             _dataverseTokenManager = dataverseTokenManager ?? throw new ArgumentNullException(nameof(dataverseTokenManager));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -63,14 +60,10 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 EnvironmentId = request.EnvironmentInfo.EnvironmentId,
                 AccountInfo = request.AccountInfo,
                 SolutionVersions = request.SolutionVersions,
-                AgentManagementEndpoint = new Uri(request.EnvironmentInfo.AgentManagementUrl)
             };
 
             try
             {
-                _islandControlPlaneService.SetConnectionContext(
-                    request.EnvironmentInfo.AgentManagementUrl,
-                    request.AccountInfo.ClusterCategory);
                 _dataverseTokenManager.SetTokens(request.DataverseAccessToken, request.CopilotStudioAccessToken);
                 _dataverseHttpClientAccessor.SetDataverseUrl(new Uri(request.EnvironmentInfo.DataverseUrl));
                 _dataverseClient.SetDataverseUrl(request.EnvironmentInfo.DataverseUrl);
@@ -93,7 +86,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     return new ReattachAgentResponse()
                     {
                         Code = 400,
-                        Message = $"This agent is already connected to a cloud instance {request.EnvironmentInfo.AgentManagementUrl}.",
+                        Message = $"This agent is already connected to a cloud instance {request.EnvironmentInfo.DataverseUrl}.",
                         AgentSyncInfo = defaultSyncInfo
                     };
                 }
@@ -148,7 +141,6 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     EnvironmentId = request.EnvironmentInfo.EnvironmentId,
                     AccountInfo = request.AccountInfo,
                     SolutionVersions = request.SolutionVersions,
-                    AgentManagementEndpoint = new Uri(request.EnvironmentInfo.AgentManagementUrl)
                 };
 
                 await _workspaceSynchronizer.SaveSyncInfoAsync(workspaceFolder, syncInfo);
