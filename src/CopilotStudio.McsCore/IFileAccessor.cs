@@ -56,7 +56,11 @@ internal static class FileAccessorExtensions
 
         using var stream = writer.OpenWrite(path);
         using TextWriter sw = new StreamWriter(stream, Encoding.UTF8);
+#if NETSTANDARD2_0
+        await sw.WriteAsync(contents).ConfigureAwait(false);
+#else
         await sw.WriteAsync(contents.AsMemory(), cancel).ConfigureAwait(false);
+#endif
     }
 
     public static async Task WriteAsync(this IFileAccessor writer, AgentFilePath path, byte[] bytes, CancellationToken cancel)
@@ -65,7 +69,11 @@ internal static class FileAccessorExtensions
 
         using var stream = writer.OpenWrite(path);
 
+#if NETSTANDARD2_0
+        await stream.WriteAsync(bytes, 0, bytes.Length, cancel).ConfigureAwait(false);
+#else
         await stream.WriteAsync(bytes, cancel).ConfigureAwait(false);
+#endif
     }
 
     public static async Task<string> ReadStringAsync(this IFileAccessor writer, AgentFilePath path, CancellationToken cancel)
@@ -75,7 +83,11 @@ internal static class FileAccessorExtensions
         using var stream = writer.OpenRead(path);
         using var sr = new StreamReader(stream);
 
+#if NETSTANDARD2_0
+        var str = await sr.ReadToEndAsync().ConfigureAwait(false);
+#else
         var str = await sr.ReadToEndAsync(cancel).ConfigureAwait(false);
+#endif
         return str;
     }
 }

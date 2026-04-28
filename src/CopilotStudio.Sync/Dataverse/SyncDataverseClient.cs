@@ -107,7 +107,7 @@ public class SyncDataverseClient : ISyncDataverseClient
 
             var requestBody = CreateWorkflowRequestBody(workflowMetadata);
             var updateUrl = $"{DataverseUrl}/api/data/v9.2/workflows({workflowMetadata.WorkflowId})";
-            await SendAsync<object>(HttpMethod.Patch, updateUrl, requestBody, false, cancellationToken).ConfigureAwait(false);
+            await SendAsync<object>(HttpMethodHelper.Patch, updateUrl, requestBody, false, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -245,7 +245,7 @@ public class SyncDataverseClient : ISyncDataverseClient
             ["statuscode"] = 2
         };
 
-        await SendAsync<object>(HttpMethod.Patch, activateUrl, activateBody, false, cancellationToken).ConfigureAwait(false);
+        await SendAsync<object>(HttpMethodHelper.Patch, activateUrl, activateBody, false, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<List<Guid>> GetAllBotComponentIdsAsync(Guid agentId, CancellationToken cancellationToken)
@@ -380,7 +380,7 @@ public class SyncDataverseClient : ISyncDataverseClient
         string connectionReferenceLogicalName,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(connectionReferenceLogicalName);
+        if (connectionReferenceLogicalName is null) throw new ArgumentNullException(nameof(connectionReferenceLogicalName));
         var literal = connectionReferenceLogicalName.Replace("'", "''");
         var filterExpr = $"connectionreferencelogicalname eq '{literal}'";
         var baseUri = new Uri(new Uri(DataverseUrl), "/api/data/v9.2/connectionreferences");
@@ -518,7 +518,11 @@ public class SyncDataverseClient : ISyncDataverseClient
 
         using var fileStream = new FileStream(localPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
 
+#if NETSTANDARD2_0
+        await stream.CopyToAsync(fileStream, 81920, cancellationToken).ConfigureAwait(false);
+#else
         await stream.CopyToAsync(fileStream, cancellationToken).ConfigureAwait(false);
+#endif
     }
 
     public async Task UploadKnowledgeFileAsync(string knowledgeFileFolder, Guid botComponentId, string fileName, CancellationToken cancellationToken = default)
@@ -527,7 +531,7 @@ public class SyncDataverseClient : ISyncDataverseClient
         var httpClient = _httpClientAccessor.CreateClient();
         using var fileStream = new FileStream(GetKnowledgeFileLocalPath(knowledgeFileFolder, fileName), FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 81920, useAsync: true);
 
-        using var request = new HttpRequestMessage(HttpMethod.Patch, requestUri)
+        using var request = new HttpRequestMessage(HttpMethodHelper.Patch, requestUri)
         {
             Content = new StreamContent(fileStream, bufferSize: 81920)
         };

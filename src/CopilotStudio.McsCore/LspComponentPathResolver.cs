@@ -114,7 +114,7 @@ internal sealed class LspComponentPathResolver : IComponentPathResolver
         var infixIndex = schemaName.IndexOf(infix, StringComparison.OrdinalIgnoreCase);
         if (infixIndex >= 0)
         {
-            return schemaName[(infixIndex + infix.Length)..];
+            return schemaName.Substring(infixIndex + infix.Length);
         }
 
         return string.IsNullOrWhiteSpace(schemaName) ? "Unknown" : schemaName;

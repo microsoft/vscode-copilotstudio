@@ -44,7 +44,11 @@ public static class SchemaNameGenerator
     private static string RandId(int length)
     {
         const string chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+#if NETSTANDARD2_0
+        return new string(Enumerable.Range(0, length).Select(_ => chars[RandomNumberGeneratorPolyfill.GetInt32(chars.Length)]).ToArray());
+#else
         return new string(Enumerable.Range(0, length).Select(_ => chars[RandomNumberGenerator.GetInt32(chars.Length)]).ToArray());
+#endif
     }
 
     /// <summary>

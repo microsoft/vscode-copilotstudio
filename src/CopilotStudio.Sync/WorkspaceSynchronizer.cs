@@ -159,7 +159,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             {
                 using var file = fileAccessor.OpenRead(ReferencesCollectionPath);
                 using var sr = new StreamReader(file);
+#if NETSTANDARD2_0
+                cancellation.ThrowIfCancellationRequested();
+                var yaml = await sr.ReadToEndAsync().ConfigureAwait(false);
+#else
                 var yaml = await sr.ReadToEndAsync(cancellation).ConfigureAwait(false);
+#endif
                 var refs = CodeSerializer.Deserialize<ReferencesSourceFile>(yaml);
 
                 if (refs == null)
@@ -338,7 +343,21 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
         if (downloadAllKnowledgeFiles && newSnapshot != null)
         {
-            await Parallel.ForEachAsync(newSnapshot.Components.OfType<FileAttachmentComponent>().Where(c => !string.IsNullOrEmpty(c.DisplayName)).ToList(), new ParallelOptions
+            var fileComponents = newSnapshot.Components.OfType<FileAttachmentComponent>().Where(c => !string.IsNullOrEmpty(c.DisplayName)).ToList();
+#if NETSTANDARD2_0
+            foreach (var localComponent in fileComponents)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var componentPath = new AgentFilePath(_pathResolver.GetComponentPath(localComponent, newSnapshot));
+                await dataverseClient.DownloadKnowledgeFileAsync(
+                    Path.Combine(workspaceFolder.ToString(), componentPath.ParentDirectoryName),
+                    localComponent.Id,
+                    localComponent.DisplayName ?? localComponent.Id.Value.ToString(),
+                    cancellationToken
+                ).ConfigureAwait(false);
+            }
+#else
+            await Parallel.ForEachAsync(fileComponents, new ParallelOptions
             {
                 MaxDegreeOfParallelism = 5,
                 CancellationToken = cancellationToken
@@ -352,6 +371,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                     cancellationToken
                 ).ConfigureAwait(false);
             }).ConfigureAwait(false);
+#endif
         }
 
         // persist updated change set on directory
@@ -575,6 +595,31 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 return 0;
             }
 
+#if NETSTANDARD2_0
+            foreach (var newFileComponent in newFileComponents)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (string.IsNullOrEmpty(newFileComponent.DisplayName))
+                {
+                    continue;
+                }
+
+                var componentPath = new AgentFilePath(_pathResolver.GetComponentPath(newFileComponent, snapshot));
+                if (!IsValidFileToUpload(componentPath))
+                {
+                    continue;
+                }
+
+                await dataverseClient.UploadKnowledgeFileAsync(
+                    Path.Combine(workspaceFolder.ToString(), componentPath.ParentDirectoryName),
+                    newFileComponent.Id.Value,
+                    newFileComponent.DisplayName,
+                    cancellationToken
+                ).ConfigureAwait(false);
+
+                numberOfUploadedFiles++;
+            }
+#else
             await Parallel.ForEachAsync(newFileComponents, new ParallelOptions
             {
                 MaxDegreeOfParallelism = 5,
@@ -602,6 +647,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
                 numberOfUploadedFiles++;
             }).ConfigureAwait(false);
+#endif
         }
 
         return numberOfUploadedFiles;
@@ -902,7 +948,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         return new AgentFilePath($"{EnvironmentVariablesFolder}/{schemaName}.mcs.yml");
     }
 
-    private static string GetAgentSchemaName(string fullSchema) => fullSchema[..(fullSchema.IndexOf('.') is var i && i > 0 ? i : fullSchema.Length)];
+    private static string GetAgentSchemaName(string fullSchema) => fullSchema.Substring(0, fullSchema.IndexOf('.') is var i && i > 0 ? i : fullSchema.Length);
     
     private void WriteComponentCollection(IFileAccessor fileAccessor, BotComponentCollection? collection, CancellationToken cancellationToken)
     {
@@ -1497,8 +1543,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                         continue;
                     }
 
-                    var clientDataJson = await File.ReadAllTextAsync(jsonFile, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
-                    var yamlText = await File.ReadAllTextAsync(metadataFile, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+                    var clientDataJson = await FileShim.ReadAllTextAsync(jsonFile, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+                    var yamlText = await FileShim.ReadAllTextAsync(metadataFile, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
                     var deserializer = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
                     var metadata = deserializer.Deserialize<WorkflowMetadata>(yamlText);
                     metadata.ClientData = clientDataJson;
@@ -1605,14 +1651,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                     using var jsonDoc = JsonDocument.Parse(workflow.ClientData);
                     var jsonString = JsonSerializer.Serialize(jsonDoc.RootElement, new JsonSerializerOptions { WriteIndented = true });
 
-                    var jsonStream = fileAccessor.OpenWrite(workflowJsonTmp);
-                    await using (jsonStream.ConfigureAwait(false))
+                    using (var jsonStream = fileAccessor.OpenWrite(workflowJsonTmp))
+                    using (var writer = new StreamWriter(jsonStream, Encoding.UTF8))
                     {
-                        var writer = new StreamWriter(jsonStream, Encoding.UTF8);
-                        await using (writer.ConfigureAwait(false))
-                        {
-                            await writer.WriteAsync(jsonString).ConfigureAwait(false);
-                        }
+                        await writer.WriteAsync(jsonString).ConfigureAwait(false);
                     }
                     fileAccessor.Replace(workflowJsonTmp, workflowJson);
 
@@ -1620,14 +1662,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                     var workflowMetadataTmp = new AgentFilePath($"{workflowFolder}/metadata.yml.tmp");
                     var serializer = new SerializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
 
-                    var metaStream = fileAccessor.OpenWrite(workflowMetadataTmp);
-                    await using (metaStream.ConfigureAwait(false))
+                    using (var metaStream = fileAccessor.OpenWrite(workflowMetadataTmp))
+                    using (var writer = new StreamWriter(metaStream, Encoding.UTF8))
                     {
-                        var writer = new StreamWriter(metaStream, Encoding.UTF8);
-                        await using (writer.ConfigureAwait(false))
-                        {
-                            serializer.Serialize(writer, workflow);
-                        }
+                        serializer.Serialize(writer, workflow);
                     }
                     fileAccessor.Replace(workflowMetadataTmp, workflowMetadata);
                 }
@@ -1694,7 +1732,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
             using var stream = fileAccessor.OpenRead(filePath);
             using var reader = new StreamReader(stream, Encoding.UTF8);
+#if NETSTANDARD2_0
+            cancellationToken.ThrowIfCancellationRequested();
+            var yaml = await reader.ReadToEndAsync().ConfigureAwait(false);
+#else
             var yaml = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+#endif
 
             var deserialized = CodeSerializer.Deserialize(yaml, component.RootElement?.GetType() ?? typeof(BotElement), null);
             var (parsed, error) = _fileParser.CompileFileModel(component.SchemaNameString, deserialized, component.DisplayName, component.Description);
@@ -1804,7 +1847,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
             using var stream = fileAccessor.OpenRead(filePath);
             using var reader = new StreamReader(stream, Encoding.UTF8);
+#if NETSTANDARD2_0
+            cancellationToken.ThrowIfCancellationRequested();
+            var yaml = await reader.ReadToEndAsync().ConfigureAwait(false);
+#else
             var yaml = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+#endif
 
             if (CodeSerializer.Deserialize(yaml, typeof(EnvironmentVariableDefinition), null) is EnvironmentVariableDefinition envVar)
             {
@@ -1890,8 +1938,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 continue;
             }
 
-            var yaml = await File.ReadAllTextAsync(metadataFile, cancellationToken).ConfigureAwait(false);
-            var json = await File.ReadAllTextAsync(jsonFile, cancellationToken).ConfigureAwait(false);
+            var yaml = await FileShim.ReadAllTextAsync(metadataFile, cancellationToken).ConfigureAwait(false);
+            var json = await FileShim.ReadAllTextAsync(jsonFile, cancellationToken).ConfigureAwait(false);
             var deserializer = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
             var metadata = deserializer.Deserialize<WorkflowMetadata>(yaml);
             metadata.ClientData = json;
@@ -2443,7 +2491,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         var expectedDefinition = await ReadWorkspaceDefinitionAsync(workspaceFolder, cancellationToken).ConfigureAwait(false);
 
         // Clone to a temp workspace to get the server's current state
-        var tempDir = Path.Combine(Path.GetTempPath(), "mcs-verify-" + Guid.NewGuid().ToString("N")[..8]);
+        var tempDir = Path.Combine(Path.GetTempPath(), "mcs-verify-" + Guid.NewGuid().ToString("N").Substring(0, 8));
         Directory.CreateDirectory(tempDir);
         var tempWorkspace = new DirectoryPath(tempDir.Replace('\\', '/'));
 

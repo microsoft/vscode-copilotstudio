@@ -28,8 +28,49 @@ internal static class PathHelper
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static int GetHashCode<T>(T path, Func<T, string> getValue)
     {
-        return getValue(path).GetHashCode(StringComparison.OrdinalIgnoreCase);
+        return StringComparer.OrdinalIgnoreCase.GetHashCode(getValue(path));
     }
+
+    internal static string GetRelativePath(string relativeTo, string path)
+    {
+#if NETSTANDARD2_0
+        return GetRelativePathPolyfill(relativeTo, path);
+#else
+        return Path.GetRelativePath(relativeTo, path);
+#endif
+    }
+
+#if NETSTANDARD2_0
+    private static string GetRelativePathPolyfill(string relativeTo, string path)
+    {
+        if (string.IsNullOrEmpty(relativeTo)) throw new ArgumentNullException(nameof(relativeTo));
+        if (string.IsNullOrEmpty(path)) throw new ArgumentNullException(nameof(path));
+
+        var rt = Path.GetFullPath(relativeTo);
+        var p = Path.GetFullPath(path);
+
+        if (rt.Length == 0 || (rt[rt.Length - 1] != Path.DirectorySeparatorChar
+                              && rt[rt.Length - 1] != Path.AltDirectorySeparatorChar))
+        {
+            rt += Path.DirectorySeparatorChar;
+        }
+
+        var rtUri = new Uri(rt);
+        var pUri = new Uri(p);
+
+        if (rtUri.Scheme != pUri.Scheme) return p;
+
+        var relativeUri = rtUri.MakeRelativeUri(pUri);
+        var rel = Uri.UnescapeDataString(relativeUri.ToString());
+
+        if (string.Equals(pUri.Scheme, "file", StringComparison.OrdinalIgnoreCase))
+        {
+            rel = rel.Replace('/', Path.DirectorySeparatorChar);
+        }
+
+        return rel;
+    }
+#endif
 
     internal static T GetRelativeTo<T>(T path, DirectoryPath parent, Func<T, string> getValue, Func<string, T> create)
     {
@@ -73,8 +114,8 @@ public readonly struct DirectoryPath : IEquatable<DirectoryPath>
 
     public DirectoryPath(string path)
     {
-        ArgumentNullException.ThrowIfNull(path);
-        _value = path.Length == 0 || (path[^1] == '/') ? path : path + "/";
+        if (path is null) throw new ArgumentNullException(nameof(path));
+        _value = path.Length == 0 || (path[path.Length - 1] == '/') ? path : path + "/";
         PathHelper.ValidatePath(_value);
     }
 
@@ -175,7 +216,7 @@ public readonly struct DirectoryPath : IEquatable<DirectoryPath>
         EnsureIsRooted();
         parent.EnsureIsRooted();
 
-        var relative = Path.GetRelativePath(parent._value, _value);
+        var relative = PathHelper.GetRelativePath(parent._value, _value);
         relative = relative.Replace('\\', '/');
 
         return new RelativeDirectoryPath(relative);
@@ -214,7 +255,7 @@ public readonly struct FilePath : IEquatable<FilePath>
 
     public FilePath(string path)
     {
-        ArgumentNullException.ThrowIfNull(path);
+        if (path is null) throw new ArgumentNullException(nameof(path));
         if (path.Length == 0 || path == "/")
         {
             throw new ArgumentException($"File path cannot be empty or root. Use '{nameof(DirectoryPath)}'.", nameof(path));
@@ -286,7 +327,7 @@ public readonly struct RelativeDirectoryPath : IEquatable<RelativeDirectoryPath>
 
     public RelativeDirectoryPath(string value)
     {
-        ArgumentNullException.ThrowIfNull(value);
+        if (value is null) throw new ArgumentNullException(nameof(value));
         _value = value;
         PathHelper.ValidatePath(_value);
     }
@@ -308,7 +349,7 @@ public readonly struct RelativeDirectoryPath : IEquatable<RelativeDirectoryPath>
 
     public override int GetHashCode()
     {
-        return _value?.GetHashCode(StringComparison.OrdinalIgnoreCase) ?? 0;
+        return _value is null ? 0 : StringComparer.OrdinalIgnoreCase.GetHashCode(_value);
     }
 
     public static bool operator ==(RelativeDirectoryPath left, RelativeDirectoryPath right) => left.Equals(right);

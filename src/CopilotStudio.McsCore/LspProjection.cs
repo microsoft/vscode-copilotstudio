@@ -501,7 +501,7 @@ internal static class LspProjection
         var lastDot = schemaName.LastIndexOf('.');
         if (lastDot < 0 || lastDot == schemaName.Length - 1) return false;
 
-        var suffix = schemaName[(lastDot + 1)..];
+        var suffix = schemaName.Substring(lastDot + 1);
         return IsLocaleSuffix(suffix);
     }
 
@@ -667,14 +667,14 @@ internal static class LspProjection
 
         // Remove bot prefix
         var withoutPrefix = !string.IsNullOrEmpty(botName)
-            ? schemaName[botName.Length..]
+            ? schemaName.Substring(botName.Length)
             : schemaName;
 
         // Find and remove the infix
         var infixIndex = withoutPrefix.IndexOf(infix, StringComparison.OrdinalIgnoreCase);
         if (infixIndex >= 0)
         {
-            var shortName = withoutPrefix[(infixIndex + infix.Length)..];
+            var shortName = withoutPrefix.Substring(infixIndex + infix.Length);
 
             // Reserved filenames should not be shortened.
             if (IsReservedShortName(shortName, infix))
