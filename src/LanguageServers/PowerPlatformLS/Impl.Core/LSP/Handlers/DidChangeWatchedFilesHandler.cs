@@ -55,6 +55,13 @@
                         }
                     }
 
+                    if (!WorkspacePath.TryGetLanguageType(filePath, out _))
+                    {
+                        _logger.LogInformation(
+                            $"Client notified '{changeFileEvent.Type}' event on watched files that has no language definition: {filePath.FileName}. Change won't be tracked.");
+                        continue;
+                    }
+
                     var context = _contextResolver.Resolve(new TextDocumentIdentifier { Uri = changeFileEvent.Uri });
                     if (context.IsInvalid)
                     {
