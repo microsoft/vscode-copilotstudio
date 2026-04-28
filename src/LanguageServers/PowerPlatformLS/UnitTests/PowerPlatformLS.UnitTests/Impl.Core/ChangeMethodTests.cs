@@ -76,6 +76,44 @@
         }
 
         [Fact]
+        public async Task DeletedFileWithoutLanguageDefinition_DoesNotCrashLsp_Async()
+        {
+            (string filepath, bool isFiltered)[] testData =
+            [
+                ("file:///c:/path/topics/Topic1.mcs.yml", false),
+                ("file:///c:/path/data/readme.md", true),
+                ("file:///c:/path/scripts/script.py", true),
+                ("file:///c:/path/data/test_list.txt", true),
+            ];
+            TestLogger logs;
+            await using (var context = new TestHost([new McsLspModule(), new PassRequestModule(), new TestFileModule()]))
+            {
+                await context.InitializeLanguageServerAsync();
+                var changeParams = new DidChangeWatchedFilesParams
+                {
+                    Changes = testData.Select(x => new FileEvent
+                    {
+                        Uri = new Uri(x.filepath),
+                        Type = FileChangeType.Deleted,
+                    }).ToArray()
+                };
+                var changeMessage = JsonRpc.CreateMessage(LspMethods.DidChangeWatchedFiles, changeParams);
+                context.TestStream.WriteMessage(changeMessage);
+                logs = context.Logs;
+
+                // make sure notification are not cancelled and the queue did not crash
+                await PassRequestModule.AssertPassAsync(context);
+            }
+
+            Assert.Empty(logs.Error);
+
+            foreach (var entry in testData.Where(x => x.isFiltered))
+            {
+                Assert.Single(logs.Info.Where(x => x == $"Client notified 'Deleted' event on watched files that has no language definition: {entry.filepath.Split('/')[^1]}. Change won't be tracked."));
+            }
+        }
+
+        [Fact]
         public async Task IgnoreFileRenaming_OnDidChangeWatchedFiles_Async()
         {
             (string filepath, FileChangeType changeType, bool shouldIgnore)[] testData =
