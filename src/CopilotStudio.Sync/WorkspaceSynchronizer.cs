@@ -618,7 +618,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 }
 
                 var componentPath = new AgentFilePath(_pathResolver.GetComponentPath(newFileComponent, snapshot));
-                if (!IsValidFileToUpload(componentPath))
+                if (!IsValidFileToUpload(fileAccessor, componentPath))
                 {
                     continue;
                 }
