@@ -1,8 +1,49 @@
-import { commands, EventEmitter, ExtensionContext, ThemeColor, ThemeIcon, TreeDataProvider, TreeItem, TreeItemCollapsibleState, TreeView, window, workspace } from "vscode";
+import { commands, Disposable, EventEmitter, ExtensionContext, ThemeColor, ThemeIcon, TreeDataProvider, TreeItem, TreeItemCollapsibleState, TreeView, window, workspace } from "vscode";
 import { addWorkspaceChangeSubscription, CopilotStudioWorkspace, getAllWorkspaces, hasConnectionFileInWorkspace } from "./localWorkspaces";
 import { Resource } from "./changeTracking";
 import { getWorkspaceChanges } from "./workspaceScm";
 import { ChangeType } from "../types";
+import { getOrAddSynchronizer, SyncState } from "./workspaceSynchronizer";
+
+/**
+ * Visual state for a ChangeGroup tree item, derived from the workspace's
+ * current sync state. Exported for unit testing — the provider uses it in
+ * `getTreeItem` to swap the icon for a spinner and to gate inline buttons
+ * via the contextValue.
+ */
+export function getChangeGroupVisuals(
+  groupType: 'local' | 'remote',
+  state: SyncState
+): { iconId: string; contextValue: string; isSyncing: boolean } {
+  const remoteOpInFlight = state === SyncState.Fetching || state === SyncState.Pulling;
+  const localOpInFlight = state === SyncState.Pushing;
+  const isSyncing =
+    (groupType === 'remote' && remoteOpInFlight) ||
+    (groupType === 'local' && localOpInFlight);
+
+  if (isSyncing) {
+    return {
+      iconId: 'sync~spin',
+      contextValue: `changeGroup-${groupType}-syncing`,
+      isSyncing: true,
+    };
+  }
+
+  return {
+    iconId: groupType === 'local' ? 'file-code' : 'cloud',
+    contextValue: `changeGroup-${groupType}`,
+    isSyncing: false,
+  };
+}
+
+/**
+ * True iff any workspace's synchronizer is non-Idle. Drives the
+ * `mcs.syncInProgress` global context key that hides the title-bar
+ * sync buttons while a sync is in flight.
+ */
+export function isAnySyncInProgress(states: SyncState[]): boolean {
+  return states.some(s => s !== SyncState.Idle);
+}
 
 /**
  * Tree item types for the Agent Changes view hierarchy:
@@ -47,9 +88,46 @@ export type AgentChangesTreeItemUnion = AgentTreeItem | ChangeGroupTreeItem | Ch
 class AgentChangesTreeDataProvider implements TreeDataProvider<AgentChangesTreeItemUnion> {
   private _onDidChangeTreeData = new EventEmitter<AgentChangesTreeItemUnion | undefined | void>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+  private syncSubscriptions = new Map<string, () => void>();
 
   refresh(): void {
     this._onDidChangeTreeData.fire();
+  }
+
+  /**
+   * Subscribe (once per workspace) to the workspace's sync-state stream.
+   * On every transition, refresh the tree so ChangeGroup icons + contextValues
+   * re-render, and update the global `mcs.syncInProgress` context key.
+   */
+  private ensureSyncSubscription(ws: CopilotStudioWorkspace): void {
+    const key = ws.workspaceUri.toString();
+    if (this.syncSubscriptions.has(key)) {
+      return;
+    }
+    const sync = getOrAddSynchronizer(ws);
+    const unsubscribe = sync.subscribe(() => {
+      this._onDidChangeTreeData.fire();
+      this.updateGlobalSyncContextKey();
+    });
+    this.syncSubscriptions.set(key, unsubscribe);
+  }
+
+  private updateGlobalSyncContextKey(): void {
+    const states = this.getConnectedWorkspaces().map(
+      ws => getOrAddSynchronizer(ws).syncState
+    );
+    void commands.executeCommand(
+      'setContext',
+      'mcs.syncInProgress',
+      isAnySyncInProgress(states)
+    );
+  }
+
+  dispose(): void {
+    for (const unsubscribe of this.syncSubscriptions.values()) {
+      unsubscribe();
+    }
+    this.syncSubscriptions.clear();
   }
 
   getTreeItem(element: AgentChangesTreeItemUnion): TreeItem {
@@ -64,22 +142,24 @@ class AgentChangesTreeDataProvider implements TreeDataProvider<AgentChangesTreeI
       case AgentChangesItemKind.ChangeGroup: {
         // Get the count of changes in this group
         const changes = getWorkspaceChanges(element.workspace.workspaceUri);
-        const resources = changes 
+        const resources = changes
           ? (element.groupType === 'local' ? changes.localChanges : changes.remoteChanges)
           : [];
         const count = resources.length;
-        
+
         // Show count in label if there are changes
         const label = count > 0 ? `${element.label} (${count})` : element.label;
-        
+
         // Expand if there are changes, collapse if empty
-        const collapsibleState = count > 0 
-          ? TreeItemCollapsibleState.Expanded 
+        const collapsibleState = count > 0
+          ? TreeItemCollapsibleState.Expanded
           : TreeItemCollapsibleState.Collapsed;
-        
+
         const item = new TreeItem(label, collapsibleState);
-        item.iconPath = new ThemeIcon(element.groupType === 'local' ? 'file-code' : 'cloud');
-        item.contextValue = `changeGroup-${element.groupType}`;
+        const syncState = getOrAddSynchronizer(element.workspace).syncState;
+        const visuals = getChangeGroupVisuals(element.groupType, syncState);
+        item.iconPath = new ThemeIcon(visuals.iconId);
+        item.contextValue = visuals.contextValue;
         return item;
       }
       case AgentChangesItemKind.ChangeItem: {
@@ -133,7 +213,11 @@ class AgentChangesTreeDataProvider implements TreeDataProvider<AgentChangesTreeI
   getChildren(element?: AgentChangesTreeItemUnion): AgentChangesTreeItemUnion[] {
     if (!element) {
       // Root level: return all connected agents
-      return this.getConnectedWorkspaces().map(ws => ({
+      const connected = this.getConnectedWorkspaces();
+      for (const ws of connected) {
+        this.ensureSyncSubscription(ws);
+      }
+      return connected.map(ws => ({
         kind: AgentChangesItemKind.Agent,
         workspace: ws,
       }));
@@ -230,13 +314,15 @@ let treeDataProvider: AgentChangesTreeDataProvider | undefined;
  * Call this from extension.ts after LSP client is ready.
  */
 export function initializeAgentChangesTree(context: ExtensionContext): void {
-  treeDataProvider = new AgentChangesTreeDataProvider();
+  const provider = new AgentChangesTreeDataProvider();
+  treeDataProvider = provider;
   treeView = window.createTreeView('agent-changes', {
     treeDataProvider,
     showCollapseAll: false,
   });
 
   context.subscriptions.push(treeView);
+  context.subscriptions.push(new Disposable(() => provider.dispose()));
 
   // Subscribe to workspace changes to refresh the tree (with proper disposal)
   const workspaceSubscription = addWorkspaceChangeSubscription(() => {
@@ -254,6 +340,7 @@ export function initializeAgentChangesTree(context: ExtensionContext): void {
   // Initial badge update
   updateViewBadge();
   updateContextKeys();
+  void commands.executeCommand('setContext', 'mcs.syncInProgress', false);
 }
 
 /**

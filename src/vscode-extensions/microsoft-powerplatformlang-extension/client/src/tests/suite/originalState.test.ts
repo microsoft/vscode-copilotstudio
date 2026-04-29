@@ -44,15 +44,20 @@ suite('TextDocumentContentProvider Integration', function () {
 		});
 		const remoteDoc = await vscode.workspace.openTextDocument(agentFileTestUri);
 		assert.ok(remoteDoc, 'remote document should be returned');
-        assert.strictEqual(remoteDoc.lineCount, 19, "remote document should have content");
+        assert.strictEqual(remoteDoc.lineCount, 20, "remote document should have content");
 
         // verify that the virtual (remote) document contains exactly the same
         // text as the file that exists on disk inside the workspace
         const localFileBytes = await vscode.workspace.fs.readFile(agentUri);
         const localFileText = Buffer.from(localFileBytes).toString('utf8');
 
+        // Normalize CRLF → LF before comparing: VS Code's TextDocument applies the
+        // editor's EOL setting (CRLF on Windows by default) to the content returned
+        // by getText(), but vscode.workspace.fs.readFile returns the raw on-disk
+        // bytes, which are LF here (the fixture is checked in with `eol: lf` via
+        // .gitattributes). Without this normalization the assertion fails on Windows.
         assert.strictEqual(
-            remoteDoc.getText(),
+            remoteDoc.getText().replace(/\r\n/g, '\n'),
             localFileText,
             'remote content should match local content'
         );

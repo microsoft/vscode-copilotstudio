@@ -126,17 +126,17 @@
         },
         {
           "command": "microsoft-copilot-studio.previewChanges",
-          "when": "view == agent-changes",
+          "when": "view == agent-changes && !mcs.syncInProgress",
           "group": "navigation@1"
         },
         {
           "command": "microsoft-copilot-studio.getChanges",
-          "when": "view == agent-changes",
+          "when": "view == agent-changes && !mcs.syncInProgress",
           "group": "navigation@2"
         },
         {
           "command": "microsoft-copilot-studio.applyChanges",
-          "when": "view == agent-changes",
+          "when": "view == agent-changes && !mcs.syncInProgress",
           "group": "navigation@3"
         }
       ],
