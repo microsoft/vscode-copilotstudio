@@ -159,12 +159,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             {
                 using var file = fileAccessor.OpenRead(ReferencesCollectionPath);
                 using var sr = new StreamReader(file);
-#if NETSTANDARD2_0
+                // No #if: small references file; boundary cancellation matches net10
+                // ReadToEndAsync(CT) for our use case.
                 cancellation.ThrowIfCancellationRequested();
                 var yaml = await sr.ReadToEndAsync().ConfigureAwait(false);
-#else
-                var yaml = await sr.ReadToEndAsync(cancellation).ConfigureAwait(false);
-#endif
                 var refs = CodeSerializer.Deserialize<ReferencesSourceFile>(yaml);
 
                 if (refs == null)
@@ -344,6 +342,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         if (downloadAllKnowledgeFiles && newSnapshot != null)
         {
             var fileComponents = newSnapshot.Components.OfType<FileAttachmentComponent>().Where(c => !string.IsNullOrEmpty(c.DisplayName)).ToList();
+            // #if kept: net10 uses Parallel.ForEachAsync with MaxDegreeOfParallelism=5
+            // for concurrent knowledge-file downloads. netstandard2.0 has no equivalent
+            // and the LCD foreach loses ~5x throughput when the agent has many knowledge
+            // files. The cost is real, so we preserve the per-TFM behavior.
 #if NETSTANDARD2_0
             foreach (var localComponent in fileComponents)
             {
@@ -595,6 +597,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 return 0;
             }
 
+            // #if kept: net10 uses Parallel.ForEachAsync with MaxDegreeOfParallelism=5
+            // for concurrent knowledge-file uploads; netstandard2.0 has no equivalent
+            // and the LCD foreach loses ~5x throughput. Cost is real, so we preserve
+            // per-TFM behavior.
 #if NETSTANDARD2_0
             foreach (var newFileComponent in newFileComponents)
             {
@@ -1732,12 +1738,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
             using var stream = fileAccessor.OpenRead(filePath);
             using var reader = new StreamReader(stream, Encoding.UTF8);
-#if NETSTANDARD2_0
+            // No #if: small component file; boundary cancellation is sufficient.
             cancellationToken.ThrowIfCancellationRequested();
             var yaml = await reader.ReadToEndAsync().ConfigureAwait(false);
-#else
-            var yaml = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
-#endif
 
             var deserialized = CodeSerializer.Deserialize(yaml, component.RootElement?.GetType() ?? typeof(BotElement), null);
             var (parsed, error) = _fileParser.CompileFileModel(component.SchemaNameString, deserialized, component.DisplayName, component.Description);
@@ -1847,12 +1850,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
             using var stream = fileAccessor.OpenRead(filePath);
             using var reader = new StreamReader(stream, Encoding.UTF8);
-#if NETSTANDARD2_0
+            // No #if: small env-var file; boundary cancellation is sufficient.
             cancellationToken.ThrowIfCancellationRequested();
             var yaml = await reader.ReadToEndAsync().ConfigureAwait(false);
-#else
-            var yaml = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
-#endif
 
             if (CodeSerializer.Deserialize(yaml, typeof(EnvironmentVariableDefinition), null) is EnvironmentVariableDefinition envVar)
             {

@@ -9,11 +9,10 @@ namespace Microsoft.CopilotStudio.Sync
 {
     internal static class HttpMethodHelper
     {
-#if NETSTANDARD2_0
+        // No #if needed: `new HttpMethod("PATCH")` produces an HttpMethod
+        // semantically identical to the net10-only HttpMethod.Patch static.
+        // Identity is by Method string, so a single instance suffices on both TFMs.
         public static readonly HttpMethod Patch = new HttpMethod("PATCH");
-#else
-        public static readonly HttpMethod Patch = HttpMethod.Patch;
-#endif
     }
 }
 

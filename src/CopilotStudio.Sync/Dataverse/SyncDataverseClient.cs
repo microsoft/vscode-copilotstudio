@@ -518,11 +518,10 @@ public class SyncDataverseClient : ISyncDataverseClient
 
         using var fileStream = new FileStream(localPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
 
-#if NETSTANDARD2_0
+        // No #if: passing 81920 explicitly is identical to net10's default buffer size
+        // on Stream.CopyToAsync(Stream, CT), and the 3-arg form is what netstandard2.0
+        // exposes -- so the same expression compiles and behaves the same on both TFMs.
         await stream.CopyToAsync(fileStream, 81920, cancellationToken).ConfigureAwait(false);
-#else
-        await stream.CopyToAsync(fileStream, cancellationToken).ConfigureAwait(false);
-#endif
     }
 
     public async Task UploadKnowledgeFileAsync(string knowledgeFileFolder, Guid botComponentId, string fileName, CancellationToken cancellationToken = default)

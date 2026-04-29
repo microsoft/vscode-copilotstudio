@@ -33,6 +33,11 @@ internal static class PathHelper
 
     internal static string GetRelativePath(string relativeTo, string path)
     {
+        // #if kept: net10's Path.GetRelativePath uses an in-place character walk;
+        // the netstandard2.0 polyfill below uses Uri.MakeRelativeUri which allocates
+        // two Uri objects per call. The cost is real (extra allocations + parsing
+        // overhead) on a path that fires once per file walked, so we keep BCL on
+        // net10 and only fall back to the Uri-based polyfill when targeting ns2.0.
 #if NETSTANDARD2_0
         return GetRelativePathPolyfill(relativeTo, path);
 #else
