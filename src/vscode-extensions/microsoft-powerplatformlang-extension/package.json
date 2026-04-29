@@ -120,6 +120,11 @@
           "group": "navigation"
         },
         {
+          "command": "microsoft-copilot-studio.refreshKnowledgeFilesTreeView",
+          "when": "view == virtual-knowledge-files",
+          "group": "navigation"
+        },
+        {
           "command": "microsoft-copilot-studio.switchAccount",
           "when": "view == remote-agents",
           "group": "navigation"
@@ -273,6 +278,11 @@
       {
         "command": "microsoft-copilot-studio.refreshAgentTreeView",
         "title": "Copilot Studio: Refresh Agents",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "microsoft-copilot-studio.refreshKnowledgeFilesTreeView",
+        "title": "Copilot Studio: Refresh Remote Knowledge Files",
         "icon": "$(refresh)"
       },
       {

@@ -11,7 +11,7 @@ import { ChangeType } from '../types';
 
 export async function uploadKnowledgeFiles(ws: CopilotStudioWorkspace): Promise<void> {
   const { syncInfo, workspaceUri } = ws;
-  if (!syncInfo || !syncInfo.dataverseEndpoint) {
+  if (!syncInfo || !syncInfo.dataverseEndpoint || !syncInfo.agentId) {
     return;
   }
 
@@ -52,7 +52,7 @@ export async function uploadKnowledgeFiles(ws: CopilotStudioWorkspace): Promise<
   const deletedFiles: string[] = [];
 
   const botPrefix = await botHandler.getBotPrefix(syncInfo.agentId);
-  const childAgents = await botHandler.getChildAgents(syncInfo, botPrefix);
+  const childAgents = botPrefix !== '' ? await botHandler.getChildAgents(syncInfo, botPrefix) : [];
 
   for (const file in changeTrack) {
     const entry = changeTrack[file];

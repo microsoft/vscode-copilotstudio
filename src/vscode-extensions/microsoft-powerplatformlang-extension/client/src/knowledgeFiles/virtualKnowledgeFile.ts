@@ -4,7 +4,6 @@ import * as path from 'path';
 import * as os from 'os';
 import { addWorkspaceChangeSubscription, CopilotStudioWorkspace, getAllWorkspaces } from '../sync/localWorkspaces';
 import { getDataverseBotHandler, getFilesDir, getTrackPath, safeSaveFile } from './syncUtils';
-import { WsComponentMetadata } from '../botComponents/botComponentHandler';
 import { ChangeTrack, isTextFile, loadChangeTrack, resolveConflict, saveChangeTrack } from './fileHelper';
 import { knowledgeTreeDataProvider } from './knowledgeFileTree';
 import { randId } from '../botComponents/schemaName';
@@ -13,34 +12,56 @@ import { ConflictResolution, TelemetryEventsKeys } from '../constants';
 import { ChangeType } from '../types';
 
 let virtualKnowledgeProvider: virtualKnowledgeFileSystemProvider | undefined;
-let virtualTreeInitialized = false;
+let virtualTreeProvider: knowledgeTreeDataProvider | undefined;
+let refreshCommandRegistered = false;
 
 export async function registerVirtualKnowledgeProvider(context: vscode.ExtensionContext, workspace: CopilotStudioWorkspace): Promise<virtualKnowledgeFileSystemProvider> {
   if (!virtualKnowledgeProvider) {
-    virtualKnowledgeProvider = new virtualKnowledgeFileSystemProvider(workspace);
+    virtualKnowledgeProvider = new virtualKnowledgeFileSystemProvider();
     const disposable = vscode.workspace.registerFileSystemProvider('virtualKnowledge', virtualKnowledgeProvider, { isReadonly: true, isCaseSensitive: true });
     context.subscriptions.push(disposable);
   }
+  virtualKnowledgeProvider.addWorkspace(workspace);
   return virtualKnowledgeProvider;
 }
 
 export async function initializeVirtualKnowledgeTree(context: vscode.ExtensionContext) {
+  if (!refreshCommandRegistered) {
+    refreshCommandRegistered = true;
+    context.subscriptions.push(
+      vscode.commands.registerCommand('microsoft-copilot-studio.refreshKnowledgeFilesTreeView', async () => {
+        await vscode.window.withProgress({
+          location: { viewId: 'virtual-knowledge-files' },
+          title: 'Refreshing remote knowledge files...',
+        }, async () => {
+          if (virtualKnowledgeProvider) {
+            await virtualKnowledgeProvider.refresh();
+          }
+          virtualTreeProvider?.refresh();
+        });
+      })
+    );
+  }
+
   const tryInitializeVirtualKnowledgeTree = async () => {
     const allWorkspaces = getAllWorkspaces();
-    if (allWorkspaces.length === 0 || virtualTreeInitialized) {
+    if (allWorkspaces.length === 0) {
       return;
     }
 
-    virtualTreeInitialized = true;
-
     for (const ws of allWorkspaces) {
-      const virtualProvider = await registerVirtualKnowledgeProvider(context, ws);
-      const provider = new knowledgeTreeDataProvider(virtualProvider);
-      vscode.window.registerTreeDataProvider('virtual-knowledge-files', provider);
-
-      await virtualProvider.refresh();
-      provider.refresh();
+      await registerVirtualKnowledgeProvider(context, ws);
     }
+
+    if (!virtualTreeProvider && virtualKnowledgeProvider) {
+      virtualTreeProvider = new knowledgeTreeDataProvider(virtualKnowledgeProvider);
+      vscode.window.registerTreeDataProvider('virtual-knowledge-files', virtualTreeProvider);
+    }
+
+    if (virtualKnowledgeProvider) {
+      await virtualKnowledgeProvider.refresh();
+    }
+    virtualTreeProvider?.refresh();
   };
 
   // try immediately, in case workspaces already loaded
@@ -53,14 +74,16 @@ export async function initializeVirtualKnowledgeTree(context: vscode.ExtensionCo
 }
 
 export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProvider {
-  private ws: CopilotStudioWorkspace;
-  private metadata: WsComponentMetadata[] = [];
-  private components = new Map<string, { id: string; mtime: number; filename: string; schema: string; agentId: string; agentSchemaName: string}>();
+  private workspaces: CopilotStudioWorkspace[] = [];
+  private components = new Map<string, { id: string; mtime: number; filename: string; schema: string; agentId: string; agentSchemaName: string; ws: CopilotStudioWorkspace }>();
   private _onDidChangeFile = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
   readonly onDidChangeFile = this._onDidChangeFile.event;
 
-  constructor(ws: CopilotStudioWorkspace) {
-    this.ws = ws;
+  addWorkspace(ws: CopilotStudioWorkspace): void {
+    const key = ws.workspaceUri.toString();
+    if (!this.workspaces.some(w => w.workspaceUri.toString() === key)) {
+      this.workspaces.push(ws);
+    }
   }
 
   // No-op watch implementation and set _onDidChangeFile.fire() to prevent vs code polling.
@@ -70,19 +93,36 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
   }
 
   async refresh(): Promise<void> {
-    const { syncInfo, workspaceUri } = this.ws;
-    if (!syncInfo || !syncInfo.dataverseEndpoint) {
+    this.components.clear();
+    for (const ws of this.workspaces) {
+      try {
+        await this.refreshWorkspace(ws);
+      } catch (err) {
+        logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `Failed to refresh workspace <pii>${ws.workspaceUri.toString()}</pii>: ${err}`);
+      }
+    }
+
+    this._onDidChangeFile.fire([
+      {
+        type: vscode.FileChangeType.Changed,
+        uri: vscode.Uri.parse('virtualKnowledge:/'),
+      },
+    ]);
+  }
+
+  private async refreshWorkspace(ws: CopilotStudioWorkspace): Promise<void> {
+    const { syncInfo, workspaceUri } = ws;
+    if (!syncInfo || !syncInfo.dataverseEndpoint || !syncInfo.agentId) {
       return;
     }
 
     const trackPath = getTrackPath(workspaceUri);
     const track = await loadChangeTrack(trackPath);
     const botHandler = await getDataverseBotHandler(syncInfo);
-    this.metadata = await botHandler.listWsComponentMetadata(syncInfo);
+    const metadata = await botHandler.listWsComponentMetadata(syncInfo);
     const remoteFilenames = new Set<string>();
 
-    this.components.clear();
-    for (const componentMetadata of this.metadata) {
+    for (const componentMetadata of metadata) {
       if ((componentMetadata.schemaName.includes('.file.') || componentMetadata.schemaName.includes('.knowledge.')) &&
           !componentMetadata.schemaName.includes('.files.') &&
           componentMetadata.filename) {
@@ -94,7 +134,8 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
           filename,
           schema: componentMetadata.schemaName,
           agentId: componentMetadata.agentId,
-          agentSchemaName: componentMetadata.agentSchemaName
+          agentSchemaName: componentMetadata.agentSchemaName,
+          ws
         });
         remoteFilenames.add(filename);
       }
@@ -141,13 +182,6 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
     }
 
     await saveChangeTrack(trackPath, track);
-
-    this._onDidChangeFile.fire([
-      {
-        type: vscode.FileChangeType.Changed,
-        uri: vscode.Uri.parse('virtualKnowledge:/'),
-      },
-    ]);
   }
 
   async stat(uri: vscode.Uri): Promise<vscode.FileStat> {
@@ -173,16 +207,16 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
   }
 
   async readFile(uri: vscode.Uri): Promise<Uint8Array> {
-    const { syncInfo, workspaceUri } = this.ws;
-    if (!syncInfo || !syncInfo.dataverseEndpoint) {
-      return new Uint8Array();
-    }
-
     const key = decodeURIComponent(uri.path.slice(1));
     const component = this.components.get(key);
     if (!component) {
       logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `File not found: <pii>${key}</pii>`);
       throw vscode.FileSystemError.FileNotFound();
+    }
+
+    const { syncInfo, workspaceUri } = component.ws;
+    if (!syncInfo || !syncInfo.dataverseEndpoint) {
+      return new Uint8Array();
     }
 
     const filename = component.filename;

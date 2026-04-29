@@ -41,11 +41,11 @@ public interface IWorkspaceSynchronizer
     /// <param name="workspaceFolder">The location of the root of the workspace</param>
     /// <param name="workspaceDefinition">The current state of the workspace</param>
     /// <param name="dataverseClient">The dataverse client to use for communication with the dataverse service.</param>
-    /// <param name="agentId">The ID of the agent.</param>
+    /// <param name="syncInfo">The synchronization information of the agent.</param>
     /// <param name="cancellationToken">Used to cancel the request</param>
     /// <returns>A task representing the asynchronous operation</returns>
     Task<(PvaComponentChangeSet, ImmutableArray<Change>)> GetLocalChangesAsync(DirectoryPath workspaceFolder, DefinitionBase workspaceDefinition, ISyncDataverseClient dataverseClient,
-        Guid? agentId, CancellationToken cancellationToken);
+        AgentSyncInfo syncInfo, CancellationToken cancellationToken);
 
     /// <summary>
     /// Gets the remote changes compared to the last pull.
@@ -53,11 +53,11 @@ public interface IWorkspaceSynchronizer
     /// <param name="workspaceFolder">The location of the root of the workspace</param>
     /// <param name="operationContext">The operation context</param>
     /// <param name="dataverseClient">The dataverse client to use for communication with the dataverse service.</param>
-    /// <param name="agentId">The ID of the agent.</param>
+    /// <param name="syncInfo">The synchronization information of the agent.</param>
     /// <param name="cancellationToken">Used to cancel the request</param>
     /// <returns>A task representing the asynchronous operation</returns>
     Task<(PvaComponentChangeSet, ImmutableArray<Change>)> GetRemoteChangesAsync(DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient,
-        Guid? agentId, CancellationToken cancellationToken);
+        AgentSyncInfo syncInfo, CancellationToken cancellationToken);
 
     /// <summary>
     /// Performs an initial clone of an agent from the cloud service to a local workspace.
@@ -66,7 +66,7 @@ public interface IWorkspaceSynchronizer
     /// <param name="referenceTracker">track directory paths for other references</param>
     /// <param name="operationContext">Information about the authoring operation, such as the bot, the user, and organization</param>
     /// <param name="dataverseClient">The dataverse client to use for communication with the dataverse service</param>
-    /// <param name="agentId">The ID of the agent to clone</param>
+    /// <param name="syncInfo">The synchronization information of the agent to clone</param>
     /// <param name="cancellationToken">Used to cancel the request</param>
     /// <returns>A task representing the asynchronous operation</returns>
     Task CloneChangesAsync(
@@ -74,7 +74,7 @@ public interface IWorkspaceSynchronizer
         ReferenceTracker referenceTracker,
         AuthoringOperationContextBase operationContext,
         ISyncDataverseClient dataverseClient,
-        Guid? agentId,
+        AgentSyncInfo syncInfo,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -96,7 +96,7 @@ public interface IWorkspaceSynchronizer
     /// <param name="operationContext">Information about the authoring operation, such as the bot, the user, and organization</param>
     /// <param name="localWorkspaceDefinition">The current state of the workspace to be updated</param>
     /// <param name="dataverseClient">The dataverse client to use for communication with the dataverse service.</param>
-    /// <param name="agentId">The ID of the agent.</param>
+    /// <param name="syncInfo">Synchronization information for the agent.</param>
     /// <param name="cancellationToken">Used to cancel the request</param>
     /// <param name="downloadAllKnowledgeFiles">True/False to download or not all knowledge files.</param>
     /// <returns>A task representing the asynchronous operation</returns>
@@ -105,7 +105,7 @@ public interface IWorkspaceSynchronizer
         AuthoringOperationContextBase operationContext,
         DefinitionBase localWorkspaceDefinition,
         ISyncDataverseClient dataverseClient,
-        Guid? agentId,
+        AgentSyncInfo syncInfo,
         CancellationToken cancellationToken,
         bool downloadAllKnowledgeFiles = false);
 
@@ -139,7 +139,7 @@ public interface IWorkspaceSynchronizer
     /// <param name="changeToken">Change token.</param>
     /// <param name="updateWorkspaceDirectory">Whether to update workspace directory.</param>
     /// <param name="dataverseClient">The dataverse client to use for communication with the dataverse service.</param>
-    /// <param name="agentId">The ID of the agent.</param>
+    /// <param name="syncInfo">Synchronization information for the agent.</param>
     /// <param name="cloudFlowMetadata">Cloud flow metadata to be written to workspace during sync.</param>
     /// <param name="cancellationToken">Cancellation token to cancel the operation.</param>
     /// <returns>Workspace sync result.</returns>
@@ -149,7 +149,7 @@ public interface IWorkspaceSynchronizer
         string? changeToken,
         bool updateWorkspaceDirectory,
         ISyncDataverseClient dataverseClient,
-        Guid? agentId,
+        AgentSyncInfo syncInfo,
         CloudFlowMetadata? cloudFlowMetadata,
         CancellationToken cancellationToken);
 
@@ -158,7 +158,7 @@ public interface IWorkspaceSynchronizer
     /// </summary>
     /// <param name="workspaceFolder">Workspace folder.</param>
     /// <param name="dataverseClient">The dataverse client to use for communication with the dataverse service.</param>
-    /// <param name="agentId">The ID of the agent.</param>
+    /// <param name="agentId">The Id for the agent.</param>
     /// <param name="cancellationToken">Cancellation token to cancel the operation.</param>
     /// <returns>List of workflow responses.</returns>
     Task<(ImmutableArray<WorkflowResponse>, CloudFlowMetadata)> UpsertWorkflowForAgentAsync(
@@ -172,14 +172,14 @@ public interface IWorkspaceSynchronizer
     /// </summary>
     /// <param name="workspaceFolder">Workspace folder.</param>
     /// <param name="dataverseClient">The dataverse client to use for communication with the dataverse service.</param>
-    /// <param name="agentId">The ID of the agent.</param>
+    /// <param name="syncInfo">Synchronization information for the agent.</param>
     /// <param name="fileAccessor">The file accessor.</param>
     /// <param name="cancellationToken">Cancellation token to cancel the operation.</param>
     /// <returns>CloudFlowMetadata</returns>
     Task<CloudFlowMetadata> GetWorkflowsAsync(
         DirectoryPath workspaceFolder,
         ISyncDataverseClient dataverseClient,
-        Guid? agentId,
+        AgentSyncInfo syncInfo,
         IFileAccessor fileAccessor,
         CancellationToken cancellationToken);
 
@@ -212,14 +212,14 @@ public interface IWorkspaceSynchronizer
     /// <param name="workspaceFolder">The workspace that was pushed (source of expected state).</param>
     /// <param name="operationContext">The operation context for the agent.</param>
     /// <param name="dataverseClient">Dataverse client for server communication.</param>
-    /// <param name="agentId">The agent ID.</param>
+    /// <param name="syncInfo">Synchronization information for the agent.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Verification result with per-entity-type acceptance status.</returns>
     Task<PushVerificationResult> VerifyPushAsync(
         DirectoryPath workspaceFolder,
         AuthoringOperationContextBase operationContext,
         ISyncDataverseClient dataverseClient,
-        Guid? agentId,
+        AgentSyncInfo syncInfo,
         CancellationToken cancellationToken);
 
     /// <summary>

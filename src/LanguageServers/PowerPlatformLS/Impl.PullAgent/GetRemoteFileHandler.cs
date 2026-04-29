@@ -69,7 +69,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 var workspace = (IMcsWorkspace)context.Workspace;
                 var syncInfo = await _synchronizer.GetSyncInfoAsync(workspace.FolderPath);
                 var operationContext = await _operationContextProvider.GetAsync(syncInfo);
-                var (changeSet, changes) = await _synchronizer.GetRemoteChangesAsync(workspace.FolderPath, operationContext, _dataverseClient, syncInfo.AgentId, cancellationToken);
+                var (changeSet, changes) = await _synchronizer.GetRemoteChangesAsync(workspace.FolderPath, operationContext, _dataverseClient, syncInfo, cancellationToken);
                 var change = changes.FirstOrDefault(m => m.SchemaName.Equals(request.SchemaName, StringComparison.OrdinalIgnoreCase));
 
                 if (change == null)

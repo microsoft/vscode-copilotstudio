@@ -1,6 +1,7 @@
 ﻿namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
 {
     using Microsoft.Agents.Platform.Content.Abstractions;
+    using Microsoft.CopilotStudio.Sync;
     using Microsoft.CopilotStudio.Sync.Dataverse;
     using Moq;
     using Moq.Protected;
@@ -126,7 +127,7 @@
                 });
             });
 
-            var workflows = await client.DownloadAllWorkflowsForAgentAsync(Guid.NewGuid(), CancellationToken.None);
+            var workflows = await client.DownloadAllWorkflowsForAgentAsync(new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
 
             Assert.Single(workflows);
             Assert.Equal("TestWorkflow", workflows[0].Name);
@@ -141,7 +142,7 @@
         {
             var client = CreateClientFromHttpClient(new HttpClient());
             Guid? agentId = string.IsNullOrEmpty(agentIdStr) ? null : Guid.Parse(agentIdStr);
-            var workflows = await client.DownloadAllWorkflowsForAgentAsync(agentId, CancellationToken.None);
+            var workflows = await client.DownloadAllWorkflowsForAgentAsync(new AgentSyncInfo { AgentId = agentId }, CancellationToken.None);
             Assert.Empty(workflows);
         }
 
@@ -150,14 +151,6 @@
         {
             var client = CreateClientFromHttpClient(new HttpClient());
             await Assert.ThrowsAsync<ArgumentNullException>(() => client.UpdateWorkflowAsync(Guid.NewGuid(), null, CancellationToken.None));
-        }
-
-        [Fact]
-        public async Task UpdateWorkflowAsyncWithEmptyAgent()
-        {
-            var client = CreateClientFromHttpClient(new HttpClient());
-            var workflow = new WorkflowMetadata { WorkflowId = Guid.NewGuid() };
-            await Assert.ThrowsAsync<ArgumentNullException>(() => client.UpdateWorkflowAsync(Guid.Empty, workflow, CancellationToken.None));
         }
 
         [Fact]
@@ -203,6 +196,138 @@
 
             await client.UpdateWorkflowAsync(agentId, workflow, CancellationToken.None);
             Assert.Equal(3, callIndex);
+        }
+
+        [Fact]
+        public async Task DownloadAllWorkflowsForAgentAsync_WithComponentCollectionId_UsesCollectionFilter()
+        {
+            var collectionId = Guid.NewGuid();
+            var botComponentId = Guid.NewGuid();
+            var workflowId = Guid.NewGuid();
+            string? firstUrl = null;
+            int callIndex = 0;
+
+            var client = CreateClientWithHandler((req, index) =>
+            {
+                callIndex++;
+                if (callIndex == 1)
+                {
+                    firstUrl = req.RequestUri?.ToString();
+                }
+                string content = callIndex switch
+                {
+                    1 => JsonSerializer.Serialize(new { value = new[] { new { botcomponentid = botComponentId } } }),
+                    2 => JsonSerializer.Serialize(new { value = new[] { new { workflowid = workflowId, botcomponentid = botComponentId } } }),
+                    3 => JsonSerializer.Serialize(new { value = new[] { new { workflowid = workflowId, name = "CollectionFlow", clientdata = "data" } } }),
+                    _ => JsonSerializer.Serialize(new { value = Array.Empty<object>() })
+                };
+                return Task.FromResult(new HttpResponseMessage
+                {
+                    StatusCode = HttpStatusCode.OK,
+                    Content = new StringContent(content, Encoding.UTF8, "application/json")
+                });
+            });
+
+            var workflows = await client.DownloadAllWorkflowsForAgentAsync(
+                new AgentSyncInfo { AgentId = null, ComponentCollectionId = collectionId },
+                CancellationToken.None);
+
+            Assert.NotNull(firstUrl);
+            Assert.Contains("_parentbotcomponentcollectionid_value", firstUrl);
+            Assert.Contains(collectionId.ToString(), firstUrl);
+            Assert.DoesNotContain("_parentbotid_value", firstUrl);
+            Assert.Single(workflows);
+            Assert.Equal("CollectionFlow", workflows[0].Name);
+        }
+
+        [Fact]
+        public async Task DownloadAllWorkflowsForAgentAsync_WithAgentId_UsesParentBotIdFilter()
+        {
+            var agentId = Guid.NewGuid();
+            string? firstUrl = null;
+            int callIndex = 0;
+
+            var client = CreateClientWithHandler((req, index) =>
+            {
+                callIndex++;
+                if (callIndex == 1)
+                {
+                    firstUrl = req.RequestUri?.ToString();
+                }
+                return Task.FromResult(new HttpResponseMessage
+                {
+                    StatusCode = HttpStatusCode.OK,
+                    Content = new StringContent(JsonSerializer.Serialize(new { value = Array.Empty<object>() }), Encoding.UTF8, "application/json")
+                });
+            });
+
+            var workflows = await client.DownloadAllWorkflowsForAgentAsync(
+                new AgentSyncInfo { AgentId = agentId },
+                CancellationToken.None);
+
+            Assert.NotNull(firstUrl);
+            Assert.Contains("_parentbotid_value", firstUrl);
+            Assert.Contains(agentId.ToString(), firstUrl);
+            Assert.DoesNotContain("_parentbotcomponentcollectionid_value", firstUrl);
+            Assert.Empty(workflows);
+        }
+
+        [Fact]
+        public async Task DownloadAllWorkflowsForAgentAsync_WithEmptyComponentCollectionId_ReturnsEmptyWithoutHttpCall()
+        {
+            int callIndex = 0;
+            var client = CreateClientWithHandler((req, index) =>
+            {
+                callIndex++;
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+            });
+
+            var workflows = await client.DownloadAllWorkflowsForAgentAsync(
+                new AgentSyncInfo { AgentId = null, ComponentCollectionId = Guid.Empty },
+                CancellationToken.None);
+
+            Assert.Empty(workflows);
+            Assert.Equal(0, callIndex);
+        }
+
+        [Fact]
+        public async Task UpdateWorkflowAsync_WithNullAgentIdAndWorkflowNotInCloud_DoesNotInsertOrThrow()
+        {
+            var workflow = new WorkflowMetadata { WorkflowId = Guid.NewGuid(), Name = "Skipped" };
+            int callIndex = 0;
+
+            var client = CreateClientWithHandler((req, index) =>
+            {
+                callIndex++;
+                throw new HttpRequestException();
+            });
+
+            await client.UpdateWorkflowAsync(null, workflow, CancellationToken.None);
+
+            Assert.Equal(1, callIndex);
+        }
+
+        [Fact]
+        public async Task UpdateWorkflowAsync_WithNullAgentIdAndWorkflowInCloud_PatchesWorkflow()
+        {
+            var workflow = new WorkflowMetadata { WorkflowId = Guid.NewGuid(), Name = "Patched", ClientData = "data" };
+            int callIndex = 0;
+            HttpMethod? secondMethod = null;
+
+            var client = CreateClientWithHandler((req, index) =>
+            {
+                callIndex++;
+                if (callIndex == 2)
+                {
+                    secondMethod = req.Method;
+                }
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+            });
+
+            await client.UpdateWorkflowAsync(null, workflow, CancellationToken.None);
+
+            Assert.Equal(2, callIndex);
+            Assert.Equal(HttpMethod.Patch, secondMethod);
         }
 
         [Fact]
@@ -734,7 +859,7 @@
             var httpClient = new HttpClient(handlerMock.Object);
             var client = CreateClientFromHttpClient(httpClient);
 
-            await client.DownloadAllWorkflowsForAgentAsync(Guid.NewGuid(), CancellationToken.None);
+            await client.DownloadAllWorkflowsForAgentAsync(new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
 
             Assert.NotNull(capturedRequest);
 
@@ -781,7 +906,7 @@
             var httpClient = new HttpClient(handlerMock.Object);
             var client = CreateClientFromHttpClient(httpClient);
 
-            await client.DownloadAllWorkflowsForAgentAsync(Guid.NewGuid(), CancellationToken.None);
+            await client.DownloadAllWorkflowsForAgentAsync(new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
 
             Assert.True(callCount > 2);
         }
@@ -836,7 +961,7 @@
                 });
             });
 
-            var workflows = await client.DownloadAllWorkflowsForAgentAsync(Guid.NewGuid(), CancellationToken.None);
+            var workflows = await client.DownloadAllWorkflowsForAgentAsync(new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
 
             Assert.True(requestCount > 1);
         }

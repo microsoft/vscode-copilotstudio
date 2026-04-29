@@ -113,7 +113,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         ReferenceTracker referenceTracker,
         AuthoringOperationContextBase operationContext,
         ISyncDataverseClient dataverseClient,
-        Guid? agentId,
+        AgentSyncInfo syncInfo,
         CancellationToken cancellationToken)
     {
         var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
@@ -125,7 +125,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             changeToken,
             updateWorkspaceDirectory: true,
             dataverseClient,
-            agentId,
+            syncInfo,
             null,
             cancellationToken).ConfigureAwait(false);
 
@@ -221,13 +221,18 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         AuthoringOperationContextBase operationContext, // includes login info
         DefinitionBase previousDefinition, // user's view
         ISyncDataverseClient dataverseClient,
-        Guid? agentId,
+        AgentSyncInfo syncInfo,
         CancellationToken cancellationToken,
         bool downloadAllKnowledgeFiles = false)
     {
+        if (operationContext is BotComponentCollectionAuthoringOperationContext collectionContext)
+        {
+            downloadAllKnowledgeFiles = true;
+        }
+
         var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
 
-        var workflows = await GetWorkflowsAsync(workspaceFolder, dataverseClient, agentId, fileAccessor, cancellationToken).ConfigureAwait(false);
+        var workflows = await GetWorkflowsAsync(workspaceFolder, dataverseClient, syncInfo, fileAccessor, cancellationToken).ConfigureAwait(false);
         var mergedConnectionReferences = previousDefinition.ConnectionReferences.Concat(workflows.ConnectionReferences)
                .Where(cr => !string.IsNullOrEmpty(cr.ConnectionReferenceLogicalName.Value))
                .GroupBy(cr => cr.ConnectionReferenceLogicalName.Value, StringComparer.OrdinalIgnoreCase)
@@ -236,8 +241,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         previousDefinition = previousDefinition.WithFlows(workflows.Workflows).WithConnectionReferences(mergedConnectionReferences);
 
         // Collect change conflicts
-        var localChanges = await GetLocalChangesAsync(workspaceFolder, previousDefinition, dataverseClient, agentId, cancellationToken).ConfigureAwait(false);
-        var remoteChanges = await GetRemoteChangesAsync(workspaceFolder, operationContext, dataverseClient, agentId, cancellationToken).ConfigureAwait(false);
+        var localChanges = await GetLocalChangesAsync(workspaceFolder, previousDefinition, dataverseClient, syncInfo, cancellationToken).ConfigureAwait(false);
+        var remoteChanges = await GetRemoteChangesAsync(workspaceFolder, operationContext, dataverseClient, syncInfo, cancellationToken).ConfigureAwait(false);
         var localChangesWithoutKnowledgeFiles = localChanges.Item2.Where(c => c.ChangeKind != BotElementKind.FileAttachmentComponent.ToString()).ToImmutableArray();
 
         var conflictingChanges = GetConflicts(localChangesWithoutKnowledgeFiles, remoteChanges.Item2);
@@ -542,6 +547,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         CancellationToken cancellationToken,
         bool uploadAllKnowledgeFiles = false)
     {
+        if (operationContext is BotComponentCollectionAuthoringOperationContext collectionContext)
+        {
+            uploadAllKnowledgeFiles = true;
+        }
+
         // Upload will atomically:
         //  - send up changes,
         //  - receive new changes - including "confirmation" changes for the *files we just updated*
@@ -565,10 +575,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
         if (snapshot != null)
         {
-            var newFileComponents = snapshot.Components
-                .OfType<FileAttachmentComponent>()
-                .Where(c => pushChangeset.BotComponentChanges.OfType<BotComponentUpsert>().Any(u => u.Component?.DisplayName == c.DisplayName))
-                .ToList();
+            var newFileComponents = snapshot.Components.OfType<FileAttachmentComponent>().ToList();
 
             if (newFileComponents.Count == 0)
             {
@@ -588,7 +595,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 }
 
                 var componentPath = new AgentFilePath(_pathResolver.GetComponentPath(newFileComponent, snapshot));
-                if (!IsValidFileToUpload(componentPath))
+                if (!IsValidFileToUpload(fileAccessor, componentPath))
                 {
                     return;
                 }
@@ -643,7 +650,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
     /// <param name="changeToken">Change token.</param>
     /// <param name="updateWorkspaceDirectory">Whether to update workspace directory.</param>
     /// <param name="dataverseClient">The dataverse client to use for communication with the dataverse service.</param>
-    /// <param name="agentId">The ID of the agent.</param>
+    /// <param name="syncInfo">Synchronization information for the agent.</param>
     /// <param name="cloudFlowMetadata">The cloud flow metadata containing workflow definitions and connection references.</param>
     /// <param name="cancellationToken">Cancellation token to cancel the operation.</param>
     /// <returns>Workspace sync result.</returns>
@@ -653,17 +660,17 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         string? changeToken,
         bool updateWorkspaceDirectory,
         ISyncDataverseClient dataverseClient,
-        Guid? agentId,
+        AgentSyncInfo syncInfo,
         CloudFlowMetadata? cloudFlowMetadata,
         CancellationToken cancellationToken)
     {
         var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
-        var workflows = cloudFlowMetadata ?? await GetWorkflowsAsync(workspaceFolder, dataverseClient, agentId, fileAccessor, cancellationToken).ConfigureAwait(false);
+        var workflows = cloudFlowMetadata ?? await GetWorkflowsAsync(workspaceFolder, dataverseClient, syncInfo, fileAccessor, cancellationToken).ConfigureAwait(false);
         var changeset = await _islandControlPlaneService.GetComponentsAsync(operationContext, changeToken, cancellationToken).ConfigureAwait(false);
 
         DefinitionBase emptyDefinition = operationContext switch
         {
-            BotComponentCollectionAuthoringOperationContext => new BotComponentCollectionDefinition(),
+            BotComponentCollectionAuthoringOperationContext => new BotComponentCollectionDefinition(flows: workflows.Workflows, connectionReferences: workflows.ConnectionReferences),
             _ => new BotDefinition(flows: workflows.Workflows, connectionReferences: workflows.ConnectionReferences),
         };
 
@@ -1081,7 +1088,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
     }
 
     // Determine local changes by comparing the user files to the cloud cache. 
-    public async Task<(PvaComponentChangeSet, ImmutableArray<Change>)> GetLocalChangesAsync(DirectoryPath workspaceFolder, DefinitionBase workspaceDefinition, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
+    public async Task<(PvaComponentChangeSet, ImmutableArray<Change>)> GetLocalChangesAsync(DirectoryPath workspaceFolder, DefinitionBase workspaceDefinition, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CancellationToken cancellationToken)
     {
         var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
         var cloudSnapshot = ReadCloudCacheSnapshot(fileAccessor);
@@ -1093,14 +1100,14 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         var changeToken = await GetChangeTokenOrNullAsync(fileAccessor, cancellationToken).ConfigureAwait(false);
         var (changeSet, changes) = GetLocalChanges(workspaceDefinition, cloudSnapshot, fileAccessor, changeToken);
 
-        var workflowChanges = GetLocalWorkflowChangesAsync(workspaceFolder, dataverseClient, agentId, fileAccessor, cloudSnapshot, cancellationToken);
+        var workflowChanges = GetLocalWorkflowChangesAsync(workspaceFolder, dataverseClient, syncInfo, fileAccessor, cloudSnapshot, cancellationToken);
         changes = changes.AddRange(await workflowChanges.ConfigureAwait(false));
 
         return (changeSet, changes);
     }
 
     // Determine remote changes by comparing the user files to the cloud cache. 
-    public async Task<(PvaComponentChangeSet, ImmutableArray<Change>)> GetRemoteChangesAsync(DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
+    public async Task<(PvaComponentChangeSet, ImmutableArray<Change>)> GetRemoteChangesAsync(DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CancellationToken cancellationToken)
     {
         var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
         var changeToken = await GetChangeTokenOrNullAsync(fileAccessor, cancellationToken).ConfigureAwait(false);
@@ -1115,7 +1122,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         var computeChanges = GetLocalChanges(appliedDefinition, cloudSnapshot, fileAccessor, changeToken, isRemoteChange: true);
 
         var changes = computeChanges.Item2;
-        var workflowChanges = GetRemoteWorkflowChangesAsync(dataverseClient, agentId, cloudSnapshot, cancellationToken);
+        var workflowChanges = GetRemoteWorkflowChangesAsync(dataverseClient, syncInfo, cloudSnapshot, cancellationToken);
         changes = changes.AddRange(await workflowChanges.ConfigureAwait(false));
 
         return (changeset, changes);
@@ -1460,59 +1467,47 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
     public virtual async Task<(ImmutableArray<WorkflowResponse>, CloudFlowMetadata)> UpsertWorkflowForAgentAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
     {
-        if (agentId == null || agentId == Guid.Empty)
-        {
-            return (ImmutableArray<WorkflowResponse>.Empty, new CloudFlowMetadata
-            {
-                Workflows = ImmutableArray<CloudFlowDefinition>.Empty,
-                ConnectionReferences = ImmutableArray<ConnectionReference>.Empty
-            });
-        }
-
         var cloudFlowDefinitions = new List<CloudFlowDefinition>();
         var workflows = new List<WorkflowMetadata>();
         var connectionReferences = ImmutableArray<ConnectionReference>.Empty;
         var workflowResponseBuilder = ImmutableArray.CreateBuilder<WorkflowResponse>();
 
-        if (agentId.HasValue && agentId != Guid.Empty)
+        var workflowsDir = Path.Combine(workspaceFolder.ToString(), WorkflowFolder);
+        if (Directory.Exists(workflowsDir))
         {
-            var workflowsDir = Path.Combine(workspaceFolder.ToString(), WorkflowFolder);
-            if (Directory.Exists(workflowsDir))
+            foreach (var workflowFolder in Directory.EnumerateDirectories(workflowsDir))
             {
-                foreach (var workflowFolder in Directory.EnumerateDirectories(workflowsDir))
+                cancellationToken.ThrowIfCancellationRequested();
+                var workflowName = Path.GetFileName(workflowFolder);
+                var workflowId = ExtractWorkflowIdFromFileName(workflowName);
+
+                if (workflowId == null)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    var workflowName = Path.GetFileName(workflowFolder);
-                    var workflowId = ExtractWorkflowIdFromFileName(workflowName);
-
-                    if (workflowId == null)
-                    {
-                        continue;
-                    }
-
-                    var jsonFile = Path.Combine(workflowFolder, "workflow.json");
-                    var metadataFile = Path.Combine(workflowFolder, "metadata.yml");
-                    if (!File.Exists(jsonFile) || !File.Exists(metadataFile))
-                    {
-                        continue;
-                    }
-
-                    var clientDataJson = await File.ReadAllTextAsync(jsonFile, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
-                    var yamlText = await File.ReadAllTextAsync(metadataFile, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
-                    var deserializer = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
-                    var metadata = deserializer.Deserialize<WorkflowMetadata>(yamlText);
-                    metadata.ClientData = clientDataJson;
-                    workflows.Add(metadata);
-
-                    var workflowResponse = await dataverseClient.UpdateWorkflowAsync(agentId.Value, metadata, cancellationToken).ConfigureAwait(false);
-
-                    var (cloudFlowDefinition, _) = GetFlowDefinition(metadata);
-                    cloudFlowDefinitions.Add(cloudFlowDefinition);
-                    workflowResponseBuilder.Add(workflowResponse);
+                    continue;
                 }
 
-                connectionReferences = await GetConnectionReferenceFromLogicalNamesAsync(GetConnectionReferenceLogicalNamesFromFlows(workflows), dataverseClient, cancellationToken).ConfigureAwait(false);
+                var jsonFile = Path.Combine(workflowFolder, "workflow.json");
+                var metadataFile = Path.Combine(workflowFolder, "metadata.yml");
+                if (!File.Exists(jsonFile) || !File.Exists(metadataFile))
+                {
+                    continue;
+                }
+
+                var clientDataJson = await File.ReadAllTextAsync(jsonFile, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+                var yamlText = await File.ReadAllTextAsync(metadataFile, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+                var deserializer = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
+                var metadata = deserializer.Deserialize<WorkflowMetadata>(yamlText);
+                metadata.ClientData = clientDataJson;
+                workflows.Add(metadata);
+
+                var workflowResponse = await dataverseClient.UpdateWorkflowAsync(agentId.HasValue ? agentId.Value : (Guid?)null, metadata, cancellationToken).ConfigureAwait(false);
+
+                var (cloudFlowDefinition, _) = GetFlowDefinition(metadata);
+                cloudFlowDefinitions.Add(cloudFlowDefinition);
+                workflowResponseBuilder.Add(workflowResponse);
             }
+
+            connectionReferences = await GetConnectionReferenceFromLogicalNamesAsync(GetConnectionReferenceLogicalNamesFromFlows(workflows), dataverseClient, cancellationToken).ConfigureAwait(false);
         }
 
         return (workflowResponseBuilder.ToImmutable(), new CloudFlowMetadata
@@ -1522,7 +1517,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         });
     }
 
-    public async Task<CloudFlowMetadata> GetWorkflowsAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, IFileAccessor fileAccessor, CancellationToken cancellationToken)
+    public async Task<CloudFlowMetadata> GetWorkflowsAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, IFileAccessor fileAccessor, CancellationToken cancellationToken)
     {
         var cloudFlowDefinitions = new List<CloudFlowDefinition>();
         var workflows = new List<WorkflowMetadata>();
@@ -1530,7 +1525,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
         try
         {
-            var remote = await dataverseClient.DownloadAllWorkflowsForAgentAsync(agentId, cancellationToken).ConfigureAwait(false);
+            var remote = await dataverseClient.DownloadAllWorkflowsForAgentAsync(syncInfo, cancellationToken).ConfigureAwait(false);
             var workflowsRoot = Path.Combine(workspaceFolder.ToString(), WorkflowFolder);
 
             Directory.CreateDirectory(workflowsRoot);
@@ -1650,7 +1645,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         }
         catch (Exception ex)
         {
-            _syncProgress.Report($"Failed to download workflows for agent {agentId}. Exception: {ex.Message}");
+            _syncProgress.Report($"Failed to download workflows for agent {syncInfo.AgentId}. Exception: {ex.Message}");
         }
 
         return new CloudFlowMetadata
@@ -1759,7 +1754,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                     continue;
                 }
 
-                if (IsValidFileToUpload(file))
+                if (IsValidFileToUpload(fileAccessor, file))
                 {
                     var schemaName = SchemaNameGenerator.GenerateSchemaNameForBotComponent(
                         botSchemaPrefix: GetSchemaName(definition),
@@ -1827,17 +1822,33 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         return result.ToImmutable();
     }
 
-    private bool IsValidFileToUpload(AgentFilePath knowledgeFile)
+    private bool IsValidFileToUpload(IFileAccessor fileAccessor, AgentFilePath knowledgeFile)
     {
-        var maxFileSize = 125L * 1024 * 1024; // 125 MB
-        var fileInfo = new FileInfo(knowledgeFile.ToString());
+        const long maxFileSize = 125L * 1024 * 1024; // 125 MB
 
-        if (fileInfo.Exists && fileInfo.Length > maxFileSize)
+        if (!fileAccessor.Exists(knowledgeFile))
         {
-            _syncProgress.Report($"File '{knowledgeFile.FileName}' exceeded file size limit of 125MB and will be skipped.");
+            return false;
         }
 
-        return fileInfo.Exists && fileInfo.Length <= maxFileSize;
+        long length = 0;
+        try
+        {
+            using var stream = fileAccessor.OpenRead(knowledgeFile);
+            length = stream.Length;
+        }
+        catch (FileNotFoundException)
+        {
+            return false;
+        }
+
+        if (length > maxFileSize)
+        {
+            _syncProgress.Report($"File '{knowledgeFile.FileName}' exceeded file size limit of 125MB and will be skipped.");
+            return false;
+        }
+
+        return true;
     }
 
     private static string GetSchemaName(DefinitionBase definition)
@@ -1850,21 +1861,21 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         };
     }
 
-    private async Task<ImmutableArray<Change>> GetLocalWorkflowChangesAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, IFileAccessor fileAccessor, DefinitionBase originalDefinition, CancellationToken cancellationToken)
+    private async Task<ImmutableArray<Change>> GetLocalWorkflowChangesAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, IFileAccessor fileAccessor, DefinitionBase originalDefinition, CancellationToken cancellationToken)
     {
-        var localContent = await GetLocalWorkflowContentAsync(workspaceFolder, dataverseClient, agentId, fileAccessor, cancellationToken).ConfigureAwait(false);
+        var localContent = await GetLocalWorkflowContentAsync(workspaceFolder, dataverseClient, syncInfo, fileAccessor, cancellationToken).ConfigureAwait(false);
         var originalContent = await GetOriginalWorkflowContentAsync(originalDefinition, dataverseClient, cancellationToken).ConfigureAwait(false);
         return ComputeWorkflowChanges(originalContent, localContent, isLocal: true);
     }
 
-    private async Task<ImmutableArray<Change>> GetRemoteWorkflowChangesAsync(ISyncDataverseClient dataverseClient, Guid? agentId, DefinitionBase originalDefinition, CancellationToken cancellationToken)
+    private async Task<ImmutableArray<Change>> GetRemoteWorkflowChangesAsync(ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, DefinitionBase originalDefinition, CancellationToken cancellationToken)
     {
-        var remoteContent = await GetRemoteWorkflowContentAsync(dataverseClient, agentId, cancellationToken).ConfigureAwait(false);
+        var remoteContent = await GetRemoteWorkflowContentAsync(dataverseClient, syncInfo, cancellationToken).ConfigureAwait(false);
         var originalContent = await GetOriginalWorkflowContentAsync(originalDefinition, dataverseClient, cancellationToken).ConfigureAwait(false);
         return ComputeWorkflowChanges(originalContent, remoteContent, isLocal: false);
     }
 
-    private async Task<CloudFlowMetadata> GetLocalWorkflowContentAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, IFileAccessor fileAccessor, CancellationToken cancellationToken)
+    private async Task<CloudFlowMetadata> GetLocalWorkflowContentAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, IFileAccessor fileAccessor, CancellationToken cancellationToken)
     {
         var cloudFlowDefinitions = new List<CloudFlowDefinition>();
         var workflows = new List<WorkflowMetadata>();
@@ -1907,11 +1918,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         };
     }
 
-    private async Task<CloudFlowMetadata> GetRemoteWorkflowContentAsync(ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
+    private async Task<CloudFlowMetadata> GetRemoteWorkflowContentAsync(ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CancellationToken cancellationToken)
     {
         var cloudFlowDefinitions = new List<CloudFlowDefinition>();
         var workflows = new List<WorkflowMetadata>();
-        var remote = await dataverseClient.DownloadAllWorkflowsForAgentAsync(agentId, cancellationToken).ConfigureAwait(false);
+        var remote = await dataverseClient.DownloadAllWorkflowsForAgentAsync(syncInfo, cancellationToken).ConfigureAwait(false);
 
         if (remote == null || remote.Length == 0)
         {
@@ -2397,7 +2408,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             workspaceFolders.Add(folder);
 
             await SaveSyncInfoAsync(folder, syncInfo).ConfigureAwait(false);
-            await CloneChangesAsync(folder, referenceTracker, operationContext, dataverseClient, syncInfo.AgentId, cancellationToken).ConfigureAwait(false);
+            await CloneChangesAsync(folder, referenceTracker, operationContext, dataverseClient, syncInfo, cancellationToken).ConfigureAwait(false);
         }
 
         // Second pass: fill in cross-workspace reference paths now that all workspaces exist.
@@ -2436,7 +2447,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         DirectoryPath workspaceFolder,
         AuthoringOperationContextBase operationContext,
         ISyncDataverseClient dataverseClient,
-        Guid? agentId,
+        AgentSyncInfo syncInfo,
         CancellationToken cancellationToken)
     {
         // Read the pushed (expected) workspace definition
@@ -2450,12 +2461,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         try
         {
             var referenceTracker = new ReferenceTracker();
-            await CloneChangesAsync(tempWorkspace, referenceTracker, operationContext, dataverseClient, agentId, cancellationToken).ConfigureAwait(false);
+            await CloneChangesAsync(tempWorkspace, referenceTracker, operationContext, dataverseClient, syncInfo, cancellationToken).ConfigureAwait(false);
 
             var serverDefinition = await ReadWorkspaceDefinitionAsync(tempWorkspace, cancellationToken).ConfigureAwait(false);
 
             // Compare per-entity-type: group expected changes by ChangeKind, count matches in server state
-            var (_, expectedChanges) = await GetLocalChangesAsync(tempWorkspace, expectedDefinition, dataverseClient, agentId, cancellationToken).ConfigureAwait(false);
+            var (_, expectedChanges) = await GetLocalChangesAsync(tempWorkspace, expectedDefinition, dataverseClient, syncInfo, cancellationToken).ConfigureAwait(false);
 
             // If there are no local differences between pushed state and server state, everything was accepted
             if (expectedChanges.IsEmpty)

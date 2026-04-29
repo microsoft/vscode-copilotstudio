@@ -130,8 +130,23 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                         agentFolderName ??= folderName;
                     }
 
-                    await _workspaceSynchronizer.SaveSyncInfoAsync(folder, syncInfo);
-                    await _workspaceSynchronizer.CloneChangesAsync(folder, referenceTracker, operationContext, _dataverseClient, syncInfo.AgentId, cancellationToken);
+                    var folderSyncInfo = operationContext switch
+                    {
+                        BotComponentCollectionAuthoringOperationContext cc => new AgentSyncInfo
+                        {
+                            AgentId = null,
+                            ComponentCollectionId = cc.BotComponentCollectionReference.CdsId,
+                            DataverseEndpoint = syncInfo.DataverseEndpoint,
+                            EnvironmentId = syncInfo.EnvironmentId,
+                            SolutionVersions = syncInfo.SolutionVersions,
+                            AccountInfo = syncInfo.AccountInfo,
+                            AgentManagementEndpoint = syncInfo.AgentManagementEndpoint,
+                        },
+                        _ => syncInfo,
+                    };
+
+                    await _workspaceSynchronizer.SaveSyncInfoAsync(folder, folderSyncInfo);
+                    await _workspaceSynchronizer.CloneChangesAsync(folder, referenceTracker, operationContext, _dataverseClient, folderSyncInfo, cancellationToken);
                 }
 
                 foreach (var folder in touchups)

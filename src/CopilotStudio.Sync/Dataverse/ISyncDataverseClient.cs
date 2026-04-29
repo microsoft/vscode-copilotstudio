@@ -31,7 +31,7 @@ public interface ISyncDataverseClient
     /// <summary>
     /// Download all workflows for the specified agent.
     /// </summary>
-    Task<WorkflowMetadata[]> DownloadAllWorkflowsForAgentAsync(Guid? agentId, CancellationToken cancellationToken);
+    Task<WorkflowMetadata[]> DownloadAllWorkflowsForAgentAsync(AgentSyncInfo syncInfo, CancellationToken cancellationToken);
 
     /// <summary>
     /// Updates an existing workflow for the specified agent if exist, otherwise insert new workflow.
