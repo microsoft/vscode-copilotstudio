@@ -98,7 +98,7 @@ internal class FileAccessorFactory : IFileAccessorFactory
 
             foreach (var file in Directory.EnumerateFiles(fullSearchPath, filePattern, SearchOption.AllDirectories))
             {
-                var relative = Path.GetRelativePath(rootPath, file).Replace('\\', '/');
+                var relative = PathHelper.GetRelativePath(rootPath, file).Replace('\\', '/');
                 yield return new AgentFilePath(relative);
             }
         }

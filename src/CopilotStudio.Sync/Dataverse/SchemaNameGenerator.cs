@@ -44,7 +44,15 @@ public static class SchemaNameGenerator
     private static string RandId(int length)
     {
         const string chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        // #if kept: net10's RandomNumberGenerator.GetInt32 is a native implementation
+        // that avoids managed buffer allocation. The netstandard2.0 polyfill performs
+        // rejection sampling in managed code with a per-call 4-byte buffer alloc -- a
+        // small but real cost on net10 if we LCD'd here. Keeping the dispatch.
+#if NETSTANDARD2_0
+        return new string(Enumerable.Range(0, length).Select(_ => chars[RandomNumberGeneratorPolyfill.GetInt32(chars.Length)]).ToArray());
+#else
         return new string(Enumerable.Range(0, length).Select(_ => chars[RandomNumberGenerator.GetInt32(chars.Length)]).ToArray());
+#endif
     }
 
     /// <summary>
