@@ -21,25 +21,26 @@ export function getChangeGroupVisuals(
     (groupType === 'remote' && remoteOpInFlight) ||
     (groupType === 'local' && localOpInFlight);
 
+  // contextValue is kept stable so inline action buttons stay visible during a sync;
+  // the enablement clause on each sync command (`!mcs.syncInProgress`) is what greys
+  // them out. Only the icon swaps to a spinner for in-context feedback.
+  const contextValue = `changeGroup-${groupType}`;
+
   if (isSyncing) {
-    return {
-      iconId: 'sync~spin',
-      contextValue: `changeGroup-${groupType}-syncing`,
-      isSyncing: true,
-    };
+    return { iconId: 'sync~spin', contextValue, isSyncing: true };
   }
 
   return {
     iconId: groupType === 'local' ? 'file-code' : 'cloud',
-    contextValue: `changeGroup-${groupType}`,
+    contextValue,
     isSyncing: false,
   };
 }
 
 /**
  * True iff any workspace's synchronizer is non-Idle. Drives the
- * `mcs.syncInProgress` global context key that hides the title-bar
- * sync buttons while a sync is in flight.
+ * `mcs.syncInProgress` global context key that greys out the sync
+ * buttons (via `enablement`) while a sync is in flight.
  */
 export function isAnySyncInProgress(states: SyncState[]): boolean {
   return states.some(s => s !== SyncState.Idle);

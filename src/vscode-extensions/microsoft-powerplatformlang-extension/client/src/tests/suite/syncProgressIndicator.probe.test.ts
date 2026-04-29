@@ -60,30 +60,32 @@ suite('Issue #199 probe: getChangeGroupVisuals — idle states', () => {
 });
 
 suite('Issue #199 probe: getChangeGroupVisuals — sync states map to spinner', () => {
-	test('Fetching / remote → spinner, syncing contextValue, isSyncing=true', () => {
+	// contextValue stays stable across sync states so inline action buttons remain
+	// visible; the per-command `enablement: !mcs.syncInProgress` greys them out.
+	test('Fetching / remote → spinner, contextValue stable, isSyncing=true', () => {
 		const fn = getHelpers().getChangeGroupVisuals;
 		assert.ok(fn, 'getChangeGroupVisuals not exported yet');
 		const v = fn('remote', SyncState.Fetching);
 		assert.strictEqual(v.iconId, 'sync~spin');
-		assert.strictEqual(v.contextValue, 'changeGroup-remote-syncing');
+		assert.strictEqual(v.contextValue, 'changeGroup-remote');
 		assert.strictEqual(v.isSyncing, true);
 	});
 
-	test('Pulling / remote → spinner, syncing contextValue, isSyncing=true', () => {
+	test('Pulling / remote → spinner, contextValue stable, isSyncing=true', () => {
 		const fn = getHelpers().getChangeGroupVisuals;
 		assert.ok(fn, 'getChangeGroupVisuals not exported yet');
 		const v = fn('remote', SyncState.Pulling);
 		assert.strictEqual(v.iconId, 'sync~spin');
-		assert.strictEqual(v.contextValue, 'changeGroup-remote-syncing');
+		assert.strictEqual(v.contextValue, 'changeGroup-remote');
 		assert.strictEqual(v.isSyncing, true);
 	});
 
-	test('Pushing / local → spinner, syncing contextValue, isSyncing=true', () => {
+	test('Pushing / local → spinner, contextValue stable, isSyncing=true', () => {
 		const fn = getHelpers().getChangeGroupVisuals;
 		assert.ok(fn, 'getChangeGroupVisuals not exported yet');
 		const v = fn('local', SyncState.Pushing);
 		assert.strictEqual(v.iconId, 'sync~spin');
-		assert.strictEqual(v.contextValue, 'changeGroup-local-syncing');
+		assert.strictEqual(v.contextValue, 'changeGroup-local');
 		assert.strictEqual(v.isSyncing, true);
 	});
 });

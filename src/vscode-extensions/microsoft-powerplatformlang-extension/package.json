@@ -126,17 +126,17 @@
         },
         {
           "command": "microsoft-copilot-studio.previewChanges",
-          "when": "view == agent-changes && !mcs.syncInProgress",
+          "when": "view == agent-changes",
           "group": "navigation@1"
         },
         {
           "command": "microsoft-copilot-studio.getChanges",
-          "when": "view == agent-changes && !mcs.syncInProgress",
+          "when": "view == agent-changes",
           "group": "navigation@2"
         },
         {
           "command": "microsoft-copilot-studio.applyChanges",
-          "when": "view == agent-changes && !mcs.syncInProgress",
+          "when": "view == agent-changes",
           "group": "navigation@3"
         }
       ],
@@ -232,18 +232,20 @@
       {
         "command": "microsoft-copilot-studio.previewChanges",
         "title": "Copilot Studio: Preview changes",
-        "icon": "$(eye)"
+        "icon": "$(eye)",
+        "enablement": "!mcs.syncInProgress"
       },
       {
         "command": "microsoft-copilot-studio.getChanges",
         "title": "Copilot Studio: Get changes",
-        "icon": "$(cloud-download)"
+        "icon": "$(cloud-download)",
+        "enablement": "!mcs.syncInProgress"
       },
       {
         "command": "microsoft-copilot-studio.applyChanges",
         "title": "Copilot Studio: Apply changes",
         "icon": "$(cloud-upload)",
-        "enablement": "!mcs.agentChangesView.hasRemoteChanges"
+        "enablement": "!mcs.agentChangesView.hasRemoteChanges && !mcs.syncInProgress"
       },
       {
         "command": "microsoft-copilot-studio.cloneAgent",
