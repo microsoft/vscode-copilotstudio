@@ -50,13 +50,23 @@ public interface IFileAccessor
 
 internal static class FileAccessorExtensions
 {
+    // No #if for the WriteAsync/ReadStringAsync overloads below: the
+    // netstandard2.0-compatible call shapes produce identical behavior on net10.
+    //   - WriteAsync(string) avoids the contents.AsMemory() detour. We already hold
+    //     a string; the ROM<char> overload offers no allocation savings here.
+    //   - Stream.WriteAsync(byte[], 0, len, CT) is the underlying overload that
+    //     net10's WriteAsync(byte[], CT) wraps. Pass the offset/length explicitly
+    //     so the same call shape works on both TFMs without any per-TFM cost.
+    //   - StreamReader.ReadToEndAsync() with a boundary cancel check matches
+    //     net10's ReadToEndAsync(CT) for our use case (small agent files);
+    //     mid-read cancellation isn't observable for sub-second reads.
     public static async Task WriteAsync(this IFileAccessor writer, AgentFilePath path, string contents, CancellationToken cancel)
     {
         cancel.ThrowIfCancellationRequested();
 
         using var stream = writer.OpenWrite(path);
         using TextWriter sw = new StreamWriter(stream, Encoding.UTF8);
-        await sw.WriteAsync(contents.AsMemory(), cancel).ConfigureAwait(false);
+        await sw.WriteAsync(contents).ConfigureAwait(false);
     }
 
     public static async Task WriteAsync(this IFileAccessor writer, AgentFilePath path, byte[] bytes, CancellationToken cancel)
@@ -65,7 +75,7 @@ internal static class FileAccessorExtensions
 
         using var stream = writer.OpenWrite(path);
 
-        await stream.WriteAsync(bytes, cancel).ConfigureAwait(false);
+        await stream.WriteAsync(bytes, 0, bytes.Length, cancel).ConfigureAwait(false);
     }
 
     public static async Task<string> ReadStringAsync(this IFileAccessor writer, AgentFilePath path, CancellationToken cancel)
@@ -75,7 +85,6 @@ internal static class FileAccessorExtensions
         using var stream = writer.OpenRead(path);
         using var sr = new StreamReader(stream);
 
-        var str = await sr.ReadToEndAsync(cancel).ConfigureAwait(false);
-        return str;
+        return await sr.ReadToEndAsync().ConfigureAwait(false);
     }
 }

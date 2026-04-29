@@ -98,7 +98,7 @@ public class SyncDataverseClient : ISyncDataverseClient
             {
                 var requestBody = CreateWorkflowRequestBody(workflowMetadata);
                 var updateUrl = $"{DataverseUrl}/api/data/v9.2/workflows({workflowMetadata.WorkflowId})";
-                await SendAsync<object>(HttpMethod.Patch, updateUrl, requestBody, false, cancellationToken).ConfigureAwait(false);
+                await SendAsync<object>(HttpMethodHelper.Patch, updateUrl, requestBody, false, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
@@ -237,7 +237,7 @@ public class SyncDataverseClient : ISyncDataverseClient
             ["statuscode"] = 2
         };
 
-        await SendAsync<object>(HttpMethod.Patch, activateUrl, activateBody, false, cancellationToken).ConfigureAwait(false);
+        await SendAsync<object>(HttpMethodHelper.Patch, activateUrl, activateBody, false, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<List<Guid>> GetAllBotComponentIdsAsync(AgentSyncInfo syncInfo, CancellationToken cancellationToken)
@@ -280,7 +280,8 @@ public class SyncDataverseClient : ISyncDataverseClient
 
             while (!string.IsNullOrEmpty(nextBotComponentWorkflowUrl))
             {
-                var response = await SendAsync<JsonElement>(HttpMethod.Get, nextBotComponentWorkflowUrl, null, false, cancellationToken).ConfigureAwait(false);
+                // ns2.0 BCL's IsNullOrEmpty lacks NotNullWhen annotation; ! is compile-time only.
+                var response = await SendAsync<JsonElement>(HttpMethod.Get, nextBotComponentWorkflowUrl!, null, false, cancellationToken).ConfigureAwait(false);
 
                 if (response.TryGetProperty("value", out var valueArray) && valueArray.ValueKind == JsonValueKind.Array)
                 {
@@ -326,7 +327,8 @@ public class SyncDataverseClient : ISyncDataverseClient
 
             while (!string.IsNullOrEmpty(nextWorkflowUrl))
             {
-                var response = await SendAsync<JsonElement>(HttpMethod.Get, nextWorkflowUrl, null, false, cancellationToken).ConfigureAwait(false);
+                // ns2.0 BCL's IsNullOrEmpty lacks NotNullWhen annotation; ! is compile-time only.
+                var response = await SendAsync<JsonElement>(HttpMethod.Get, nextWorkflowUrl!, null, false, cancellationToken).ConfigureAwait(false);
                 if (response.TryGetProperty("value", out var workflowArray) && workflowArray.ValueKind == JsonValueKind.Array)
                 {
                     foreach (var element in workflowArray.EnumerateArray())
@@ -386,7 +388,7 @@ public class SyncDataverseClient : ISyncDataverseClient
         string connectionReferenceLogicalName,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(connectionReferenceLogicalName);
+        if (connectionReferenceLogicalName is null) throw new ArgumentNullException(nameof(connectionReferenceLogicalName));
         var literal = connectionReferenceLogicalName.Replace("'", "''");
         var filterExpr = $"connectionreferencelogicalname eq '{literal}'";
         var baseUri = new Uri(new Uri(DataverseUrl), "/api/data/v9.2/connectionreferences");
@@ -524,7 +526,10 @@ public class SyncDataverseClient : ISyncDataverseClient
 
         using var fileStream = new FileStream(localPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
 
-        await stream.CopyToAsync(fileStream, cancellationToken).ConfigureAwait(false);
+        // No #if: passing 81920 explicitly is identical to net10's default buffer size
+        // on Stream.CopyToAsync(Stream, CT), and the 3-arg form is what netstandard2.0
+        // exposes -- so the same expression compiles and behaves the same on both TFMs.
+        await stream.CopyToAsync(fileStream, 81920, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task UploadKnowledgeFileAsync(string knowledgeFileFolder, Guid botComponentId, string fileName, CancellationToken cancellationToken = default)
@@ -533,7 +538,7 @@ public class SyncDataverseClient : ISyncDataverseClient
         var httpClient = _httpClientAccessor.CreateClient();
         using var fileStream = new FileStream(GetKnowledgeFileLocalPath(knowledgeFileFolder, fileName), FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 81920, useAsync: true);
 
-        using var request = new HttpRequestMessage(HttpMethod.Patch, requestUri)
+        using var request = new HttpRequestMessage(HttpMethodHelper.Patch, requestUri)
         {
             Content = new StreamContent(fileStream, bufferSize: 81920)
         };

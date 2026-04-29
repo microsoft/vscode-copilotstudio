@@ -159,7 +159,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             {
                 using var file = fileAccessor.OpenRead(ReferencesCollectionPath);
                 using var sr = new StreamReader(file);
-                var yaml = await sr.ReadToEndAsync(cancellation).ConfigureAwait(false);
+                // No #if: small references file; boundary cancellation matches net10
+                // ReadToEndAsync(CT) for our use case.
+                cancellation.ThrowIfCancellationRequested();
+                var yaml = await sr.ReadToEndAsync().ConfigureAwait(false);
                 var refs = CodeSerializer.Deserialize<ReferencesSourceFile>(yaml);
 
                 if (refs == null)
@@ -343,7 +346,25 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
         if (downloadAllKnowledgeFiles && newSnapshot != null)
         {
-            await Parallel.ForEachAsync(newSnapshot.Components.OfType<FileAttachmentComponent>().Where(c => !string.IsNullOrEmpty(c.DisplayName)).ToList(), new ParallelOptions
+            var fileComponents = newSnapshot.Components.OfType<FileAttachmentComponent>().Where(c => !string.IsNullOrEmpty(c.DisplayName)).ToList();
+            // #if kept: net10 uses Parallel.ForEachAsync with MaxDegreeOfParallelism=5
+            // for concurrent knowledge-file downloads. netstandard2.0 has no equivalent
+            // and the LCD foreach loses ~5x throughput when the agent has many knowledge
+            // files. The cost is real, so we preserve the per-TFM behavior.
+#if NETSTANDARD2_0
+            foreach (var localComponent in fileComponents)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var componentPath = new AgentFilePath(_pathResolver.GetComponentPath(localComponent, newSnapshot));
+                await dataverseClient.DownloadKnowledgeFileAsync(
+                    Path.Combine(workspaceFolder.ToString(), componentPath.ParentDirectoryName),
+                    localComponent.Id,
+                    localComponent.DisplayName ?? localComponent.Id.Value.ToString(),
+                    cancellationToken
+                ).ConfigureAwait(false);
+            }
+#else
+            await Parallel.ForEachAsync(fileComponents, new ParallelOptions
             {
                 MaxDegreeOfParallelism = 5,
                 CancellationToken = cancellationToken
@@ -357,6 +378,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                     cancellationToken
                 ).ConfigureAwait(false);
             }).ConfigureAwait(false);
+#endif
         }
 
         // persist updated change set on directory
@@ -582,6 +604,36 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 return 0;
             }
 
+            // #if kept: net10 uses Parallel.ForEachAsync with MaxDegreeOfParallelism=5
+            // for concurrent knowledge-file uploads; netstandard2.0 has no equivalent
+            // and the LCD foreach loses ~5x throughput. Cost is real, so we preserve
+            // per-TFM behavior.
+#if NETSTANDARD2_0
+            foreach (var newFileComponent in newFileComponents)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (string.IsNullOrEmpty(newFileComponent.DisplayName))
+                {
+                    continue;
+                }
+
+                var componentPath = new AgentFilePath(_pathResolver.GetComponentPath(newFileComponent, snapshot));
+                if (!IsValidFileToUpload(componentPath))
+                {
+                    continue;
+                }
+
+                // ns2.0 BCL's IsNullOrEmpty lacks NotNullWhen; ! is compile-time only.
+                await dataverseClient.UploadKnowledgeFileAsync(
+                    Path.Combine(workspaceFolder.ToString(), componentPath.ParentDirectoryName),
+                    newFileComponent.Id.Value,
+                    newFileComponent.DisplayName!,
+                    cancellationToken
+                ).ConfigureAwait(false);
+
+                numberOfUploadedFiles++;
+            }
+#else
             await Parallel.ForEachAsync(newFileComponents, new ParallelOptions
             {
                 MaxDegreeOfParallelism = 5,
@@ -609,6 +661,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
                 numberOfUploadedFiles++;
             }).ConfigureAwait(false);
+#endif
         }
 
         return numberOfUploadedFiles;
@@ -909,7 +962,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         return new AgentFilePath($"{EnvironmentVariablesFolder}/{schemaName}.mcs.yml");
     }
 
-    private static string GetAgentSchemaName(string fullSchema) => fullSchema[..(fullSchema.IndexOf('.') is var i && i > 0 ? i : fullSchema.Length)];
+    private static string GetAgentSchemaName(string fullSchema) => fullSchema.Substring(0, fullSchema.IndexOf('.') is var i && i > 0 ? i : fullSchema.Length);
     
     private void WriteComponentCollection(IFileAccessor fileAccessor, BotComponentCollection? collection, CancellationToken cancellationToken)
     {
@@ -1493,12 +1546,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                     continue;
                 }
 
-                var clientDataJson = await File.ReadAllTextAsync(jsonFile, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
-                var yamlText = await File.ReadAllTextAsync(metadataFile, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
-                var deserializer = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
-                var metadata = deserializer.Deserialize<WorkflowMetadata>(yamlText);
-                metadata.ClientData = clientDataJson;
-                workflows.Add(metadata);
+                    var clientDataJson = await FileShim.ReadAllTextAsync(jsonFile, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+                    var yamlText = await FileShim.ReadAllTextAsync(metadataFile, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+                    var deserializer = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
+                    var metadata = deserializer.Deserialize<WorkflowMetadata>(yamlText);
+                    metadata.ClientData = clientDataJson;
+                    workflows.Add(metadata);
 
                 var workflowResponse = await dataverseClient.UpdateWorkflowAsync(agentId.HasValue ? agentId.Value : (Guid?)null, metadata, cancellationToken).ConfigureAwait(false);
 
@@ -1597,9 +1650,21 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                     var workflowJsonTmp = new AgentFilePath($"{workflowFolder}/workflow.json.tmp");
                     workflow.JsonFileName = workflowJson.ToString();
 
-                    using var jsonDoc = JsonDocument.Parse(workflow.ClientData);
+                    // ns2.0 BCL's IsNullOrWhiteSpace lacks NotNullWhen; ! is compile-time only.
+                    using var jsonDoc = JsonDocument.Parse(workflow.ClientData!);
                     var jsonString = JsonSerializer.Serialize(jsonDoc.RootElement, new JsonSerializerOptions { WriteIndented = true });
 
+                    // net10 uses async disposal so the StreamWriter and FileStream flush
+                    // asynchronously; netstandard2.0's Stream is not IAsyncDisposable, so
+                    // it falls back to sync using. The sync-flush cost on the ns2.0 path
+                    // is bounded (workflow JSON payloads are 1-50 KB on local disk).
+#if NETSTANDARD2_0
+                    using (var jsonStream = fileAccessor.OpenWrite(workflowJsonTmp))
+                    using (var writer = new StreamWriter(jsonStream, Encoding.UTF8))
+                    {
+                        await writer.WriteAsync(jsonString).ConfigureAwait(false);
+                    }
+#else
                     var jsonStream = fileAccessor.OpenWrite(workflowJsonTmp);
                     await using (jsonStream.ConfigureAwait(false))
                     {
@@ -1609,12 +1674,21 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                             await writer.WriteAsync(jsonString).ConfigureAwait(false);
                         }
                     }
+#endif
                     fileAccessor.Replace(workflowJsonTmp, workflowJson);
 
                     var workflowMetadata = new AgentFilePath($"{workflowFolder}/metadata.yml");
                     var workflowMetadataTmp = new AgentFilePath($"{workflowFolder}/metadata.yml.tmp");
                     var serializer = new SerializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
 
+                    // Same async-vs-sync disposal split as the workflow.json block above.
+#if NETSTANDARD2_0
+                    using (var metaStream = fileAccessor.OpenWrite(workflowMetadataTmp))
+                    using (var writer = new StreamWriter(metaStream, Encoding.UTF8))
+                    {
+                        serializer.Serialize(writer, workflow);
+                    }
+#else
                     var metaStream = fileAccessor.OpenWrite(workflowMetadataTmp);
                     await using (metaStream.ConfigureAwait(false))
                     {
@@ -1624,6 +1698,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                             serializer.Serialize(writer, workflow);
                         }
                     }
+#endif
                     fileAccessor.Replace(workflowMetadataTmp, workflowMetadata);
                 }
             }
@@ -1689,7 +1764,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
             using var stream = fileAccessor.OpenRead(filePath);
             using var reader = new StreamReader(stream, Encoding.UTF8);
-            var yaml = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            // No #if: small component file; boundary cancellation is sufficient.
+            cancellationToken.ThrowIfCancellationRequested();
+            var yaml = await reader.ReadToEndAsync().ConfigureAwait(false);
 
             var deserialized = CodeSerializer.Deserialize(yaml, component.RootElement?.GetType() ?? typeof(BotElement), null);
             var (parsed, error) = _fileParser.CompileFileModel(component.SchemaNameString, deserialized, component.DisplayName, component.Description);
@@ -1799,7 +1876,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
             using var stream = fileAccessor.OpenRead(filePath);
             using var reader = new StreamReader(stream, Encoding.UTF8);
-            var yaml = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            // No #if: small env-var file; boundary cancellation is sufficient.
+            cancellationToken.ThrowIfCancellationRequested();
+            var yaml = await reader.ReadToEndAsync().ConfigureAwait(false);
 
             if (CodeSerializer.Deserialize(yaml, typeof(EnvironmentVariableDefinition), null) is EnvironmentVariableDefinition envVar)
             {
@@ -1901,8 +1980,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 continue;
             }
 
-            var yaml = await File.ReadAllTextAsync(metadataFile, cancellationToken).ConfigureAwait(false);
-            var json = await File.ReadAllTextAsync(jsonFile, cancellationToken).ConfigureAwait(false);
+            var yaml = await FileShim.ReadAllTextAsync(metadataFile, cancellationToken).ConfigureAwait(false);
+            var json = await FileShim.ReadAllTextAsync(jsonFile, cancellationToken).ConfigureAwait(false);
             var deserializer = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
             var metadata = deserializer.Deserialize<WorkflowMetadata>(yaml);
             metadata.ClientData = json;
@@ -2081,7 +2160,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 continue;
             }
 
-            using var doc = JsonDocument.Parse(workflow.ClientData);
+            // ns2.0 BCL's IsNullOrWhiteSpace lacks NotNullWhen; ! is compile-time only.
+            using var doc = JsonDocument.Parse(workflow.ClientData!);
             var root = doc.RootElement;
             var names = ExtractConnectionReferenceLogicalNames(root);
 
@@ -2100,12 +2180,13 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         {
             try
             {
-                using var doc = JsonDocument.Parse(s.Value);
+                // ns2.0 BCL's IsNullOrEmpty lacks NotNullWhen; ! is compile-time only.
+                using var doc = JsonDocument.Parse(s.Value!);
                 return JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = true });
             }
             catch (JsonException)
             {
-                return s.Value;
+                return s.Value!;
             }
         }
 
@@ -2119,7 +2200,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         var workflowConnectionNames = ImmutableArray<string>.Empty;
         if (!string.IsNullOrWhiteSpace(workflow.ClientData))
         {
-            using var document = JsonDocument.Parse(workflow.ClientData);
+            // ns2.0 BCL's IsNullOrWhiteSpace lacks NotNullWhen; ! is compile-time only.
+            using var document = JsonDocument.Parse(workflow.ClientData!);
             var root = document.RootElement;
             inputType = ExtractRecordDataType(
                 root,
@@ -2454,7 +2536,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         var expectedDefinition = await ReadWorkspaceDefinitionAsync(workspaceFolder, cancellationToken).ConfigureAwait(false);
 
         // Clone to a temp workspace to get the server's current state
-        var tempDir = Path.Combine(Path.GetTempPath(), "mcs-verify-" + Guid.NewGuid().ToString("N")[..8]);
+        var tempDir = Path.Combine(Path.GetTempPath(), "mcs-verify-" + Guid.NewGuid().ToString("N").Substring(0, 8));
         Directory.CreateDirectory(tempDir);
         var tempWorkspace = new DirectoryPath(tempDir.Replace('\\', '/'));
 

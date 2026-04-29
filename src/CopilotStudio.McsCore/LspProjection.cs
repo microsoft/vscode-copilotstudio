@@ -501,7 +501,7 @@ internal static class LspProjection
         var lastDot = schemaName.LastIndexOf('.');
         if (lastDot < 0 || lastDot == schemaName.Length - 1) return false;
 
-        var suffix = schemaName[(lastDot + 1)..];
+        var suffix = schemaName.Substring(lastDot + 1);
         return IsLocaleSuffix(suffix);
     }
 
@@ -665,21 +665,27 @@ internal static class LspProjection
             return schemaName;
         }
 
-        // Remove bot prefix
+        // Remove bot prefix.
+        // schemaName is guaranteed non-null by the early-return at the top of this
+        // method, but netstandard2.0's BCL lacks the [NotNullWhen(false)] annotation
+        // on string.IsNullOrEmpty that net10 has, so the compiler can't narrow it.
+        // The ! operator is a compile-time-only annotation (no IL emitted), symmetric
+        // across both TFMs.
         var withoutPrefix = !string.IsNullOrEmpty(botName)
-            ? schemaName[botName.Length..]
-            : schemaName;
+            ? schemaName!.Substring(botName.Length)
+            : schemaName!;
 
         // Find and remove the infix
         var infixIndex = withoutPrefix.IndexOf(infix, StringComparison.OrdinalIgnoreCase);
         if (infixIndex >= 0)
         {
-            var shortName = withoutPrefix[(infixIndex + infix.Length)..];
+            var shortName = withoutPrefix.Substring(infixIndex + infix.Length);
 
             // Reserved filenames should not be shortened.
             if (IsReservedShortName(shortName, infix))
             {
-                return schemaName;
+                // schemaName non-null by early-return; ! is compile-time only.
+                return schemaName!;
             }
 
             return shortName;
@@ -688,7 +694,8 @@ internal static class LspProjection
         // Infix not found - schema name doesn't follow expected pattern.
         // Return original schemaName unchanged (e.g., already-qualified names
         // that passed through GetSchemaName without expansion).
-        return schemaName;
+        // schemaName non-null by early-return; ! is compile-time only.
+        return schemaName!;
     }
 
     private static bool IsReservedShortName(string shortName, string infix)
