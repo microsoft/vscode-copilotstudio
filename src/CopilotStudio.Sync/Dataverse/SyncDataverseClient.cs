@@ -274,7 +274,8 @@ public class SyncDataverseClient : ISyncDataverseClient
 
             while (!string.IsNullOrEmpty(nextBotComponentWorkflowUrl))
             {
-                var response = await SendAsync<JsonElement>(HttpMethod.Get, nextBotComponentWorkflowUrl, null, false, cancellationToken).ConfigureAwait(false);
+                // ns2.0 BCL's IsNullOrEmpty lacks NotNullWhen annotation; ! is compile-time only.
+                var response = await SendAsync<JsonElement>(HttpMethod.Get, nextBotComponentWorkflowUrl!, null, false, cancellationToken).ConfigureAwait(false);
 
                 if (response.TryGetProperty("value", out var valueArray) && valueArray.ValueKind == JsonValueKind.Array)
                 {
@@ -320,7 +321,8 @@ public class SyncDataverseClient : ISyncDataverseClient
 
             while (!string.IsNullOrEmpty(nextWorkflowUrl))
             {
-                var response = await SendAsync<JsonElement>(HttpMethod.Get, nextWorkflowUrl, null, false, cancellationToken).ConfigureAwait(false);
+                // ns2.0 BCL's IsNullOrEmpty lacks NotNullWhen annotation; ! is compile-time only.
+                var response = await SendAsync<JsonElement>(HttpMethod.Get, nextWorkflowUrl!, null, false, cancellationToken).ConfigureAwait(false);
                 if (response.TryGetProperty("value", out var workflowArray) && workflowArray.ValueKind == JsonValueKind.Array)
                 {
                     foreach (var element in workflowArray.EnumerateArray())

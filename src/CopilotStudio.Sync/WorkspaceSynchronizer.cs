@@ -616,10 +616,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                     continue;
                 }
 
+                // ns2.0 BCL's IsNullOrEmpty lacks NotNullWhen; ! is compile-time only.
                 await dataverseClient.UploadKnowledgeFileAsync(
                     Path.Combine(workspaceFolder.ToString(), componentPath.ParentDirectoryName),
                     newFileComponent.Id.Value,
-                    newFileComponent.DisplayName,
+                    newFileComponent.DisplayName!,
                     cancellationToken
                 ).ConfigureAwait(false);
 
@@ -1654,7 +1655,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                     var workflowJsonTmp = new AgentFilePath($"{workflowFolder}/workflow.json.tmp");
                     workflow.JsonFileName = workflowJson.ToString();
 
-                    using var jsonDoc = JsonDocument.Parse(workflow.ClientData);
+                    // ns2.0 BCL's IsNullOrWhiteSpace lacks NotNullWhen; ! is compile-time only.
+                    using var jsonDoc = JsonDocument.Parse(workflow.ClientData!);
                     var jsonString = JsonSerializer.Serialize(jsonDoc.RootElement, new JsonSerializerOptions { WriteIndented = true });
 
                     using (var jsonStream = fileAccessor.OpenWrite(workflowJsonTmp))
@@ -2118,7 +2120,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 continue;
             }
 
-            using var doc = JsonDocument.Parse(workflow.ClientData);
+            // ns2.0 BCL's IsNullOrWhiteSpace lacks NotNullWhen; ! is compile-time only.
+            using var doc = JsonDocument.Parse(workflow.ClientData!);
             var root = doc.RootElement;
             var names = ExtractConnectionReferenceLogicalNames(root);
 
@@ -2137,12 +2140,13 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         {
             try
             {
-                using var doc = JsonDocument.Parse(s.Value);
+                // ns2.0 BCL's IsNullOrEmpty lacks NotNullWhen; ! is compile-time only.
+                using var doc = JsonDocument.Parse(s.Value!);
                 return JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = true });
             }
             catch (JsonException)
             {
-                return s.Value;
+                return s.Value!;
             }
         }
 
@@ -2156,7 +2160,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         var workflowConnectionNames = ImmutableArray<string>.Empty;
         if (!string.IsNullOrWhiteSpace(workflow.ClientData))
         {
-            using var document = JsonDocument.Parse(workflow.ClientData);
+            // ns2.0 BCL's IsNullOrWhiteSpace lacks NotNullWhen; ! is compile-time only.
+            using var document = JsonDocument.Parse(workflow.ClientData!);
             var root = document.RootElement;
             inputType = ExtractRecordDataType(
                 root,

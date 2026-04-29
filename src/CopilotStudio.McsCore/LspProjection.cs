@@ -665,10 +665,15 @@ internal static class LspProjection
             return schemaName;
         }
 
-        // Remove bot prefix
+        // Remove bot prefix.
+        // schemaName is guaranteed non-null by the early-return at the top of this
+        // method, but netstandard2.0's BCL lacks the [NotNullWhen(false)] annotation
+        // on string.IsNullOrEmpty that net10 has, so the compiler can't narrow it.
+        // The ! operator is a compile-time-only annotation (no IL emitted), symmetric
+        // across both TFMs.
         var withoutPrefix = !string.IsNullOrEmpty(botName)
-            ? schemaName.Substring(botName.Length)
-            : schemaName;
+            ? schemaName!.Substring(botName.Length)
+            : schemaName!;
 
         // Find and remove the infix
         var infixIndex = withoutPrefix.IndexOf(infix, StringComparison.OrdinalIgnoreCase);
@@ -679,7 +684,8 @@ internal static class LspProjection
             // Reserved filenames should not be shortened.
             if (IsReservedShortName(shortName, infix))
             {
-                return schemaName;
+                // schemaName non-null by early-return; ! is compile-time only.
+                return schemaName!;
             }
 
             return shortName;
@@ -688,7 +694,8 @@ internal static class LspProjection
         // Infix not found - schema name doesn't follow expected pattern.
         // Return original schemaName unchanged (e.g., already-qualified names
         // that passed through GetSchemaName without expansion).
-        return schemaName;
+        // schemaName non-null by early-return; ! is compile-time only.
+        return schemaName!;
     }
 
     private static bool IsReservedShortName(string shortName, string infix)
