@@ -5,6 +5,7 @@
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models.Lsp;
     using System;
+    using System.Collections.Concurrent;
 
     /// <summary>
     /// Wrapper on a <see cref="IFileProvider"/> collection that allows to read files from the client workspace roots.
@@ -13,7 +14,7 @@
     {
         private readonly IClientInformation _clientInfo;
         private readonly IFileProviderFactory _factory;
-        private readonly Dictionary<DirectoryPath, IFileProvider> _fileProviders = new();
+        private readonly ConcurrentDictionary<DirectoryPath, IFileProvider> _fileProviders = new();
 
         public ClientWorkspaceFileProvider(IClientInformation clientInfo, IFileProviderFactory factory)
         {
@@ -55,13 +56,15 @@
         {
             if (_clientInfo.TryGetWorkspaceFolder(directoryPath, out var workspaceFolderPath))
             {
-                if (!_fileProviders.ContainsKey(workspaceFolderPath))
-                {
-                    var clientWorkspaceRootPath = workspaceFolderPath.ToString();
-                    _fileProviders[workspaceFolderPath] = _factory.Create(string.IsNullOrEmpty(clientWorkspaceRootPath) ? "/" : clientWorkspaceRootPath);
-                }
+                var fileProvider = _fileProviders.GetOrAdd(
+                    workspaceFolderPath,
+                    key =>
+                    {
+                        var clientWorkspaceRootPath = key.ToString();
+                        return _factory.Create(string.IsNullOrEmpty(clientWorkspaceRootPath) ? "/" : clientWorkspaceRootPath);
+                    });
 
-                return (_fileProviders[workspaceFolderPath], workspaceFolderPath);
+                return (fileProvider, workspaceFolderPath);
             }
             else
             {
