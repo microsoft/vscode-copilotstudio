@@ -1659,22 +1659,51 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                     using var jsonDoc = JsonDocument.Parse(workflow.ClientData!);
                     var jsonString = JsonSerializer.Serialize(jsonDoc.RootElement, new JsonSerializerOptions { WriteIndented = true });
 
+                    // net10 uses async disposal so the StreamWriter and FileStream flush
+                    // asynchronously; netstandard2.0's Stream is not IAsyncDisposable, so
+                    // it falls back to sync using. The sync-flush cost on the ns2.0 path
+                    // is bounded (workflow JSON payloads are 1-50 KB on local disk).
+#if NETSTANDARD2_0
                     using (var jsonStream = fileAccessor.OpenWrite(workflowJsonTmp))
                     using (var writer = new StreamWriter(jsonStream, Encoding.UTF8))
                     {
                         await writer.WriteAsync(jsonString).ConfigureAwait(false);
                     }
+#else
+                    var jsonStream = fileAccessor.OpenWrite(workflowJsonTmp);
+                    await using (jsonStream.ConfigureAwait(false))
+                    {
+                        var writer = new StreamWriter(jsonStream, Encoding.UTF8);
+                        await using (writer.ConfigureAwait(false))
+                        {
+                            await writer.WriteAsync(jsonString).ConfigureAwait(false);
+                        }
+                    }
+#endif
                     fileAccessor.Replace(workflowJsonTmp, workflowJson);
 
                     var workflowMetadata = new AgentFilePath($"{workflowFolder}/metadata.yml");
                     var workflowMetadataTmp = new AgentFilePath($"{workflowFolder}/metadata.yml.tmp");
                     var serializer = new SerializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
 
+                    // Same async-vs-sync disposal split as the workflow.json block above.
+#if NETSTANDARD2_0
                     using (var metaStream = fileAccessor.OpenWrite(workflowMetadataTmp))
                     using (var writer = new StreamWriter(metaStream, Encoding.UTF8))
                     {
                         serializer.Serialize(writer, workflow);
                     }
+#else
+                    var metaStream = fileAccessor.OpenWrite(workflowMetadataTmp);
+                    await using (metaStream.ConfigureAwait(false))
+                    {
+                        var writer = new StreamWriter(metaStream, Encoding.UTF8);
+                        await using (writer.ConfigureAwait(false))
+                        {
+                            serializer.Serialize(writer, workflow);
+                        }
+                    }
+#endif
                     fileAccessor.Replace(workflowMetadataTmp, workflowMetadata);
                 }
             }
