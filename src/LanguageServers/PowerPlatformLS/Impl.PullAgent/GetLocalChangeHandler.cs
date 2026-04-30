@@ -44,7 +44,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
                 var workspace = (IMcsWorkspace)context.Workspace;
                 var syncInfo = await _workspaceSynchronizer.GetSyncInfoAsync(workspace.FolderPath);
-                var (_, localChanges) = await _workspaceSynchronizer.GetLocalChangesAsync(workspace.FolderPath, workspace.Definition, _dataverseClient, syncInfo.AgentId, cancellationToken);
+                var (_, localChanges) = await _workspaceSynchronizer.GetLocalChangesAsync(workspace.FolderPath, workspace.Definition, _dataverseClient, syncInfo, cancellationToken);
 
                 return new SyncAgentResponse
                 {

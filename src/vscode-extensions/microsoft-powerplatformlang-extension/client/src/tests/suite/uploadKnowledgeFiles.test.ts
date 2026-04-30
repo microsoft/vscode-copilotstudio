@@ -69,4 +69,21 @@ suite('uploadKnowledgeFiles', () => {
         assert.strictEqual(file1, 'local-1');
         assert.strictEqual(file2, 'local-2');
     });
+
+    test('returns early when syncInfo.agentId is missing (component collection workspace)', async () => {
+        let botHandlerCalled = false;
+        (getDataverseBotHandler as any) = async () => {
+            botHandlerCalled = true;
+            return {} as any;
+        };
+
+        const collectionWorkspace = {
+            workspaceUri: vscode.Uri.file(workspaceDir),
+            syncInfo: { agentId: undefined, dataverseEndpoint: 'dataverse-endpoint' }
+        } as any;
+
+        await uploadKnowledgeFiles(collectionWorkspace);
+
+        assert.strictEqual(botHandlerCalled, false);
+    });
 });

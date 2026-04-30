@@ -79,10 +79,10 @@ cloneCommand.SetHandler(async (string environment, string? environmentId, string
 
         Console.WriteLine("Cloning agent...");
         var referenceTracker = new ReferenceTracker();
-        await synchronizer.CloneChangesAsync(workspaceFolder, referenceTracker, operationContext, dataverseClient, agentId, CancellationToken.None);
+        await synchronizer.CloneChangesAsync(workspaceFolder, referenceTracker, operationContext, dataverseClient, syncInfo, CancellationToken.None);
 
         Console.WriteLine("Syncing workspace metadata...");
-        await synchronizer.SyncWorkspaceAsync(workspaceFolder, operationContext, null, true, dataverseClient, agentId, null, CancellationToken.None);
+        await synchronizer.SyncWorkspaceAsync(workspaceFolder, operationContext, null, true, dataverseClient, syncInfo, null, CancellationToken.None);
 
         await synchronizer.ApplyTouchupsAsync(workspaceFolder, referenceTracker, CancellationToken.None);
 
@@ -144,7 +144,7 @@ pushCommand.SetHandler(async (string workspace) =>
         var localDefinition = await synchronizer.ReadWorkspaceDefinitionAsync(workspaceFolder, CancellationToken.None, checkKnowledgeFiles: true);
 
         Console.WriteLine("Detecting local changes...");
-        var (localChangeset, localChanges) = await synchronizer.GetLocalChangesAsync(workspaceFolder, localDefinition, dataverseClient, syncInfo.AgentId, CancellationToken.None);
+        var (localChangeset, localChanges) = await synchronizer.GetLocalChangesAsync(workspaceFolder, localDefinition, dataverseClient, syncInfo, CancellationToken.None);
 
         if (localChanges.IsEmpty)
         {
@@ -171,13 +171,13 @@ pushCommand.SetHandler(async (string workspace) =>
         Console.WriteLine("Syncing workspace metadata...");
         await synchronizer.SyncWorkspaceAsync(
             workspaceFolder, operationContext, null, true, dataverseClient,
-            syncInfo.AgentId, cloudFlowMetadata, CancellationToken.None);
+            syncInfo, cloudFlowMetadata, CancellationToken.None);
 
         Console.WriteLine($"Push complete. {localChanges.Length} change(s) pushed, {uploadedFiles} file(s) uploaded.");
 
         Console.WriteLine("Verifying push...");
         var verification = await synchronizer.VerifyPushAsync(
-            workspaceFolder, operationContext, dataverseClient, syncInfo.AgentId, CancellationToken.None);
+            workspaceFolder, operationContext, dataverseClient, syncInfo, CancellationToken.None);
 
         PrintVerificationResult(verification);
     }
@@ -236,7 +236,7 @@ pullCommand.SetHandler(async (string workspace) =>
 
         Console.WriteLine("Detecting remote changes...");
         var (_, remoteChanges) = await synchronizer.GetRemoteChangesAsync(
-            workspaceFolder, operationContext, dataverseClient, syncInfo.AgentId, CancellationToken.None);
+            workspaceFolder, operationContext, dataverseClient, syncInfo, CancellationToken.None);
 
         if (remoteChanges.IsEmpty)
         {
@@ -250,12 +250,12 @@ pullCommand.SetHandler(async (string workspace) =>
         Console.WriteLine("Pulling remote changes...");
         var updatedDefinition = await synchronizer.PullExistingChangesAsync(
             workspaceFolder, operationContext, localDefinition, dataverseClient,
-            syncInfo.AgentId, CancellationToken.None);
+            syncInfo, CancellationToken.None);
 
         Console.WriteLine("Syncing workspace metadata...");
         await synchronizer.SyncWorkspaceAsync(
             workspaceFolder, operationContext, null, true, dataverseClient,
-            syncInfo.AgentId, null, CancellationToken.None);
+            syncInfo, null, CancellationToken.None);
 
         Console.WriteLine();
         Console.WriteLine("Pull complete.");
@@ -313,7 +313,7 @@ verifyCommand.SetHandler(async (string workspace) =>
 
         Console.WriteLine("Verifying workspace against server state...");
         var verification = await synchronizer.VerifyPushAsync(
-            workspaceFolder, operationContext, dataverseClient, syncInfo.AgentId, CancellationToken.None);
+            workspaceFolder, operationContext, dataverseClient, syncInfo, CancellationToken.None);
 
         PrintVerificationResult(verification);
     }
@@ -457,10 +457,10 @@ cloneViaBridgeCommand.SetHandler(async (string environment, string? environmentI
 
         Console.WriteLine("[bridge] Cloning agent via extension bridge stack...");
         var referenceTracker = new ReferenceTracker();
-        await synchronizer.CloneChangesAsync(workspaceFolder, referenceTracker, operationContext, dataverseClient, agentId, CancellationToken.None);
+        await synchronizer.CloneChangesAsync(workspaceFolder, referenceTracker, operationContext, dataverseClient, new AgentSyncInfo { AgentId = agentId }, CancellationToken.None);
 
         Console.WriteLine("[bridge] Syncing workspace metadata...");
-        await synchronizer.SyncWorkspaceAsync(workspaceFolder, operationContext, null, true, dataverseClient, agentId, null, CancellationToken.None);
+        await synchronizer.SyncWorkspaceAsync(workspaceFolder, operationContext, null, true, dataverseClient, new AgentSyncInfo { AgentId = agentId }, null, CancellationToken.None);
 
         await synchronizer.ApplyTouchupsAsync(workspaceFolder, referenceTracker, CancellationToken.None);
 

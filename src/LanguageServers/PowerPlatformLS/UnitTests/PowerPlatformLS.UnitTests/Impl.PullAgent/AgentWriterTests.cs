@@ -240,7 +240,7 @@ entity:
 
             var dataverseClient = new MockDataverseClient();
             Guid agentId = Guid.NewGuid();
-            await writer.CloneChangesAsync(WorkspaceFolderPath, referenceTracker, FakeOperationContext, dataverseClient, agentId, cancel);
+            await writer.CloneChangesAsync(WorkspaceFolderPath, referenceTracker, FakeOperationContext, dataverseClient, new AgentSyncInfo { AgentId = agentId }, cancel);
 
             // Validate
 
@@ -315,7 +315,7 @@ kind: AdaptiveDialog
             var referenceTracker = new ReferenceTracker();
             var dataverseClient = new MockDataverseClient();
             Guid agentId = Guid.NewGuid();
-            await writer.CloneChangesAsync(WorkspaceFolderPath, referenceTracker, FakeOperationContext, dataverseClient, agentId, cancel);
+            await writer.CloneChangesAsync(WorkspaceFolderPath, referenceTracker, FakeOperationContext, dataverseClient, new AgentSyncInfo { AgentId = agentId }, cancel);
 
             // Validate
 
@@ -443,7 +443,7 @@ kind: AdaptiveDialog
                 .ReturnsAsync(remoteChangeSet);
 
             // Test pull changes
-            var mergedDefinition = await synchronizer.PullExistingChangesAsync(WorkspaceFolderPath, FakeOperationContext, previousDefinition, new MockDataverseClient(), Guid.NewGuid(), cancel);
+            var mergedDefinition = await synchronizer.PullExistingChangesAsync(WorkspaceFolderPath, FakeOperationContext, previousDefinition, new MockDataverseClient(), new AgentSyncInfo { AgentId = Guid.NewGuid() }, cancel);
 
             // Verify the merged definition contains the expected components
             Assert.Equal(
@@ -585,7 +585,7 @@ beginDialog:
                 FakeOperationContext,
                 previousDefinition,
                 dataverseClient,
-                Guid.NewGuid(),
+                new AgentSyncInfo { AgentId = Guid.NewGuid() },
                 cancel
             );
 
@@ -860,7 +860,7 @@ beginDialog:
                 FakeOperationContext,
                 previousDefinition,
                 dataverseClient,
-                Guid.NewGuid(),
+                new AgentSyncInfo { AgentId = Guid.NewGuid() },
                 cancel
             );
 
@@ -1125,7 +1125,7 @@ beginDialog:
             var islandServiceMock = new Mock<IIslandControlPlaneService>();
             var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem, islandServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
 
-            var workflows = await synchronizer.GetWorkflowsAsync(workspaceFolder, mockDataverse, agentId, filesystem, CancellationToken.None);
+            var workflows = await synchronizer.GetWorkflowsAsync(workspaceFolder, mockDataverse, new AgentSyncInfo { AgentId = agentId }, filesystem, CancellationToken.None);
 
             Assert.Single(workflows.Workflows);
             var workflow = workflows.Workflows[0];
@@ -1209,6 +1209,184 @@ beginDialog:
         }
 
         [Fact]
+        public async Task UpsertWorkflowForAgentAsync_NullAgentId_StillProcessesWorkflowsFromWorkspace()
+        {
+            using var tempWorkspace = new TempDirectory();
+            var workspaceFolder = new DirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
+            var workflowId = Guid.NewGuid();
+            var workflowDir = Path.Combine(workspaceFolder.ToString(), "workflows", $"TestWorkflow-{workflowId}");
+            Directory.CreateDirectory(workflowDir);
+
+            await File.WriteAllTextAsync(Path.Combine(workflowDir, "workflow.json"), "{ \"test\": \"data\" }");
+            await File.WriteAllTextAsync(Path.Combine(workflowDir, "metadata.yml"), $"workflowId: {workflowId}\nname: TestWorkflow");
+
+            var mockDataverse = new MockDataverseClient();
+
+            var synchronizer = new WorkspaceSynchronizer(
+                new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
+                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)new InMemoryFileWriter(),
+                Mock.Of<IIslandControlPlaneService>(),
+                Mock.Of<ISyncProgress>(),
+                new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+
+            var (responses, metadata) = await synchronizer.UpsertWorkflowForAgentAsync(workspaceFolder, mockDataverse, agentId: null, CancellationToken.None);
+
+            Assert.Single(responses);
+            Assert.Single(metadata.Workflows);
+            var call = mockDataverse.WorkflowCalls.Single();
+            Assert.Null(call.AgentId);
+            Assert.Equal(workflowId, call.Metadata.WorkflowId);
+        }
+
+        [Fact]
+        public async Task UpsertWorkflowForAgentAsync_EmptyAgentId_StillProcessesWorkflowsFromWorkspace()
+        {
+            using var tempWorkspace = new TempDirectory();
+            var workspaceFolder = new DirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
+            var workflowId = Guid.NewGuid();
+            var workflowDir = Path.Combine(workspaceFolder.ToString(), "workflows", $"TestWorkflow-{workflowId}");
+            Directory.CreateDirectory(workflowDir);
+
+            await File.WriteAllTextAsync(Path.Combine(workflowDir, "workflow.json"), "{ \"test\": \"data\" }");
+            await File.WriteAllTextAsync(Path.Combine(workflowDir, "metadata.yml"), $"workflowId: {workflowId}\nname: TestWorkflow");
+
+            var mockDataverse = new MockDataverseClient();
+
+            var synchronizer = new WorkspaceSynchronizer(
+                new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
+                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)new InMemoryFileWriter(),
+                Mock.Of<IIslandControlPlaneService>(),
+                Mock.Of<ISyncProgress>(),
+                new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+
+            var (responses, metadata) = await synchronizer.UpsertWorkflowForAgentAsync(workspaceFolder, mockDataverse, Guid.Empty, CancellationToken.None);
+
+            Assert.Single(responses);
+            Assert.Single(metadata.Workflows);
+        }
+
+        [Fact]
+        public async Task PushChangesetAsync_CollectionContext_ForcesUploadAllKnowledgeFiles()
+        {
+            string schemaName = "cr123";
+            var cancel = new CancellationToken();
+            var filesystem = new InMemoryFileWriter();
+            var pathResolver = new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver();
+            var islandControlPlaneServiceMock = new Mock<IIslandControlPlaneService>();
+            var synchronizer = new WorkspaceSynchronizer(
+                new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
+                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem,
+                islandControlPlaneServiceMock.Object,
+                Mock.Of<ISyncProgress>(),
+                pathResolver);
+
+            var fileComponent = new FileAttachmentComponent.Builder
+            {
+                Id = new BotComponentId(Guid.NewGuid()),
+                SchemaName = new FileAttachmentSchemaName($"{schemaName}.file.OnlyFile"),
+                DisplayName = "OnlyFile.txt",
+                Description = "the only file"
+            }.Build();
+
+            var botDefinition = new BotDefinition.Builder
+            {
+                Entity = new BotEntity().WithSchemaName(new BotEntitySchemaName(schemaName)),
+                Components = { fileComponent }
+            }.Build();
+
+            WorkspaceSynchronizer.WriteCloudCache(filesystem, botDefinition);
+            var filePath = new AgentFilePath(pathResolver.GetComponentPath(fileComponent, botDefinition));
+            await filesystem.WriteAsync(filePath, "payload", cancel);
+
+            var pushChangeset = new PvaComponentChangeSet(
+                Array.Empty<BotComponentChange>(),
+                new BotEntity().WithSchemaName(new BotEntitySchemaName(schemaName)),
+                "original_token");
+
+            islandControlPlaneServiceMock
+                .Setup(s => s.SaveChangesAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<PvaComponentChangeSet>(), cancel))
+                .ReturnsAsync((AuthoringOperationContextBase ctx, PvaComponentChangeSet cs, CancellationToken ct) => cs);
+
+            var collectionContext = new BotComponentCollectionAuthoringOperationContext(
+                impersonatedUser: null,
+                organizationInfo: new CdsOrganizationInfo(),
+                reference: new BotComponentCollectionReference(environmentId: "env1", cdsId: Guid.NewGuid()),
+                solutionUniqueName: "TestSolution");
+
+            var dataverseClient = new MockDataverseClient();
+
+            var uploaded = await synchronizer.PushChangesetAsync(
+                WorkspaceFolderPath,
+                collectionContext,
+                pushChangeset,
+                dataverseClient,
+                agentId: null,
+                cloudFlowMetadata: null,
+                cancel,
+                uploadAllKnowledgeFiles: false);
+
+            Assert.Equal(1, uploaded);
+            Assert.Single(dataverseClient.UploadKnowledgeFileCalls);
+            Assert.Equal("OnlyFile.txt", dataverseClient.UploadKnowledgeFileCalls[0].FileName);
+        }
+
+        [Fact]
+        public async Task SyncWorkspaceAsync_CollectionContext_PassesFlowsAndConnectionReferences()
+        {
+            var cancel = CancellationToken.None;
+            var workflowId = Guid.NewGuid();
+            var filesystem = new InMemoryFileWriter();
+            var islandControlPlaneServiceMock = new Mock<IIslandControlPlaneService>();
+            var synchronizer = new WorkspaceSynchronizer(
+                new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
+                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem,
+                islandControlPlaneServiceMock.Object,
+                Mock.Of<ISyncProgress>(),
+                new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+
+            var collectionContext = new BotComponentCollectionAuthoringOperationContext(
+                impersonatedUser: null,
+                organizationInfo: new CdsOrganizationInfo(),
+                reference: new BotComponentCollectionReference(environmentId: "env1", cdsId: Guid.NewGuid()),
+                solutionUniqueName: "TestSolution");
+
+            var emptyChangeset = new PvaComponentChangeSet(
+                Array.Empty<BotComponentChange>(),
+                bot: null,
+                changeToken: "token1");
+
+            islandControlPlaneServiceMock
+                .Setup(s => s.GetComponentsAsync(collectionContext, null, cancel))
+                .ReturnsAsync(emptyChangeset);
+
+            var workflow = new CloudFlowDefinition(
+                displayName: "RemoteFlow",
+                isEnabled: true,
+                workflowId: workflowId);
+
+            var cloudFlowMetadata = new CloudFlowMetadata
+            {
+                Workflows = ImmutableArray.Create(workflow),
+                ConnectionReferences = ImmutableArray<ConnectionReference>.Empty
+            };
+
+            var syncResult = await synchronizer.SyncWorkspaceAsync(
+                WorkspaceFolderPath,
+                collectionContext,
+                changeToken: null,
+                updateWorkspaceDirectory: false,
+                new MockDataverseClient(),
+                new AgentSyncInfo { ComponentCollectionId = Guid.NewGuid() },
+                cloudFlowMetadata,
+                cancel);
+
+            Assert.NotNull(syncResult.Definition);
+            Assert.IsType<BotComponentCollectionDefinition>(syncResult.Definition);
+            Assert.Single(syncResult.Definition.Flows);
+            Assert.Equal(workflowId, syncResult.Definition.Flows[0].WorkflowId.Value);
+        }
+
+        [Fact]
         public async Task GetLocalChangesAsyncWorkflowCreated()
         {
             using var tempWorkspace = new TempDirectory();
@@ -1260,7 +1438,7 @@ beginDialog:
                 workspaceFolder,
                 emptyBotDefinition,
                 mockDataverse,
-                agentId,
+                new AgentSyncInfo { AgentId = agentId },
                 cancel);
 
             var workflowChange = changes.Single(c => c.ChangeKind == BotElementKind.CloudFlowDefinition.ToString());
@@ -1331,7 +1509,7 @@ beginDialog:
                 workspaceFolder,
                 workspaceDefinition,
                 dataverseClient,
-                Guid.NewGuid(),
+                new AgentSyncInfo { AgentId = Guid.NewGuid() },
                 cancel
             );
 
@@ -1382,7 +1560,7 @@ beginDialog:
                 workspaceFolder,
                 new BotDefinition.Builder { Entity = botEntity }.Build(),
                 dataverseClient,
-                Guid.NewGuid(),
+                new AgentSyncInfo { AgentId = Guid.NewGuid() },
                 cancel);
 
             var workflowChange = changes.Single(c => c.ChangeKind == BotElementKind.CloudFlowDefinition.ToString());
@@ -1430,7 +1608,7 @@ beginDialog:
                 workspaceFolder,
                 FakeOperationContext,
                 dataverseClient,
-                Guid.NewGuid(),
+                new AgentSyncInfo { AgentId = Guid.NewGuid() },
                 cancel);
 
             var workflowChange = changes.Single(c => c.ChangeKind == BotElementKind.CloudFlowDefinition.ToString());
@@ -1491,7 +1669,7 @@ beginDialog:
                 workspaceFolder,
                 FakeOperationContext,
                 dataverseClient,
-                Guid.NewGuid(),
+                new AgentSyncInfo { AgentId = Guid.NewGuid() },
                 cancel);
 
             var workflowChange = changes.Single(c => c.ChangeKind == BotElementKind.CloudFlowDefinition.ToString());
@@ -1544,7 +1722,7 @@ beginDialog:
                 workspaceFolder,
                 FakeOperationContext,
                 dataverseClient,
-                Guid.NewGuid(),
+                new AgentSyncInfo { AgentId = Guid.NewGuid() },
                 cancel);
 
             var workflowChange = changes.Single(c => c.ChangeKind == BotElementKind.CloudFlowDefinition.ToString());
@@ -1582,7 +1760,7 @@ beginDialog:
             var metadata = await synchronizer.GetWorkflowsAsync(
                 workspaceFolder,
                 mockDataverse,
-                agentId,
+                new AgentSyncInfo { AgentId = agentId },
                 filesystem,
                 CancellationToken.None);
 
@@ -1708,7 +1886,7 @@ beginDialog:
             var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem, contentAuthoringServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
 
             Guid agentId = Guid.NewGuid();
-            await synchronizer.CloneChangesAsync(WorkspaceFolderPath, referenceTracker, FakeOperationContext, dataverseClient, agentId, cancel);
+            await synchronizer.CloneChangesAsync(WorkspaceFolderPath, referenceTracker, FakeOperationContext, dataverseClient, new AgentSyncInfo { AgentId = agentId }, cancel);
 
             var expectedFilePath = new AgentFilePath("environmentvariables/cr123.cloneTestEnvVar.mcs.yml");
             Assert.Contains(expectedFilePath.ToString(), filesystem.Filenames);
@@ -1798,7 +1976,7 @@ beginDialog:
                 FakeOperationContext,
                 previousDefinition,
                 new MockDataverseClient(),
-                Guid.NewGuid(),
+                new AgentSyncInfo { AgentId = Guid.NewGuid() },
                 cancel
             );
 

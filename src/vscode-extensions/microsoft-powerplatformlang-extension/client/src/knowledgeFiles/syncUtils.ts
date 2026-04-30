@@ -42,11 +42,11 @@ export async function safeSaveFile(fullPath: string, tempPath: string, content: 
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     await fs.rename(tempPath, fullPath);
   } catch (err: any) {
-    if (err.code === 'EXDEV') {
+    if (err.code === 'EXDEV' || err.code === 'EPERM' || err.code === 'EACCES') {
       // If rename fails due to cross-device (like in linux arm64), copy instead
       try {
         await fs.copyFile(tempPath, fullPath);
-        await fs.unlink(tempPath);
+        await fs.unlink(tempPath).catch(() => { /* best-effort cleanup */ });
       } catch (copyErr) {
         logger.logError(TelemetryEventsKeys.SaveKnowledgeFileError, `Failed to copy <pii>${fullPath}</pii>: ${copyErr}`);
         throw copyErr;

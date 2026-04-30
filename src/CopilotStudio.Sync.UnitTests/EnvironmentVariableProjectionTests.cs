@@ -67,7 +67,7 @@ public class EnvironmentVariableProjectionTests
         var workspace = new DirectoryPath("c:/test/agent/");
         var mockDataverse = new Mock<ISyncDataverseClient>();
         mockDataverse
-            .Setup(x => x.DownloadAllWorkflowsForAgentAsync(It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.DownloadAllWorkflowsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<WorkflowMetadata>());
 
         // Act
@@ -77,7 +77,7 @@ public class EnvironmentVariableProjectionTests
             referenceTracker,
             ComponentWriterDefensiveTests.CreateMockOperationContext(),
             mockDataverse.Object,
-            Guid.NewGuid(),
+            new AgentSyncInfo { AgentId = Guid.NewGuid() },
             CancellationToken.None);
 
         // Assert: env var files exist
@@ -106,7 +106,7 @@ public class EnvironmentVariableProjectionTests
         var workspace = new DirectoryPath("c:/test/agent/");
         var mockDataverse = new Mock<ISyncDataverseClient>();
         mockDataverse
-            .Setup(x => x.DownloadAllWorkflowsForAgentAsync(It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.DownloadAllWorkflowsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<WorkflowMetadata>());
 
         var referenceTracker = new ReferenceTracker();
@@ -115,7 +115,7 @@ public class EnvironmentVariableProjectionTests
             referenceTracker,
             ComponentWriterDefensiveTests.CreateMockOperationContext(),
             mockDataverse.Object,
-            Guid.NewGuid(),
+            new AgentSyncInfo { AgentId = Guid.NewGuid() },
             CancellationToken.None);
 
         // Assert: no env var files

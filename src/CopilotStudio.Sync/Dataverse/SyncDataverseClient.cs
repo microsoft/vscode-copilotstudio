@@ -4,12 +4,9 @@
 
 using Microsoft.Agents.ObjectModel;
 using Microsoft.Agents.Platform.Content.Abstractions;
-using System.Linq;
-using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Threading;
 using YamlDotNet.Serialization;
 
 namespace Microsoft.CopilotStudio.Sync.Dataverse;
@@ -70,15 +67,12 @@ public class SyncDataverseClient : ISyncDataverseClient
         return result?.Value?.FirstOrDefault()?.AgentId ?? Guid.Empty;
     }
 
-    public virtual async Task<WorkflowMetadata[]> DownloadAllWorkflowsForAgentAsync(Guid? agentId, CancellationToken cancellationToken)
+    public virtual async Task<WorkflowMetadata[]> DownloadAllWorkflowsForAgentAsync(AgentSyncInfo syncInfo, CancellationToken cancellationToken)
     {
-        if (agentId.HasValue && agentId != Guid.Empty)
+        var botComponentIdentifiers = await GetAllBotComponentIdsAsync(syncInfo, cancellationToken).ConfigureAwait(false);
+        if (botComponentIdentifiers.Count > 0)
         {
-            var botComponentIdentifiers = await GetAllBotComponentIdsAsync(agentId.Value, cancellationToken).ConfigureAwait(false);
-            if (botComponentIdentifiers.Count > 0)
-            {
-                return await GetAllWorkflowsByBotComponentsAsync(botComponentIdentifiers, cancellationToken).ConfigureAwait(false);
-            }
+            return await GetAllWorkflowsByBotComponentsAsync(botComponentIdentifiers, cancellationToken).ConfigureAwait(false);
         }
 
         return Array.Empty<WorkflowMetadata>();
@@ -91,23 +85,21 @@ public class SyncDataverseClient : ISyncDataverseClient
             throw new ArgumentNullException(nameof(workflowMetadata));
         }
 
-        if (!agentId.HasValue || agentId == Guid.Empty)
-        {
-            throw new ArgumentNullException(nameof(agentId));
-        }
-
         var errorMessage = string.Empty;
         try
         {
             var existsInCloud = await WorkflowExistsAsync(workflowMetadata.WorkflowId, cancellationToken).ConfigureAwait(false);
-            if (!existsInCloud)
+            if (!existsInCloud && agentId.HasValue)
             {
                 return await InsertWorkflowAsync(agentId, workflowMetadata, cancellationToken).ConfigureAwait(false);
             }
 
-            var requestBody = CreateWorkflowRequestBody(workflowMetadata);
-            var updateUrl = $"{DataverseUrl}/api/data/v9.2/workflows({workflowMetadata.WorkflowId})";
-            await SendAsync<object>(HttpMethodHelper.Patch, updateUrl, requestBody, false, cancellationToken).ConfigureAwait(false);
+            if (existsInCloud)
+            {
+                var requestBody = CreateWorkflowRequestBody(workflowMetadata);
+                var updateUrl = $"{DataverseUrl}/api/data/v9.2/workflows({workflowMetadata.WorkflowId})";
+                await SendAsync<object>(HttpMethodHelper.Patch, updateUrl, requestBody, false, cancellationToken).ConfigureAwait(false);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -248,9 +240,23 @@ public class SyncDataverseClient : ISyncDataverseClient
         await SendAsync<object>(HttpMethodHelper.Patch, activateUrl, activateBody, false, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<List<Guid>> GetAllBotComponentIdsAsync(Guid agentId, CancellationToken cancellationToken)
+    private async Task<List<Guid>> GetAllBotComponentIdsAsync(AgentSyncInfo syncInfo, CancellationToken cancellationToken)
     {
-        var url = $"{DataverseUrl}/api/data/v9.2/botcomponents?$select=botcomponentid&$filter=_parentbotid_value eq {agentId} and componenttype ne 19";
+        string url = string.Empty;
+        if (syncInfo.AgentId.HasValue && syncInfo.AgentId != Guid.Empty)
+        {
+            url = $"{DataverseUrl}/api/data/v9.2/botcomponents?$select=botcomponentid&$filter=_parentbotid_value eq {syncInfo.AgentId} and componenttype ne 19";
+        }
+        else if (syncInfo.ComponentCollectionId.HasValue && syncInfo.ComponentCollectionId != Guid.Empty)
+        {
+            url = $"{DataverseUrl}/api/data/v9.2/botcomponents?$select=botcomponentid&$filter=_parentbotcomponentcollectionid_value eq {syncInfo.ComponentCollectionId} and componenttype ne 19";
+        }
+
+        if (string.IsNullOrEmpty(url))
+        {
+            return new List<Guid>();
+        }
+
         var result = await SendAsync<BotComponentListResponse>(HttpMethod.Get, url, null, false, cancellationToken).ConfigureAwait(false);
 
         return result?.Value?.Select(component => component.BotComponentId).ToList() ?? new List<Guid>();
