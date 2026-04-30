@@ -2313,27 +2313,67 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             return null;
         }
 
-        var dict = new Dictionary<string, PropertyInfo>(StringComparer.OrdinalIgnoreCase);
+        var properties = new Dictionary<string, PropertyInfo>(StringComparer.OrdinalIgnoreCase);
+        CollectResponseOutputs(actions, properties);
+
+        return properties.Count == 0 ? null : new RecordDataType(properties.ToImmutableDictionary(StringComparer.OrdinalIgnoreCase));
+    }
+
+    private static void CollectResponseOutputs(JsonElement actions, Dictionary<string, PropertyInfo> properties)
+    {
+        if (actions.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
         foreach (var actionProperty in actions.EnumerateObject())
         {
-            if (!actionProperty.Value.TryGetProperty("type", out var typeNode) || !string.Equals(typeNode.GetString(), "Response", StringComparison.OrdinalIgnoreCase))
+            var actionValue = actionProperty.Value;
+            if (actionValue.ValueKind != JsonValueKind.Object)
             {
                 continue;
             }
 
-            if (actionProperty.Value.TryGetProperty("inputs", out var inputs) && inputs.TryGetProperty("schema", out var schema) && schema.TryGetProperty("properties", out var outputProps))
+            var isResponse = actionValue.TryGetProperty("type", out var typeNode) && string.Equals(typeNode.GetString(), "Response", StringComparison.OrdinalIgnoreCase);
+
+            if (isResponse && actionValue.TryGetProperty("inputs", out var inputs) && inputs.TryGetProperty("schema", out var schema) && schema.TryGetProperty("properties", out var outputProps) && outputProps.ValueKind == JsonValueKind.Object)
             {
                 foreach (var prop in outputProps.EnumerateObject())
                 {
-                    if (!dict.ContainsKey(prop.Name))
+                    if (!properties.ContainsKey(prop.Name))
                     {
-                        dict[prop.Name] = CreatePropertyInfoFromJson(prop.Value, prop.Name);
+                        properties[prop.Name] = CreatePropertyInfoFromJson(prop.Value, prop.Name);
                     }
                 }
             }
-        }
 
-        return dict.Count == 0 ? null : new RecordDataType(dict.ToImmutableDictionary(StringComparer.OrdinalIgnoreCase));
+            // Recurse into nested actions
+            if (actionValue.TryGetProperty("actions", out var nestedActions))
+            {
+                CollectResponseOutputs(nestedActions, properties);
+            }
+
+            if (actionValue.TryGetProperty("else", out var elseBranch) && elseBranch.TryGetProperty("actions", out var elseActions))
+            {
+                CollectResponseOutputs(elseActions, properties);
+            }
+
+            if (actionValue.TryGetProperty("cases", out var cases) && cases.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var caseProperty in cases.EnumerateObject())
+                {
+                    if (caseProperty.Value.ValueKind == JsonValueKind.Object && caseProperty.Value.TryGetProperty("actions", out var caseActions))
+                    {
+                        CollectResponseOutputs(caseActions, properties);
+                    }
+                }
+            }
+
+            if (actionValue.TryGetProperty("default", out var defaultBranch) && defaultBranch.TryGetProperty("actions", out var defaultActions))
+            {
+                CollectResponseOutputs(defaultActions, properties);
+            }
+        }
     }
 
     private static PropertyInfo CreatePropertyInfoFromJson(JsonElement propValue, string propName)

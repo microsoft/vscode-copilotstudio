@@ -1154,6 +1154,265 @@ beginDialog:
         }
 
         [Fact]
+        public async Task GetWorkflowsAsync_OutputType_NestedInScope()
+        {
+            using var tempWorkspace = new TempDirectory();
+            var workspaceFolder = new DirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
+            var workflowId = Guid.NewGuid();
+            var agentId = Guid.NewGuid();
+
+            var clientData = @"
+            {
+                ""properties"": {
+                    ""definition"": {
+                        ""actions"": {
+                            ""Scope_Try"": {
+                                ""type"": ""Scope"",
+                                ""actions"": {
+                                    ""Inner_Action"": {
+                                        ""type"": ""OpenApiConnection""
+                                    }
+                                }
+                            },
+                            ""Scope_Success"": {
+                                ""type"": ""Scope"",
+                                ""actions"": {
+                                    ""Respond_to_the_agent"": {
+                                        ""type"": ""Response"",
+                                        ""kind"": ""Skills"",
+                                        ""inputs"": {
+                                            ""schema"": {
+                                                ""properties"": {
+                                                    ""output1"": { ""type"": ""string"", ""title"": ""Output1"" },
+                                                    ""status"": { ""type"": ""string"", ""title"": ""Status"" }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            ""Scope_Failed"": {
+                                ""type"": ""Scope"",
+                                ""actions"": {
+                                    ""Respond_to_the_agent_on_error"": {
+                                        ""type"": ""Response"",
+                                        ""kind"": ""Skills"",
+                                        ""inputs"": {
+                                            ""schema"": {
+                                                ""properties"": {
+                                                    ""output1"": { ""type"": ""string"", ""title"": ""Output1"" },
+                                                    ""status"": { ""type"": ""string"", ""title"": ""Status"" }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }";
+
+            var mockDataverse = new MockDataverseClient();
+            mockDataverse.SetWorkflowsForAgent(new[]
+            {
+                new WorkflowMetadata
+                {
+                    WorkflowId = workflowId,
+                    Name = "NestedScopesWorkflow",
+                    ClientData = clientData,
+                    StateCode = 1
+                }
+            });
+
+            var filesystem = new InMemoryFileWriter();
+            var synchronizer = new WorkspaceSynchronizer(
+                new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
+                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem,
+                Mock.Of<IIslandControlPlaneService>(),
+                Mock.Of<ISyncProgress>(),
+                new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+
+            var workflows = await synchronizer.GetWorkflowsAsync(workspaceFolder, mockDataverse, new AgentSyncInfo { AgentId = agentId }, filesystem, CancellationToken.None);
+
+            var workflow = Assert.Single(workflows.Workflows);
+            Assert.NotNull(workflow.OutputType);
+
+            Assert.Equal(2, workflow.OutputType!.Properties.Count);
+            Assert.Equal(DataType.String, workflow.OutputType.Properties["output1"].Type);
+            Assert.Equal(DataType.String, workflow.OutputType.Properties["status"].Type);
+        }
+
+        [Fact]
+        public async Task GetWorkflowsAsync_OutputType_DeeplyNestedInIfAndScopes()
+        {
+            using var tempWorkspace = new TempDirectory();
+            var workspaceFolder = new DirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
+            var workflowId = Guid.NewGuid();
+            var agentId = Guid.NewGuid();
+
+            var clientData = @"
+            {
+                ""properties"": {
+                    ""definition"": {
+                        ""actions"": {
+                            ""List_rows"": { ""type"": ""OpenApiConnection"" },
+                            ""Condition"": {
+                                ""type"": ""If"",
+                                ""actions"": {
+                                    ""Scope"": {
+                                        ""type"": ""Scope"",
+                                        ""actions"": {
+                                            ""Scope_1"": {
+                                                ""type"": ""Scope"",
+                                                ""actions"": {
+                                                    ""Scope_2"": {
+                                                        ""type"": ""Scope"",
+                                                        ""actions"": {
+                                                            ""Respond_to_the_agent"": {
+                                                                ""type"": ""Response"",
+                                                                ""kind"": ""Skills"",
+                                                                ""inputs"": {
+                                                                    ""schema"": {
+                                                                        ""properties"": {
+                                                                            ""outputNumber"": { ""type"": ""number"", ""title"": ""OutputNumber"" },
+                                                                            ""outputText"": { ""type"": ""string"", ""title"": ""OutputText"" }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                ""else"": {
+                                    ""actions"": {
+                                        ""Scope_3"": { ""type"": ""Scope"", ""actions"": {} }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }";
+
+            var mockDataverse = new MockDataverseClient();
+            mockDataverse.SetWorkflowsForAgent(new[]
+            {
+                new WorkflowMetadata
+                {
+                    WorkflowId = workflowId,
+                    Name = "NestedScopesWorkflow",
+                    ClientData = clientData,
+                    StateCode = 1
+                }
+            });
+
+            var filesystem = new InMemoryFileWriter();
+            var synchronizer = new WorkspaceSynchronizer(
+                new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
+                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem,
+                Mock.Of<IIslandControlPlaneService>(),
+                Mock.Of<ISyncProgress>(),
+                new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+
+            var workflows = await synchronizer.GetWorkflowsAsync(workspaceFolder, mockDataverse, new AgentSyncInfo { AgentId = agentId }, filesystem, CancellationToken.None);
+
+            var workflow = Assert.Single(workflows.Workflows);
+            Assert.NotNull(workflow.OutputType);
+
+            Assert.Equal(2, workflow.OutputType!.Properties.Count);
+            Assert.Equal(DataType.Number, workflow.OutputType.Properties["outputNumber"].Type);
+            Assert.Equal(DataType.String, workflow.OutputType.Properties["outputText"].Type);
+        }
+
+        [Fact]
+        public async Task GetWorkflowsAsync_OutputType_NestedInSwitchCasesAndDefault()
+        {
+            using var tempWorkspace = new TempDirectory();
+            var workspaceFolder = new DirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
+            var workflowId = Guid.NewGuid();
+            var agentId = Guid.NewGuid();
+
+            var clientData = @"
+            {
+                ""properties"": {
+                    ""definition"": {
+                        ""actions"": {
+                            ""Switch"": {
+                                ""type"": ""Switch"",
+                                ""cases"": {
+                                    ""Case_A"": {
+                                        ""actions"": {
+                                            ""Respond_A"": {
+                                                ""type"": ""Response"",
+                                                ""kind"": ""Skills"",
+                                                ""inputs"": {
+                                                    ""schema"": {
+                                                        ""properties"": {
+                                                            ""fromCase"": { ""type"": ""string"" }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                ""default"": {
+                                    ""actions"": {
+                                        ""Respond_Default"": {
+                                            ""type"": ""Response"",
+                                            ""kind"": ""Skills"",
+                                            ""inputs"": {
+                                                ""schema"": {
+                                                    ""properties"": {
+                                                        ""fromDefault"": { ""type"": ""boolean"" }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }";
+
+            var mockDataverse = new MockDataverseClient();
+            mockDataverse.SetWorkflowsForAgent(new[]
+            {
+                new WorkflowMetadata
+                {
+                    WorkflowId = workflowId,
+                    Name = "SwitchWorkflow",
+                    ClientData = clientData,
+                    StateCode = 1
+                }
+            });
+
+            var filesystem = new InMemoryFileWriter();
+            var synchronizer = new WorkspaceSynchronizer(
+                new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
+                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem,
+                Mock.Of<IIslandControlPlaneService>(),
+                Mock.Of<ISyncProgress>(),
+                new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+
+            var workflows = await synchronizer.GetWorkflowsAsync(workspaceFolder, mockDataverse, new AgentSyncInfo { AgentId = agentId }, filesystem, CancellationToken.None);
+
+            var workflow = Assert.Single(workflows.Workflows);
+            Assert.NotNull(workflow.OutputType);
+
+            Assert.Equal(2, workflow.OutputType!.Properties.Count);
+            Assert.Equal(DataType.String, workflow.OutputType.Properties["fromCase"].Type);
+            Assert.Equal(DataType.Boolean, workflow.OutputType.Properties["fromDefault"].Type);
+        }
+
+        [Fact]
         public async Task UpsertWorkflowForAgentAsyncWithMetadata()
         {
             using var tempWorkspace = new TempDirectory();
