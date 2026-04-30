@@ -346,8 +346,7 @@
   "dependencies": {
     "@types/semver": "^7.7.0",
     "@vscode/extension-telemetry": "^1.0.0",
-    "semver": "^7.7.2",
-    "uuid": "^11.0.3"
+    "semver": "^7.7.2"
   },
   "overrides": {
     "glob": ">=11.0.2"
