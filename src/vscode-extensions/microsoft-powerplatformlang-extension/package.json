@@ -325,7 +325,7 @@
     "lint": "eslint client/src",
     "test": "vscode-test",
     "postinstall": "(cd client && npm install)",
-    "package": "vsce package --target win32-x64 --no-dependencies --pre-release"
+    "package": "npx @vscode/vsce package --target win32-x64 --no-dependencies --pre-release"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
@@ -335,7 +335,6 @@
     "@typescript-eslint/parser": "^8.30.0",
     "@vscode/test-cli": "^0.0.10",
     "@vscode/test-electron": "^2.4.1",
-    "@vscode/vsce": "^3.3.2",
     "esbuild": "0.27.2",
     "eslint": "^10.0.0",
     "nerdbank-gitversioning": "^3.7.115",
