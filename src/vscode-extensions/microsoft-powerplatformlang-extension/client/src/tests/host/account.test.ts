@@ -1,8 +1,9 @@
-import * as assert from 'assert';
+import * as assert from 'node:assert';
+import { describe, test } from 'node:test';
 import { signIn, switchToAccount } from '../../clients/account';
 import { DefaultCoreServicesClusterCategory } from '../../constants';
 
-suite('Account', () => {
+describe('Account', () => {
 	/**
 	 * Verify switchToAccount returns false when account not found
 	 * 

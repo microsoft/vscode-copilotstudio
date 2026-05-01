@@ -1,4 +1,5 @@
-import * as assert from 'assert';
+import * as assert from 'node:assert';
+import { describe, test, beforeEach, afterEach } from 'node:test';
 import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -10,12 +11,12 @@ import { loadChangeTrack, saveChangeTrack, isTextFile, resolveConflict } from '.
 import logger from '../../services/logger';
 import { ConflictResolution } from '../../constants';
 
-suite('uploadKnowledgeFiles', () => {
+describe('uploadKnowledgeFiles', () => {
     let workspaceDir: string;
     let trackPath: string;
     let workspace: CopilotStudioWorkspace;
 
-    setup(async () => {
+    beforeEach(async () => {
         workspaceDir = path.join(os.tmpdir(), 'vscode-copilotstudio', 'knowledge', 'files-upload');
         trackPath = path.join(workspaceDir, '.mcs', 'filechangetrack.json');
         workspace = {
@@ -56,7 +57,7 @@ suite('uploadKnowledgeFiles', () => {
         (logger.logError as any) = (_event: any, _message: string, _props?: any) => {};
     });
 
-    teardown(async () => {
+    afterEach(async () => {
         await fs.rm(workspaceDir, { recursive: true, force: true });
     });
 

@@ -1,11 +1,10 @@
-import * as assert from 'assert';
+import * as assert from 'node:assert';
+import { describe, test } from 'node:test';
 import * as vscode from 'vscode';
-import { waitForFirstWorkspace } from '../helpers/workspaceWait';
+import { waitForFirstWorkspace } from './helpers/workspaceWait';
 
-suite('TextDocumentContentProvider Integration', function () {
-	// allow more time for integration tests
-	this.timeout(10_000);
-	test('Local cache provider returns content', async () => {
+describe('TextDocumentContentProvider Integration', () => {
+	test('Local cache provider returns content', { timeout: 10_000 }, async () => {
 		const ext = vscode.extensions.all.find(e => e.id === 'ms-CopilotStudio.vscode-copilotstudio');
 		assert.ok(ext, 'extension not found');
 		const api = await ext!.activate() as {

@@ -1,13 +1,14 @@
-import * as assert from 'assert';
+import * as assert from 'node:assert';
+import { describe, test, beforeEach } from 'node:test';
 import { botComponentHandler, WsComponentMetadata } from '../../botComponents/botComponentHandler';
 import logger from '../../services/logger';
 
-suite('botComponentHandler', () => {
+describe('botComponentHandler', () => {
     const baseUrl = 'https://org1.crm.dynamics.com';
     const accessToken = 'access-token';
     let handler: botComponentHandler;
 
-    setup(() => {
+    beforeEach(() => {
         handler = new botComponentHandler(baseUrl, accessToken);
     });
 

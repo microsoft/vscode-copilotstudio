@@ -1,4 +1,5 @@
-import * as assert from 'assert';
+import * as assert from 'node:assert';
+import { describe, test } from 'node:test';
 import * as vscode from 'vscode';
 import {
 	AgentChangesItemKind,
@@ -14,7 +15,7 @@ import { ChangeType } from '../../types';
  * Type guard tests for AgentChangesTreeItemUnion discriminated union.
  * Ensures TypeScript can properly narrow the tree item types.
  */
-suite('AgentChangesTreeProvider Type Guards', () => {
+describe('AgentChangesTreeProvider Type Guards', () => {
 
 	test('AgentTreeItem has kind === Agent', () => {
 		const item: AgentChangesTreeItemUnion = {
@@ -70,7 +71,7 @@ suite('AgentChangesTreeProvider Type Guards', () => {
 	});
 });
 
-suite('AgentChangesTreeProvider Item Hierarchy', () => {
+describe('AgentChangesTreeProvider Item Hierarchy', () => {
 
 	test('Agent node should be at root level (kind=1)', () => {
 		assert.strictEqual(AgentChangesItemKind.Agent, 1);
@@ -105,7 +106,7 @@ suite('AgentChangesTreeProvider Item Hierarchy', () => {
 	});
 });
 
-suite('Change Type Icon Mapping', () => {
+describe('Change Type Icon Mapping', () => {
 	// These tests verify the change type enum values used for icon selection
 
 	test('ChangeType.Create should map to added icon', () => {
@@ -121,7 +122,7 @@ suite('Change Type Icon Mapping', () => {
 	});
 });
 
-suite('Tree Item Context Values', () => {
+describe('Tree Item Context Values', () => {
 	// Context values control which inline buttons appear on hover
 
 	test('Agent node should have contextValue "agent"', () => {
@@ -155,7 +156,7 @@ suite('Tree Item Context Values', () => {
 	});
 });
 
-suite('Context Key Calculation', () => {
+describe('Context Key Calculation', () => {
 	// Tests for context keys used in when clauses
 
 	test('hasChanges should be true when only local changes exist', () => {
@@ -187,7 +188,7 @@ suite('Context Key Calculation', () => {
 	});
 });
 
-suite('Badge Value Calculation', () => {
+describe('Badge Value Calculation', () => {
 	// Tests for badge logic - badge shows total local change count
 
 	test('Badge should be undefined when count is 0', () => {
@@ -219,7 +220,7 @@ suite('Badge Value Calculation', () => {
 	});
 });
 
-suite('Apply Gating Logic', () => {
+describe('Apply Gating Logic', () => {
 	// Tests for the Apply command gating behavior
 
 	test('Apply should be allowed when remote changes count is 0', () => {
