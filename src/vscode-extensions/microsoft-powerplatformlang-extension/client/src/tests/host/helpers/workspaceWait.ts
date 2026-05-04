@@ -1,6 +1,6 @@
 import path from 'path';
 import * as vscode from 'vscode';
-import type { CopilotStudioWorkspace } from '../../sync/localWorkspaces';
+import type { CopilotStudioWorkspace } from '../../../sync/localWorkspaces';
 
 /**
  * Waits for the first non-empty workspace list, or rejects after timeout.

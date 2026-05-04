@@ -1,4 +1,5 @@
-import * as assert from 'assert';
+import * as assert from 'node:assert';
+import { describe, test } from 'node:test';
 import * as vscode from 'vscode';
 
 import {
@@ -7,7 +8,7 @@ import {
 } from '../../sync/changeTracking';
 import { ChangeType } from '../../types';
 
-suite('SCM Diff Command Tests', () => {
+describe('SCM Diff Command Tests', () => {
 	const workspaceUri = vscode.Uri.parse('file:///tmp/ws/space separated folder/');
 	const schemaName = 'test.schema';
 	const fileUri = vscode.Uri.joinPath(workspaceUri, `${schemaName}.mcs.yml`);

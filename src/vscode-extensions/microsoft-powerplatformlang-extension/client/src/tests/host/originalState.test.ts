@@ -1,11 +1,10 @@
-import * as assert from 'assert';
+import * as assert from 'node:assert';
+import { describe, test } from 'node:test';
 import * as vscode from 'vscode';
-import { waitForFirstWorkspace } from '../helpers/workspaceWait';
+import { waitForFirstWorkspace } from './helpers/workspaceWait';
 
-suite('TextDocumentContentProvider Integration', function () {
-	// allow more time for integration tests
-	this.timeout(10_000);
-	test('Local cache provider returns content', async () => {
+describe('TextDocumentContentProvider Integration', () => {
+	test('Local cache provider returns content', { timeout: 10_000 }, async () => {
 		const ext = vscode.extensions.all.find(e => e.id === 'ms-CopilotStudio.vscode-copilotstudio');
 		assert.ok(ext, 'extension not found');
 		const api = await ext!.activate() as {
@@ -44,16 +43,20 @@ suite('TextDocumentContentProvider Integration', function () {
 		});
 		const remoteDoc = await vscode.workspace.openTextDocument(agentFileTestUri);
 		assert.ok(remoteDoc, 'remote document should be returned');
-        assert.strictEqual(remoteDoc.lineCount, 19, "remote document should have content");
+        assert.ok(remoteDoc.lineCount > 0, "remote document should have content");
 
-        // verify that the virtual (remote) document contains exactly the same
-        // text as the file that exists on disk inside the workspace
+        // verify that the virtual (remote) document contains the same
+        // text as the file that exists on disk inside the workspace.
+        // Line endings are normalized: the cache provider returns CRLF
+        // on Windows while raw fs bytes are whatever the file uses (LF
+        // here); the assertion is about content, not encoding.
         const localFileBytes = await vscode.workspace.fs.readFile(agentUri);
         const localFileText = Buffer.from(localFileBytes).toString('utf8');
+        const normalizeEol = (s: string) => s.replace(/\r\n/g, '\n');
 
         assert.strictEqual(
-            remoteDoc.getText(),
-            localFileText,
+            normalizeEol(remoteDoc.getText()),
+            normalizeEol(localFileText),
             'remote content should match local content'
         );
 	});

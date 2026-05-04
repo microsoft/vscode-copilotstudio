@@ -1,7 +1,7 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
-import { v4 } from "uuid";
+import { randomUUID } from "node:crypto";
 import lspClientService from './services/lspClient';
 import logger from './services/logger';
 import { TelemetryEventsKeys } from './constants';
@@ -28,7 +28,7 @@ import { registerRemoteFileSystemProvider } from './commands/remoteFileSystemPro
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 export async function activate(context: vscode.ExtensionContext) {
-  const sessionId = v4();
+  const sessionId = randomUUID();
   const isDebugging = process.env.VSCODE_DEBUG === 'true';
 
   // Logger includes the sessionId and shows a message in the VS Code UI.
