@@ -18,7 +18,26 @@ export async function run(): Promise<void> {
   let passed = 0;
   let failed = 0;
 
+  // Watchdog: force-exit if no test events arrive for QUIET_MS. The node:test
+  // event stream is observed not to close after all test results have been
+  // emitted -- the implicit root test waits for the event loop to drain,
+  // which it can't because host tests activate the extension and register
+  // subscriptions (tree views, watchers, file system providers) that are
+  // never disposed at end-of-run. Without the watchdog the for-await below
+  // blocks indefinitely after the last event.
+  const QUIET_MS = 5_000;
+  let lastEventAt = Date.now();
+  const armed = setInterval(() => {
+    if (Date.now() - lastEventAt > QUIET_MS) {
+      console.log(`\n${passed} passed, ${failed} failed`);
+      console.error(`(watchdog: no test events for ${QUIET_MS}ms - exiting)`);
+      process.exit(failed > 0 ? 1 : 0);
+    }
+  }, 1_000);
+  armed.unref?.();
+
   for await (const event of stream) {
+    lastEventAt = Date.now();
     if (event.type === 'test:pass') {
       passed++;
       console.log(`PASS: ${event.data.name}`);
@@ -34,9 +53,7 @@ export async function run(): Promise<void> {
     }
   }
 
+  clearInterval(armed);
   console.log(`\n${passed} passed, ${failed} failed`);
-
-  if (failed > 0) {
-    throw new Error(`${failed} test(s) failed`);
-  }
+  process.exit(failed > 0 ? 1 : 0);
 }
