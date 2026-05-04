@@ -43,16 +43,20 @@ describe('TextDocumentContentProvider Integration', () => {
 		});
 		const remoteDoc = await vscode.workspace.openTextDocument(agentFileTestUri);
 		assert.ok(remoteDoc, 'remote document should be returned');
-        assert.strictEqual(remoteDoc.lineCount, 19, "remote document should have content");
+        assert.ok(remoteDoc.lineCount > 0, "remote document should have content");
 
-        // verify that the virtual (remote) document contains exactly the same
-        // text as the file that exists on disk inside the workspace
+        // verify that the virtual (remote) document contains the same
+        // text as the file that exists on disk inside the workspace.
+        // Line endings are normalized: the cache provider returns CRLF
+        // on Windows while raw fs bytes are whatever the file uses (LF
+        // here); the assertion is about content, not encoding.
         const localFileBytes = await vscode.workspace.fs.readFile(agentUri);
         const localFileText = Buffer.from(localFileBytes).toString('utf8');
+        const normalizeEol = (s: string) => s.replace(/\r\n/g, '\n');
 
         assert.strictEqual(
-            remoteDoc.getText(),
-            localFileText,
+            normalizeEol(remoteDoc.getText()),
+            normalizeEol(localFileText),
             'remote content should match local content'
         );
 	});

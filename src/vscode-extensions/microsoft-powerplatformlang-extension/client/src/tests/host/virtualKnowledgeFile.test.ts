@@ -31,6 +31,7 @@ describe('virtualKnowledgeFileSystemProvider', () => {
         await fs.mkdir(workspaceDir, { recursive: true });
 
         provider = new virtualKnowledgeFileSystemProvider();
+        provider.addWorkspace(workspace);
 
         (getTrackPath as any) = (_ws: vscode.Uri) => trackPath;
         (getFilesDir as any) = (_ws: vscode.Uri) => workspaceDir;

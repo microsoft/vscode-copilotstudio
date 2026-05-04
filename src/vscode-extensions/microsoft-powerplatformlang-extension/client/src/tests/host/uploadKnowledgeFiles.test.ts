@@ -55,6 +55,7 @@ describe('uploadKnowledgeFiles', () => {
 
         (logger.logInfo as any) = (_event: any, _message: string) => {};
         (logger.logError as any) = (_event: any, _message: string, _props?: any) => {};
+        (logger.logWarning as any) = (_event: any, _message: string, _props?: any) => {};
     });
 
     afterEach(async () => {
