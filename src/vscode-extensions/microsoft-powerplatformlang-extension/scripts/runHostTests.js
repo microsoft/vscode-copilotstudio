@@ -1,6 +1,21 @@
 const path = require('node:path');
 const { runTests } = require('@vscode/test-electron');
 
+// Default test fixture: same workspace the previous .vscode-test.mjs config opened.
+// Several host tests (e.g. originalState.test.ts) require a workspace folder.
+const DEFAULT_TEST_WORKSPACE = path.resolve(
+  __dirname,
+  '..',
+  '..',
+  '..',
+  'LanguageServers',
+  'PowerPlatformLS',
+  'UnitTests',
+  'PowerPlatformLS.UnitTests',
+  'TestData',
+  'WorkspaceWithSubAgents',
+);
+
 async function main() {
   const extensionDevelopmentPath = path.resolve(__dirname, '..');
   const extensionTestsPath = path.resolve(
@@ -13,11 +28,10 @@ async function main() {
     'runner.js',
   );
 
-  const launchArgs = [];
-  if (process.env.VSCODE_COPILOTSTUDIO_TEST_WORKSPACE) {
-    launchArgs.push(process.env.VSCODE_COPILOTSTUDIO_TEST_WORKSPACE);
-  }
-  launchArgs.push('--disable-extensions');
+  const workspacePath =
+    process.env.VSCODE_COPILOTSTUDIO_TEST_WORKSPACE || DEFAULT_TEST_WORKSPACE;
+
+  const launchArgs = [workspacePath, '--disable-extensions'];
 
   const exitCode = await runTests({
     extensionDevelopmentPath,

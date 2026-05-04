@@ -5,8 +5,8 @@ import * as path from 'node:path';
 export async function run(): Promise<void> {
   const testDir = __dirname;
   const files = fs
-    .readdirSync(testDir)
-    .filter((name) => name.endsWith('.test.js'))
+    .readdirSync(testDir, { recursive: true })
+    .filter((name): name is string => typeof name === 'string' && name.endsWith('.test.js'))
     .map((name) => path.join(testDir, name));
 
   if (files.length === 0) {
