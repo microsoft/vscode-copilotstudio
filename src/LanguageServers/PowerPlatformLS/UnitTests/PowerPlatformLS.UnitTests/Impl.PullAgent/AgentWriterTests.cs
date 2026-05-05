@@ -1140,17 +1140,111 @@ beginDialog:
                 Assert.Equal(DataType.Number, workflow.InputType.Properties["number"].Type);
                 Assert.Equal(DataType.Number, workflow.InputType.Properties["integer"].Type);
                 Assert.Equal(DataType.DateTime, workflow.InputType.Properties["date"].Type);
-                Assert.Equal(PropertyInfo.EmptyRecord.Type, workflow.InputType.Properties["file"].Type);
+                Assert.Equal(DataType.File, workflow.InputType.Properties["file"].Type);
 
                 Assert.Equal(DataType.String, workflow.OutputType.Properties["text_out"].Type);
                 Assert.Equal(DataType.Boolean, workflow.OutputType.Properties["bool_out"].Type);
                 Assert.Equal(DataType.Number, workflow.OutputType.Properties["number_out"].Type);
                 Assert.Equal(DataType.Number, workflow.OutputType.Properties["integer_out"].Type);
                 Assert.Equal(DataType.DateTime, workflow.OutputType.Properties["date_out"].Type);
-                Assert.Equal(PropertyInfo.EmptyRecord.Type, workflow.OutputType.Properties["file_out"].Type);
+                Assert.Equal(DataType.File, workflow.OutputType.Properties["file_out"].Type);
 
                 Assert.False(workflow.OutputType.Properties.ContainsKey("http_text"));
             }
+        }
+
+        [Fact]
+        public async Task GetWorkflowsAsync_OutputType_FileFormat()
+        {
+            using var tempWorkspace = new TempDirectory();
+            var workspaceFolder = new DirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
+            var workflowId = new Guid("4f66c140-e032-f111-88b4-7ced8d3b6119");
+            var agentId = Guid.NewGuid();
+
+            var clientData = @"
+            {
+                ""properties"": {
+                    ""definition"": {
+                        ""triggers"": {
+                            ""manual"": {
+                                ""inputs"": {
+                                    ""schema"": {
+                                        ""properties"": {
+                                            ""text"": {
+                                                ""description"": ""Input text"",
+                                                ""title"": ""Text"",
+                                                ""type"": ""string"",
+                                                ""x-ms-content-hint"": ""TEXT"",
+                                                ""x-ms-dynamically-added"": true
+                                            }
+                                        },
+                                        ""required"": [ ""text"" ]
+                                    }
+                                }
+                            }
+                        },
+                        ""actions"": {
+                            ""Respond_to_the_agent"": {
+                                ""type"": ""Response"",
+                                ""kind"": ""Skills"",
+                                ""inputs"": {
+                                    ""schema"": {
+                                        ""properties"": {
+                                            ""outtext"": {
+                                                ""title"": ""OutText"",
+                                                ""description"": """",
+                                                ""type"": ""string"",
+                                                ""x-ms-content-hint"": ""TEXT"",
+                                                ""x-ms-dynamically-added"": true
+                                            },
+                                            ""outfile"": {
+                                                ""title"": ""OutFile"",
+                                                ""description"": """",
+                                                ""type"": ""string"",
+                                                ""format"": ""byte"",
+                                                ""x-ms-content-hint"": ""FILE"",
+                                                ""x-ms-dynamically-added"": true
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }";
+
+            var mockDataverse = new MockDataverseClient();
+            mockDataverse.SetWorkflowsForAgent(new[]
+            {
+                new WorkflowMetadata
+                {
+                    WorkflowId = workflowId,
+                    Name = "AgentFlow1",
+                    ClientData = clientData,
+                    StateCode = 1
+                }
+            });
+
+            var filesystem = new InMemoryFileWriter();
+            var synchronizer = new WorkspaceSynchronizer(
+                new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
+                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem,
+                Mock.Of<IIslandControlPlaneService>(),
+                Mock.Of<ISyncProgress>(),
+                new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+
+            var workflows = await synchronizer.GetWorkflowsAsync(workspaceFolder, mockDataverse, new AgentSyncInfo { AgentId = agentId }, filesystem, CancellationToken.None);
+
+            var workflow = Assert.Single(workflows.Workflows);
+
+            Assert.NotNull(workflow.InputType);
+            Assert.NotNull(workflow.OutputType);
+
+            Assert.Equal(DataType.String, workflow.InputType!.Properties["text"].Type);
+
+            Assert.Equal(DataType.String, workflow.OutputType!.Properties["outtext"].Type);
+            Assert.Equal(DataType.File, workflow.OutputType.Properties["outfile"].Type);
         }
 
         [Fact]
