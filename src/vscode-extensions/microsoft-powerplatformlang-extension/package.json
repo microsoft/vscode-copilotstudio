@@ -17,7 +17,7 @@
     "CopilotStudio"
   ],
   "engines": {
-    "vscode": "^1.96.0"
+    "vscode": "^1.108.0"
   },
   "categories": [
     "AI",
@@ -323,19 +323,16 @@
     "watch-tests": "tsc -b client -w",
     "pretest": "npm run compile-tests && npm run compile && npm run lint",
     "lint": "eslint client/src",
-    "test": "vscode-test",
+    "test": "node ./scripts/runHostTests.js",
     "postinstall": "(cd client && npm install)",
-    "package": "vsce package --target win32-x64 --no-dependencies --pre-release"
+    "package": "npx -y @vscode/vsce@^3.3.2 package --target win32-x64 --no-dependencies --pre-release"
   },
   "devDependencies": {
-    "@types/mocha": "^10.0.10",
-    "@types/node": "20.x",
-    "@types/vscode": "^1.96.0",
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.108.0",
     "@typescript-eslint/eslint-plugin": "^8.30.0",
     "@typescript-eslint/parser": "^8.30.0",
-    "@vscode/test-cli": "^0.0.10",
     "@vscode/test-electron": "^2.4.1",
-    "@vscode/vsce": "^3.3.2",
     "esbuild": "0.27.2",
     "eslint": "^10.0.0",
     "nerdbank-gitversioning": "^3.7.115",
@@ -346,8 +343,7 @@
   "dependencies": {
     "@types/semver": "^7.7.0",
     "@vscode/extension-telemetry": "^1.0.0",
-    "semver": "^7.7.2",
-    "uuid": "^11.0.3"
+    "semver": "^7.7.2"
   },
   "overrides": {
     "glob": ">=11.0.2"

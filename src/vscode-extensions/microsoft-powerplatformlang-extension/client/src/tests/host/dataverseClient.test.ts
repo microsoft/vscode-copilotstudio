@@ -1,9 +1,10 @@
-import * as assert from 'assert';
+import * as assert from 'node:assert';
+import { describe, test } from 'node:test';
 
 // Import the module to test
 import { clearWhoAmICache, parseBatchAccessResults } from '../../clients/dataverseClient';
 
-suite('clearWhoAmICache', () => {
+describe('clearWhoAmICache', () => {
 	/**
 	 * A1: Verify clearWhoAmICache is callable and idempotent
 	 * 
@@ -20,7 +21,7 @@ suite('clearWhoAmICache', () => {
 	});
 });
 
-suite('parseBatchAccessResults', () => {
+describe('parseBatchAccessResults', () => {
 	/**
 	 * Helper to create a multipart batch response part
 	 */
