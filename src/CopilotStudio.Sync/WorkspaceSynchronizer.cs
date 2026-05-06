@@ -2379,7 +2379,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
     private static PropertyInfo CreatePropertyInfoFromJson(JsonElement propValue, string propName)
     {
         DataType type = DataType.String;
-        PropertyInfo? property;
 
         if (propValue.TryGetProperty("type", out var typeNode))
         {
@@ -2388,17 +2387,15 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
         if (propValue.TryGetProperty("x-ms-content-hint", out var hintNode) && string.Equals(hintNode.GetString(), "FILE", StringComparison.OrdinalIgnoreCase))
         {
-            property = PropertyInfo.EmptyRecord;
+            type = DataType.File;
         }
-        else
-        {
-            property = new PropertyInfo(
-                displayName: propValue.TryGetProperty("title", out var titleNode) ? titleNode.GetString() : propName,
-                description: propValue.TryGetProperty("description", out var descNode) ? descNode.GetString() : null,
-                isRequired: false,
-                type: type
-            );
-        }
+
+        var property = new PropertyInfo(
+            displayName: propValue.TryGetProperty("title", out var titleNode) ? titleNode.GetString() : propName,
+            description: propValue.TryGetProperty("description", out var descNode) ? descNode.GetString() : null,
+            isRequired: false,
+            type: type
+        );
 
         return property;
     }
