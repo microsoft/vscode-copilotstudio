@@ -140,9 +140,15 @@ restore. The repository-level npm config at `src/vscode-extensions/.npmrc`
 therefore sets `omit-lockfile-registry-resolved=true` and intentionally does not
 set `registry`.
 
-If you need a private registry or feed for restore, configure it in your user
-npm config or in CI restore-time configuration. Do not add registry or feed URLs
-to committed `.npmrc` or `package-lock.json` files.
+That `.npmrc` setting is what prevents `npm install`, `npm uninstall`, and
+dependency updates from adding registry/feed-specific `resolved` URLs to
+committed `package-lock.json` files.
+
+If you need a private registry or feed for restore, configure it in your user npm
+config or in CI restore-time configuration. Do not add registry or feed URLs to
+committed `.npmrc` or `package-lock.json` files. When npm commands update a
+lockfile, review the resulting diff to verify registry/feed URLs were not
+introduced.
 
 ### Working toward external buildability
 

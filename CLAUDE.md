@@ -38,10 +38,11 @@ cd src/vscode-extensions/microsoft-powerplatformlang-extension
 # Install dependencies
 npm install
 
-# The parent src/vscode-extensions/.npmrc intentionally omits registry-resolved
-# URLs from lockfiles. Do not add registry or feed URLs to committed .npmrc or
-# package-lock.json files; registry/feed/auth configuration belongs in user
-# npm config or CI restore-time configuration.
+# The parent src/vscode-extensions/.npmrc sets omit-lockfile-registry-resolved=true
+# so lockfile updates omit registry/feed-specific resolved URLs. Do not add
+# registry or feed URLs to committed .npmrc or package-lock.json files;
+# registry/feed/auth configuration belongs in user npm config or CI restore-time
+# configuration.
 
 # Build everything (LSP + type check + esbuild bundle)
 npm run compile
