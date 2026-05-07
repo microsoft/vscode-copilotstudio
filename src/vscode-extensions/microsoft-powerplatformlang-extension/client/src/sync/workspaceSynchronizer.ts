@@ -20,6 +20,43 @@ export enum SyncState {
   Pushing,
 }
 
+/** Global event fired whenever sync activity changes. Used to refresh UI. */
+const _onAnySyncStateChanged = new vscode.EventEmitter<void>();
+export const onAnySyncStateChanged = _onAnySyncStateChanged.event;
+
+/** workspaceUri of the workspace currently inside `withSyncCommandBusy`. */
+let _activeSyncUri: string | undefined;
+
+/** Returns the workspaceUri of the workspace currently being synced, or undefined. */
+export function getActiveSyncUri(): string | undefined {
+  return _activeSyncUri;
+}
+
+/** Returns the synchronizer's current SyncState for `workspaceUri`, or Idle if none. */
+export function getSyncStateFor(workspaceUri: string): SyncState {
+  return map.get(workspaceUri)?.syncState ?? SyncState.Idle;
+}
+
+/**
+ * Wrap a sync command's body so the busy state is held for the full duration
+ * across multiple fetch/pull/push steps. Surfaces a native progress bar at
+ * the top of the Agent Changes tree view and disables sync buttons via the
+ * `mcs.isSyncing` context key.
+ */
+export async function withSyncCommandBusy<T>(workspaceUri: string, body: () => Promise<T>): Promise<T> {
+  _activeSyncUri = workspaceUri;
+  _onAnySyncStateChanged.fire();
+  try {
+    return await vscode.window.withProgress(
+      { location: { viewId: 'agent-changes' } },
+      body
+    );
+  } finally {
+    _activeSyncUri = undefined;
+    _onAnySyncStateChanged.fire();
+  }
+}
+
 export interface WorkspaceSynchronizer {
     workspace: CopilotStudioWorkspace;
     syncState: SyncState;
@@ -50,12 +87,11 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
 
   function updateSyncState(newState: SyncState) {
     currentState = newState;
-    // Notify all listeners about state change
     listeners.forEach(listener => listener(newState));
   }
 
   async function executeSyncOperation<T>(operation: () => Promise<T>, newState: SyncState): Promise<T> {
-    // prevComponentent concurrent operations
+    // Prevent concurrent operations
     if (currentState !== SyncState.Idle) {
       throw new Error('Another sync operation is in progress');
     }

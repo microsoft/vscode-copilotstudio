@@ -60,7 +60,7 @@ export const findWorkspaceForUri = (uri: string): CopilotStudioWorkspace | undef
 
 // Finds a workspace that contains the specified URI.
 export const getWorkspaceByUri = (uri: Uri): CopilotStudioWorkspace | undefined => {
-  const uriString = uri.scheme === 'mcs' ? decodeURIComponent(uri.query) : uri.toString();
+  const uriString = uri.scheme === 'mcs' ? decodeURIComponent(uri.query) : uri.toString(true);
   return workspaceCache.find(workspace => uriString.startsWith(decodeURI(workspace.workspaceUri)));
 };
 

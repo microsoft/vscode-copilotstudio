@@ -3,6 +3,7 @@ import { addWorkspaceChangeSubscription, CopilotStudioWorkspace, getAllWorkspace
 import { Resource } from "./changeTracking";
 import { getWorkspaceChanges } from "./workspaceScm";
 import { ChangeType } from "../types";
+import { getActiveSyncUri, getSyncStateFor, onAnySyncStateChanged, SyncState } from "./workspaceSynchronizer";
 
 /**
  * Tree item types for the Agent Changes view hierarchy:
@@ -78,7 +79,16 @@ class AgentChangesTreeDataProvider implements TreeDataProvider<AgentChangesTreeI
           : TreeItemCollapsibleState.Collapsed;
         
         const item = new TreeItem(label, collapsibleState);
-        item.iconPath = new ThemeIcon(element.groupType === 'local' ? 'file-code' : 'cloud');
+        // Spinner mapping for the active sync workspace:
+        //   Fetching / Pulling -> Remote Changes
+        //   Pushing            -> Local Changes
+        const syncState = getSyncStateFor(element.workspace.workspaceUri);
+        const isBusy =
+          (element.groupType === 'remote' && (syncState === SyncState.Fetching || syncState === SyncState.Pulling)) ||
+          (element.groupType === 'local' && syncState === SyncState.Pushing);
+        item.iconPath = isBusy
+          ? new ThemeIcon('loading~spin')
+          : new ThemeIcon(element.groupType === 'local' ? 'file-code' : 'cloud');
         item.contextValue = `changeGroup-${element.groupType}`;
         return item;
       }
@@ -128,6 +138,11 @@ class AgentChangesTreeDataProvider implements TreeDataProvider<AgentChangesTreeI
       default:
         return new ThemeIcon('diff-modified', new ThemeColor('gitDecoration.modifiedResourceForeground'));
     }
+  }
+
+  /** Root agents have no parent; required for `treeView.reveal` to work. */
+  getParent(): AgentChangesTreeItemUnion | undefined {
+    return undefined;
   }
 
   getChildren(element?: AgentChangesTreeItemUnion): AgentChangesTreeItemUnion[] {
@@ -251,9 +266,18 @@ export function initializeAgentChangesTree(context: ExtensionContext): void {
   });
   context.subscriptions.push(treeChangeSubscription);
 
+  // Update the `mcs.isSyncing` context key and ensure the active agent is expanded so its loading state is visible.
+  const syncStateSubscription = onAnySyncStateChanged(() => {
+    treeDataProvider?.refresh();
+    updateSyncInProgressContextKey();
+    revealActiveAgent();
+  });
+  context.subscriptions.push(syncStateSubscription);
+
   // Initial badge update
   updateViewBadge();
   updateContextKeys();
+  updateSyncInProgressContextKey();
 }
 
 /**
@@ -303,6 +327,27 @@ function updateContextKeys(): void {
 }
 
 /**
+ * Set the `mcs.isSyncing` context key so command enablement clauses can
+ * disable sync buttons (Preview / Get / Apply) while any sync is running.
+ */
+function updateSyncInProgressContextKey(): void {
+  void commands.executeCommand('setContext', 'mcs.isSyncing', getActiveSyncUri() !== undefined);
+}
+
+/** Reveal and expand the active sync agent so its loading state is visible. */
+function revealActiveAgent(): void {
+  const activeUri = getActiveSyncUri();
+  if (!activeUri || !treeView || !treeDataProvider) {
+    return;
+  }
+  const activeAgent = treeDataProvider.getChildren()
+    .find((c): c is AgentTreeItem => c.kind === AgentChangesItemKind.Agent && c.workspace.workspaceUri === activeUri);
+  if (activeAgent) {
+    void treeView.reveal(activeAgent, { expand: true, focus: false, select: false });
+  }
+}
+
+/**
  * Refresh the Agent Changes tree view.
  * Call this after sync operations complete.
  */
@@ -312,4 +357,5 @@ export function refreshAgentChangesTree(): void {
   // This handles cases where the tree view might not be visible yet
   updateViewBadge();
   updateContextKeys();
+  updateSyncInProgressContextKey();
 }
