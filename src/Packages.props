@@ -2,10 +2,10 @@
   <PropertyGroup>
     <AspNetCoreVersion>10.0.1</AspNetCoreVersion>
     <PowerFxPackageVersion>1.8.1</PowerFxPackageVersion>
-    <AgentsPackageVersion>1.2026.415.1</AgentsPackageVersion>
+    <AgentsPackageVersion>2026.5.1</AgentsPackageVersion>
   </PropertyGroup>
 
-  <!-- Microsoft.Agents.* packages (from CCI-Dependency feed) -->
+  <!-- Microsoft.Agents.* packages -->
   <ItemGroup>
     <PackageReference Update="Microsoft.Agents.ObjectModel" Version="$(AgentsPackageVersion)" />
     <PackageReference Update="Microsoft.Agents.ObjectModel.Dataverse" Version="$(AgentsPackageVersion)" />
