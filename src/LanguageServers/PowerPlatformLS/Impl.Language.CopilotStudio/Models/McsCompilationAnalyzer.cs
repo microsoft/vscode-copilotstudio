@@ -106,10 +106,18 @@
             }
             else
             {
-                // attach Diagnostics of BotComponents to their child's element
-                var diagnosticsRoot = currentFileRootElement.ParentOfType<BotComponentBase>() ?? currentFileRootElement;
-                IEnumerable<BotElement> omDiagnostics = diagnosticsRoot.DescendantsAndSelf().Where(x => x.Diagnostics.Any());
-                diagnostics = omDiagnostics.SelectMany(x => FormatDiagnostics(x, currentFileRootElement));
+                if (currentFileRootElement is BotEntity)
+                {
+                    IEnumerable<BotElement> omDiagnostics = currentFileRootElement.DescendantsAndSelf().Where(x => x.Diagnostics.Any() && x.Syntax?.SourceUri == document.Uri);
+                    diagnostics = omDiagnostics.SelectMany(x => FormatDiagnostics(x));
+                }
+                else
+                {
+                    // attach Diagnostics of BotComponents to their child's element
+                    var diagnosticsRoot = currentFileRootElement.ParentOfType<BotComponentBase>() ?? currentFileRootElement;
+                    IEnumerable<BotElement> omDiagnostics = diagnosticsRoot.DescendantsAndSelf().Where(x => x.Diagnostics.Any());
+                    diagnostics = omDiagnostics.SelectMany(x => FormatDiagnostics(x, currentFileRootElement));
+                }
             }
 
             if (_workspaceErrors.TryGetValue(document, out var errors))
