@@ -51,17 +51,33 @@ public interface ISyncDataverseClient
     /// <summary>
     /// Creates an unbound connection reference.
     /// </summary>
-    Task CreateConnectionReferenceAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken);
+    Task CreateConnectionReferenceAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken, Guid? customConnectorRowId = null);
 
     /// <summary>
     /// Ensures connection reference exists (creates if missing).
     /// </summary>
-    Task EnsureConnectionReferenceExistsAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken);
+    Task EnsureConnectionReferenceExistsAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken, Guid? customConnectorRowId = null);
 
     /// <summary>
     /// Get connection references by logical names.
     /// </summary>
     Task<ConnectionReferenceInfo[]> GetConnectionReferencesByLogicalNamesAsync(IEnumerable<string> logicalNames, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Download custom connector rows from Dataverse for the connector internal ids
+    /// </summary>
+    /// <param name="connectorInternalIds">Connector internal ids to look up. Duplicates and empty values are ignored.</param>
+    /// <param name="isManaged">connector is managed or not.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task<CustomConnectorMetadata[]> DownloadConnectorsByInternalIdsAsync(IEnumerable<string> connectorInternalIds, bool isManaged, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Upsert a custom connector in Dataverse.
+    /// </summary>
+    /// <param name="connector">The custom connector metadata to upsert.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>true/false if a new connector was created/updated in Dataverse.</returns>
+    Task<bool> UpsertConnectorAsync(CustomConnectorMetadata connector, CancellationToken cancellationToken);
 
     /// <summary>
     /// Query Dataverse for solution versions needed by <see cref="SolutionInfo"/>.

@@ -6,7 +6,7 @@ import { switchAccount } from '../clients/account';
 import { pushNewWorkspace } from '../sync/workspaceScm';
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import logger from '../services/logger';
-import { logWorkflowIssues } from '../sync/workspaceSynchronizer';
+import { logWorkflowIssues, logNewCustomConnectorsRaw } from '../sync/workspaceSynchronizer';
 
 export const registerReattachAgentCommand = (context: vscode.ExtensionContext) => {
   const reattachAgentCommand = vscode.commands.registerCommand('microsoft-copilot-studio.reattachAgent', async () => {
@@ -78,6 +78,7 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
             }
             
             logWorkflowIssues(reattachResult.workflowResponse);
+            logNewCustomConnectorsRaw(reattachResult.newlyCreatedCustomConnectors, workspaceFolder.uri.toString());
           } catch (error) {
             logger.logError(TelemetryEventsKeys.ReattachAgentError, `Error reattaching agent: ${(error as Error).message}`);
           }

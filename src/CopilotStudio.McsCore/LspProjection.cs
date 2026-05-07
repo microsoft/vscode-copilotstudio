@@ -81,11 +81,18 @@ internal static class LspProjection
                     new[]
                     {
                         new RuleOverride(
+                            ".topic.",
+                            "agents/",
+                            new[] { "topic" },
+                            (path, schema) => FileNameHasTopicPrefix(path)
+                                              || schema?.Contains(".topic.", StringComparison.OrdinalIgnoreCase) == true),
+                        new RuleOverride(
                             ".InvokeConnectedAgentTaskAction.",
                             "agents/",
                             new[] { "InvokeConnectedAgentTaskAction" },
                             (path, schema) => (path?.StartsWith("agents/", StringComparison.OrdinalIgnoreCase) == true
-                                               && path?.Contains("/actions/", StringComparison.OrdinalIgnoreCase) != true)
+                                               && path?.Contains("/actions/", StringComparison.OrdinalIgnoreCase) != true
+                                               && !FileNameHasTopicPrefix(path))
                                               || schema?.Contains(".InvokeConnectedAgentTaskAction.", StringComparison.OrdinalIgnoreCase) == true)
                     })
             },
@@ -266,6 +273,12 @@ internal static class LspProjection
             return new SchemaNameResult(null, PreserveQualifiedSchemaName: false);
         }
 
+        if (IsAgentsTopicRule(rule) && fileName.StartsWith("topic.", StringComparison.OrdinalIgnoreCase))
+        {
+            var name = fileName.Substring("topic.".Length);
+            return new SchemaNameResult($"{botName}.topic.{name}", PreserveQualifiedSchemaName: false);
+        }
+
         // Dot handling: follow legacy rules for dotted filenames
         if (fileName.Contains('.'))
         {
@@ -335,6 +348,12 @@ internal static class LspProjection
 
         var preserveQualifiedSchemaName = allowPreserve && IsAlreadyQualifiedPath(rule, pathWithoutExtension);
         var shortName = DeriveShortName(schemaName, rule.Infix, botName, allowPreserve, preserveQualifiedSchemaName);
+
+        if (IsAgentsTopicRule(rule) && !preserveQualifiedSchemaName)
+        {
+            shortName = $"topic.{shortName}";
+        }
+
         return $"{prefix}{rule.Folder}{shortName}.mcs.yml";
     }
 
@@ -625,6 +644,22 @@ internal static class LspProjection
     private static bool ContainsSchemaNameReference(string value, string infixWithoutDots)
     {
         return value.IndexOf($".{infixWithoutDots}.", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static bool IsAgentsTopicRule(Rule rule)
+    {
+        return string.Equals(rule.Infix, ".topic.", StringComparison.OrdinalIgnoreCase) && string.Equals(rule.Folder, "agents/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool FileNameHasTopicPrefix(string? path)
+    {
+        if (string.IsNullOrEmpty(path))
+        {
+            return false;
+        }
+
+        var fileName = System.IO.Path.GetFileName(path!.Replace('\\', '/'));
+        return fileName.StartsWith("topic.", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsAlreadyQualifiedPath(Rule rule, string? pathWithoutExtension)

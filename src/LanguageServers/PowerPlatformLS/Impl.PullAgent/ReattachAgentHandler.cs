@@ -10,6 +10,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
     using System;
+    using System.Collections.Immutable;
     using System.Threading;
     using System.Threading.Tasks;
 
@@ -154,7 +155,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 await _workspaceSynchronizer.SaveSyncInfoAsync(workspaceFolder, syncInfo);
                 var operationContext = await _operationContextProvider.GetAsync(syncInfo);
 
-                await _workspaceSynchronizer.ProvisionConnectionReferencesAsync(workspace.Definition, _dataverseClient, cancellationToken);
+                var connectorPushResult = await _workspaceSynchronizer.PushCustomConnectorsAsync(workspaceFolder, _dataverseClient, cancellationToken);
+                await _workspaceSynchronizer.ProvisionConnectionReferencesAsync(workspace.Definition, _dataverseClient, cancellationToken, connectorPushResult.PushedRowIds);
                 var (workflowResponse, cloudFlowMetadata) = await _workspaceSynchronizer.UpsertWorkflowForAgentAsync(workspaceFolder, _dataverseClient, agentId, cancellationToken);
                 await _workspaceSynchronizer.SyncWorkspaceAsync(workspaceFolder, operationContext, changeToken: null, updateWorkspaceDirectory, _dataverseClient, syncInfo, cloudFlowMetadata, cancellationToken: cancellationToken);
 
@@ -164,7 +166,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     Message = string.Empty,
                     AgentSyncInfo = syncInfo,
                     IsNewAgent = isNewAgent,
-                    WorkflowResponse = workflowResponse
+                    WorkflowResponse = workflowResponse,
+                    NewlyCreatedCustomConnectors = connectorPushResult.NewlyCreatedConnectorNames.ToImmutableArray(),
                 };
             }
             catch (DataverseBadRequestException ex)

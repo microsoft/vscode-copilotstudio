@@ -1584,7 +1584,7 @@ beginDialog:
                 cancel,
                 uploadAllKnowledgeFiles: false);
 
-            Assert.Equal(1, uploaded);
+            Assert.Equal(1, uploaded.UploadedKnowledgeFileCount);
             Assert.Single(dataverseClient.UploadKnowledgeFileCalls);
             Assert.Equal("OnlyFile.txt", dataverseClient.UploadKnowledgeFileCalls[0].FileName);
         }

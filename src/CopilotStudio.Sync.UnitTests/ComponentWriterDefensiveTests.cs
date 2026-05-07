@@ -55,7 +55,7 @@ public class ComponentWriterDefensiveTests
             null,
             CancellationToken.None);
 
-        Assert.Equal(0, result);
+        Assert.Equal(0, result.UploadedKnowledgeFileCount);
     }
 
     [Fact]

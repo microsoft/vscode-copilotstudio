@@ -227,6 +227,110 @@ public class CloudFlowMetadata
 
 #endregion
 
+#region CustomConnectorMetadata
+
+public class CustomConnectorMetadata
+{
+    [JsonPropertyName("connectorid")]
+    public Guid ConnectorId { get; set; }
+
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+
+    [JsonPropertyName("displayname")]
+    public string? DisplayName { get; set; }
+
+    [JsonPropertyName("description")]
+    public string? Description { get; set; }
+
+    [JsonPropertyName("connectorinternalid")]
+    public string? ConnectorInternalId { get; set; }
+
+    [JsonPropertyName("openapidefinition")]
+    public string? OpenApiDefinition { get; set; }
+
+    [JsonPropertyName("connectionparameters")]
+    public string? ConnectionParameters { get; set; }
+
+    [JsonPropertyName("connectionparametersets")]
+    public string? ConnectionParameterSets { get; set; }
+
+    [JsonPropertyName("policytemplateinstances")]
+    public string? PolicyTemplateInstances { get; set; }
+
+    [JsonPropertyName("iconbrandcolor")]
+    public string? IconBrandColor { get; set; }
+
+    [JsonPropertyName("iconblob")]
+    public string? IconBlobBase64 { get; set; }
+
+    [JsonPropertyName("connectortype")]
+    public int? ConnectorType { get; set; }
+
+    [JsonPropertyName("statecode")]
+    public int? StateCode { get; set; }
+
+    [JsonPropertyName("statuscode")]
+    public int? StatusCode { get; set; }
+
+    [JsonPropertyName("ismanaged")]
+    public bool? IsManaged { get; set; }
+
+    [JsonPropertyName("componentstate")]
+    public int? ComponentState { get; set; }
+
+    [JsonPropertyName("createdon")]
+    public DateTime? CreatedOn { get; set; }
+
+    [JsonPropertyName("modifiedon")]
+    public DateTime? ModifiedOn { get; set; }
+
+    [JsonPropertyName("versionnumber")]
+    public long? VersionNumber { get; set; }
+}
+
+#endregion
+
+#region CustomConnectorPushResult
+
+/// <summary>
+/// Result of pushing local custom connector edits to Dataverse.
+/// </summary>
+public class CustomConnectorPushResult
+{
+    /// <summary>
+    /// Map of connector internal id to the connector's Dataverse row GUID for every connector that was upserted.
+    /// </summary>
+    public IReadOnlyDictionary<string, Guid> PushedRowIds { get; init; } = new Dictionary<string, Guid>();
+
+    /// <summary>
+    /// Display names of custom connectors that were newly created in Dataverse
+    /// </summary>
+    public IReadOnlyList<string> NewlyCreatedConnectorNames { get; init; } = Array.Empty<string>();
+}
+
+#endregion
+
+#region PushChangesetResult
+
+/// <summary>
+/// Result of <see cref="IWorkspaceSynchronizer.PushChangesetAsync"/>.
+/// </summary>
+public class PushChangesetResult
+{
+    /// <summary>
+    /// Number of knowledge files that were uploaded to the cloud.
+    /// </summary>
+    public int UploadedKnowledgeFileCount { get; init; }
+
+    /// <summary>
+    /// Display names of custom connectors that were newly created in Dataverse.
+    /// </summary>
+    public IReadOnlyList<string> NewlyCreatedCustomConnectors { get; init; } = Array.Empty<string>();
+}
+
+#endregion
+
 #region WorkspaceSyncInfo
 
 public class WorkspaceSyncInfo

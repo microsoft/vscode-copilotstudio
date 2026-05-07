@@ -142,6 +142,7 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
       });
     logger.logInfo(TelemetryEventsKeys.SyncWorkspaceSuccess, `Successfully completed ${displayText}`);
     logWorkflowIssues(result.workflowResponse);
+    logNewCustomConnectors(result.newlyCreatedCustomConnectors, workspace);
     return result;
   } catch (error) {
     if ((error as Error).message?.includes("UserNotMemberOfOrg")) {
@@ -181,5 +182,24 @@ export function logWorkflowIssues(workflows: WorkflowResponse[] | undefined) {
     logger.logWarning(TelemetryEventsKeys.SyncWorkspaceError, `These workflows need reestablish connection and need to be enabled in MCS portal: ${disabledWorkflows.join(", ")}`);
   } else if (failedWorkflows.length > 0) {
     logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Workflow errors: ${failedWorkflows.join(", ")}`);
+  }
+}
+
+export function logNewCustomConnectors(connectors: string[] | undefined, workspace: CopilotStudioWorkspace) {
+  logNewCustomConnectorsRaw(connectors, workspace.workspaceUri);
+}
+
+export function logNewCustomConnectorsRaw(connectors: string[] | undefined, workspaceUri: string) {
+  if (!connectors?.length) {
+    return;
+  }
+  const agentName = workspaceUri.split(/[\\/]/).filter(Boolean).pop() ?? 'agent';
+  for (const connectorName of connectors) {
+    logger.logWarning(
+      TelemetryEventsKeys.SyncWorkspaceSuccess,
+      `New custom connector '${connectorName}' was created. ` +
+      `Go to Power Apps maker (https://make.powerapps.com) to create a Connection for this connector, ` +
+      `then update the connection reference in VS Code and apply the change.`
+    );
   }
 }
