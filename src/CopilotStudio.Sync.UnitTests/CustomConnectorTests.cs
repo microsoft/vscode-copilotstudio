@@ -265,6 +265,47 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
             Assert.Null(SyncDataverseClient.ExtractConnectorInternalId("a/b/"));
         }
 
+        [Fact]
+        public async Task PushCustomConnectorsAsync_RejectsPathTraversal_DoesNotExfiltrateFileOutsideConnectorFolder()
+        {
+            var (synchronizer, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+            var workspace = NewWorkspace();
+            var connectorId = Guid.NewGuid();
+            var folderPrefix = "Traversal";
+            WriteConnectorMetadata(workspace, folderPrefix, connectorId, displayName: "Traversal", name: "traversal", internalId: "traversal-internal");
+
+            // Place a file under the workspace but outside the connector's own folder.
+            var secretsPath = Path.Combine(workspace.ToString(), "secrets.txt");
+            const string secretContents = "TOP-SECRET-API-KEY";
+            File.WriteAllText(secretsPath, secretContents, Encoding.UTF8);
+
+            var connectorFolder = Path.Combine(workspace.ToString(), "connectors", $"{folderPrefix}-{connectorId}");
+            var metaPath = Path.Combine(connectorFolder, "metadata.yml");
+            var traversal = $"connectors/{folderPrefix}-{connectorId}/../../secrets.txt";
+            var meta = new Dictionary<string, object?>
+            {
+                ["connectorid"] = connectorId,
+                ["name"] = "traversal",
+                ["displayname"] = "Traversal",
+                ["connectorinternalid"] = "traversal-internal",
+                ["openapidefinition"] = traversal,
+            };
+            File.WriteAllText(metaPath, JsonSerializer.Serialize(meta, new JsonSerializerOptions { WriteIndented = true }), Encoding.UTF8);
+
+            CustomConnectorMetadata? captured = null;
+            var dataverse = new Mock<ISyncDataverseClient>();
+            dataverse
+                .Setup(d => d.UpsertConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<CancellationToken>()))
+                .Callback<CustomConnectorMetadata, CancellationToken>((m, _) => captured = m)
+                .ReturnsAsync(true);
+
+            await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None);
+
+            Assert.NotNull(captured);
+            Assert.NotEqual(secretContents, captured!.OpenApiDefinition);
+            Assert.Equal(traversal, captured.OpenApiDefinition);
+        }
+
         private DirectoryPath NewWorkspace()
         {
             var path = Path.Combine(_tempRoot, "ws-" + Guid.NewGuid().ToString("N"));

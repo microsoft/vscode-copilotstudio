@@ -2858,23 +2858,34 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
     private static string? TryResolveConnectorRelativePath(string connectorFolder, string? value)
     {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
-
-        if (!value!.StartsWith($"{ConnectorsFolder}/", StringComparison.OrdinalIgnoreCase))
-        {
-            return null;
-        }
-
         var workspaceRoot = Path.GetDirectoryName(Path.GetDirectoryName(connectorFolder));
-        if (workspaceRoot == null)
+        if (string.IsNullOrWhiteSpace(value) || !value!.StartsWith($"{ConnectorsFolder}/", StringComparison.OrdinalIgnoreCase) || workspaceRoot == null)
         {
             return null;
         }
 
-        var fullPath = Path.Combine(workspaceRoot, value.Replace('/', Path.DirectorySeparatorChar));
+        string fullPath;
+        string connectorRoot;
+        try
+        {
+            fullPath = Path.GetFullPath(Path.Combine(workspaceRoot, value.Replace('/', Path.DirectorySeparatorChar)));
+            connectorRoot = Path.GetFullPath(connectorFolder);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return null;
+        }
+
+        if (!connectorRoot.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal))
+        {
+            connectorRoot += Path.DirectorySeparatorChar;
+        }
+
+        if (!fullPath.StartsWith(connectorRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
         return File.Exists(fullPath) ? fullPath : null;
     }
 
