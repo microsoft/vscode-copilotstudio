@@ -401,6 +401,63 @@ beginDialog:
             Assert.Equal("Rename file to 'abc!.mcs.yml'", quickfix?.Title);
         }
 
+        [Theory]
+        [InlineData("schemaName: hai_testAgent\ncdsBotId: 00000000-0000-0000-0000-000000000001", null)] 
+        [InlineData("cdsBotId: 00000000-0000-0000-0000-000000000001", "'SchemaName'")]                            
+        public async Task Diagnostics_OnSettingsMcsYml_WithSnapshotGraphDriveItems_Async(string settingsYaml, string? expectedMissingProperty)
+        {
+            const string BotDefinitionJson = """
+                {
+                    "$kind": "BotDefinition",
+                    "entity": {
+                        "$kind": "BotEntity",
+                        "displayName": "Test Agent",
+                        "schemaName": "hai_testAgent",
+                        "cdsBotId": "00000000-0000-0000-0000-000000000001",
+                        "language": 1033,
+                        "state": "Active",
+                        "status": 1,
+                        "synchronizationStatus": {
+                            "$kind": "BotSynchronizationDetails",
+                            "contentVersion": 1,
+                            "graphDriveItems": [
+                                {
+                                    "$kind": "GraphDriveItemSyncDetails",
+                                    "displayName": "",
+                                    "webUrl": "",
+                                    "driveId": "drive-id",
+                                    "itemId": "item-id",
+                                    "indexingStatus": "NotStarted"
+                                }
+                            ]
+                        }
+                    }
+                }
+                """;
+
+            var diskContent = new Dictionary<string, string>
+            {
+                { "/agent.mcs.yml", "instructions: test" },
+                { "/.mcs/botdefinition.json", BotDefinitionJson },
+            };
+
+            await using var context = new TestHost([new McsLspModule(), new TestFileModule(diskContent)]);
+            await context.InitializeLanguageServerAsync("file:///");
+
+            var settingsUri = new Uri("file:///c:/settings.mcs.yml");
+            var diagParams = await context.OpenDocumentWithTextAsync(settingsUri, settingsYaml);
+
+            Assert.DoesNotContain(diagParams.Diagnostics, d => d.Message.Contains("'IsDeleted'"));
+            if (expectedMissingProperty != null)
+            {
+                Assert.Contains(diagParams.Diagnostics, d => d.Message.Contains(expectedMissingProperty));
+            }
+            else
+            {
+                Assert.Empty(diagParams.Diagnostics.Where(d => d.Code == "MissingRequiredProperty"));
+            }
+        }
+
         private static void AssertAgentDirectoryChangeNotification(TestHost context)
         {
             var notification = context.Notifications.Single();
