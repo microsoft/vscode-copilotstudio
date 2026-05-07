@@ -127,10 +127,28 @@ dotnet test  src/LanguageServers/PowerPlatformLS/PowerPlatformLS.sln
 ### 3. Build the VS Code extension
 
 ```sh
-cd src/vscode-extensions
+cd src/vscode-extensions/microsoft-powerplatformlang-extension
 npm install
-npm run build
+npm run check-types
+node esbuild.js --production
 ```
+
+### npm lockfile and registry policy
+
+The committed npm lockfiles must be independent of the registry or feed used for
+restore. The repository-level npm config at `src/vscode-extensions/.npmrc`
+therefore sets `omit-lockfile-registry-resolved=true` and intentionally does not
+set `registry`.
+
+That `.npmrc` setting is what prevents `npm install`, `npm uninstall`, and
+dependency updates from adding registry/feed-specific `resolved` URLs to
+committed `package-lock.json` files.
+
+If you need a private registry or feed for restore, configure it in your user npm
+config or in CI restore-time configuration. Do not add registry or feed URLs to
+committed `.npmrc` or `package-lock.json` files. When npm commands update a
+lockfile, review the resulting diff to verify registry/feed URLs were not
+introduced.
 
 ### Working toward external buildability
 
