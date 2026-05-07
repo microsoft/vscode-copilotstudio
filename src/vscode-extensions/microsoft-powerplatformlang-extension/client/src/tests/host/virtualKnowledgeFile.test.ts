@@ -1,4 +1,5 @@
-import * as assert from 'assert';
+import * as assert from 'node:assert';
+import { describe, test, beforeEach, afterEach } from 'node:test';
 import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -9,7 +10,7 @@ import { getDataverseBotHandler, getTrackPath, getFilesDir, safeSaveFile } from 
 import { ConflictResolution } from '../../constants';
 import logger from '../../services/logger';
 
-suite('virtualKnowledgeFileSystemProvider', () => {
+describe('virtualKnowledgeFileSystemProvider', () => {
     let provider: virtualKnowledgeFileSystemProvider;
     let workspace: CopilotStudioWorkspace;
 
@@ -21,7 +22,7 @@ suite('virtualKnowledgeFileSystemProvider', () => {
         dataverseEndpoint: 'https://my-copilotstudio-endpoint'
     };
 
-    setup(async () => {
+    beforeEach(async () => {
         workspace = {
             workspaceUri: vscode.Uri.file(workspaceDir),
             syncInfo
@@ -30,6 +31,7 @@ suite('virtualKnowledgeFileSystemProvider', () => {
         await fs.mkdir(workspaceDir, { recursive: true });
 
         provider = new virtualKnowledgeFileSystemProvider();
+        provider.addWorkspace(workspace);
 
         (getTrackPath as any) = (_ws: vscode.Uri) => trackPath;
         (getFilesDir as any) = (_ws: vscode.Uri) => workspaceDir;
@@ -57,7 +59,7 @@ suite('virtualKnowledgeFileSystemProvider', () => {
         (logger.logWarning as any) = (_event: any, _message: string, _props?: any) => {};
     });
 
-    teardown(async () => {
+    afterEach(async () => {
         await fs.rm(path.join(os.tmpdir(), 'vscode-copilotstudio'), { recursive: true, force: true });
     });
 

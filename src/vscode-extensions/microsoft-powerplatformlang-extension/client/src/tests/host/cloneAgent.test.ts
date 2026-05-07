@@ -1,7 +1,8 @@
-import * as assert from 'assert';
+import * as assert from 'node:assert';
+import { describe, test } from 'node:test';
 import { isCopilotStudioTreeItem, TreeItemKind } from '../../clone/tree';
 
-suite('isCopilotStudioTreeItem Type Guard', () => {
+describe('isCopilotStudioTreeItem Type Guard', () => {
 	test('returns false for null and undefined', () => {
 		assert.strictEqual(isCopilotStudioTreeItem(null), false);
 		assert.strictEqual(isCopilotStudioTreeItem(undefined), false);
@@ -33,7 +34,7 @@ suite('isCopilotStudioTreeItem Type Guard', () => {
 	});
 });
 
-suite('Discriminated Union Narrowing', () => {
+describe('Discriminated Union Narrowing', () => {
 	test('TypeScript narrows AgentTreeItem when kind === Agent', () => {
 		const item: unknown = {
 			kind: TreeItemKind.Agent,
