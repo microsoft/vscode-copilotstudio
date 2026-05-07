@@ -52,6 +52,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
         [InlineData("MyAction.v1.d1.txt", "cr5f7_agent6eFv9_s.action.MyAction.v1.d1.txt", "actions")]
         [InlineData("AgentA2Thisislongnameaspossible123", "cr5f7_agent6eFv9_s.InvokeConnectedAgentTaskAction.AgentA2Thisislongnameaspossible123", "agents")]
         [InlineData("AgentA2Thisislongnameaspossible123.v2", "cr5f7_agent6eFv9_s.InvokeConnectedAgentTaskAction.AgentA2Thisislongnameaspossible123.v2", "agents")]
+        [InlineData("topic.CustomConnectorAgent", "cr5f7_agent6eFv9_s.topic.CustomConnectorAgent", "agents")]
+        [InlineData("topic.CustomConnectorAgent.v2", "cr5f7_agent6eFv9_s.topic.CustomConnectorAgent.v2", "agents")]
         public void ActionProjector_ProducesCorrectSchemaName(string fileName, string expectedSchemaName, string expectedFolder)
         {
             var projector = _registry.GetForType(typeof(DialogComponent)) as IComponentProjector;

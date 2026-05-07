@@ -23,7 +23,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         {
         }
 
-        protected override async Task<(DefinitionBase, ImmutableArray<WorkflowResponse>)> ExecuteAsync(IMcsWorkspace workspace, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CancellationToken cancellationToken)
+        protected override async Task<(DefinitionBase, ImmutableArray<WorkflowResponse>, ImmutableArray<string>)> ExecuteAsync(IMcsWorkspace workspace, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CancellationToken cancellationToken)
         {
             var (workflowResponse, cloudFlowMetadata) = await _synchronizer.UpsertWorkflowForAgentAsync(workspace.FolderPath, dataverseClient, syncInfo.AgentId, cancellationToken);
 
@@ -36,8 +36,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 localChanges = localChanges.WithBot(null);
             }
 
-            await _synchronizer.PushChangesetAsync(workspace.FolderPath, operationContext, localChanges, dataverseClient, syncInfo.AgentId, cloudFlowMetadata, cancellationToken);
-            return (workspace.Definition, workflowResponse);
+            var pushResult = await _synchronizer.PushChangesetAsync(workspace.FolderPath, operationContext, localChanges, dataverseClient, syncInfo.AgentId, cloudFlowMetadata, cancellationToken);
+            return (workspace.Definition, workflowResponse, pushResult.NewlyCreatedCustomConnectors.ToImmutableArray());
         }
     }
 }

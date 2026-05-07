@@ -37,6 +37,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
     // Folder where environment variables are projected.
     private const string EnvironmentVariablesFolder = "environmentvariables";
 
+    // Folder where custom connector definitions are projected.
+    private const string ConnectorsFolder = "connectors";
+
     private static readonly AgentFilePath ChangeTokenPath = new AgentFilePath(HiddenRoot + "/changetoken.txt");
 
     /// <summary>
@@ -382,7 +385,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         }
 
         // persist updated change set on directory
-        return await UpdateWorkspaceDirectoryAsync(fileAccessor, updatedChangeSet, previousDefinition, deletedComponents.ToArray(), cancellationToken: cancellationToken).ConfigureAwait(false);
+        var updatedDefinition = await UpdateWorkspaceDirectoryAsync(fileAccessor, updatedChangeSet, previousDefinition, deletedComponents.ToArray(), cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        await WriteCustomConnectorsAsync(fileAccessor, workspaceFolder, updatedDefinition, dataverseClient, cancellationToken).ConfigureAwait(false);
+
+        return updatedDefinition;
     }
 
     /// <summary>
@@ -559,7 +566,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         return remoteMeta;
     }
 
-    public async Task<int> PushChangesetAsync(
+    public async Task<PushChangesetResult> PushChangesetAsync(
         DirectoryPath workspaceFolder,
         AuthoringOperationContextBase operationContext, // includes login info
         PvaComponentChangeSet pushChangeset, // local changes to push up.
@@ -583,15 +590,27 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             pushChangeset,
             cancellationToken).ConfigureAwait(false);
 
+        var connectorPushResult = await PushCustomConnectorsAsync(workspaceFolder, dataverseClient, cancellationToken).ConfigureAwait(false);
+
         await WriteChangeSetAsync(workspaceFolder, changeset, cloudFlowMetadata, cancellationToken).ConfigureAwait(false);
+
+        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var postPushSnapshot = ReadCloudCacheSnapshot(fileAccessor);
+        if (postPushSnapshot != null)
+        {
+            await WriteCustomConnectorsAsync(fileAccessor, workspaceFolder, postPushSnapshot, dataverseClient, cancellationToken).ConfigureAwait(false);
+        }
 
         if (!uploadAllKnowledgeFiles)
         {
-            return 0;
+            return new PushChangesetResult
+            {
+                UploadedKnowledgeFileCount = 0,
+                NewlyCreatedCustomConnectors = connectorPushResult.NewlyCreatedConnectorNames,
+            };
         }
 
         // Upload all knowledge files
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
         var snapshot = ReadCloudCacheSnapshot(fileAccessor);
         var numberOfUploadedFiles = 0;
 
@@ -601,7 +620,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
             if (newFileComponents.Count == 0)
             {
-                return 0;
+                return new PushChangesetResult
+                {
+                    UploadedKnowledgeFileCount = 0,
+                    NewlyCreatedCustomConnectors = connectorPushResult.NewlyCreatedConnectorNames,
+                };
             }
 
             // #if kept: net10 uses Parallel.ForEachAsync with MaxDegreeOfParallelism=5
@@ -664,13 +687,18 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 #endif
         }
 
-        return numberOfUploadedFiles;
+        return new PushChangesetResult
+        {
+            UploadedKnowledgeFileCount = numberOfUploadedFiles,
+            NewlyCreatedCustomConnectors = connectorPushResult.NewlyCreatedConnectorNames,
+        };
     }
 
     public virtual async Task ProvisionConnectionReferencesAsync(
         DefinitionBase definition,
         ISyncDataverseClient dataverseClient,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyDictionary<string, Guid>? pushedConnectorIds = null)
     {
         var connectionRefs = definition.ConnectionReferences;
 
@@ -678,10 +706,18 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         {
             try
             {
+                Guid? customConnectorRowId = null;
+                var internalId = SyncDataverseClient.ExtractConnectorInternalId(connRef.ConnectorId.ToString());
+                if (pushedConnectorIds != null && !string.IsNullOrWhiteSpace(internalId) && pushedConnectorIds.TryGetValue(internalId!, out var mapped))
+                {
+                    customConnectorRowId = mapped;
+                }
+
                 await dataverseClient.EnsureConnectionReferenceExistsAsync(
                     connRef.ConnectionReferenceLogicalName.ToString(),
                     connRef.ConnectorId.ToString(),
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken,
+                    customConnectorRowId).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -743,6 +779,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 deletedComponents: [],
                 cancellationToken: cancellationToken).ConfigureAwait(false);
         }
+
+        await WriteCustomConnectorsAsync(fileAccessor, workspaceFolder, definition, dataverseClient, cancellationToken).ConfigureAwait(false);
 
         return new WorkspaceSyncInfo
         {
@@ -2480,6 +2518,405 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         }
 
         return Task.CompletedTask;
+    }
+
+    private async Task WriteCustomConnectorsAsync(IFileAccessor fileAccessor, DirectoryPath workspaceFolder, DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+    {
+        var expectedConnectorIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var internalIdToConnectorId = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        if (!definition.ConnectionReferences.IsDefaultOrEmpty)
+        {
+            foreach (var cr in definition.ConnectionReferences)
+            {
+                var internalId = SyncDataverseClient.ExtractConnectorInternalId(cr.ConnectorId.ToString());
+                if (string.IsNullOrEmpty(internalId))
+                {
+                    continue;
+                }
+
+                internalIdToConnectorId[internalId!] = cr.ConnectorId.ToString();
+            }
+        }
+
+        var connectorsRoot = Path.Combine(workspaceFolder.ToString(), ConnectorsFolder);
+        if (Directory.Exists(connectorsRoot))
+        {
+            foreach (var existing in Directory.EnumerateDirectories(connectorsRoot))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var folderName = Path.GetFileName(existing);
+                var guid = ExtractTrailingGuid(folderName);
+
+                if (guid == null)
+                {
+                    continue;
+                }
+
+                var stillReferenced = internalIdToConnectorId.Values.Any(v => Guid.TryParse(v, out var g) && g == guid.Value);
+                if (!stillReferenced)
+                {
+                    try
+                    {
+                        Directory.Delete(existing, recursive: true);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        _syncProgress.Report($"Failed to remove orphaned connector folder '{folderName}': {ex.Message}");
+                    }
+                }
+            }
+        }
+
+        if (internalIdToConnectorId.Count == 0)
+        {
+            return;
+        }
+
+        CustomConnectorMetadata[] connectors;
+        try
+        {
+            connectors = await dataverseClient.DownloadConnectorsByInternalIdsAsync(internalIdToConnectorId.Keys, isManaged: false, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _syncProgress.Report($"Failed to download custom connectors: {ex.Message}");
+            return;
+        }
+
+        var returnedConnectorIds = new HashSet<Guid>(connectors.Select(c => c.ConnectorId));
+        var requestedConnectorIds = new HashSet<Guid>();
+        foreach (var idString in internalIdToConnectorId.Values)
+        {
+            if (Guid.TryParse(idString, out var g))
+            {
+                requestedConnectorIds.Add(g);
+            }
+        }
+
+        var connectorsRootForReconcile = Path.Combine(workspaceFolder.ToString(), ConnectorsFolder);
+        if (Directory.Exists(connectorsRootForReconcile))
+        {
+            foreach (var missingId in requestedConnectorIds.Where(id => !returnedConnectorIds.Contains(id)))
+            {
+                foreach (var existing in Directory.EnumerateDirectories(connectorsRootForReconcile))
+                {
+                    var folderName = Path.GetFileName(existing);
+                    if (ExtractTrailingGuid(folderName) != missingId)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        Directory.Delete(existing, recursive: true);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        _syncProgress.Report($"Failed to remove deleted connector folder '{folderName}': {ex.Message}");
+                    }
+                }
+            }
+        }
+
+        if (connectors.Length == 0)
+        {
+            return;
+        }
+
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true };
+
+        foreach (var connector in connectors)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var nameSeed = !string.IsNullOrWhiteSpace(connector.Name) ? connector.Name! : (!string.IsNullOrWhiteSpace(connector.ConnectorInternalId) ? connector.ConnectorInternalId! : connector.ConnectorId.ToString());
+            var safeName = SanitizeConnectorFolderName(nameSeed);
+            var folder = $"{ConnectorsFolder}/{safeName}-{connector.ConnectorId}";
+            var swaggerWritten = false;
+
+            if (!string.IsNullOrWhiteSpace(connector.OpenApiDefinition))
+            {
+                var swaggerPath = new AgentFilePath($"{folder}/openapidefinition.json");
+                string pretty;
+                try
+                {
+                    using var doc = JsonDocument.Parse(connector.OpenApiDefinition!);
+                    pretty = JsonSerializer.Serialize(doc.RootElement, jsonOpts);
+                }
+                catch (JsonException)
+                {
+                    pretty = connector.OpenApiDefinition!;
+                }
+
+                await fileAccessor.WriteAsync(swaggerPath, pretty, cancellationToken).ConfigureAwait(false);
+                swaggerWritten = true;
+            }
+
+            var connParamsJson = string.IsNullOrWhiteSpace(connector.ConnectionParameters) ? "{}" : connector.ConnectionParameters!;
+            string connParamsPretty;
+            try
+            {
+                using var doc = JsonDocument.Parse(connParamsJson);
+                connParamsPretty = JsonSerializer.Serialize(doc.RootElement, jsonOpts);
+            }
+            catch (JsonException)
+            {
+                connParamsPretty = connParamsJson;
+            }
+
+            await fileAccessor.WriteAsync(new AgentFilePath($"{folder}/connectionparameters.json"), connParamsPretty, cancellationToken).ConfigureAwait(false);
+
+            var policyJson = string.IsNullOrWhiteSpace(connector.PolicyTemplateInstances) ? "{}" : connector.PolicyTemplateInstances!;
+            string policyPretty;
+            try
+            {
+                using var doc = JsonDocument.Parse(policyJson);
+                policyPretty = JsonSerializer.Serialize(doc.RootElement, jsonOpts);
+            }
+            catch (JsonException)
+            {
+                policyPretty = policyJson;
+            }
+
+            await fileAccessor.WriteAsync(new AgentFilePath($"{folder}/policytemplateinstances.json"), policyPretty, cancellationToken).ConfigureAwait(false);
+            var iconWritten = false;
+
+            if (!string.IsNullOrWhiteSpace(connector.IconBlobBase64))
+            {
+                try
+                {
+                    var iconBytes = Convert.FromBase64String(connector.IconBlobBase64!);
+                    await fileAccessor.WriteAsync(new AgentFilePath($"{folder}/iconblob.png"), iconBytes, cancellationToken).ConfigureAwait(false);
+                    iconWritten = true;
+                }
+                catch (FormatException)
+                {
+                    _syncProgress.Report($"Connector '{connector.ConnectorInternalId}': icon base64 decode failed; skipping iconblob.png");
+                }
+            }
+
+            var metadataNode = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(connector, jsonOpts))!.AsObject();
+            var connectorNameForRef = !string.IsNullOrWhiteSpace(connector.Name) ? connector.Name! : safeName;
+            metadataNode["openapidefinition"] = swaggerWritten ? $"{folder}/openapidefinition.json" : null;
+            metadataNode["connectionparameters"] = $"{folder}/connectionparameters.json";
+            metadataNode["policytemplateinstances"] = $"{folder}/policytemplateinstances.json";
+            metadataNode["iconblob"] = iconWritten ? $"{folder}/iconblob.png" : null;
+
+            await fileAccessor.WriteAsync(new AgentFilePath($"{folder}/metadata.yml"), metadataNode.ToJsonString(jsonOpts), cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    public async Task<CustomConnectorPushResult> PushCustomConnectorsAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+    {
+        var pushedRowIds = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+        var newlyCreated = new List<string>();
+        var connectorsRoot = Path.Combine(workspaceFolder.ToString(), ConnectorsFolder);
+        if (!Directory.Exists(connectorsRoot))
+        {
+            return new CustomConnectorPushResult { PushedRowIds = pushedRowIds, NewlyCreatedConnectorNames = newlyCreated };
+        }
+
+        var localConnectors = new List<CustomConnectorMetadata>();
+
+        foreach (var folder in Directory.EnumerateDirectories(connectorsRoot))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var folderName = Path.GetFileName(folder);
+            var local = await TryLoadLocalConnectorAsync(folder, cancellationToken).ConfigureAwait(false);
+            if (local == null)
+            {
+                continue;
+            }
+
+            if (local.ConnectorId == Guid.Empty)
+            {
+                var guid = ExtractTrailingGuid(folderName);
+                if (guid.HasValue)
+                {
+                    local.ConnectorId = guid.Value;
+                }
+                else
+                {
+                    continue;
+                }
+            }
+
+            localConnectors.Add(local);
+        }
+
+        if (localConnectors.Count == 0)
+        {
+            return new CustomConnectorPushResult { PushedRowIds = pushedRowIds, NewlyCreatedConnectorNames = newlyCreated };
+        }
+
+        foreach (var local in localConnectors)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            try
+            {
+                var created = await dataverseClient.UpsertConnectorAsync(local, cancellationToken).ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(local.ConnectorInternalId))
+                {
+                    pushedRowIds[local.ConnectorInternalId!] = local.ConnectorId;
+                }
+
+                if (created)
+                {
+                    var connectorDisplayName = !string.IsNullOrWhiteSpace(local.DisplayName)
+                        ? local.DisplayName!
+                        : (local.Name ?? local.ConnectorId.ToString());
+                    newlyCreated.Add(connectorDisplayName);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _syncProgress.Report($"Failed to push custom connector '{local.Name ?? local.ConnectorId.ToString()}': {ex.Message}");
+                // continue with other connector
+            }
+        }
+
+        return new CustomConnectorPushResult { PushedRowIds = pushedRowIds, NewlyCreatedConnectorNames = newlyCreated };
+    }
+
+    private static async Task<CustomConnectorMetadata?> TryLoadLocalConnectorAsync(string folder, CancellationToken cancellationToken)
+    {
+        var metadataPath = Path.Combine(folder, "metadata.yml");
+        if (!File.Exists(metadataPath))
+        {
+            return null;
+        }
+
+        string metadataText;
+        try
+        {
+            metadataText = await FileShim.ReadAllTextAsync(metadataPath, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+
+        CustomConnectorMetadata? meta;
+        try
+        {
+            meta = JsonSerializer.Deserialize<CustomConnectorMetadata>(metadataText, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        if (meta == null)
+        {
+            return null;
+        }
+
+        meta.OpenApiDefinition = await ReadConnectorMetadataAsync(folder, meta.OpenApiDefinition, cancellationToken).ConfigureAwait(false);
+        meta.ConnectionParameters = await ReadConnectorMetadataAsync(folder, meta.ConnectionParameters, cancellationToken).ConfigureAwait(false);
+        meta.PolicyTemplateInstances = await ReadConnectorMetadataAsync(folder, meta.PolicyTemplateInstances, cancellationToken).ConfigureAwait(false);
+        meta.IconBlobBase64 = await ReadConnectorIconAsync(folder, meta.IconBlobBase64, cancellationToken).ConfigureAwait(false);
+
+        return meta;
+    }
+
+    private static async Task<string?> ReadConnectorMetadataAsync(string connectorFolder, string? value, CancellationToken cancellationToken)
+    {
+        var fullPath = TryResolveConnectorRelativePath(connectorFolder, value);
+        if (fullPath == null)
+        {
+            return value;
+        }
+
+        return await FileShim.ReadAllTextAsync(fullPath, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<string?> ReadConnectorIconAsync(string connectorFolder, string? value, CancellationToken cancellationToken)
+    {
+        var fullPath = TryResolveConnectorRelativePath(connectorFolder, value);
+        if (fullPath == null)
+        {
+            return value;
+        }
+
+#if NETSTANDARD2_0
+        var bytes = File.ReadAllBytes(fullPath);
+        await Task.CompletedTask.ConfigureAwait(false);
+#else
+        var bytes = await File.ReadAllBytesAsync(fullPath, cancellationToken).ConfigureAwait(false);
+#endif
+        return Convert.ToBase64String(bytes);
+    }
+
+    private static string? TryResolveConnectorRelativePath(string connectorFolder, string? value)
+    {
+        var workspaceRoot = Path.GetDirectoryName(Path.GetDirectoryName(connectorFolder));
+        if (string.IsNullOrWhiteSpace(value) || !value!.StartsWith($"{ConnectorsFolder}/", StringComparison.OrdinalIgnoreCase) || workspaceRoot == null)
+        {
+            return null;
+        }
+
+        string fullPath;
+        string connectorRoot;
+        try
+        {
+            fullPath = Path.GetFullPath(Path.Combine(workspaceRoot, value.Replace('/', Path.DirectorySeparatorChar)));
+            connectorRoot = Path.GetFullPath(connectorFolder);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return null;
+        }
+
+        if (!connectorRoot.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal))
+        {
+            connectorRoot += Path.DirectorySeparatorChar;
+        }
+
+        if (!fullPath.StartsWith(connectorRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return File.Exists(fullPath) ? fullPath : null;
+    }
+
+    private static string SanitizeConnectorFolderName(string raw)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var sb = new StringBuilder(raw.Length);
+        foreach (var ch in raw)
+        {
+            if (char.IsWhiteSpace(ch) || Array.IndexOf(invalid, ch) >= 0)
+            {
+                sb.Append('_');
+            }
+            else
+            {
+                sb.Append(ch);
+            }
+        }
+        var trimmed = sb.ToString().Trim('.', '_', ' ');
+        return string.IsNullOrEmpty(trimmed) ? "connector" : trimmed;
+    }
+
+    private static Guid? ExtractTrailingGuid(string folderName)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(folderName, @"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$");
+        if (match.Success && Guid.TryParse(match.Value, out var id))
+        {
+            return id;
+        }
+
+        return null;
     }
 
     public async Task<ImmutableArray<DirectoryPath>> CloneAllAssetsAsync(

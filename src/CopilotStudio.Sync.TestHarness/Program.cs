@@ -173,7 +173,14 @@ pushCommand.SetHandler(async (string workspace) =>
             workspaceFolder, operationContext, null, true, dataverseClient,
             syncInfo, cloudFlowMetadata, CancellationToken.None);
 
-        Console.WriteLine($"Push complete. {localChanges.Length} change(s) pushed, {uploadedFiles} file(s) uploaded.");
+        Console.WriteLine($"Push complete. {localChanges.Length} change(s) pushed, {uploadedFiles.UploadedKnowledgeFileCount} file(s) uploaded.");
+        if (uploadedFiles.NewlyCreatedCustomConnectors.Count > 0)
+        {
+            foreach (var connectorName in uploadedFiles.NewlyCreatedCustomConnectors)
+            {
+                Console.WriteLine($"New custom connector created in Dataverse: {connectorName}");
+            }
+        }
 
         Console.WriteLine("Verifying push...");
         var verification = await synchronizer.VerifyPushAsync(

@@ -120,8 +120,8 @@ public interface IWorkspaceSynchronizer
     /// <param name="cloudFlowMetadata">Cloud flow metadata.</param>
     /// <param name="cancellationToken">Used to cancel the request</param>
     /// <param name="uploadAllKnowledgeFiles">True/False to upload or not all knowledge files.</param>
-    /// <returns>Number of knowledge files uploaded to cloud.</returns>
-    Task<int> PushChangesetAsync(
+    /// <returns>Result describing knowledge file upload count and any newly created custom connectors.</returns>
+    Task<PushChangesetResult> PushChangesetAsync(
         DirectoryPath workspaceFolder,
         AuthoringOperationContextBase operationContext,
         PvaComponentChangeSet localWorkspaceDefinition,
@@ -189,9 +189,24 @@ public interface IWorkspaceSynchronizer
     /// <param name="definition">The bot definition containing portable connections.</param>
     /// <param name="dataverseClient">The dataverse client to use for communication with the dataverse service.</param>
     /// <param name="cancellationToken">Cancellation token to cancel the operation.</param>
+    /// <param name="pushedConnectorIds">Optional map of connector internal id.</param>
     /// <returns>A task representing the asynchronous operation</returns>
     Task ProvisionConnectionReferencesAsync(
         DefinitionBase definition,
+        ISyncDataverseClient dataverseClient,
+        CancellationToken cancellationToken,
+        IReadOnlyDictionary<string, Guid>? pushedConnectorIds = null);
+
+    /// <summary>
+    /// Pushes local custom connector edits to Dataverse.
+    /// Creates the connector remotely if it doesn't already exist.
+    /// </summary>
+    /// <param name="workspaceFolder">The location of the root of the workspace.</param>
+    /// <param name="dataverseClient">The dataverse client to use for communication with the dataverse service.</param>
+    /// <param name="cancellationToken">Cancellation token to cancel the operation.</param>
+    /// <returns>Result with upserted connector row IDs and names of any newly created connectors.</returns>
+    Task<CustomConnectorPushResult> PushCustomConnectorsAsync(
+        DirectoryPath workspaceFolder,
         ISyncDataverseClient dataverseClient,
         CancellationToken cancellationToken);
 

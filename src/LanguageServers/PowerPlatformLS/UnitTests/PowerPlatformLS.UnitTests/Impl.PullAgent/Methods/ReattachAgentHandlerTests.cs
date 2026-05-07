@@ -114,6 +114,37 @@
             Assert.NotNull(response.Message);
         }
 
+        [Fact]
+        public async Task ReattachAgentReturnsNewlyCreatedCustomConnectorsTest()
+        {
+            var context = CreateTestSetup();
+            var connectorPushResult = new CustomConnectorPushResult
+            {
+                PushedRowIds = new Dictionary<string, Guid> { ["my-conn-internal"] = Guid.NewGuid() },
+                NewlyCreatedConnectorNames = new[] { "My New Connector" },
+            };
+            var workspace = new TestWorkspaceSynchronizerWithConnectors(connectorPushResult);
+
+            var handler = TestHandlerFactory.CreateHandler(new MockDataverseClient(), workspace, CreateOperationProvider());
+
+            var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
+
+            Assert.Equal(200, response.Code);
+            Assert.Equal(new[] { "My New Connector" }, response.NewlyCreatedCustomConnectors);
+        }
+
+        [Fact]
+        public async Task ReattachAgentEmptyNewlyCreatedConnectors_WhenNoneCreatedTest()
+        {
+            var context = CreateTestSetup();
+            
+            var handler = TestHandlerFactory.CreateHandler(new MockDataverseClient(), new TestWorkspaceSynchronizer(), CreateOperationProvider());
+
+            var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
+
+            Assert.Equal(200, response.Code);
+            Assert.Empty(response.NewlyCreatedCustomConnectors);
+        }
         [Theory]
         [InlineData(true)]
         [InlineData(false)]
@@ -357,10 +388,10 @@
         public virtual Task<bool> ConnectionReferenceExistsAsync(string connectionReferenceLogicalName, CancellationToken cancellationToken)
             => Task.FromResult(false);
 
-        public virtual Task CreateConnectionReferenceAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken)
+        public virtual Task CreateConnectionReferenceAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken, Guid? customConnectorRowId = null)
             => Task.CompletedTask;
 
-        public virtual Task EnsureConnectionReferenceExistsAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken)
+        public virtual Task EnsureConnectionReferenceExistsAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken, Guid? customConnectorRowId = null)
             => Task.CompletedTask;
 
         public void SetConnectionReferences(ConnectionReferenceInfo[] connectionReferences)
@@ -392,6 +423,15 @@
             UploadKnowledgeFileCalls.Add((knowledgeFileFolder, botComponentId, fileName));
             return Task.CompletedTask;
         }
+
+        public virtual Task<CustomConnectorMetadata[]> DownloadConnectorsByInternalIdsAsync(
+            IEnumerable<string> connectorInternalIds,
+            bool isManaged,
+            CancellationToken cancellationToken)
+            => Task.FromResult(Array.Empty<CustomConnectorMetadata>());
+
+        public virtual Task<bool> UpsertConnectorAsync(CustomConnectorMetadata connector, CancellationToken cancellationToken)
+            => Task.FromResult(false);
     }
 
     internal static class TestHandlerFactory
@@ -471,8 +511,8 @@
         public Task<DefinitionBase> PullExistingChangesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, DefinitionBase localWorkspaceDefinition, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CancellationToken cancellationToken, bool downloadAllKnowledgeFiles = false)
             => Task.FromResult(localWorkspaceDefinition);
 
-        public Task<int> PushChangesetAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, PvaComponentChangeSet localWorkspaceDefinition, ISyncDataverseClient dataverseClient, Guid? agentId, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken, bool uploadAllKnowledgeFiles = false)
-            => Task.FromResult(0);
+        public Task<PushChangesetResult> PushChangesetAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, PvaComponentChangeSet localWorkspaceDefinition, ISyncDataverseClient dataverseClient, Guid? agentId, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken, bool uploadAllKnowledgeFiles = false)
+            => Task.FromResult(new PushChangesetResult());
 
         public Task<WorkspaceSyncInfo> SyncWorkspaceAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, string? changeToken, bool updateWorkspaceDirectory, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken)
         {
@@ -506,8 +546,11 @@
             });
         }
 
-        public Task ProvisionConnectionReferencesAsync(DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+        public Task ProvisionConnectionReferencesAsync(DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken, IReadOnlyDictionary<string, Guid>? pushedConnectorIds = null)
             => Task.CompletedTask;
+
+        public virtual Task<CustomConnectorPushResult> PushCustomConnectorsAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+            => Task.FromResult(new CustomConnectorPushResult());
 
         public Task<DefinitionBase> ReadWorkspaceDefinitionAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, CancellationToken cancellationToken, bool checkKnowledgeFiles = false)
             => Task.FromResult<DefinitionBase>(new BotDefinition());
@@ -522,6 +565,19 @@
     internal class TestWorkspaceSynchronizerSyncInfoExists : TestWorkspaceSynchronizer
     {
         public override bool IsSyncInfoAvailable(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder) => true;
+    }
+
+    internal class TestWorkspaceSynchronizerWithConnectors : TestWorkspaceSynchronizer
+    {
+        private readonly CustomConnectorPushResult _result;
+
+        public TestWorkspaceSynchronizerWithConnectors(CustomConnectorPushResult result)
+        {
+            _result = result;
+        }
+
+        public override Task<CustomConnectorPushResult> PushCustomConnectorsAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+            => Task.FromResult(_result);
     }
 
     internal class TestOperationContextProvider : IOperationContextProvider
@@ -562,13 +618,13 @@
             return Task.FromResult(false); // Always return false to trigger creation
         }
 
-        public override Task CreateConnectionReferenceAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken)
+        public override Task CreateConnectionReferenceAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken, Guid? customConnectorRowId = null)
         {
             ProvisionedConnections.Add((connectionReferenceLogicalName, connectorId));
             return Task.CompletedTask;
         }
 
-        public override Task EnsureConnectionReferenceExistsAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken)
+        public override Task EnsureConnectionReferenceExistsAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken, Guid? customConnectorRowId = null)
         {
             ProvisionedConnections.Add((connectionReferenceLogicalName, connectorId));
             return Task.CompletedTask;

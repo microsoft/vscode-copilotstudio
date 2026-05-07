@@ -29,6 +29,8 @@ public class SyncDataverseClient : ISyncDataverseClient
 
     private readonly string _userAgent;
 
+    private static volatile string? _connectionReferenceCustomConnectorNavName;
+
     public SyncDataverseClient(IDataverseHttpClientAccessor httpClientAccessor, string userAgent = "CopilotStudio.Sync")
     {
         _httpClientAccessor = httpClientAccessor ?? throw new ArgumentNullException(nameof(httpClientAccessor));
@@ -182,6 +184,155 @@ public class SyncDataverseClient : ISyncDataverseClient
 
         var response = await SendAsync<ConnectionReferenceQueryResponse>(HttpMethod.Get, requestUri, null, false, cancellationToken).ConfigureAwait(false);
         return response?.Value ?? Array.Empty<ConnectionReferenceInfo>();
+    }
+
+    public static string? ExtractConnectorInternalId(string? connectorIdPath)
+    {
+        if (string.IsNullOrWhiteSpace(connectorIdPath))
+        {
+            return null;
+        }
+
+        var slash = connectorIdPath!.LastIndexOf('/');
+        var segment = slash >= 0 ? connectorIdPath.Substring(slash + 1) : connectorIdPath;
+        return string.IsNullOrWhiteSpace(segment) ? null : segment;
+    }
+
+    public virtual async Task<CustomConnectorMetadata[]> DownloadConnectorsByInternalIdsAsync(IEnumerable<string> connectorInternalIds, bool isManaged, CancellationToken cancellationToken)
+    {
+        if (connectorInternalIds == null)
+        {
+            return Array.Empty<CustomConnectorMetadata>();
+        }
+
+        var ids = connectorInternalIds.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+        if (ids.Count == 0)
+        {
+            return Array.Empty<CustomConnectorMetadata>();
+        }
+
+        const string select =
+            "connectorid,name,displayname,description,connectorinternalid," +
+            "openapidefinition,connectionparameters,connectionparametersets," +
+            "policytemplateinstances," +
+            "iconbrandcolor,iconblob,connectortype,statecode,statuscode," +
+            "ismanaged,componentstate,createdon,modifiedon,versionnumber";
+
+        var results = new List<CustomConnectorMetadata>();
+        var seenConnectorIds = new HashSet<Guid>();
+
+        foreach (var batch in ids.Chunk(BatchSize))
+        {
+            var idClauses = string.Join(" or ", batch.Select(id => $"connectorinternalid eq '{id.Replace("'", "''")}'"));
+            var filter = isManaged ? $"({idClauses})" : $"({idClauses}) and ismanaged eq false";
+            string? next = $"{DataverseUrl}/api/data/v9.2/connectors" + $"?$select={select}" + $"&$filter={Uri.EscapeDataString(filter)}";
+
+            while (!string.IsNullOrEmpty(next))
+            {
+                var page = await SendAsync<JsonElement>(HttpMethod.Get, next!, null, false, cancellationToken).ConfigureAwait(false);
+
+                if (page.TryGetProperty("value", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var el in arr.EnumerateArray())
+                    {
+                        var meta = JsonSerializer.Deserialize<CustomConnectorMetadata>(el.GetRawText(), JsonSerializerOptions);
+                        if (meta != null && meta.ConnectorId != Guid.Empty && seenConnectorIds.Add(meta.ConnectorId))
+                        {
+                            results.Add(meta);
+                        }
+                    }
+                }
+
+                next = page.TryGetProperty("@odata.nextLink", out var nextLinkProp) ? nextLinkProp.GetString() : null;
+            }
+        }
+
+        return results.ToArray();
+    }
+
+    public virtual async Task<bool> UpsertConnectorAsync(CustomConnectorMetadata connector, CancellationToken cancellationToken)
+    {
+        if (connector == null)
+        {
+            throw new ArgumentNullException(nameof(connector));
+        }
+
+        if (connector.ConnectorId == Guid.Empty)
+        {
+            throw new ArgumentException("Connector must have a non-empty ConnectorId.", nameof(connector));
+        }
+
+        var exists = await ConnectorExistsAsync(connector.ConnectorId, cancellationToken).ConfigureAwait(false);
+        if (exists)
+        {
+            await UpdateConnectorAsync(connector, cancellationToken).ConfigureAwait(false);
+            return false;
+        }
+        else
+        {
+            await CreateConnectorAsync(connector, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+    }
+
+    private async Task<bool> ConnectorExistsAsync(Guid connectorId, CancellationToken cancellationToken)
+    {
+        var url = $"{DataverseUrl}/api/data/v9.2/connectors({connectorId})?$select=connectorid";
+        try
+        {
+            await SendAsync<object>(HttpMethod.Get, url, null, false, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("(404)"))
+        {
+            return false;
+        }
+    }
+
+    private async Task UpdateConnectorAsync(CustomConnectorMetadata connector, CancellationToken cancellationToken)
+    {
+        var body = new Dictionary<string, object?>
+        {
+            ["name"] = connector.Name,
+            ["displayname"] = connector.DisplayName,
+            ["description"] = connector.Description,
+            ["openapidefinition"] = connector.OpenApiDefinition,
+            ["connectionparameters"] = connector.ConnectionParameters,
+            ["connectionparametersets"] = connector.ConnectionParameterSets,
+            ["policytemplateinstances"] = connector.PolicyTemplateInstances,
+            ["iconbrandcolor"] = connector.IconBrandColor,
+            ["iconblob"] = connector.IconBlobBase64,
+        }
+        .Where(kv => kv.Value != null)
+        .ToDictionary(kv => kv.Key, kv => kv.Value);
+
+        var url = $"{DataverseUrl}/api/data/v9.2/connectors({connector.ConnectorId})";
+        await SendAsync<object>(HttpMethodHelper.Patch, url, body, false, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task CreateConnectorAsync(CustomConnectorMetadata connector, CancellationToken cancellationToken)
+    {
+        var body = new Dictionary<string, object?>
+        {
+            ["connectorid"] = connector.ConnectorId,
+            ["name"] = connector.Name,
+            ["displayname"] = connector.DisplayName,
+            ["description"] = connector.Description,
+            ["connectorinternalid"] = connector.ConnectorInternalId,
+            ["openapidefinition"] = connector.OpenApiDefinition,
+            ["connectionparameters"] = connector.ConnectionParameters,
+            ["connectionparametersets"] = connector.ConnectionParameterSets,
+            ["policytemplateinstances"] = connector.PolicyTemplateInstances,
+            ["iconbrandcolor"] = connector.IconBrandColor,
+            ["iconblob"] = connector.IconBlobBase64,
+            ["connectortype"] = connector.ConnectorType,
+        }
+        .Where(kv => kv.Value != null)
+        .ToDictionary(kv => kv.Key, kv => kv.Value);
+
+        var url = $"{DataverseUrl}/api/data/v9.2/connectors";
+        await SendAsync<object>(HttpMethod.Post, url, body, false, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<bool> WorkflowExistsAsync(Guid workflowId, CancellationToken cancellationToken)
@@ -408,7 +559,8 @@ public class SyncDataverseClient : ISyncDataverseClient
     public virtual async Task CreateConnectionReferenceAsync(
         string connectionReferenceLogicalName,
         string connectorId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Guid? customConnectorRowId = null)
     {
         var requestUri = new Uri(new Uri(DataverseUrl), "/api/data/v9.2/connectionreferences");
 
@@ -418,6 +570,15 @@ public class SyncDataverseClient : ISyncDataverseClient
             ["connectorid"] = connectorId
         };
 
+        if (customConnectorRowId.HasValue)
+        {
+            var navName = await GetCustomConnectorNavigationPropertyNameAsync(cancellationToken).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(navName))
+            {
+                body[$"{navName}@odata.bind"] = $"/connectors({customConnectorRowId.Value})";
+            }
+        }
+
         await SendAsync<object>(
             HttpMethod.Post,
             requestUri.ToString(),
@@ -425,6 +586,42 @@ public class SyncDataverseClient : ISyncDataverseClient
             false,
             cancellationToken
         ).ConfigureAwait(false);
+    }
+
+    private async Task<string?> GetCustomConnectorNavigationPropertyNameAsync(CancellationToken cancellationToken)
+    {
+        var cached = _connectionReferenceCustomConnectorNavName;
+        if (cached != null)
+        {
+            return cached;
+        }
+
+        try
+        {
+            var url = $"{DataverseUrl}/api/data/v9.2/EntityDefinitions(LogicalName='connectionreference')/ManyToOneRelationships" +
+                      "?$select=ReferencingAttribute,ReferencingEntityNavigationPropertyName" +
+                      "&$filter=ReferencingAttribute eq 'customconnectorid'";
+            var resp = await SendAsync<JsonElement>(HttpMethod.Get, url, null, false, cancellationToken).ConfigureAwait(false);
+            if (resp.ValueKind == JsonValueKind.Object &&
+                resp.TryGetProperty("value", out var arr) &&
+                arr.ValueKind == JsonValueKind.Array &&
+                arr.GetArrayLength() > 0 &&
+                arr[0].TryGetProperty("ReferencingEntityNavigationPropertyName", out var navProp))
+            {
+                var name = navProp.GetString();
+                if (!string.IsNullOrWhiteSpace(name))
+                {
+                    _connectionReferenceCustomConnectorNavName = name;
+                    return name;
+                }
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            // Metadata lookup failed; return null.
+        }
+
+        return null;
     }
 
     public virtual async Task<SolutionInfo> GetSolutionVersionsAsync(CancellationToken cancellationToken)
@@ -486,12 +683,13 @@ public class SyncDataverseClient : ISyncDataverseClient
     public virtual async Task EnsureConnectionReferenceExistsAsync(
         string connectionReferenceLogicalName,
         string connectorId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Guid? customConnectorRowId = null)
     {
         var exists = await ConnectionReferenceExistsAsync(connectionReferenceLogicalName, cancellationToken).ConfigureAwait(false);
         if (!exists)
         {
-            await CreateConnectionReferenceAsync(connectionReferenceLogicalName, connectorId, cancellationToken).ConfigureAwait(false);
+            await CreateConnectionReferenceAsync(connectionReferenceLogicalName, connectorId, cancellationToken, customConnectorRowId).ConfigureAwait(false);
         }
     }
 

@@ -37,6 +37,7 @@ export interface SyncRequest extends RemoteApiRequest {
 export interface SyncResponse extends RemoteApiResponse {
   localChanges: Change[];
   workflowResponse: WorkflowResponse[];
+  newlyCreatedCustomConnectors?: string[];
 }
 
 export interface GetFileRequest {
@@ -136,6 +137,7 @@ export interface ReattachAgentResponse extends RemoteApiResponse {
   agentSyncInfo: AgentSyncInfo;
   isNewAgent: boolean;
   workflowResponse: WorkflowResponse[];
+  newlyCreatedCustomConnectors?: string[];
 }
 
 export interface WorkflowResponse {
