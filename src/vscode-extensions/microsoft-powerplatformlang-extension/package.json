@@ -333,7 +333,7 @@
     "@typescript-eslint/eslint-plugin": "^8.30.0",
     "@typescript-eslint/parser": "^8.30.0",
     "@vscode/test-electron": "^2.4.1",
-    "esbuild": "0.27.2",
+    "esbuild": "0.28.0",
     "eslint": "^10.0.0",
     "nerdbank-gitversioning": "^3.7.115",
     "npm-run-all2": "^7.0.2",
