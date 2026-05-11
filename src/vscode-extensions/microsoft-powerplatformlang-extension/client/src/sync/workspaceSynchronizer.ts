@@ -88,6 +88,7 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
   function updateSyncState(newState: SyncState) {
     currentState = newState;
     listeners.forEach(listener => listener(newState));
+    _onAnySyncStateChanged.fire();
   }
 
   async function executeSyncOperation<T>(operation: () => Promise<T>, newState: SyncState): Promise<T> {
