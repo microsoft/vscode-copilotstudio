@@ -63,6 +63,30 @@ describe('workspaceSynchronizer: withSyncCommandBusy', () => {
 		assert.ok(events.includes('file:///test/agent-event'), `expected start event, got ${JSON.stringify(events)}`);
 		assert.strictEqual(events[events.length - 1], undefined, 'last event should observe cleared state');
 	});
+
+	test('throws when re-entered while another sync is in progress', async () => {
+		const outerUri = 'file:///test/agent-outer';
+		const innerUri = 'file:///test/agent-inner';
+		await assert.rejects(
+			withSyncCommandBusy(outerUri, async () => {
+				await withSyncCommandBusy(innerUri, async () => { /* unreachable */ });
+			}),
+			/sync is already in progress/i,
+		);
+		// Outer's finally still runs, clearing the state.
+		assert.strictEqual(getActiveSyncUri(), undefined);
+	});
+
+	test('same-uri re-entry also throws (no implicit reuse)', async () => {
+		const uri = 'file:///test/agent-same';
+		await assert.rejects(
+			withSyncCommandBusy(uri, async () => {
+				await withSyncCommandBusy(uri, async () => { /* unreachable */ });
+			}),
+			/sync is already in progress/i,
+		);
+		assert.strictEqual(getActiveSyncUri(), undefined);
+	});
 });
 
 describe('workspaceSynchronizer: getSyncStateFor', () => {

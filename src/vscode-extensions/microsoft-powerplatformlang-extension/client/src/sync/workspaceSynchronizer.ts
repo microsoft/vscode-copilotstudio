@@ -42,8 +42,16 @@ export function getSyncStateFor(workspaceUri: string): SyncState {
  * across multiple fetch/pull/push steps. Surfaces a native progress bar at
  * the top of the Agent Changes tree view and disables sync buttons via the
  * `mcs.isSyncing` context key.
+ *
+ * Reentrancy is not supported: if a sync is already running, this throws.
+ * UI entry points are gated by `!mcs.isSyncing`, so re-entry can only happen
+ * from extension code calling `commands.executeCommand` for a sync command
+ * while another sync is in flight -- which is always a bug.
  */
 export async function withSyncCommandBusy<T>(workspaceUri: string, body: () => Promise<T>): Promise<T> {
+  if (_activeSyncUri !== undefined) {
+    throw new Error(`A sync is already in progress for ${_activeSyncUri}; cannot start another for ${workspaceUri}.`);
+  }
   _activeSyncUri = workspaceUri;
   _onAnySyncStateChanged.fire();
   try {

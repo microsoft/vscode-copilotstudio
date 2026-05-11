@@ -168,8 +168,17 @@ const registerSyncCommand = (
             );
 
             if (choice === 'Get Remote Changes') {
-              // Execute Get command instead
-              await commands.executeCommand('microsoft-copilot-studio.getChanges', { ws: selectedWorkspace });
+              // Run the Get logic directly rather than dispatching the Get
+              // command, to avoid re-entering withSyncCommandBusy.
+              await window.withProgress({
+                location: ProgressLocation.Notification,
+                title: 'Getting remote changes...',
+                cancellable: false
+              }, async () => {
+                const virtualKnowledgeProvider = await registerVirtualKnowledgeProvider(context, selectedWorkspace);
+                const synchronizer = getOrAddSynchronizer(selectedWorkspace);
+                await synchronizer.pull(virtualKnowledgeProvider);
+              });
             }
             // Either way, don't proceed with Apply
             return;

@@ -57,6 +57,7 @@ class AgentChangesTreeDataProvider implements TreeDataProvider<AgentChangesTreeI
     switch (element.kind) {
       case AgentChangesItemKind.Agent: {
         const item = new TreeItem(element.workspace.displayName, TreeItemCollapsibleState.Expanded);
+        item.id = `agent:${element.workspace.workspaceUri}`;
         item.iconPath = element.workspace.icon;
         item.description = element.workspace.description;
         item.contextValue = 'agent';
@@ -79,6 +80,7 @@ class AgentChangesTreeDataProvider implements TreeDataProvider<AgentChangesTreeI
           : TreeItemCollapsibleState.Collapsed;
         
         const item = new TreeItem(label, collapsibleState);
+        item.id = `changeGroup:${element.workspace.workspaceUri}:${element.groupType}`;
         // Spinner mapping for the active sync workspace:
         //   Fetching / Pulling -> Remote Changes
         //   Pushing            -> Local Changes
@@ -96,6 +98,7 @@ class AgentChangesTreeDataProvider implements TreeDataProvider<AgentChangesTreeI
         const resource = element.resource;
         const fileName = resource.resourceUri.path.split('/').pop() || resource.resourceUri.path;
         const item = new TreeItem(fileName, TreeItemCollapsibleState.None);
+        item.id = `changeItem:${element.workspace.workspaceUri}:${element.groupType}:${resource.resourceUri.toString()}`;
         
         // Set icon based on change type
         item.iconPath = this.getChangeTypeIcon(resource.type);
@@ -140,9 +143,24 @@ class AgentChangesTreeDataProvider implements TreeDataProvider<AgentChangesTreeI
     }
   }
 
-  /** Root agents have no parent; required for `treeView.reveal` to work. */
-  getParent(): AgentChangesTreeItemUnion | undefined {
-    return undefined;
+  /**
+   * Return the parent of an element so `treeView.reveal` can locate it.
+   * Hierarchy: Agent (root) -> ChangeGroup -> ChangeItem.
+   */
+  getParent(element: AgentChangesTreeItemUnion): AgentChangesTreeItemUnion | undefined {
+    switch (element.kind) {
+      case AgentChangesItemKind.Agent:
+        return undefined;
+      case AgentChangesItemKind.ChangeGroup:
+        return { kind: AgentChangesItemKind.Agent, workspace: element.workspace };
+      case AgentChangesItemKind.ChangeItem:
+        return {
+          kind: AgentChangesItemKind.ChangeGroup,
+          workspace: element.workspace,
+          groupType: element.groupType,
+          label: element.groupType === 'local' ? 'Local Changes' : 'Remote Changes',
+        };
+    }
   }
 
   getChildren(element?: AgentChangesTreeItemUnion): AgentChangesTreeItemUnion[] {
