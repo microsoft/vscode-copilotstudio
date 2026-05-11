@@ -1,7 +1,7 @@
 import { commands, DiagnosticSeverity, ExtensionContext, languages, ProgressLocation, RelativePattern, TextDocument, Uri, window, workspace as VSworkspace } from "vscode";
 import { CopilotStudioWorkspace, getAllWorkspaces, hasConnectionFileInWorkspace } from "../sync/localWorkspaces";
 import { selectWorkspace } from "../sync/workspacePicker";
-import { getOrAddSynchronizer, WorkspaceSynchronizer } from "../sync/workspaceSynchronizer";
+import { getOrAddSynchronizer, withSyncCommandBusy, WorkspaceSynchronizer } from "../sync/workspaceSynchronizer";
 import { registerVirtualKnowledgeProvider } from "../knowledgeFiles/virtualKnowledgeFile";
 import { getWorkspaceChanges, refreshAgentChangesAfterFetch } from "../sync/workspaceScm";
 import { TelemetryEventsKeys } from "../constants";
@@ -135,59 +135,70 @@ const registerSyncCommand = (
       }
 
       let errors = { files: 0, count: 0 };
+      // For sync buttons to be disabled and loading indicators to be visible during the entire sync process.
+      await withSyncCommandBusy(selectedWorkspace.workspaceUri, async () => {
+        // For Apply operation, fetch remote changes first then check for conflicts
+        if (id === 'microsoft-copilot-studio.applyChanges') {
+          // First, fetch to get the current remote state
+          await window.withProgress({
+            location: ProgressLocation.Notification,
+            title: 'Checking for remote changes...',
+            cancellable: false
+          }, async () => {
+            const synchronizer = getOrAddSynchronizer(selectedWorkspace);
+            await synchronizer.fetch();
+            // Trigger refresh to update the change stores
+            await refreshAgentChangesAfterFetch(selectedWorkspace.workspaceUri);
+          });
 
-      // For Apply operation, fetch remote changes first then check for conflicts
-      if (id === 'microsoft-copilot-studio.applyChanges') {
-        // First, fetch to get the current remote state
+          // Now check if there are remote changes
+          const changes = getWorkspaceChanges(selectedWorkspace.workspaceUri);
+          // Filter out knowledge file changes - Knowledge file change is optional and do not block ApplyChanges.
+          const changesWithoutKnowledgeFiles =
+            changes?.remoteChanges.filter(
+              r => r.changeKind !== 'knowledge'
+            ) ?? [];
+
+          if (changesWithoutKnowledgeFiles.length > 0) {
+            const remoteCount = changesWithoutKnowledgeFiles.length;
+            const choice = await window.showWarningMessage(
+              `The agent has ${remoteCount} remote change${remoteCount === 1 ? '' : 's'} that must be retrieved before your local changes can be applied.`,
+              { modal: true },
+              'Get Remote Changes'
+            );
+
+            if (choice === 'Get Remote Changes') {
+              // Run the Get logic directly rather than dispatching the Get
+              // command, to avoid re-entering withSyncCommandBusy.
+              await window.withProgress({
+                location: ProgressLocation.Notification,
+                title: 'Getting remote changes...',
+                cancellable: false
+              }, async () => {
+                const virtualKnowledgeProvider = await registerVirtualKnowledgeProvider(context, selectedWorkspace);
+                const synchronizer = getOrAddSynchronizer(selectedWorkspace);
+                await synchronizer.pull(virtualKnowledgeProvider);
+              });
+            }
+            // Either way, don't proceed with Apply
+            return;
+          }
+        }
+
         await window.withProgress({
           location: ProgressLocation.Notification,
-          title: 'Checking for remote changes...',
+          title: `${displayName} operation in progress. Please wait...`,
           cancellable: false
         }, async () => {
-          const synchronizer = getOrAddSynchronizer(selectedWorkspace);
-          await synchronizer.fetch();
-          // Trigger refresh to update the change stores
-          await refreshAgentChangesAfterFetch(selectedWorkspace.workspaceUri);
-        });
-
-        // Now check if there are remote changes
-        const changes = getWorkspaceChanges(selectedWorkspace.workspaceUri);
-        // Filter out knowledge file changes - Knowledge file change is optional and do not block ApplyChanges.
-        const changesWithoutKnowledgeFiles =
-          changes?.remoteChanges.filter(
-            r => r.changeKind !== 'knowledge'
-          ) ?? [];
-
-        if (changesWithoutKnowledgeFiles.length > 0) {
-          const remoteCount = changesWithoutKnowledgeFiles.length;
-          const choice = await window.showWarningMessage(
-            `The agent has ${remoteCount} remote change${remoteCount === 1 ? '' : 's'} that must be retrieved before your local changes can be applied.`,
-            { modal: true },
-            'Get Remote Changes'
-          );
-
-          if (choice === 'Get Remote Changes') {
-            // Execute Get command instead
-            await commands.executeCommand('microsoft-copilot-studio.getChanges', { ws: selectedWorkspace });
+          // For Push/Apply operations, check for errors before proceeding
+          if (id === 'microsoft-copilot-studio.syncPush' || id === 'microsoft-copilot-studio.applyChanges') {
+            errors = await getDiagnosticsErrors(selectedWorkspace);
           }
-          // Either way, don't proceed with Apply
-          return;
-        }
-      }
-
-      await window.withProgress({
-        location: ProgressLocation.Notification,
-        title: `${displayName} operation in progress. Please wait...`,
-        cancellable: false
-      }, async () => {
-        // For Push/Apply operations, check for errors before proceeding
-        if (id === 'microsoft-copilot-studio.syncPush' || id === 'microsoft-copilot-studio.applyChanges') {
-          errors = await getDiagnosticsErrors(selectedWorkspace);
-        }
-        if (errors.count === 0) {
-          const synchronizer = getOrAddSynchronizer(selectedWorkspace);
-          await action(synchronizer);
-        }
+          if (errors.count === 0) {
+            const synchronizer = getOrAddSynchronizer(selectedWorkspace);
+            await action(synchronizer);
+          }
+        });
       });
 
       if ((id === 'microsoft-copilot-studio.syncPush' || id === 'microsoft-copilot-studio.applyChanges') && errors.count > 0) {

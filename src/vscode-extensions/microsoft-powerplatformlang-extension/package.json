@@ -237,18 +237,20 @@
       {
         "command": "microsoft-copilot-studio.previewChanges",
         "title": "Copilot Studio: Preview changes",
-        "icon": "$(eye)"
+        "icon": "$(eye)",
+        "enablement": "!mcs.isSyncing"
       },
       {
         "command": "microsoft-copilot-studio.getChanges",
         "title": "Copilot Studio: Get changes",
-        "icon": "$(cloud-download)"
+        "icon": "$(cloud-download)",
+        "enablement": "!mcs.isSyncing"
       },
       {
         "command": "microsoft-copilot-studio.applyChanges",
         "title": "Copilot Studio: Apply changes",
         "icon": "$(cloud-upload)",
-        "enablement": "!mcs.agentChangesView.hasRemoteChanges"
+        "enablement": "!mcs.agentChangesView.hasRemoteChanges && !mcs.isSyncing"
       },
       {
         "command": "microsoft-copilot-studio.cloneAgent",
