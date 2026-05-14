@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
-import { ServerOptions, TransportKind, LanguageClient, LanguageClientOptions, Trace, State } from "vscode-languageclient/node";
+import { ServerOptions, TransportKind, LanguageClient, LanguageClientOptions, Trace, State, LogMessageNotification } from "vscode-languageclient/node";
 import { TELEMETRY_CONNECTION_STRING, TelemetryEventsKeys } from '../constants';
 import { AccountInfo, AgentSyncInfo, EnvironmentInfo, RemoteApiRequest } from '../types';
 import { getAccessTokenByAccountId, getCopilotStudioAccessTokenByAccountId } from '../clients/account';
@@ -193,6 +193,33 @@ class LspClientService {
       });
     });
 
+    // Route window/logMessage into the LogOutputChannel for native
+    // [error]/[warning]/[info] color + timestamp. The .NET side gates sending on
+    // the client's "initialized" notification (see LspWindowLogMessageLoggerProvider)
+    // so this handler is wired first and takes precedence over vscode-languageclient's
+    // built-in default, which would otherwise prepend a duplicate
+    // "[Error|Warning|Info - h:mm:ss AM/PM]" prefix.
+    const logChannel = outputChannel as Partial<vscode.LogOutputChannel>;
+    const writeLog = (level: 'error' | 'warn' | 'info' | 'trace' | 'debug', message: string) => {
+      const fn = logChannel[level];
+      if (typeof fn === 'function') {
+        fn.call(logChannel, message);
+      } else {
+        outputChannel.appendLine(message);
+      }
+    };
+    this._client.onNotification(LogMessageNotification.type, (params: { type: number; message: string }) => {
+      const message = params?.message ?? '';
+      switch (params?.type) {
+        case 1: writeLog('error', message); break;
+        case 2: writeLog('warn', message); break;
+        case 3: writeLog('info', message); break;
+        case 4: writeLog('trace', message); break;
+        case 5: writeLog('debug', message); break;
+        default: outputChannel.appendLine(message); break;
+      }
+    });
+
     try {
       await vscode.window.withProgress(
         {
@@ -205,6 +232,7 @@ class LspClientService {
         }
       );
       logger.logInfo(TelemetryEventsKeys.LanguageServerInfo, "Copilot Studio Language Server has started");
+
       context.subscriptions.push(this._client);
     } catch (error) {
       logger.logError(TelemetryEventsKeys.LanguageServerError, `Copilot Studio Language Server failed to start: ${(error as Error).message}`);
