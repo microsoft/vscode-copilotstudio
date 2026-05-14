@@ -225,7 +225,7 @@
         "ms-CopilotStudio.telemetry.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable telemetry for Copilot Studio in addition to the global VS Code telemetry setting. If the global VS Code telemetry is disabled, no data is sent regardless of this setting.",
+          "markdownDescription": "Specifies whether to allow Copilot Studio to send product usage telemetry.\n\n_**Note:** For Copilot Studio to send any telemetry BOTH this setting and VS Code telemetry must be enabled. If either one is disabled no telemetry will be sent._",
           "tags": [
             "telemetry",
             "usesOnlineServices"
