@@ -30,6 +30,13 @@
         public const string Initialized = "initialized";
         public const string Shutdown = "shutdown";
         public const string Exit = "exit";
+
+        // Custom log notification. We deliberately do NOT use the standard
+        // window/logMessage because vscode-languageclient intercepts that and
+        // writes its own "[Error - h:mm:ss AM]" prefix via appendLine, which
+        // the LogOutputChannel then wraps with another "[info]" prefix,
+        // producing duplicated/mismatched levels in the output panel.
+        public const string PowerPlatformLogMessage = "powerplatformls/logMessage";
         #endregion
     }
 }
