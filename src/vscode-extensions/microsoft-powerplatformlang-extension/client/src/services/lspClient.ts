@@ -205,6 +205,23 @@ class LspClientService {
         }
       );
       logger.logInfo(TelemetryEventsKeys.LanguageServerInfo, "Copilot Studio Language Server has started");
+
+      // Route the server's custom log notification straight into the LogOutputChannel
+      // so we get the native [info]/[warning]/[error] coloring + timestamp without
+      // the languageclient's legacy "[Error - h:mm:ss AM]" appendLine prefix.
+      const logChannel = outputChannel as Partial<vscode.LogOutputChannel>;
+      this._client.onNotification('powerplatformls/logMessage', (params: { type: number; message: string }) => {
+        const message = params?.message ?? '';
+        switch (params?.type) {
+          case 1: logChannel.error?.(message) ?? outputChannel.appendLine(message); break;
+          case 2: logChannel.warn?.(message) ?? outputChannel.appendLine(message); break;
+          case 3: logChannel.info?.(message) ?? outputChannel.appendLine(message); break;
+          case 4: logChannel.trace?.(message) ?? outputChannel.appendLine(message); break;
+          case 5: logChannel.debug?.(message) ?? outputChannel.appendLine(message); break;
+          default: outputChannel.appendLine(message); break;
+        }
+      });
+
       context.subscriptions.push(this._client);
     } catch (error) {
       logger.logError(TelemetryEventsKeys.LanguageServerError, `Copilot Studio Language Server failed to start: ${(error as Error).message}`);

@@ -1,8 +1,10 @@
 using Microsoft.ApplicationInsights.Channel;
 using Microsoft.CommonLanguageServerProtocol.Framework;
+using Microsoft.Extensions.Logging;
 using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
 using Microsoft.PowerPlatformLS.Contracts.Internal.Common.DependencyInjection;
 using Microsoft.PowerPlatformLS.Impl.Core.DependencyInjection;
+using Microsoft.PowerPlatformLS.Impl.Core.Lsp;
 using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.DependencyInjection;
 using Microsoft.PowerPlatformLS.Impl.Language.PowerFx.DependencyInjection;
 using Microsoft.PowerPlatformLS.Impl.Language.Yaml.DependencyInjection;
@@ -30,6 +32,16 @@ try
     builder.Services.AddSingleton<ILspModule, YamlLspModule>();
     builder.Services.AddSingleton<ILspModule, McsLspModule>();
     builder.Services.AddSingleton<ILspModule>(sp => new PullAgentLspModule(sp.GetRequiredService<BuildVersionInfo>()));
+
+    // Replace the host's default logging providers (Console/Debug/EventSource/EventLog)
+    // with one that forwards every Microsoft.Extensions.Logging entry to the LSP client
+    // via window/logMessage notifications. The VS Code language client renders these
+    // through its LogOutputChannel, producing timestamped, color-coded
+    // [info]/[warning]/[error] lines that match the GitHub Copilot Chat output panel.
+    // The default Console provider is removed so raw "fail: <category>[0]" lines no
+    // longer leak to the channel via the host process's stdout/stderr.
+    builder.Logging.ClearProviders();
+    builder.Logging.Services.AddSingleton<ILoggerProvider, LspWindowLogMessageLoggerProvider>();
 
     var isTelemetryEnabled = ParseTelemetryEnabledFromArgs(args);
     Console.WriteLine($"Telemetry Status: {(isTelemetryEnabled ? "Enabled" : "Disabled")}");
