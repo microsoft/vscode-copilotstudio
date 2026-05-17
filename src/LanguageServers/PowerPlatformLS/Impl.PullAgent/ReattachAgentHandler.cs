@@ -75,6 +75,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 _dataverseTokenManager.SetTokens(request.DataverseAccessToken, request.CopilotStudioAccessToken);
                 _dataverseHttpClientAccessor.SetDataverseUrl(new Uri(request.EnvironmentInfo.DataverseUrl));
                 _dataverseClient.SetDataverseUrl(request.EnvironmentInfo.DataverseUrl);
+                _dataverseClient.SetEnvironmentId(request.EnvironmentInfo.EnvironmentId);
 
                 var workspace = (IMcsWorkspace)context.Workspace;
                 var language = context.Language;
@@ -158,6 +159,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 var connectorPushResult = await _workspaceSynchronizer.PushCustomConnectorsAsync(workspaceFolder, _dataverseClient, cancellationToken);
                 await _workspaceSynchronizer.ProvisionConnectionReferencesAsync(workspace.Definition, _dataverseClient, cancellationToken, connectorPushResult.PushedRowIds);
                 var (workflowResponse, cloudFlowMetadata) = await _workspaceSynchronizer.UpsertWorkflowForAgentAsync(workspaceFolder, _dataverseClient, agentId, cancellationToken);
+                var (aiPromptResponse, _) = await _workspaceSynchronizer.UpsertAIPromptsForAgentAsync(workspaceFolder, _dataverseClient, agentId, cancellationToken);
                 await _workspaceSynchronizer.SyncWorkspaceAsync(workspaceFolder, operationContext, changeToken: null, updateWorkspaceDirectory, _dataverseClient, syncInfo, cloudFlowMetadata, cancellationToken: cancellationToken);
 
                 return new ReattachAgentResponse()
@@ -167,6 +169,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     AgentSyncInfo = syncInfo,
                     IsNewAgent = isNewAgent,
                     WorkflowResponse = workflowResponse,
+                    AIPromptResponse = aiPromptResponse,
                     NewlyCreatedCustomConnectors = connectorPushResult.NewlyCreatedConnectorNames.ToImmutableArray(),
                 };
             }

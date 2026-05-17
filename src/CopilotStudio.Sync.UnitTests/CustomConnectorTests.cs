@@ -232,6 +232,7 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
                 dataverse.Object,
                 agentId: Guid.NewGuid(),
                 cloudFlowMetadata: null,
+                aiPrompts: default,
                 CancellationToken.None);
 
             Assert.Equal(0, result.UploadedKnowledgeFileCount);

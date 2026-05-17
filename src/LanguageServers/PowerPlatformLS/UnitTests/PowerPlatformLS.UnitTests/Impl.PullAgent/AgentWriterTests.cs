@@ -656,6 +656,7 @@ beginDialog:
                 dataverseClient,
                 agentId,
                 null,
+                default,
                 cancel
             );
 
@@ -1004,6 +1005,7 @@ beginDialog:
                 dataverseClient,
                 agentId,
                 cloudFlowMetadata,
+                default,
                 cancel
             );
 
@@ -1675,6 +1677,7 @@ beginDialog:
                 dataverseClient,
                 agentId: null,
                 cloudFlowMetadata: null,
+                aiPrompts: default,
                 cancel,
                 uploadAllKnowledgeFiles: false);
 
@@ -2424,6 +2427,7 @@ beginDialog:
                 new MockDataverseClient(),
                 Guid.NewGuid(),
                 cloudFlowMetadata: null,
+                aiPrompts: default,
                 cancel
             );
 

@@ -24,4 +24,8 @@
     <ProjectReference Include="..\CopilotStudio.Sync\CopilotStudio.Sync.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="TestData\**\*.*" />
+  </ItemGroup>
+
 </Project>

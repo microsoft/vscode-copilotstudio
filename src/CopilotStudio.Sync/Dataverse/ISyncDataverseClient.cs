@@ -19,6 +19,12 @@ public interface ISyncDataverseClient
 #pragma warning restore CA1054
 
     /// <summary>
+    /// Sets the Power Platform environment id used in the x-ms-environment-id header
+    /// </summary>
+    /// <param name="environmentId">The environment id to set.</param>
+    void SetEnvironmentId(string? environmentId);
+
+    /// <summary>
     /// Create new agent by agent name and schema name.
     /// </summary>
     Task<AgentInfo> CreateNewAgentAsync(string displayName, string schemaName, CancellationToken cancellationToken);
@@ -108,4 +114,14 @@ public interface ISyncDataverseClient
     /// <param name="fileName">The name of the knowledge file to upload.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     Task UploadKnowledgeFileAsync(string knowledgeFileFolder, Guid botComponentId, string fileName, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Download all AI Builder prompt models.
+    /// </summary>
+    Task<AIPromptMetadata[]> DownloadAllAIPromptsForAgentAsync(AgentSyncInfo syncInfo, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Upsert an AI Builder prompt or creates new if they do not yet exist in Dataverse.
+    /// </summary>
+    Task<AIPromptResponse> UpsertAIPromptAsync(Guid? agentId, AIPromptMetadata? promptMetadata, CancellationToken cancellationToken);
 }

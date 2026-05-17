@@ -1,0 +1,128 @@
+﻿{
+  "name": "summarize document 1",
+  "instruction": "Version 1: Analyze and summarize the given with clarity and coherence, making it accessible to a general audience while preserving all key ideas and essential details. Ensure logical flow, eliminate redundancy, and refine the wording for conciseness without losing depth. If applicable, highlight key insights, implications, or actionable takeaways. If the document is too brief for summarization, present it as is. Input document: {{Document_20input}}. Input text: {{Text_20input}}.",
+  "model": "gpt-41-mini",
+  "modelParameters": {
+    "gptParameters": {
+      "temperature": 0
+    }
+  },
+  "inputs": [
+    {
+      "id": "Document_20input",
+      "text": "Document input",
+      "type": "document"
+    },
+    {
+      "id": "Text_20input",
+      "text": "Text input",
+      "type": "text",
+      "quickTestValue": "abc"
+    }
+  ],
+  "output": {
+    "formats": [
+      "json"
+    ],
+    "jsonSchema": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "count": {
+          "type": "number"
+        },
+        "success": {
+          "type": "boolean"
+        },
+        "template": {
+          "type": "string"
+        },
+        "summaryResult": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "Quality": {
+                "type": "number"
+              },
+              "Unit_Price": {
+                "type": "string"
+              },
+              "shiping method": {
+                "type": "string"
+              },
+              "date description": {
+                "type": "string"
+              },
+              "this_is-long!name@wigth#a$b%c^c\u0026d*e": {
+                "type": "string"
+              },
+              "long_name-as-long-as-we-want": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "Quality",
+              "Unit_Price",
+              "shiping method",
+              "date description",
+              "this_is-long!name@wigth#a$b%c^c\u0026d*e",
+              "long_name-as-long-as-we-want"
+            ]
+          }
+        }
+      }
+    },
+    "jsonExamples": [
+      {
+        "summary": "Copilot Studio (Preview) is a Microsoft extension for Visual Studio Code that allows developers to edit their Copilot Studio agents directly within the IDE. It supports source control features such as fetching, pulling, and pushing changes, providing a live editing experience of cloud resources. Users can preview remote changes, synchronize updates, and push local changes seamlessly. For issue reporting, the extension includes a custom command that collects diagnostic information to facilitate efficient troubleshooting, recommended over the built-in report feature. Privacy is respected, with a dedicated statement available for users to review. The extension is categorized under Programming Languages, Azure, AI, and Chat, and is actively maintained with recent updates.",
+        "count": 123,
+        "success": true,
+        "template": "abc",
+        "summaryResult": [
+          {
+            "Quality": 3,
+            "Unit_Price": "234.4",
+            "shiping method": "ups method",
+            "date description": "date1",
+            "this_is-long!name@wigth#a$b%c^c\u0026d*e": "abc",
+            "long_name-as-long-as-we-want": "567"
+          },
+          {
+            "Quality": 25,
+            "Unit_Price": "567.4",
+            "shiping method": "fedex method",
+            "date description": "date2",
+            "this_is-long!name@wigth#a$b%c^c\u0026d*e": "cde",
+            "long_name-as-long-as-we-want": "89"
+          }
+        ]
+      }
+    ],
+    "isCustomUserFormat": true
+  },
+  "formulas": [
+    {
+      "id": "Power_20Fx_20formula",
+      "type": "powerFx",
+      "displayName": "Power Fx formula",
+      "content": "If(true, \u0022123\u0022)"
+    }
+  ],
+  "data": [
+    {
+      "id": "account",
+      "displayName": "Account",
+      "type": "dataverseTable",
+      "filters": []
+    }
+  ],
+  "settings": {
+    "recordRetrievalLimit": 30,
+    "shouldPreserveRecordLinks": null,
+    "runtime": null
+  },
+  "version": "GptDynamicPrompt-2"
+}

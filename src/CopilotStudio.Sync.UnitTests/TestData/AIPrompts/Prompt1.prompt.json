@@ -1,0 +1,255 @@
+﻿{
+  "name": "Prompt 1",
+  "instruction": "Version 1: Extract the specified {{entity}}, provided as a comma-separated list, from the provided {{text}} with precision, paying special attention to preserving currency values. Flatten the hierarchy of entities, listing them at the same level in the output. Normalize entities to their respective data types, such as strings for text, numbers for quantities, and ISO 8601 format for dates. For currency values, include the numerical amount along with the currency symbol or code to maintain the value\u0027s context. Adapt to multilingual content, accurately extract quantities with units, and ensure the integrity of cross-referenced data. For each entity, especially currency, ensure that the JSON output accurately reflects the value with its currency symbol or code, and represents other data types appropriately.\nFor example: \n{\n \u0022\u0022extracted_data\u0022\u0022: {\n  \u0022\u0022[entity 1]\u0022\u0022: {\u0022\u0022value\u0022\u0022: [extracted value], \u0022\u0022type\u0022\u0022: \u0022\u0022[data type]\u0022\u0022},\n  \u0022\u0022[entity 2]\u0022\u0022: {\u0022\u0022value\u0022\u0022: [extracted value], \u0022\u0022type\u0022\u0022: \u0022\u0022[data type]\u0022\u0022},\n  // Continue listing additional entities with their values and data types\n  ...\n }\n}\nWhen you create output. create json output and 2 variable: current date that we run on and type of input",
+  "model": "gpt-41-mini",
+  "modelParameters": {
+    "gptParameters": {
+      "temperature": 0
+    }
+  },
+  "inputs": [
+    {
+      "id": "entity",
+      "text": "entity",
+      "type": "text",
+      "quickTestValue": "Container Number, Registration Number"
+    },
+    {
+      "id": "text",
+      "text": "text",
+      "type": "text",
+      "quickTestValue": "Dear Susan, I hope this email finds you well. I am writing to provide you with the shipment information for the upcoming delivery of multiple containers from our supplier. Please find the registration numbers and container details outlined below. Container 1: Registration Number: 8467-1234 Container Number: ABC1234567 Contents: [Brief description of the contents of Container 1]. Container 2: Registration Number: 963-5678 Container Number: DEF8901234 Contents: [Brief description of the contents of Container 2]. Container 3: Registration Number: 2683-9012 Container Number: GHI5678901 Contents: [Brief description of the contents of Container 3]. Container 4: Registration Number: 9461-3456 Container Number: JKL2345678 Contents: [Brief description of the contents of Container 4]. Please ensure that the registration numbers and container details are accurately recorded for your reference and tracking purposes. We kindly request that you coordinate with your receiving team to ensure a smooth and efficient process upon arrival. If you have any questions or require further information, please do not hesitate to reach out to our dedicated logistics team at [Contact Information]. They will be happy to assist you with any queries or concerns. We greatly appreciate your cooperation and understanding in managing this shipment. We remain committed to providing you with the highest level of service and ensuring a successful delivery. Thank you for your attention to this matter, and we look forward to a seamless shipment process. Best regards, John Doe"
+    }
+  ],
+  "output": {
+    "formats": [
+      "json"
+    ],
+    "jsonSchema": {
+      "type": "object",
+      "properties": {
+        "extracted_data": {
+          "type": "object",
+          "properties": {
+            "Container 1 Registration Number": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            },
+            "Container 1 Container Number": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            },
+            "Container 2 Registration Number": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            },
+            "Container 2 Container Number": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            },
+            "Container 3 Registration Number": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            },
+            "Container 3 Container Number": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            },
+            "Container 4 Registration Number": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            },
+            "Container 4 Container Number": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            },
+            "Special-Is!-@a#b$c%d^k\u0026k*b": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            },
+            "Due-Date": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            },
+            "TenCharacters_abc": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            },
+            "ThisisverylongnameandlongasWewant": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            },
+            "MixedNameAnd1234_ab23": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "current_date": {
+          "type": "string"
+        },
+        "type_of_input": {
+          "type": "string"
+        }
+      }
+    },
+    "jsonExamples": [
+      {
+        "extracted_data": {
+          "Container 1 Registration Number": {
+            "value": "8467-1234",
+            "type": "string"
+          },
+          "Container 1 Container Number": {
+            "value": "ABC1234567",
+            "type": "string"
+          },
+          "Container 2 Registration Number": {
+            "value": "963-5678",
+            "type": "string"
+          },
+          "Container 2 Container Number": {
+            "value": "DEF8901234",
+            "type": "string"
+          },
+          "Container 3 Registration Number": {
+            "value": "2683-9012",
+            "type": "string"
+          },
+          "Container 3 Container Number": {
+            "value": "GHI5678901",
+            "type": "string"
+          },
+          "Container 4 Registration Number": {
+            "value": "9461-3456",
+            "type": "string"
+          },
+          "Container 4 Container Number": {
+            "value": "JKL2345678",
+            "type": "string"
+          },
+          "Special-Is!-@a#b$c%d^k\u0026k*b": {
+            "value": "JKL2345671",
+            "type": "string"
+          },
+          "Due-Date": {
+            "value": "JKL2345672",
+            "type": "string"
+          },
+          "TenCharacters_abc": {
+            "value": "JKL2345673",
+            "type": "string"
+          },
+          "ThisisverylongnameandlongasWewant": {
+            "value": "JKL2345674",
+            "type": "string"
+          },
+          "MixedNameAnd1234_ab23": {
+            "value": "JKL2345675",
+            "type": "string"
+          }
+        },
+        "current_date": "2024-06-06",
+        "type_of_input": "text"
+      }
+    ],
+    "isCustomUserFormat": true
+  },
+  "settings": {
+    "recordRetrievalLimit": 30,
+    "shouldPreserveRecordLinks": null,
+    "runtime": null
+  },
+  "version": "GptDynamicPrompt-2"
+}

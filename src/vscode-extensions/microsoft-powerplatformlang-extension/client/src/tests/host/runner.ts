@@ -13,7 +13,7 @@ export async function run(): Promise<void> {
     throw new Error(`No test files matching *.test.js found in ${testDir}`);
   }
 
-  const stream = runNodeTests({ files, isolation: 'none' });
+  const stream = runNodeTests({ files });
 
   let passed = 0;
   let failed = 0;

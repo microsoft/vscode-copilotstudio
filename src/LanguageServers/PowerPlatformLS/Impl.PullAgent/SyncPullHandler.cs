@@ -5,7 +5,6 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.CopilotStudio.Sync.Dataverse;
-    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
     using System.Collections.Immutable;
@@ -20,9 +19,9 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         {
         }
 
-        protected override async Task<(DefinitionBase, ImmutableArray<WorkflowResponse>, ImmutableArray<string>)> ExecuteAsync(IMcsWorkspace workspace, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CancellationToken cancellationToken)
+        protected override async Task<(DefinitionBase, ImmutableArray<WorkflowResponse>, ImmutableArray<SyncDataverseClient.AIPromptResponse>, ImmutableArray<string>)> ExecuteAsync(IMcsWorkspace workspace, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CancellationToken cancellationToken)
         {
-            return (await _synchronizer.PullExistingChangesAsync(workspace.FolderPath, operationContext, workspace.Definition, dataverseClient, syncInfo, cancellationToken).ConfigureAwait(false), ImmutableArray<WorkflowResponse>.Empty, ImmutableArray<string>.Empty);
+            return (await _synchronizer.PullExistingChangesAsync(workspace.FolderPath, operationContext, workspace.Definition, dataverseClient, syncInfo, cancellationToken).ConfigureAwait(false), ImmutableArray<WorkflowResponse>.Empty, ImmutableArray<Microsoft.CopilotStudio.Sync.Dataverse.SyncDataverseClient.AIPromptResponse>.Empty, ImmutableArray<string>.Empty);
         }
     }
 }

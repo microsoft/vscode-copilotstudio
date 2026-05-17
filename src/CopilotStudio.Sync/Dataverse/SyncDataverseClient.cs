@@ -7,6 +7,7 @@ using Microsoft.Agents.Platform.Content.Abstractions;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using YamlDotNet.Serialization;
 
 namespace Microsoft.CopilotStudio.Sync.Dataverse;
@@ -15,6 +16,7 @@ public class SyncDataverseClient : ISyncDataverseClient
 {
     private readonly IDataverseHttpClientAccessor _httpClientAccessor;
     private readonly AsyncLocal<string> _dataverseUrl = new();
+    private readonly AsyncLocal<string?> _environmentId = new();
     private string DataverseUrl => _dataverseUrl.Value
         ?? throw new InvalidOperationException("Dataverse URL is not set. Call SetDataverseUrl before making API calls.");
 
@@ -41,6 +43,12 @@ public class SyncDataverseClient : ISyncDataverseClient
     public void SetDataverseUrl(string dataverseUrl)
     {
         _dataverseUrl.Value = dataverseUrl ?? throw new ArgumentNullException(nameof(dataverseUrl));
+    }
+
+    /// <inheritdoc />
+    public void SetEnvironmentId(string? environmentId)
+    {
+        _environmentId.Value = string.IsNullOrWhiteSpace(environmentId) ? null : environmentId;
     }
 
     public virtual async Task<AgentInfo> CreateNewAgentAsync(string displayName, string schemaName, CancellationToken cancellationToken)
@@ -178,9 +186,7 @@ public class SyncDataverseClient : ISyncDataverseClient
         }
 
         var filter = string.Join(" or ", names.Select(n => $"connectionreferencelogicalname eq '{n}'"));
-        var requestUri = $"{DataverseUrl}/api/data/v9.2/connectionreferences" +
-                         $"?$select=connectionreferenceid,connectionreferencelogicalname,connectorid" +
-                         $"&$filter={Uri.EscapeDataString(filter)}";
+        var requestUri = $"{DataverseUrl}/api/data/v9.2/connectionreferences?$select=connectionreferenceid,connectionreferencelogicalname,connectorid&$filter={Uri.EscapeDataString(filter)}";
 
         var response = await SendAsync<ConnectionReferenceQueryResponse>(HttpMethod.Get, requestUri, null, false, cancellationToken).ConfigureAwait(false);
         return response?.Value ?? Array.Empty<ConnectionReferenceInfo>();
@@ -760,6 +766,222 @@ public class SyncDataverseClient : ISyncDataverseClient
         return Path.Combine(knowledgeFileFolder, fileName);
     }
 
+    public virtual async Task<AIPromptMetadata[]> DownloadAllAIPromptsForAgentAsync(AgentSyncInfo syncInfo, CancellationToken cancellationToken)
+    {
+        string? scopeFilter = null;
+        if (syncInfo.AgentId.HasValue && syncInfo.AgentId != Guid.Empty)
+        {
+            scopeFilter = $"_parentbotid_value eq {syncInfo.AgentId}";
+        }
+        else if (syncInfo.ComponentCollectionId.HasValue && syncInfo.ComponentCollectionId != Guid.Empty)
+        {
+            scopeFilter = $"_parentbotcomponentcollectionid_value eq {syncInfo.ComponentCollectionId}";
+        }
+
+        if (scopeFilter == null)
+        {
+            return Array.Empty<AIPromptMetadata>();
+        }
+
+        var aiModelIds = new HashSet<Guid>();
+        var filter = $"componenttype eq 9 and {scopeFilter}";
+        string? nextPageUrl = $"{DataverseUrl}/api/data/v9.2/botcomponents?$select=botcomponentid,data&$filter={Uri.EscapeDataString(filter)}";
+
+        while (!string.IsNullOrEmpty(nextPageUrl))
+        {
+            var page = await SendAsync<JsonElement>(HttpMethod.Get, nextPageUrl!, null, false, cancellationToken).ConfigureAwait(false);
+
+            if (page.TryGetProperty("value", out var valueArray) && valueArray.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var botComponent in valueArray.EnumerateArray())
+                {
+                    if (!botComponent.TryGetProperty("data", out var dataProperty) || dataProperty.ValueKind != JsonValueKind.String)
+                    {
+                        continue;
+                    }
+
+                    var componentYaml = dataProperty.GetString();
+                    if (string.IsNullOrEmpty(componentYaml))
+                    {
+                        continue;
+                    }
+
+                    var aiModelIdMatch = Regex.Match(componentYaml!, @"aIModelId\s*:\s*([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})");
+                    if (aiModelIdMatch.Success && Guid.TryParse(aiModelIdMatch.Groups[1].Value, out var modelId))
+                    {
+                        aiModelIds.Add(modelId);
+                    }
+                }
+            }
+
+            nextPageUrl = page.TryGetProperty("@odata.nextLink", out var nextLinkProperty) ? nextLinkProperty.GetString() : null;
+        }
+
+        if (aiModelIds.Count == 0)
+        {
+            return Array.Empty<AIPromptMetadata>();
+        }
+
+        return await FetchAIPromptsByModelIdsAsync(aiModelIds, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<AIPromptMetadata[]> FetchAIPromptsByModelIdsAsync(IEnumerable<Guid> aiModelIds, CancellationToken cancellationToken)
+    {
+        var results = new List<AIPromptMetadata>();
+        foreach (var batch in aiModelIds.Chunk(BatchSize))
+        {
+            var idFilter = string.Join(" or ", batch.Select(id => $"msdyn_aimodelid eq {id}"));
+            const string expand = "msdyn_aimodel_msdyn_aiconfiguration($select=msdyn_aiconfigurationid,msdyn_type,msdyn_customconfiguration,msdyn_name,statecode,statuscode,msdyn_majoriterationnumber,msdyn_minoriterationnumber,msdyn_templateversion;$orderby=msdyn_majoriterationnumber desc,msdyn_minoriterationnumber desc)";
+            string? nextPageUrl = $"{DataverseUrl}/api/data/v9.2/msdyn_aimodels?" +
+                                   $"$select=msdyn_aimodelid,msdyn_name,_msdyn_templateid_value,statecode,statuscode" +
+                                   $"&$expand={expand}" +
+                                   $"&$filter={Uri.EscapeDataString(idFilter)}";
+
+            while (!string.IsNullOrEmpty(nextPageUrl))
+            {
+                var page = await SendAsync<JsonElement>(HttpMethod.Get, nextPageUrl!, null, false, cancellationToken).ConfigureAwait(false);
+                if (page.TryGetProperty("value", out var valueArray) && valueArray.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var aiModelElement in valueArray.EnumerateArray())
+                    {
+                        var promptMetadata = ParseAIPromptMetadata(aiModelElement);
+                        if (promptMetadata != null)
+                        {
+                            results.Add(promptMetadata);
+                        }
+                    }
+                }
+
+                nextPageUrl = page.TryGetProperty("@odata.nextLink", out var nextLinkProperty) ? nextLinkProperty.GetString() : null;
+            }
+        }
+
+        return results.ToArray();
+    }
+
+    private static AIPromptMetadata? ParseAIPromptMetadata(JsonElement aiModelElement)
+    {
+        if (!aiModelElement.TryGetProperty("msdyn_aimodelid", out var aiModelIdElement) || !Guid.TryParse(aiModelIdElement.GetString(), out var modelId))
+        {
+            return null;
+        }
+
+        var modelName = aiModelElement.TryGetProperty("msdyn_name", out var modelNameElement) ? modelNameElement.GetString() : null;
+
+        Guid? templateId = null;
+        if (aiModelElement.TryGetProperty("_msdyn_templateid_value", out var templateIdElement) && templateIdElement.ValueKind == JsonValueKind.String && Guid.TryParse(templateIdElement.GetString(), out var templateIdGuid))
+        {
+            templateId = templateIdGuid;
+        }
+
+        string? customConfiguration = null;
+        if (aiModelElement.TryGetProperty("msdyn_aimodel_msdyn_aiconfiguration", out var configurationsArray) && configurationsArray.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var configuration in configurationsArray.EnumerateArray())
+            {
+                if (configuration.TryGetProperty("msdyn_customconfiguration", out var customConfigurationElement) && customConfigurationElement.ValueKind == JsonValueKind.String && !string.IsNullOrEmpty(customConfigurationElement.GetString()))
+                {
+                    customConfiguration = customConfigurationElement.GetString();
+                    break;
+                }
+            }
+        }
+
+        return new AIPromptMetadata
+        {
+            AIModelId = modelId,
+            Name = modelName,
+            TemplateId = templateId,
+            CustomConfiguration = customConfiguration
+        };
+    }
+
+    public virtual async Task<AIPromptResponse> UpsertAIPromptAsync(Guid? agentId, AIPromptMetadata? promptMetadata, CancellationToken cancellationToken)
+    {
+        if (promptMetadata is null)
+        {
+            throw new ArgumentNullException(nameof(promptMetadata));
+        }
+
+        if (promptMetadata.AIModelId == Guid.Empty)
+        {
+            throw new ArgumentException("AIPromptMetadata must have a non-empty AIModelId.", nameof(promptMetadata));
+        }
+
+        var promptName = promptMetadata.Name ?? promptMetadata.AIModelId.ToString();
+        var errorMessage = string.Empty;
+
+        try
+        {
+            if (string.IsNullOrEmpty(promptMetadata.CustomConfiguration))
+            {
+                return new AIPromptResponse { PromptName = promptName, ErrorMessage = string.Empty };
+            }
+
+            var templateId = await GetTemplateIdAsync(promptMetadata.AIModelId, cancellationToken).ConfigureAwait(false);
+            if (templateId == Guid.Empty)
+            {
+                templateId = promptMetadata.TemplateId ?? Guid.Empty;
+            }
+
+            await PublishAIModelAsync(promptMetadata, templateId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+
+        return new AIPromptResponse
+        {
+            PromptName = promptName,
+            ErrorMessage = errorMessage
+        };
+    }
+
+    private async Task PublishAIModelAsync(AIPromptMetadata prompt, Guid templateId, CancellationToken cancellationToken)
+    {
+        if (prompt.AIModelId == Guid.Empty)
+        {
+            return;
+        }
+
+        var requestBody = new Dictionary<string, object?>
+        {
+            ["CustomConfiguration"] = prompt.CustomConfiguration ?? string.Empty,
+            ["ModelId"] = prompt.AIModelId.ToString(),
+            ["ModelName"] = prompt.Name ?? string.Empty,
+            ["RunConfigurationId"] = Guid.NewGuid().ToString(),
+            ["TemplateId"] = templateId == Guid.Empty ? string.Empty : templateId.ToString(),
+            ["RunConfiguration"] = string.Empty,
+            ["Source"] = "{ \"consumptionSource\": \"Api\", \"partnerSource\": \"PVA\", \"consumptionSourceVersion\": \"GptApiClient\"}"
+        };
+
+        var publishUrl = $"{DataverseUrl}/api/data/v9.0/AIModelPublish";
+        await SendAsync<object>(HttpMethod.Post, publishUrl, requestBody, expectReturn: false, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<Guid> GetTemplateIdAsync(Guid aiModelId, CancellationToken cancellationToken)
+    {
+        var requestUrl = $"{DataverseUrl}/api/data/v9.2/msdyn_aimodels({aiModelId})?$select=_msdyn_templateid_value";
+        try
+        {
+            var response = await SendAsync<JsonElement>(HttpMethod.Get, requestUrl, null, false, cancellationToken).ConfigureAwait(false);
+            if (response.ValueKind == JsonValueKind.Object && response.TryGetProperty("_msdyn_templateid_value", out var templateIdElement) && templateIdElement.ValueKind == JsonValueKind.String && Guid.TryParse(templateIdElement.GetString(), out var templateId))
+            {
+                return templateId;
+            }
+        }
+        catch (InvalidOperationException)
+        {
+        }
+
+        return Guid.Empty;
+    }
+
     #region DTO Types
 
     internal class ConnectionReferenceQueryResponse
@@ -908,6 +1130,29 @@ public class SyncDataverseClient : ISyncDataverseClient
 
         [JsonPropertyName("ManagedPropertyLogicalName")]
         public string? ManagedPropertyLogicalName { get; set; }
+    }
+
+    public class AIPromptMetadata
+    {
+        [JsonPropertyName("aimodelid")]
+        public Guid AIModelId { get; set; }
+
+        [JsonPropertyName("name")]
+        public string? Name { get; set; }
+
+        [JsonPropertyName("templateid")]
+        public Guid? TemplateId { get; set; }
+
+        [YamlIgnore]
+        [JsonPropertyName("customconfiguration")]
+        public string? CustomConfiguration { get; set; }
+    }
+
+    public class AIPromptResponse
+    {
+        public string? PromptName { get; set; }
+
+        public string? ErrorMessage { get; set; }
     }
 
         internal class SolutionQueryResponse

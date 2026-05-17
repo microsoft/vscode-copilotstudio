@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { resetAccount } from '../clients/account';
-import { SyncRequest, SyncResponse, WorkflowResponse } from '../types';
+import { SyncRequest, SyncResponse, WorkflowResponse, AIPromptResponse } from '../types';
 import { CopilotStudioWorkspace, tryRepairAgentManagementEndpoint } from './localWorkspaces';
 import { uploadKnowledgeFiles } from '../knowledgeFiles/uploadKnowledgeFiles';
 import { virtualKnowledgeFileSystemProvider } from '../knowledgeFiles/virtualKnowledgeFile';
@@ -142,6 +142,7 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
       });
     logger.logInfo(TelemetryEventsKeys.SyncWorkspaceSuccess, `Successfully completed ${displayText}`);
     logWorkflowIssues(result.workflowResponse);
+    logAIPromptIssues(result.aiPromptResponse);
     logNewCustomConnectors(result.newlyCreatedCustomConnectors, workspace);
     return result;
   } catch (error) {
@@ -187,6 +188,26 @@ export function logWorkflowIssues(workflows: WorkflowResponse[] | undefined) {
 
 export function logNewCustomConnectors(connectors: string[] | undefined, workspace: CopilotStudioWorkspace) {
   logNewCustomConnectorsRaw(connectors, workspace.workspaceUri);
+}
+
+export function logAIPromptIssues(prompts: AIPromptResponse[] | undefined) {
+  if (!prompts?.length) {
+    return;
+  }
+
+  const failed: string[] = [];
+  for (const p of prompts) {
+    if (p.errorMessage) {
+      failed.push(`${p.promptName}: ${p.errorMessage}`);
+    }
+  }
+
+  if (failed.length > 0) {
+    logger.logError(
+      TelemetryEventsKeys.SyncWorkspaceError,
+      `Failed to push AI Builder prompt(s): ${failed.join('; ')}`
+    );
+  }
 }
 
 export function logNewCustomConnectorsRaw(connectors: string[] | undefined, workspaceUri: string) {

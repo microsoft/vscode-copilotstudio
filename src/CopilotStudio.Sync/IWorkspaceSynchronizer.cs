@@ -3,6 +3,7 @@
 // Changed: DataverseClient → ISyncDataverseClient
 
 using Microsoft.CopilotStudio.Sync.Dataverse;
+using static Microsoft.CopilotStudio.Sync.Dataverse.SyncDataverseClient;
 using Microsoft.Agents.ObjectModel;
 using Microsoft.Agents.Platform.Content;
 using System.Collections.Immutable;
@@ -118,6 +119,7 @@ public interface IWorkspaceSynchronizer
     /// <param name="dataverseClient">The dataverse client to use for communication with the dataverse service.</param>
     /// <param name="agentId">The ID of the agent.</param>
     /// <param name="cloudFlowMetadata">Cloud flow metadata.</param>
+    /// <param name="aiPrompts">AI Builder prompt metadata to project into the cloud cache.</param>
     /// <param name="cancellationToken">Used to cancel the request</param>
     /// <param name="uploadAllKnowledgeFiles">True/False to upload or not all knowledge files.</param>
     /// <returns>Result describing knowledge file upload count and any newly created custom connectors.</returns>
@@ -128,6 +130,7 @@ public interface IWorkspaceSynchronizer
         ISyncDataverseClient dataverseClient,
         Guid? agentId,
         CloudFlowMetadata? cloudFlowMetadata,
+        ImmutableArray<AIPromptMetadata> aiPrompts,
         CancellationToken cancellationToken,
         bool uploadAllKnowledgeFiles = false);
 
@@ -162,6 +165,36 @@ public interface IWorkspaceSynchronizer
     /// <param name="cancellationToken">Cancellation token to cancel the operation.</param>
     /// <returns>List of workflow responses.</returns>
     Task<(ImmutableArray<WorkflowResponse>, CloudFlowMetadata)> UpsertWorkflowForAgentAsync(
+        DirectoryPath workspaceFolder,
+        ISyncDataverseClient dataverseClient,
+        Guid? agentId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Pull AI Builder prompt models for agent
+    /// </summary>
+    /// <param name="workspaceFolder">Workspace folder.</param>
+    /// <param name="dataverseClient">The dataverse client to use for communication with the dataverse service.</param>
+    /// <param name="syncInfo">The Id for the agent.</param>
+    /// <param name="fileAccessor">The file accessor.</param>
+    /// <param name="cancellationToken">Cancellation token to cancel the operation.</param>
+    /// <returns>List of AI prompt metadata.</returns>
+    Task<ImmutableArray<AIPromptMetadata>> GetAIPromptsAsync(
+        DirectoryPath workspaceFolder,
+        ISyncDataverseClient dataverseClient,
+        AgentSyncInfo syncInfo,
+        IFileAccessor fileAccessor,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Upsert AI Builder prompt models for agent.
+    /// </summary>
+    /// <param name="workspaceFolder">Workspace folder.</param>
+    /// <param name="dataverseClient">The dataverse client to use for communication with the dataverse service.</param>
+    /// <param name="agentId">The Id for the agent.</param>
+    /// <param name="cancellationToken">Cancellation token to cancel the operation.</param>
+    /// <returns>List of AI prompt responses and the prompt metadata that was upserted.</returns>
+    Task<(ImmutableArray<AIPromptResponse>, ImmutableArray<AIPromptMetadata>)> UpsertAIPromptsForAgentAsync(
         DirectoryPath workspaceFolder,
         ISyncDataverseClient dataverseClient,
         Guid? agentId,

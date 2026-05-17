@@ -334,6 +334,7 @@
         private Dictionary<string, ConnectionReferenceInfo> _connectionReferencesByLogicalName = new(StringComparer.OrdinalIgnoreCase);
 
         public void SetDataverseUrl(string dataverseUrl) { }
+        public void SetEnvironmentId(string? environmentId) { }
 
         public void SetWorkflowsForAgent(WorkflowMetadata[] workflows)
         {
@@ -432,6 +433,12 @@
 
         public virtual Task<bool> UpsertConnectorAsync(CustomConnectorMetadata connector, CancellationToken cancellationToken)
             => Task.FromResult(false);
+
+        public virtual Task<AIPromptMetadata[]> DownloadAllAIPromptsForAgentAsync(AgentSyncInfo syncInfo, CancellationToken cancellationToken)
+            => Task.FromResult(Array.Empty<AIPromptMetadata>());
+
+        public virtual Task<AIPromptResponse> UpsertAIPromptAsync(Guid? agentId, AIPromptMetadata? promptMetadata, CancellationToken cancellationToken)
+            => Task.FromResult(new AIPromptResponse { PromptName = promptMetadata?.Name });
     }
 
     internal static class TestHandlerFactory
@@ -511,7 +518,7 @@
         public Task<DefinitionBase> PullExistingChangesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, DefinitionBase localWorkspaceDefinition, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CancellationToken cancellationToken, bool downloadAllKnowledgeFiles = false)
             => Task.FromResult(localWorkspaceDefinition);
 
-        public Task<PushChangesetResult> PushChangesetAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, PvaComponentChangeSet localWorkspaceDefinition, ISyncDataverseClient dataverseClient, Guid? agentId, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken, bool uploadAllKnowledgeFiles = false)
+        public Task<PushChangesetResult> PushChangesetAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, PvaComponentChangeSet localWorkspaceDefinition, ISyncDataverseClient dataverseClient, Guid? agentId, CloudFlowMetadata? cloudFlowMetadata, ImmutableArray<AIPromptMetadata> aiPrompts, CancellationToken cancellationToken, bool uploadAllKnowledgeFiles = false)
             => Task.FromResult(new PushChangesetResult());
 
         public Task<WorkspaceSyncInfo> SyncWorkspaceAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, string? changeToken, bool updateWorkspaceDirectory, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken)
@@ -551,6 +558,12 @@
 
         public virtual Task<CustomConnectorPushResult> PushCustomConnectorsAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
             => Task.FromResult(new CustomConnectorPushResult());
+
+        public virtual Task<ImmutableArray<AIPromptMetadata>> GetAIPromptsAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, Microsoft.CopilotStudio.McsCore.IFileAccessor fileAccessor, CancellationToken cancellationToken)
+            => Task.FromResult(ImmutableArray<AIPromptMetadata>.Empty);
+
+        public virtual Task<(ImmutableArray<AIPromptResponse>, ImmutableArray<AIPromptMetadata>)> UpsertAIPromptsForAgentAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
+            => Task.FromResult((ImmutableArray<AIPromptResponse>.Empty, ImmutableArray<AIPromptMetadata>.Empty));
 
         public Task<DefinitionBase> ReadWorkspaceDefinitionAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, CancellationToken cancellationToken, bool checkKnowledgeFiles = false)
             => Task.FromResult<DefinitionBase>(new BotDefinition());

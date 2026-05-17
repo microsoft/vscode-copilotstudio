@@ -6,7 +6,6 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.CopilotStudio.Sync.Dataverse;
-    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
@@ -54,6 +53,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 _dataverseTokenManager.SetTokens(request.DataverseAccessToken, request.CopilotStudioAccessToken);
                 _dataverseHttpClientAccessor.SetDataverseUrl(new Uri(request.EnvironmentInfo.DataverseUrl));
                 _dataverseClient.SetDataverseUrl(request.EnvironmentInfo.DataverseUrl);
+                _dataverseClient.SetEnvironmentId(request.EnvironmentInfo.EnvironmentId);
 
                 var workspace = (IMcsWorkspace)context.Workspace;
 
@@ -61,7 +61,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
                 var operationContext = await _operationContextProvider.GetAsync(syncInfo);
 
-                var (updatedDefinition, workflowResponse, newlyCreatedCustomConnectors) = await ExecuteAsync(workspace, operationContext, _dataverseClient, syncInfo, cancellationToken);
+                var (updatedDefinition, workflowResponse, aiPromptResponse, newlyCreatedCustomConnectors) = await ExecuteAsync(workspace, operationContext, _dataverseClient, syncInfo, cancellationToken);
                 var (_, localChanges) = await _synchronizer.GetLocalChangesAsync(workspace.FolderPath, updatedDefinition, _dataverseClient, syncInfo, cancellationToken);
 
                 return new SyncAgentResponse
@@ -70,6 +70,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     Message = string.Empty,
                     LocalChanges = localChanges,
                     WorkflowResponse = workflowResponse,
+                    AIPromptResponse = aiPromptResponse,
                     NewlyCreatedCustomConnectors = newlyCreatedCustomConnectors,
                 };
             }
@@ -102,7 +103,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             }
         }
 
-        protected abstract Task<(DefinitionBase, ImmutableArray<WorkflowResponse>, ImmutableArray<string>)> ExecuteAsync(
+        protected abstract Task<(DefinitionBase, ImmutableArray<WorkflowResponse>, ImmutableArray<SyncDataverseClient.AIPromptResponse>, ImmutableArray<string>)> ExecuteAsync(
             IMcsWorkspace workspace,
             AuthoringOperationContextBase operationContext,
             ISyncDataverseClient dataverseClient,

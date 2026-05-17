@@ -65,6 +65,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 _dataverseTokenManager.SetTokens(request.DataverseAccessToken, request.CopilotStudioAccessToken);
                 _dataverseHttpClientAccessor.SetDataverseUrl(new Uri(request.EnvironmentInfo.DataverseUrl));
                 _dataverseClient.SetDataverseUrl(request.EnvironmentInfo.DataverseUrl);
+                _dataverseClient.SetEnvironmentId(request.EnvironmentInfo.EnvironmentId);
 
                 var workspace = (IMcsWorkspace)context.Workspace;
                 var syncInfo = await _synchronizer.GetSyncInfoAsync(workspace.FolderPath);

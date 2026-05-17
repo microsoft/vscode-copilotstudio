@@ -5,6 +5,7 @@ using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Microsoft.CopilotStudio.Sync.TestHarness;
 using Microsoft.Extensions.DependencyInjection;
+using System.Collections.Immutable;
 using System.CommandLine;
 using System.Diagnostics;
 
@@ -41,6 +42,7 @@ cloneCommand.SetHandler(async (string environment, string? environmentId, string
 
         var dataverseClient = services.GetRequiredService<ISyncDataverseClient>();
         dataverseClient.SetDataverseUrl(environmentUrl.ToString());
+        dataverseClient.SetEnvironmentId(environmentId);
 
         Console.WriteLine($"Looking up agent '{agentSchemaName}'...");
         var agentId = await dataverseClient.GetAgentIdBySchemaNameAsync(agentSchemaName, CancellationToken.None);
@@ -134,6 +136,7 @@ pushCommand.SetHandler(async (string workspace) =>
 
         var syncInfo = await synchronizer.GetSyncInfoAsync(workspaceFolder);
         dataverseClient.SetDataverseUrl(syncInfo.DataverseEndpoint.ToString());
+        dataverseClient.SetEnvironmentId(syncInfo.EnvironmentId);
         SetIslandContextIfAvailable(services, syncInfo);
 
         Console.WriteLine($"Agent ID: {syncInfo.AgentId}");
@@ -155,9 +158,13 @@ pushCommand.SetHandler(async (string workspace) =>
         PrintChangeSummary(localChanges);
 
         CloudFlowMetadata? cloudFlowMetadata = null;
+        ImmutableArray<SyncDataverseClient.AIPromptMetadata> aiPromptMetadata = ImmutableArray<SyncDataverseClient.AIPromptMetadata>.Empty;
         if (syncInfo.AgentId.HasValue)
         {
             (_, cloudFlowMetadata) = await synchronizer.UpsertWorkflowForAgentAsync(
+                workspaceFolder, dataverseClient, syncInfo.AgentId, CancellationToken.None);
+
+            (_, aiPromptMetadata) = await synchronizer.UpsertAIPromptsForAgentAsync(
                 workspaceFolder, dataverseClient, syncInfo.AgentId, CancellationToken.None);
         }
 
@@ -166,7 +173,7 @@ pushCommand.SetHandler(async (string workspace) =>
         Console.WriteLine("Pushing changes...");
         var uploadedFiles = await synchronizer.PushChangesetAsync(
             workspaceFolder, operationContext, localChangeset, dataverseClient,
-            syncInfo.AgentId, cloudFlowMetadata, CancellationToken.None);
+            syncInfo.AgentId, cloudFlowMetadata, aiPromptMetadata, CancellationToken.None);
 
         Console.WriteLine("Syncing workspace metadata...");
         await synchronizer.SyncWorkspaceAsync(
@@ -232,6 +239,7 @@ pullCommand.SetHandler(async (string workspace) =>
 
         var syncInfo = await synchronizer.GetSyncInfoAsync(workspaceFolder);
         dataverseClient.SetDataverseUrl(syncInfo.DataverseEndpoint.ToString());
+        dataverseClient.SetEnvironmentId(syncInfo.EnvironmentId);
         SetIslandContextIfAvailable(services, syncInfo);
 
         Console.WriteLine($"Agent ID: {syncInfo.AgentId}");
@@ -312,6 +320,7 @@ verifyCommand.SetHandler(async (string workspace) =>
 
         var syncInfo = await synchronizer.GetSyncInfoAsync(workspaceFolder);
         dataverseClient.SetDataverseUrl(syncInfo.DataverseEndpoint.ToString());
+        dataverseClient.SetEnvironmentId(syncInfo.EnvironmentId);
         SetIslandContextIfAvailable(services, syncInfo);
 
         Console.WriteLine($"Agent ID: {syncInfo.AgentId}");
@@ -426,6 +435,7 @@ cloneViaBridgeCommand.SetHandler(async (string environment, string? environmentI
 
         var dataverseClient = services.GetRequiredService<ISyncDataverseClient>();
         dataverseClient.SetDataverseUrl(environmentUrl.ToString());
+        dataverseClient.SetEnvironmentId(environmentId);
 
         Console.WriteLine($"Looking up agent '{agentSchemaName}'...");
         var agentId = await dataverseClient.GetAgentIdBySchemaNameAsync(agentSchemaName, CancellationToken.None);
