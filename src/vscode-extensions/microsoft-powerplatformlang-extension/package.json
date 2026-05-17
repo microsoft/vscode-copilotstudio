@@ -225,7 +225,7 @@
         "ms-CopilotStudio.telemetry.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable telemetry for Copilot Studio in addition to the global VS Code telemetry setting. If the global VS Code telemetry is disabled, no data is sent regardless of this setting.",
+          "markdownDescription": "Specifies whether to allow Copilot Studio to send product usage telemetry.\n\n_**Note:** For Copilot Studio to send any telemetry BOTH this setting and VS Code telemetry must be enabled. If either one is disabled no telemetry will be sent._",
           "tags": [
             "telemetry",
             "usesOnlineServices"
@@ -237,18 +237,20 @@
       {
         "command": "microsoft-copilot-studio.previewChanges",
         "title": "Copilot Studio: Preview changes",
-        "icon": "$(eye)"
+        "icon": "$(eye)",
+        "enablement": "!mcs.isSyncing"
       },
       {
         "command": "microsoft-copilot-studio.getChanges",
         "title": "Copilot Studio: Get changes",
-        "icon": "$(cloud-download)"
+        "icon": "$(cloud-download)",
+        "enablement": "!mcs.isSyncing"
       },
       {
         "command": "microsoft-copilot-studio.applyChanges",
         "title": "Copilot Studio: Apply changes",
         "icon": "$(cloud-upload)",
-        "enablement": "!mcs.agentChangesView.hasRemoteChanges"
+        "enablement": "!mcs.agentChangesView.hasRemoteChanges && !mcs.isSyncing"
       },
       {
         "command": "microsoft-copilot-studio.cloneAgent",

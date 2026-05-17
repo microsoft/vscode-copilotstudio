@@ -6,7 +6,7 @@ import { switchAccount } from '../clients/account';
 import { pushNewWorkspace } from '../sync/workspaceScm';
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import logger from '../services/logger';
-import { logWorkflowIssues, logNewCustomConnectorsRaw } from '../sync/workspaceSynchronizer';
+import { logWorkflowIssues, logNewCustomConnectorsRaw, withSyncCommandBusy } from '../sync/workspaceSynchronizer';
 
 export const registerReattachAgentCommand = (context: vscode.ExtensionContext) => {
   const reattachAgentCommand = vscode.commands.registerCommand('microsoft-copilot-studio.reattachAgent', async () => {
@@ -46,6 +46,7 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
 
       const environmentInfo = pickedEnvironment.environment;
       const workspaceFolder = vscode.workspace.workspaceFolders[0];
+      const workspaceUri = workspaceFolder.uri.toString() + '/'; // Ensure trailing slash for consistency with workspace cache entries
 
       await vscode.window.withProgress(
         {
@@ -54,34 +55,36 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
           cancellable: false
         },
         async () => {
-          try {
-            const reattachRequest: ReattachAgentRequest = {
-              ...await buildLspRequestPayload(undefined, environmentInfo),
-              workspaceUri: workspaceFolder.uri.toString()
-            };
-            const reattachResult = await lspClient.sendRequest<ReattachAgentResponse>(LspMethods.REATTACH_AGENT, reattachRequest);
-
-            if (reattachResult.isNewAgent) {
-              const newWorkspace = {
-                workspaceUri: workspaceFolder.uri.toString(),
-                displayName: 'Reattached Agent',
-                description: '',
-                icon: new vscode.ThemeIcon('symbol-key'),
-                type: 0,
-                syncInfo: reattachResult.agentSyncInfo 
+          // For sync buttons to be disabled and loading indicators to be visible during the REATTACH_AGENT call.
+          await withSyncCommandBusy(workspaceUri, async () => {
+            try {
+              const reattachRequest: ReattachAgentRequest = {
+                ...await buildLspRequestPayload(undefined, environmentInfo),
+                workspaceUri
               };
+              const reattachResult = await lspClient.sendRequest<ReattachAgentResponse>(LspMethods.REATTACH_AGENT, reattachRequest);
 
-              await pushNewWorkspace(context, newWorkspace);
-              logger.logInfo(TelemetryEventsKeys.ReattachAgentInfo, `New agent ${reattachResult.agentSyncInfo.agentId} reattached successfully.`);
-            } else {
-              logger.logInfo(TelemetryEventsKeys.ReattachAgentInfo, `Existing agent ${reattachResult.agentSyncInfo.agentId} reattached successfully.`);
+              if (reattachResult.isNewAgent) {
+                const newWorkspace = {
+                  workspaceUri,
+                  displayName: 'Reattached Agent',
+                  description: '',
+                  icon: new vscode.ThemeIcon('symbol-key'),
+                  type: 0,
+                  syncInfo: reattachResult.agentSyncInfo
+                };
+                await pushNewWorkspace(context, newWorkspace);
+                logger.logInfo(TelemetryEventsKeys.ReattachAgentInfo, `New agent ${reattachResult.agentSyncInfo.agentId} reattached successfully.`);
+              } else {
+                logger.logInfo(TelemetryEventsKeys.ReattachAgentInfo, `Existing agent ${reattachResult.agentSyncInfo.agentId} reattached successfully.`);
+              }
+
+              logWorkflowIssues(reattachResult.workflowResponse);
+              logNewCustomConnectorsRaw(reattachResult.newlyCreatedCustomConnectors, workspaceUri);
+            } catch (error) {
+              logger.logError(TelemetryEventsKeys.ReattachAgentError, `Error reattaching agent: ${(error as Error).message}`);
             }
-            
-            logWorkflowIssues(reattachResult.workflowResponse);
-            logNewCustomConnectorsRaw(reattachResult.newlyCreatedCustomConnectors, workspaceFolder.uri.toString());
-          } catch (error) {
-            logger.logError(TelemetryEventsKeys.ReattachAgentError, `Error reattaching agent: ${(error as Error).message}`);
-          }
+          });
         }
       );
     });

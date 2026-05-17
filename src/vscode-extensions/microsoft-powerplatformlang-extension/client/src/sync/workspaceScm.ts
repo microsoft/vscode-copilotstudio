@@ -1,5 +1,5 @@
 import { unescape } from "querystring";
-import { CancellationToken, commands, EventEmitter, ExtensionContext, scm, SourceControlResourceGroup, Uri, window, workspace } from "vscode";
+import { CancellationToken, commands, EventEmitter, ExtensionContext, scm, SourceControlResourceGroup, Uri, window } from "vscode";
 import { addWorkspaceChangeSubscription, CopilotStudioWorkspace, getAllWorkspaces, updateWorkspaceCache, hasConnectionFileInWorkspace } from "./localWorkspaces";
 import { LocalChangeResourceCommandResolver, RemoteChangeResourceCommandResolver, Resource, ResourceCommandResolver } from "./changeTracking";
 import { SyncResponse, Change, SyncRequest, DiffRequest } from "../types";
@@ -165,8 +165,9 @@ export async function pushNewWorkspace(context: ExtensionContext, ws: CopilotStu
   const updatedCache = await updateWorkspaceCache(ws);
   await refreshWorkspaces(updatedCache, context);
 
-  const synchronizer = getOrAddSynchronizer(ws);
-  const virtualKnowledgeProvider = await registerVirtualKnowledgeProvider(context, ws);
+  const workspace = updatedCache.find(w =>  Uri.parse(w.workspaceUri).toString() === Uri.parse(ws.workspaceUri).toString());
+  const synchronizer = getOrAddSynchronizer(workspace ?? ws);
+  const virtualKnowledgeProvider = await registerVirtualKnowledgeProvider(context, workspace ?? ws);
   await synchronizer.pull(virtualKnowledgeProvider);
   await synchronizer.push();
   await synchronizer.pull(virtualKnowledgeProvider);

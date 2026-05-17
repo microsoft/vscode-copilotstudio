@@ -10,6 +10,7 @@ import {
 } from '../../sync/agentChangesTreeProvider';
 import { Resource } from '../../sync/changeTracking';
 import { ChangeType } from '../../types';
+import { SyncState } from '../../sync/workspaceSynchronizer';
 
 /**
  * Type guard tests for AgentChangesTreeItemUnion discriminated union.
@@ -251,5 +252,46 @@ describe('Apply Gating Logic', () => {
 		const remoteCount = 5 as number;
 		const message = `The agent has ${remoteCount} remote change${remoteCount === 1 ? '' : 's'} that must be retrieved before your local changes can be applied.`;
 		assert.ok(message.includes('5 remote changes that'));
+	});
+});
+
+describe('Sync Spinner Group Mapping', () => {
+	// Mirrors the per-state spinner mapping in
+	// AgentChangesTreeDataProvider.getTreeItem for the ChangeGroup case:
+	//   Fetching / Pulling -> spinner on Remote group
+	//   Pushing            -> spinner on Local group
+	//   Idle               -> no spinner anywhere
+	//
+	// Keep this helper in lock-step with the production code.
+	type GroupType = 'local' | 'remote';
+	const isBusy = (groupType: GroupType, syncState: SyncState): boolean =>
+		(groupType === 'remote' && (syncState === SyncState.Fetching || syncState === SyncState.Pulling)) ||
+		(groupType === 'local' && syncState === SyncState.Pushing);
+
+	test('Idle: neither group spins', () => {
+		assert.strictEqual(isBusy('local', SyncState.Idle), false);
+		assert.strictEqual(isBusy('remote', SyncState.Idle), false);
+	});
+
+	test('Fetching: only remote group spins', () => {
+		assert.strictEqual(isBusy('remote', SyncState.Fetching), true);
+		assert.strictEqual(isBusy('local', SyncState.Fetching), false);
+	});
+
+	test('Pulling: only remote group spins', () => {
+		assert.strictEqual(isBusy('remote', SyncState.Pulling), true);
+		assert.strictEqual(isBusy('local', SyncState.Pulling), false);
+	});
+
+	test('Pushing: only local group spins', () => {
+		assert.strictEqual(isBusy('local', SyncState.Pushing), true);
+		assert.strictEqual(isBusy('remote', SyncState.Pushing), false);
+	});
+
+	test('Each non-Idle state activates exactly one group', () => {
+		for (const state of [SyncState.Fetching, SyncState.Pulling, SyncState.Pushing]) {
+			const spinning = (['local', 'remote'] as GroupType[]).filter(g => isBusy(g, state));
+			assert.strictEqual(spinning.length, 1, `expected one spinning group for state ${SyncState[state]}, got ${spinning.length}`);
+		}
 	});
 });
