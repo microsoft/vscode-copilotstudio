@@ -1981,7 +1981,15 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
             var response = await dataverseClient.UpsertAIPromptAsync(agentId, metadata, cancellationToken).ConfigureAwait(false);
             responses.Add(response);
-            prompts.Add(metadata);
+
+            if (string.IsNullOrEmpty(response.ErrorMessage))
+            {
+                prompts.Add(metadata);
+            }
+            else
+            {
+                _syncProgress.Report($"AI prompt '{response.PromptName}' publish failed; error: {response.ErrorMessage}");
+            }
         }
 
         return (responses.ToImmutable(), prompts.ToImmutable());

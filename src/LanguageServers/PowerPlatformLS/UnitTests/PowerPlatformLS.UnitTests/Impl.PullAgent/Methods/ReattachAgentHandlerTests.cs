@@ -334,7 +334,6 @@
         private Dictionary<string, ConnectionReferenceInfo> _connectionReferencesByLogicalName = new(StringComparer.OrdinalIgnoreCase);
 
         public void SetDataverseUrl(string dataverseUrl) { }
-        public void SetEnvironmentId(string? environmentId) { }
 
         public void SetWorkflowsForAgent(WorkflowMetadata[] workflows)
         {

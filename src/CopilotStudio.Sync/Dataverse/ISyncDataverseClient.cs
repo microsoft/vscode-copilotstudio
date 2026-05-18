@@ -19,12 +19,6 @@ public interface ISyncDataverseClient
 #pragma warning restore CA1054
 
     /// <summary>
-    /// Sets the Power Platform environment id used in the x-ms-environment-id header
-    /// </summary>
-    /// <param name="environmentId">The environment id to set.</param>
-    void SetEnvironmentId(string? environmentId);
-
-    /// <summary>
     /// Create new agent by agent name and schema name.
     /// </summary>
     Task<AgentInfo> CreateNewAgentAsync(string displayName, string schemaName, CancellationToken cancellationToken);

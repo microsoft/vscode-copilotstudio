@@ -42,7 +42,6 @@ cloneCommand.SetHandler(async (string environment, string? environmentId, string
 
         var dataverseClient = services.GetRequiredService<ISyncDataverseClient>();
         dataverseClient.SetDataverseUrl(environmentUrl.ToString());
-        dataverseClient.SetEnvironmentId(environmentId);
 
         Console.WriteLine($"Looking up agent '{agentSchemaName}'...");
         var agentId = await dataverseClient.GetAgentIdBySchemaNameAsync(agentSchemaName, CancellationToken.None);
@@ -136,7 +135,6 @@ pushCommand.SetHandler(async (string workspace) =>
 
         var syncInfo = await synchronizer.GetSyncInfoAsync(workspaceFolder);
         dataverseClient.SetDataverseUrl(syncInfo.DataverseEndpoint.ToString());
-        dataverseClient.SetEnvironmentId(syncInfo.EnvironmentId);
         SetIslandContextIfAvailable(services, syncInfo);
 
         Console.WriteLine($"Agent ID: {syncInfo.AgentId}");
@@ -239,7 +237,6 @@ pullCommand.SetHandler(async (string workspace) =>
 
         var syncInfo = await synchronizer.GetSyncInfoAsync(workspaceFolder);
         dataverseClient.SetDataverseUrl(syncInfo.DataverseEndpoint.ToString());
-        dataverseClient.SetEnvironmentId(syncInfo.EnvironmentId);
         SetIslandContextIfAvailable(services, syncInfo);
 
         Console.WriteLine($"Agent ID: {syncInfo.AgentId}");
@@ -320,7 +317,6 @@ verifyCommand.SetHandler(async (string workspace) =>
 
         var syncInfo = await synchronizer.GetSyncInfoAsync(workspaceFolder);
         dataverseClient.SetDataverseUrl(syncInfo.DataverseEndpoint.ToString());
-        dataverseClient.SetEnvironmentId(syncInfo.EnvironmentId);
         SetIslandContextIfAvailable(services, syncInfo);
 
         Console.WriteLine($"Agent ID: {syncInfo.AgentId}");
@@ -435,7 +431,6 @@ cloneViaBridgeCommand.SetHandler(async (string environment, string? environmentI
 
         var dataverseClient = services.GetRequiredService<ISyncDataverseClient>();
         dataverseClient.SetDataverseUrl(environmentUrl.ToString());
-        dataverseClient.SetEnvironmentId(environmentId);
 
         Console.WriteLine($"Looking up agent '{agentSchemaName}'...");
         var agentId = await dataverseClient.GetAgentIdBySchemaNameAsync(agentSchemaName, CancellationToken.None);

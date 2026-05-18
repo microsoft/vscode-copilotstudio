@@ -16,7 +16,6 @@ public class SyncDataverseClient : ISyncDataverseClient
 {
     private readonly IDataverseHttpClientAccessor _httpClientAccessor;
     private readonly AsyncLocal<string> _dataverseUrl = new();
-    private readonly AsyncLocal<string?> _environmentId = new();
     private string DataverseUrl => _dataverseUrl.Value
         ?? throw new InvalidOperationException("Dataverse URL is not set. Call SetDataverseUrl before making API calls.");
 
@@ -43,12 +42,6 @@ public class SyncDataverseClient : ISyncDataverseClient
     public void SetDataverseUrl(string dataverseUrl)
     {
         _dataverseUrl.Value = dataverseUrl ?? throw new ArgumentNullException(nameof(dataverseUrl));
-    }
-
-    /// <inheritdoc />
-    public void SetEnvironmentId(string? environmentId)
-    {
-        _environmentId.Value = string.IsNullOrWhiteSpace(environmentId) ? null : environmentId;
     }
 
     public virtual async Task<AgentInfo> CreateNewAgentAsync(string displayName, string schemaName, CancellationToken cancellationToken)
