@@ -37,6 +37,7 @@ export interface SyncRequest extends RemoteApiRequest {
 export interface SyncResponse extends RemoteApiResponse {
   localChanges: Change[];
   workflowResponse: WorkflowResponse[];
+  aiPromptResponse?: AIPromptResponse[];
   newlyCreatedCustomConnectors?: string[];
 }
 
@@ -137,11 +138,17 @@ export interface ReattachAgentResponse extends RemoteApiResponse {
   agentSyncInfo: AgentSyncInfo;
   isNewAgent: boolean;
   workflowResponse: WorkflowResponse[];
+  aiPromptResponse?: AIPromptResponse[];
   newlyCreatedCustomConnectors?: string[];
 }
 
 export interface WorkflowResponse {
   workflowName: string;
   isDisabled: boolean;
+  errorMessage?: string;
+}
+
+export interface AIPromptResponse {
+  promptName: string;
   errorMessage?: string;
 }

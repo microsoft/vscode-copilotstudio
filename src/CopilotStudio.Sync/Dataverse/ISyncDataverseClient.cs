@@ -108,4 +108,14 @@ public interface ISyncDataverseClient
     /// <param name="fileName">The name of the knowledge file to upload.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     Task UploadKnowledgeFileAsync(string knowledgeFileFolder, Guid botComponentId, string fileName, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Download all AI Builder prompt models.
+    /// </summary>
+    Task<AIPromptMetadata[]> DownloadAllAIPromptsForAgentAsync(AgentSyncInfo syncInfo, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Upsert an AI Builder prompt or creates new if they do not yet exist in Dataverse.
+    /// </summary>
+    Task<AIPromptResponse> UpsertAIPromptAsync(Guid? agentId, AIPromptMetadata? promptMetadata, CancellationToken cancellationToken);
 }

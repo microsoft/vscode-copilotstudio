@@ -5,6 +5,7 @@ using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Microsoft.CopilotStudio.Sync.TestHarness;
 using Microsoft.Extensions.DependencyInjection;
+using System.Collections.Immutable;
 using System.CommandLine;
 using System.Diagnostics;
 
@@ -155,9 +156,13 @@ pushCommand.SetHandler(async (string workspace) =>
         PrintChangeSummary(localChanges);
 
         CloudFlowMetadata? cloudFlowMetadata = null;
+        ImmutableArray<SyncDataverseClient.AIPromptMetadata> aiPromptMetadata = ImmutableArray<SyncDataverseClient.AIPromptMetadata>.Empty;
         if (syncInfo.AgentId.HasValue)
         {
             (_, cloudFlowMetadata) = await synchronizer.UpsertWorkflowForAgentAsync(
+                workspaceFolder, dataverseClient, syncInfo.AgentId, CancellationToken.None);
+
+            (_, aiPromptMetadata) = await synchronizer.UpsertAIPromptsForAgentAsync(
                 workspaceFolder, dataverseClient, syncInfo.AgentId, CancellationToken.None);
         }
 
@@ -166,7 +171,7 @@ pushCommand.SetHandler(async (string workspace) =>
         Console.WriteLine("Pushing changes...");
         var uploadedFiles = await synchronizer.PushChangesetAsync(
             workspaceFolder, operationContext, localChangeset, dataverseClient,
-            syncInfo.AgentId, cloudFlowMetadata, CancellationToken.None);
+            syncInfo.AgentId, cloudFlowMetadata, aiPromptMetadata, CancellationToken.None);
 
         Console.WriteLine("Syncing workspace metadata...");
         await synchronizer.SyncWorkspaceAsync(

@@ -5,7 +5,6 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.CopilotStudio.Sync.Dataverse;
-    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
     using System;
@@ -23,9 +22,11 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         {
         }
 
-        protected override async Task<(DefinitionBase, ImmutableArray<WorkflowResponse>, ImmutableArray<string>)> ExecuteAsync(IMcsWorkspace workspace, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CancellationToken cancellationToken)
+        protected override async Task<(DefinitionBase, ImmutableArray<WorkflowResponse>, ImmutableArray<SyncDataverseClient.AIPromptResponse>, ImmutableArray<string>)> ExecuteAsync(IMcsWorkspace workspace, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CancellationToken cancellationToken)
         {
             var (workflowResponse, cloudFlowMetadata) = await _synchronizer.UpsertWorkflowForAgentAsync(workspace.FolderPath, dataverseClient, syncInfo.AgentId, cancellationToken);
+
+            var (aiPromptResponse, aiPromptMetadata) = await _synchronizer.UpsertAIPromptsForAgentAsync(workspace.FolderPath, dataverseClient, syncInfo.AgentId, cancellationToken);
 
             await _synchronizer.ProvisionConnectionReferencesAsync(workspace.Definition, dataverseClient, cancellationToken);
 
@@ -36,8 +37,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 localChanges = localChanges.WithBot(null);
             }
 
-            var pushResult = await _synchronizer.PushChangesetAsync(workspace.FolderPath, operationContext, localChanges, dataverseClient, syncInfo.AgentId, cloudFlowMetadata, cancellationToken);
-            return (workspace.Definition, workflowResponse, pushResult.NewlyCreatedCustomConnectors.ToImmutableArray());
+            var pushResult = await _synchronizer.PushChangesetAsync(workspace.FolderPath, operationContext, localChanges, dataverseClient, syncInfo.AgentId, cloudFlowMetadata, aiPromptMetadata, cancellationToken);
+            return (workspace.Definition, workflowResponse, aiPromptResponse, pushResult.NewlyCreatedCustomConnectors.ToImmutableArray());
         }
     }
 }

@@ -53,6 +53,7 @@ public class ComponentWriterDefensiveTests
             mockDataverse.Object,
             Guid.NewGuid(),
             null,
+            default,
             CancellationToken.None);
 
         Assert.Equal(0, result.UploadedKnowledgeFileCount);
@@ -94,6 +95,7 @@ public class ComponentWriterDefensiveTests
             mockDataverse.Object,
             Guid.NewGuid(),
             null,
+            default,
             CancellationToken.None);
 
         // Assert: settings file was written by the write path
