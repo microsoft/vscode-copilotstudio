@@ -30,6 +30,11 @@
         public const string Initialized = "initialized";
         public const string Shutdown = "shutdown";
         public const string Exit = "exit";
+
+        // Standard LSP log notification. Gated on the client's "initialized"
+        // notification so our user-registered handler (LogOutputChannel) wins
+        // over vscode-languageclient's built-in handler.
+        public const string WindowLogMessage = "window/logMessage";
         #endregion
     }
 }

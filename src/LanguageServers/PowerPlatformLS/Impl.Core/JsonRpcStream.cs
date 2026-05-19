@@ -57,6 +57,12 @@ namespace Microsoft.PowerPlatformLS.Impl.Core
                 {
                     _logger.LogInformation($"Received Message: method={lspMessage.Method}, id={lspMessage.Id}");
 
+                    // Release the LSP log-forwarding pump once the client is initialized.
+                    if (string.Equals(lspMessage.Method, LspMethods.Initialized, StringComparison.Ordinal))
+                    {
+                        Lsp.LspWindowLogMessageLoggerProvider.SignalClientReady();
+                    }
+
                     // Don't await processing task and let them run in parallel.
                     // Scheduling is done in the server queue.
                     _ = ProcessJsonRpcMessageAsync(lspMessage, stoppingToken);
