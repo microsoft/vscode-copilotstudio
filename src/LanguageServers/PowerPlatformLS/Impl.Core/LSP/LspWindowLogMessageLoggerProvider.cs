@@ -107,6 +107,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
                 {
                     while (_queue.Reader.TryRead(out var entry))
                     {
+                        if (!transport.IsActive) return;
                         await SendAsync(transport, entry, token).ConfigureAwait(false);
                     }
                 }

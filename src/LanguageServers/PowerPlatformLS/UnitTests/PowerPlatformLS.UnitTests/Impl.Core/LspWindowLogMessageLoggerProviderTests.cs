@@ -125,7 +125,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
             var sent = await _transport.WaitForOneAsync();
             Assert.Equal("[Cat] real", DeserializeMessage(sent));
             await Task.Delay(100);
-            Assert.Single(_transport.Sent);
+            Assert.Empty(_transport.Sent);
         }
 
         [Fact]
@@ -284,8 +284,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
 
             public async Task<LspJsonRpcMessage> WaitForOneAsync(int timeoutMs = 5000)
             {
-                // If something was sent before the wait was set up, return it immediately.
-                if (Sent.TryPeek(out var existing))
+                // If something was sent before the wait was set up, consume and return it.
+                if (Sent.TryDequeue(out var existing))
                 {
                     return existing;
                 }
@@ -303,6 +303,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
                     throw new TimeoutException($"No message sent within {timeoutMs}ms.");
                 }
 
+                // Dequeue to stay consistent with the peek-first path above.
+                Sent.TryDequeue(out _);
                 return await wait;
             }
 
