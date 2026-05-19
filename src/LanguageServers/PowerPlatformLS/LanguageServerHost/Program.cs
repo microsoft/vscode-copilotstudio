@@ -31,12 +31,17 @@ try
     builder.Services.AddSingleton<ILspModule, McsLspModule>();
     builder.Services.AddSingleton<ILspModule>(sp => new PullAgentLspModule(sp.GetRequiredService<BuildVersionInfo>()));
 
+    // Forward MEL entries to the LSP client via window/logMessage so the
+    // extension renders them in its LogOutputChannel with [error]/[warning]/[info]
+    // prefix and timestamp. Also disables the default Console provider.
+    builder.UseLspWindowLogMessageLogging();
+
     var isTelemetryEnabled = ParseTelemetryEnabledFromArgs(args);
     Console.WriteLine($"Telemetry Status: {(isTelemetryEnabled ? "Enabled" : "Disabled")}");
     builder.Services.ConfigureAppInsightsLogging(channel, isTelemetryEnabled);
 
     var sessionId = ParseSessionIdFromArgs(args);
-    Console.WriteLine($"Registering Session Information: {sessionId}");
+    Console.WriteLine($"Session Id: {sessionId}");
     var sessionInfo = new SessionInformation
     {
         SessionId = sessionId
