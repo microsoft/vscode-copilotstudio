@@ -30,6 +30,18 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.DependencyInjection
             return builder;
         }
 
+        /// <summary>
+        /// Forwards MEL entries to the LSP client via <c>window/logMessage</c> so the
+        /// extension renders them in its LogOutputChannel with <c>[error]/[warning]/[info]</c>
+        /// prefix and timestamp. Also disables the default Console provider.
+        /// </summary>
+        public static IHostApplicationBuilder UseLspWindowLogMessageLogging(this IHostApplicationBuilder builder)
+        {
+            builder.Logging.ClearProviders();
+            builder.Logging.Services.AddSingleton<ILoggerProvider, LspWindowLogMessageLoggerProvider>();
+            return builder;
+        }
+
         private static void AddLspCommandLine(this IConfigurationManager configuration, string[] args)
         {
             var switchMappings = new Dictionary<string, string>
