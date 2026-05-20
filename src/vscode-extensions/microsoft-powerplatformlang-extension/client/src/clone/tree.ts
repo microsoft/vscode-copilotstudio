@@ -20,7 +20,7 @@ interface CopilotStudioTreeItem {
 	kind: TreeItemKind;
 }
 
-interface SkuSectionTreeItem extends CopilotStudioTreeItem {
+export interface SkuSectionTreeItem extends CopilotStudioTreeItem {
 	kind: TreeItemKind.SkuSection;
 	sku: EnvironmentSku;
 }
@@ -74,6 +74,7 @@ const SKU_SECTIONS: SkuSectionTreeItem[] = [
     { kind: TreeItemKind.SkuSection, sku: 'Production' },
     { kind: TreeItemKind.SkuSection, sku: 'Teams' },
     { kind: TreeItemKind.SkuSection, sku: 'Trial' },
+    { kind: TreeItemKind.SkuSection, sku: 'SubscriptionBasedTrial' },
 ];
 
 // Sign-in items (static)
@@ -131,7 +132,7 @@ async function resetTreeExpansion(treeView: TreeView<CopilotStudioTreeItem>) {
     }
 }
 
-class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTreeItem> {
+export class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTreeItem> {
     private _onDidChangeTreeData: EventEmitter<CopilotStudioTreeItem | undefined | void> = new EventEmitter<CopilotStudioTreeItem | undefined | void>();
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
     
@@ -211,7 +212,9 @@ class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTreeItem> {
 				: TreeItemCollapsibleState.Collapsed;
 			// Default is singular (there's only ever 1), others are plural
 			const label = skuItem.sku === 'Default' 
-				? 'Default Environment' 
+				? 'Default Environment'
+				: skuItem.sku === 'SubscriptionBasedTrial'
+				? 'Trial (Subscription-Based) Environments'
 				: `${skuItem.sku} Environments`;
 			const item = new TreeItem(label, collapsedState);
 			// Use appropriate icons for each SKU type
@@ -221,7 +224,8 @@ class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTreeItem> {
 				'Sandbox': 'package',
 				'Production': 'globe',
 				'Teams': 'organization',
-				'Trial': 'clock'
+				'Trial': 'clock',
+				'SubscriptionBasedTrial': 'clock'
 			};
 			item.iconPath = new ThemeIcon(iconMap[skuItem.sku]);
 			item.contextValue = 'skuSection';

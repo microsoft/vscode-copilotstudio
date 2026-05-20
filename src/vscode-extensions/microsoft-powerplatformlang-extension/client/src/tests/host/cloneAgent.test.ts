@@ -1,6 +1,7 @@
 import * as assert from 'node:assert';
 import { describe, test } from 'node:test';
-import { isCopilotStudioTreeItem, TreeItemKind } from '../../clone/tree';
+import { TreeItem } from 'vscode';
+import { AgentTreeDataProvider, isCopilotStudioTreeItem, SkuSectionTreeItem, TreeItemKind } from '../../clone/tree';
 
 describe('isCopilotStudioTreeItem Type Guard', () => {
 	test('returns false for null and undefined', () => {
@@ -48,6 +49,32 @@ describe('Discriminated Union Narrowing', () => {
 			assert.strictEqual(item.environment.environmentId, 'y');
 		} else {
 			assert.fail('Should have narrowed to AgentTreeItem');
+		}
+	});
+});
+
+describe('SKU Section Labels', () => {
+	const provider = new AgentTreeDataProvider();
+
+	test('SubscriptionBasedTrial label', () => {
+		const item = provider.getTreeItem({ kind: TreeItemKind.SkuSection, sku: 'SubscriptionBasedTrial' } as SkuSectionTreeItem) as TreeItem;
+		assert.strictEqual(item.label, 'Trial (Subscription-Based) Environments');
+	});
+
+	test('Trial renders standard label', () => {
+		const item = provider.getTreeItem({ kind: TreeItemKind.SkuSection, sku: 'Trial' } as SkuSectionTreeItem) as TreeItem;
+		assert.strictEqual(item.label, 'Trial Environments');
+	});
+
+	test('Default renders singular label', () => {
+		const item = provider.getTreeItem({ kind: TreeItemKind.SkuSection, sku: 'Default' } as SkuSectionTreeItem) as TreeItem;
+		assert.strictEqual(item.label, 'Default Environment');
+	});
+
+	test('other SKUs render as plural', () => {
+		for (const sku of ['Developer', 'Sandbox', 'Production', 'Teams'] as const) {
+			const item = provider.getTreeItem({ kind: TreeItemKind.SkuSection, sku } as SkuSectionTreeItem) as TreeItem;
+			assert.strictEqual(item.label, `${sku} Environments`);
 		}
 	});
 });
