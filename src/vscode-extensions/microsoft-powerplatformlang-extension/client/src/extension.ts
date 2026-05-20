@@ -40,8 +40,10 @@ export async function activate(context: vscode.ExtensionContext) {
   registerResetAccountCommand(context);
   registerReportIssueCommand(context, sessionId);
 
-  // Create output channel for LSP logs
-  const outputChannel = vscode.window.createOutputChannel("Copilot Studio Language Server");
+  // Create output channel for LSP logs.
+  // Using `createLogOutputChannel` gives each line a timestamp and a color-coded
+  // [error]/[warning]/[info] prefix.
+  const outputChannel = vscode.window.createOutputChannel("Copilot Studio Language Server", { log: true });
   if (isDebugging) {
     outputChannel.show();
   }
