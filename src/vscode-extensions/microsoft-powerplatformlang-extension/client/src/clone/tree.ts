@@ -1,10 +1,11 @@
 import { ExtensionContext, window, TreeDataProvider, EventEmitter, TreeItem, TreeItemCollapsibleState, ThemeIcon, Uri, commands, TreeView } from "vscode";
-import { EnvironmentInfo, AgentInfo } from "../types";
+import { AccountInfo, EnvironmentInfo, AgentInfo } from "../types";
 import { getIcon } from "../icon";
-import { isSignedIn, onAccountChange, switchAccount } from "../clients/account";
+import { isSignedIn, onAccountChange, switchAccount, hasStoredAccount, getPreferredTreeAccount } from "../clients/account";
 import { listAgentsAsync, listSharedAgentsAsync, clearWhoAmICache } from "../clients/dataverseClient";
 import { listEnvironmentsBySkuAsync, EnvironmentSku } from "../clients/bapClient";
 import { DefaultCoreServicesClusterCategory, TelemetryEventsKeys } from "../constants";
+import { addWorkspaceChangeSubscription, getActiveAgentAccount, getAllProjectAccounts } from "../sync/localWorkspaces";
 import logger from '../services/logger';
 
 // Types must be declared before SKU_SECTIONS
@@ -28,6 +29,7 @@ interface SkuSectionTreeItem extends CopilotStudioTreeItem {
 interface EnvironmentTreeItem extends CopilotStudioTreeItem {
 	kind: TreeItemKind.Environment;
 	environment: EnvironmentInfo;
+	sourceAccount?: AccountInfo;
 }
 
 export interface AgentTreeItem extends CopilotStudioTreeItem {
@@ -111,12 +113,41 @@ export async function configureTreeView(context: ExtensionContext) {
     const switchAccountCommand = commands.registerCommand('microsoft-copilot-studio.switchAccount', async () => {
         const switched = await switchAccount(DefaultCoreServicesClusterCategory);
         if (switched) {
-            // Account changed - tree will refresh automatically via onAccountChange listener
+            treeDataProvider.invalidateCache();
+            await resetTreeExpansion(treeView);
+        }
+    });
+
+    let lastActiveAccountKey: string | undefined =
+        (getActiveAgentAccount()?.accountEmail || getActiveAgentAccount()?.accountId || '').toLowerCase() || undefined;
+    const activeEditorDisposable = window.onDidChangeActiveTextEditor(() => {
+        const active = getActiveAgentAccount();
+        const key = (active?.accountEmail || active?.accountId || '').toLowerCase() || undefined;
+        if (key !== lastActiveAccountKey) {
+            lastActiveAccountKey = key;
+            treeDataProvider.invalidateCache();
+        }
+    });
+
+    let lastProjectAccountsKey = projectAccountsKey();
+    const workspaceChangeDisposable = addWorkspaceChangeSubscription(() => {
+        const next = projectAccountsKey();
+        if (next !== lastProjectAccountsKey) {
+            lastProjectAccountsKey = next;
+            treeDataProvider.invalidateCache();
         }
     });
 
     // Clean up on deactivate
-    context.subscriptions.push(accountChangeDisposable, refreshCommand, switchAccountCommand);
+    context.subscriptions.push(accountChangeDisposable, refreshCommand, switchAccountCommand, activeEditorDisposable, workspaceChangeDisposable);
+}
+
+function projectAccountsKey(): string {
+    return getAllProjectAccounts()
+        .map(a => (a.accountEmail || a.accountId || '').toLowerCase())
+        .filter(Boolean)
+        .sort()
+        .join('|');
 }
 
 /** Resets tree expansion: collapse all, then expand Developer */
@@ -135,8 +166,8 @@ class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTreeItem> {
     private _onDidChangeTreeData: EventEmitter<CopilotStudioTreeItem | undefined | void> = new EventEmitter<CopilotStudioTreeItem | undefined | void>();
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
     
-    // Cache environments by SKU - loaded lazily when user expands each section
-    private envsBySku: Map<EnvironmentSku, EnvironmentInfo[]> = new Map();
+    // Cache environments by SKU - loaded lazily when user expands each section.
+    private envsBySku: Map<EnvironmentSku, EnvironmentTreeItem[]> = new Map();
     private loadedSkus: Set<EnvironmentSku> = new Set();
     
     // Populate-once guard: pending fire is debounced to ensure single tree build
@@ -171,25 +202,88 @@ class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTreeItem> {
         this.fireChange();
     }
 
-    /** Load environments for a specific SKU - only queries that SKU (Bug3 fix) */
-    private async loadSkuEnvironments(sku: EnvironmentSku): Promise<EnvironmentInfo[]> {
+    /** Load environments for a specific SKU */
+    private async loadSkuEnvironments(sku: EnvironmentSku): Promise<EnvironmentTreeItem[]> {
         if (this.loadedSkus.has(sku)) {
             return this.envsBySku.get(sku) || [];
         }
-        
-        try {
-            // Only query this specific SKU - defers other SKU queries until expanded
-            const envs = await listEnvironmentsBySkuAsync(DefaultCoreServicesClusterCategory, sku, null);
-            
-            this.envsBySku.set(sku, envs);
+
+        const preferred = getPreferredTreeAccount();
+        const projectAccounts = getAllProjectAccounts();
+
+        let candidateAccounts: (AccountInfo | undefined)[];
+        if (preferred) {
+            candidateAccounts = [{
+                accountId: preferred.accountId,
+                accountEmail: preferred.accountEmail ?? '',
+                tenantId: ''
+            } as AccountInfo];
+        } else {
+            candidateAccounts =
+                projectAccounts.length > 0 ? projectAccounts : [getActiveAgentAccount()];
+        }
+
+        const signInChecks = await Promise.all(
+            candidateAccounts.map(async (acct) => {
+                if (!acct) {
+                    return (await hasStoredAccount()) ? acct : null;
+                }
+                const hasAccount = await hasStoredAccount(acct.accountId, acct.accountEmail);
+                return hasAccount ? acct : null;
+            })
+        );
+        const accountsToQuery = signInChecks.filter((a): a is AccountInfo | undefined => a !== null);
+
+        if (accountsToQuery.length === 0) {
+            this.envsBySku.set(sku, []);
             this.loadedSkus.add(sku);
-            
-            return envs;
-		} catch (e: any) {
-			logger.logError(TelemetryEventsKeys.LoadEnvironmentError, `[TreeView] Failed to load ${sku} environments: ${e?.message || e}`);
-			this.loadedSkus.add(sku); // Mark as loaded to avoid retry loops
-			return [];
-		}
+            return [];
+        }
+
+        try {
+            const perAccountResults = await Promise.all(
+                accountsToQuery.map(async (acct) => {
+                    try {
+                        const envs = await listEnvironmentsBySkuAsync(
+                            DefaultCoreServicesClusterCategory,
+                            sku,
+                            null,
+                            acct?.accountId ?? null,
+                            acct?.accountEmail
+                        );
+                        return envs.map<EnvironmentTreeItem>(env => ({
+                            kind: TreeItemKind.Environment,
+                            environment: env,
+                            sourceAccount: acct
+                        }));
+                    } catch (e: any) {
+                        logger.logError(TelemetryEventsKeys.LoadEnvironmentError, `[TreeView] Failed to load ${sku} environments for ${acct?.accountId ?? 'default'}: ${e?.message || e}`);
+                        return [] as EnvironmentTreeItem[];
+                    }
+                })
+            );
+
+            const seen = new Set<string>();
+            const merged: EnvironmentTreeItem[] = [];
+            for (const list of perAccountResults) {
+                for (const item of list) {
+                    const key = item.environment.environmentId;
+                    if (seen.has(key)) {
+                        continue;
+                    }
+                    seen.add(key);
+                    merged.push(item);
+                }
+            }
+
+            this.envsBySku.set(sku, merged);
+            this.loadedSkus.add(sku);
+            return merged;
+        } catch (e: any) {
+            logger.logError(TelemetryEventsKeys.LoadEnvironmentError, `[TreeView] Failed to load ${sku} environments: ${e?.message || e}`);
+            this.loadedSkus.add(sku); // Mark as loaded to avoid retry loops
+            return [];
+        }
     }
 
     // Keep old fetchData for compatibility but it's not used anymore
@@ -228,7 +322,8 @@ class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTreeItem> {
 			return item;
 		} else if (element.kind === TreeItemKind.Environment) {
 			const env = element as EnvironmentTreeItem;
-			return new TreeItem(env.environment.displayName, TreeItemCollapsibleState.Collapsed);
+			const item = new TreeItem(env.environment.displayName, TreeItemCollapsibleState.Collapsed);
+			return item;
 		} else if (element.kind === TreeItemKind.Agent) {
 			const agent = element as AgentTreeItem;
 			const item = new TreeItem(agent.agent.displayName, TreeItemCollapsibleState.None);
@@ -273,14 +368,10 @@ class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTreeItem> {
 				// SKU section expanded: load environments for this SKU
 				const skuItem = element as SkuSectionTreeItem;
 				try {
-					const envs = await this.loadSkuEnvironments(skuItem.sku);
-					if (envs.length === 0) {
+					const envItems = await this.loadSkuEnvironments(skuItem.sku);
+					if (envItems.length === 0) {
 						resolve([{ kind: TreeItemKind.Error, message: `No ${skuItem.sku} environments` } as ErrorTreeItem]);
 					} else {
-						const envItems: EnvironmentTreeItem[] = envs.map(env => ({
-							kind: TreeItemKind.Environment,
-							environment: env
-						}));
 						resolve(envItems);
 					}
 				} catch (e: any) {
@@ -289,11 +380,12 @@ class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTreeItem> {
 				}
 			} else if (element.kind === TreeItemKind.Environment) {
 				const envItem = element as EnvironmentTreeItem;
-				try {
-					// Load owned and shared agents in parallel, combine into single list
+                try {
+                    // Load owned and shared agents in parallel, combine into single list
+					const storeAccount = envItem.sourceAccount ?? getActiveAgentAccount();
 					const [ownedAgents, sharedAgents] = await Promise.all([
-						listAgentsAsync(Uri.parse(envItem.environment.dataverseUrl), null),
-						listSharedAgentsAsync(Uri.parse(envItem.environment.dataverseUrl), null)
+                        listAgentsAsync(Uri.parse(envItem.environment.dataverseUrl), null, storeAccount?.accountId, storeAccount?.accountEmail),
+                        listSharedAgentsAsync(Uri.parse(envItem.environment.dataverseUrl), null, storeAccount?.accountId, storeAccount?.accountEmail)
 					]);
 					
 					const allAgents = [...ownedAgents, ...sharedAgents];

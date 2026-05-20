@@ -254,8 +254,8 @@ export const buildLspRequestPayload = async (syncInfo?: AgentSyncInfo, environme
 
   if (syncInfo) {
     const { accountInfo, agentManagementEndpoint, dataverseEndpoint, environmentId, solutionVersions } = syncInfo;
-    const copilotStudioAccessToken = await getCopilotStudioAccessTokenByAccountId(getClusterCategory(accountInfo), accountInfo.accountId);
-    const dataverseAccessToken = await getAccessTokenByAccountId(vscode.Uri.parse(dataverseEndpoint), accountInfo.accountId);
+    const copilotStudioAccessToken = await getCopilotStudioAccessTokenByAccountId(getClusterCategory(accountInfo), accountInfo.accountId, accountInfo.accountEmail);
+    const dataverseAccessToken = await getAccessTokenByAccountId(vscode.Uri.parse(dataverseEndpoint), accountInfo.accountId, accountInfo.accountEmail);
 
     payload = {
       accountInfo,

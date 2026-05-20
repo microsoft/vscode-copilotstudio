@@ -1,9 +1,9 @@
 import * as path from 'path';
 import * as fs from 'fs';
-import { ExtensionContext, IconPath, ThemeIcon, Uri, workspace } from "vscode";
+import { ExtensionContext, IconPath, ThemeIcon, Uri, window, workspace } from "vscode";
 import { Disposable } from "vscode-languageclient";
 import { lspClient } from '../services/lspClient';
-import { AgentSyncInfo } from "../types";
+import { AccountInfo, AgentSyncInfo } from "../types";
 import { getIcon } from "../icon";
 import { getClusterCategory, isChildUri } from '../utils/genericUtils';
 import { getEnvironmentByIdAsync } from '../clients/bapClient';
@@ -62,6 +62,46 @@ export const findWorkspaceForUri = (uri: string): CopilotStudioWorkspace | undef
 export const getWorkspaceByUri = (uri: Uri): CopilotStudioWorkspace | undefined => {
   const uriString = uri.scheme === 'mcs' ? decodeURIComponent(uri.query) : uri.toString(true);
   return workspaceCache.find(workspace => uriString.startsWith(decodeURI(workspace.workspaceUri)));
+};
+
+export const getActiveAgentAccount = (): AccountInfo | undefined => {
+  const activeUri = window.activeTextEditor?.document.uri;
+  if (activeUri) {
+    const ws = getWorkspaceByUri(activeUri);
+    if (ws?.syncInfo?.accountInfo) {
+      return ws.syncInfo.accountInfo;
+    }
+  }
+
+  const accounts = workspaceCache
+    .map(w => w.syncInfo?.accountInfo)
+    .filter((a): a is AccountInfo => !!a);
+  if (accounts.length === 0) {
+    return undefined;
+  }
+
+  const uniqueKey = (a: AccountInfo) => (a.accountEmail || a.accountId || '').toLowerCase();
+  const first = accounts[0];
+  const allSame = accounts.every(a => uniqueKey(a) === uniqueKey(first));
+  return allSame ? first : undefined;
+};
+
+export const getAllProjectAccounts = (): AccountInfo[] => {
+  const seen = new Set<string>();
+  const result: AccountInfo[] = [];
+  for (const w of workspaceCache) {
+    const a = w.syncInfo?.accountInfo;
+    if (!a) {
+      continue;
+    }
+    const key = (a.accountEmail || a.accountId || '').toLowerCase();
+    if (!key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(a);
+  }
+  return result;
 };
 
 // Checks if .mcs/conn.json exists in the workspace

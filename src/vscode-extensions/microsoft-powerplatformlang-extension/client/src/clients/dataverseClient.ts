@@ -67,8 +67,13 @@ export function clearWhoAmICache(): void {
     whoAmIFailed.clear();
 }
 
-export async function whoAmIAsync(baseEndpoint: Uri, cancellationToken: AbortSignal | null): Promise<string> {
-  const cacheKey = baseEndpoint.authority;
+export async function whoAmIAsync(
+  baseEndpoint: Uri,
+  cancellationToken: AbortSignal | null,
+  accountId?: string,
+  accountHint?: string
+): Promise<string> {
+  const cacheKey = `${accountId ?? ''}|${baseEndpoint.authority}`;
 
   // Return cached result immediately
   const cached = whoAmICache.get(cacheKey);
@@ -100,7 +105,7 @@ export async function whoAmIAsync(baseEndpoint: Uri, cancellationToken: AbortSig
     ? combineAbortSignals(cancellationToken, timeoutController.signal)
     : timeoutController.signal;
 
-  const requestPromise = getAsync<WhoAmIResponse>(uri, combinedSignal)
+  const requestPromise = getAsync<WhoAmIResponse>(uri, combinedSignal, accountId, accountHint)
     .then(({ result }) => {
       clearTimeout(timeoutId);
       const userId = result.UserId;
@@ -146,8 +151,13 @@ export function preWarmWhoAmI(baseEndpoint: Uri): void {
   whoAmIAsync(baseEndpoint, null).catch(() => { /* ignore errors during pre-warm */ });
 }
 
-export async function listAgentsAsync(baseEndpoint: Uri, cancellationToken: AbortSignal | null): Promise<AgentInfo[]> {
-  const systemUserId = await whoAmIAsync(baseEndpoint, cancellationToken);
+export async function listAgentsAsync(
+  baseEndpoint: Uri,
+  cancellationToken: AbortSignal | null,
+  accountId?: string,
+  accountHint?: string
+): Promise<AgentInfo[]> {
+  const systemUserId = await whoAmIAsync(baseEndpoint, cancellationToken, accountId, accountHint);
 
   const filter = `ismanaged eq false and _ownerid_value eq ${systemUserId}`;
   const query = `$select=botid,name,iconbase64&$filter=${filter}&$expand=bot_botcomponentcollection($select=schemaname,botcomponentcollectionid,name)`;
@@ -157,7 +167,7 @@ export async function listAgentsAsync(baseEndpoint: Uri, cancellationToken: Abor
     query: query
   });
 
-  const response = await getAsync<ListResponse<AgentDetails>>(uri, cancellationToken);
+  const response = await getAsync<ListResponse<AgentDetails>>(uri, cancellationToken, accountId, accountHint);
   return response.result.value.map(getAgentInfo);
 }
 
@@ -165,8 +175,13 @@ export async function listAgentsAsync(baseEndpoint: Uri, cancellationToken: Abor
  * Lists agents that are shared with the current user (not owned, but user has write access).
  * Uses batched RetrievePrincipalAccess to check access rights in a single HTTP call.
  */
-export async function listSharedAgentsAsync(baseEndpoint: Uri, cancellationToken: AbortSignal | null): Promise<AgentInfo[]> {
-  const systemUserId = await whoAmIAsync(baseEndpoint, cancellationToken);
+export async function listSharedAgentsAsync(
+  baseEndpoint: Uri,
+  cancellationToken: AbortSignal | null,
+  accountId?: string,
+  accountHint?: string
+): Promise<AgentInfo[]> {
+  const systemUserId = await whoAmIAsync(baseEndpoint, cancellationToken, accountId, accountHint);
 
   // Get all unmanaged bots the user can see, excluding ones they own
   const filter = `ismanaged eq false and _ownerid_value ne ${systemUserId}`;
@@ -174,7 +189,7 @@ export async function listSharedAgentsAsync(baseEndpoint: Uri, cancellationToken
     path: `api/data/v9.2/bots`,
     query: `$select=botid,name,iconbase64&$filter=${filter}&$expand=bot_botcomponentcollection($select=schemaname,botcomponentcollectionid,name)`
   });
-  const response = await getAsync<ListResponse<AgentDetails>>(uri, cancellationToken);
+  const response = await getAsync<ListResponse<AgentDetails>>(uri, cancellationToken, accountId, accountHint);
   return response.result.value.map(getSharedAgentInfo);
 }
 
@@ -366,8 +381,13 @@ async function getAccessTokenForUri(uri: Uri): Promise<{ accessToken: string }> 
   return { accessToken: tokenInfo.accessToken };
 }
 
-async function getAsync<TResult>(uri: Uri, cancellationToken: AbortSignal | null): Promise<{ result: TResult; tokenInfo: TokenInfo }> {
-  const { response, tokenInfo } = await FetchAccessToken(uri, uri, null, cancellationToken);
+async function getAsync<TResult>(
+  uri: Uri,
+  cancellationToken: AbortSignal | null,
+  accountId?: string,
+  accountHint?: string
+): Promise<{ result: TResult; tokenInfo: TokenInfo }> {
+  const { response, tokenInfo } = await FetchAccessToken(uri, uri, accountId ?? null, cancellationToken, true, accountHint);
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null);

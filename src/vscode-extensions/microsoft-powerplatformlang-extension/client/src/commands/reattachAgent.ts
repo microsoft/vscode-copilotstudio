@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { EnvironmentInfo, ReattachAgentRequest, ReattachAgentResponse} from '../types';
 import { DefaultCoreServicesClusterCategory, LspMethods, TelemetryEventsKeys } from '../constants';
 import { listEnvironmentsAsync } from '../clients/bapClient';
-import { switchAccount } from '../clients/account';
+import { switchAccount, getPreferredTreeAccount } from '../clients/account';
 import { pushNewWorkspace } from '../sync/workspaceScm';
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import logger from '../services/logger';
@@ -58,8 +58,9 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
           // For sync buttons to be disabled and loading indicators to be visible during the REATTACH_AGENT call.
           await withSyncCommandBusy(workspaceUri, async () => {
             try {
+              const preferred = getPreferredTreeAccount();
               const reattachRequest: ReattachAgentRequest = {
-                ...await buildLspRequestPayload(undefined, environmentInfo),
+                ...await buildLspRequestPayload(undefined, environmentInfo, preferred),
                 workspaceUri
               };
               const reattachResult = await lspClient.sendRequest<ReattachAgentResponse>(LspMethods.REATTACH_AGENT, reattachRequest);

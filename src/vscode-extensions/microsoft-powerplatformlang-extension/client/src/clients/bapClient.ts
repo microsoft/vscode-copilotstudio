@@ -109,7 +109,9 @@ function sortWithinSku(a: EnvironmentDetails, b: EnvironmentDetails): number {
 export async function listEnvironmentsBySkuAsync(
     clusterCategory: CoreServicesClusterCategory | null,
     sku: EnvironmentSku,
-    cancellationToken: AbortSignal | null
+    cancellationToken: AbortSignal | null,
+    accountId: string | null = null,
+    accountHint?: string
 ): Promise<EnvironmentInfo[]> {
     const query = SKU_QUERIES[sku];
     
@@ -118,8 +120,9 @@ export async function listEnvironmentsBySkuAsync(
         'environments',
         query,
         cancellationToken,
-        null,
-        false
+        accountId,
+        false,
+        accountHint
     );
 
     // Client-side filter (OData filter is unreliable)
@@ -221,7 +224,8 @@ async function getAsync<TResult>(
     additionalQueryString: string | null,
     cancellationToken: AbortSignal | null,
     accountId: string | null,
-    autopickAccount: boolean = true
+    autopickAccount: boolean = true,
+    accountHint?: string
 ): Promise<{ result: TResult; tokenInfo: TokenInfo }> {
     let query = 'api-version=2024-05-01';
     if (additionalQueryString) {
@@ -240,7 +244,7 @@ async function getAsync<TResult>(
         authority: getTokenScopeHostName(clusterCategory ?? DefaultCoreServicesClusterCategory)
     });
 
-    const { response, tokenInfo } = await FetchAccessToken(resource, uri, accountId, cancellationToken, autopickAccount);
+    const { response, tokenInfo } = await FetchAccessToken(resource, uri, accountId, cancellationToken, autopickAccount, accountHint);
     
     if (!response.ok) {
         const errorBody = await response.json().catch(() => null);

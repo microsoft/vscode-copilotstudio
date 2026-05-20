@@ -21,20 +21,177 @@ const VSCODE_CLIENT_ID = "VSCODE_CLIENT_ID:51f81489-12ee-4a9e-aaae-a2591f45987d"
 // Coalescing lock for interactive auth - prevents multiple concurrent consent dialogs
 let pendingInteractiveAuth: Promise<boolean> | null = null;
 
+export interface PreferredTreeAccount {
+    accountId: string;
+    accountEmail?: string;
+}
+
+let preferredTreeAccount: PreferredTreeAccount | undefined;
+
+export function getPreferredTreeAccount(): PreferredTreeAccount | undefined {
+    return preferredTreeAccount;
+}
+
+let signInCancelled = false;
+
+function isCancellationError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return /cancel(l)?ed|user did not consent/i.test(message);
+}
+
+export function clearSignInCancellation(): void {
+    signInCancelled = false;
+}
+
+export function isSignInCancelled(): boolean {
+    return signInCancelled;
+}
+
+export async function hasStoredAccount(accountId?: string, accountHint?: string): Promise<boolean> {
+    if (!accountId && !accountHint) {
+        const accounts = await authentication.getAccounts(MICROSOFT_PROVIDER_ID);
+        return accounts.length > 0;
+    }
+    const accounts = await authentication.getAccounts(MICROSOFT_PROVIDER_ID);
+    return !!findStoredAccount(accounts, accountId, accountHint);
+}
+
+function findStoredAccount(
+    accounts: readonly import('vscode').AuthenticationSessionAccountInformation[],
+    accountId?: string,
+    accountHint?: string
+): import('vscode').AuthenticationSessionAccountInformation | undefined {
+    if (accountId) {
+        const byId = accounts.find(a => a.id === accountId);
+        if (byId) {
+            return byId;
+        }
+    }
+    if (accountHint) {
+        const hintLower = accountHint.toLowerCase();
+        return accounts.find(a => a.label?.toLowerCase() === hintLower);
+    }
+    return undefined;
+}
+
+const pendingSilentSessions = new Map<string, Promise<import('vscode').AuthenticationSession | undefined>>();
+
+function scopesKey(scopes: string[], accountId?: string): string {
+    return `${accountId ?? ''}|${scopes.join(' ')}`;
+}
+
+async function getSilentSession(
+    scopes: string[],
+    account?: import('vscode').AuthenticationSessionAccountInformation
+): Promise<import('vscode').AuthenticationSession | undefined> {
+    const key = scopesKey(scopes, account?.id);
+    const existing = pendingSilentSessions.get(key);
+    if (existing) {
+        return existing;
+    }
+    const promise = (async () => {
+        try {
+            return await authentication.getSession(MICROSOFT_PROVIDER_ID, scopes, {
+                createIfNone: false,
+                silent: true,
+                ...(account ? { account } : {})
+            });
+        } catch {
+            return undefined;
+        } finally {
+            pendingSilentSessions.delete(key);
+        }
+    })();
+    pendingSilentSessions.set(key, promise);
+    return promise;
+}
+
+async function ensureInteractiveSession(
+    scopes: string[],
+    accountId?: string,
+    accountHint?: string
+): Promise<import('vscode').AuthenticationSession | undefined> {
+    const trySilent = async () => {
+        const accs = await authentication.getAccounts(MICROSOFT_PROVIDER_ID);
+        const acc = findStoredAccount(accs, accountId, accountHint);
+        return getSilentSession(scopes, acc);
+    };
+
+    const runPrompt = async (): Promise<void> => {
+        try {
+            const accounts = await authentication.getAccounts(MICROSOFT_PROVIDER_ID);
+            const targetAccount = findStoredAccount(accounts, accountId, accountHint);
+            const hintLabel = accountHint || targetAccount?.label;
+            const detail = hintLabel ? `This agent was set up with ${hintLabel}. Sign in with that account to continue.` : 'Sign in to continue.';
+
+            if (targetAccount) {
+                await authentication.getSession(MICROSOFT_PROVIDER_ID, scopes, {
+                    createIfNone: true,
+                    account: targetAccount
+                });
+            } else {
+                await authentication.getSession(MICROSOFT_PROVIDER_ID, scopes, {
+                    forceNewSession: { detail },
+                    clearSessionPreference: true
+                });
+            }
+            signInCancelled = false;
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (/cancel(l)?ed/i.test(message)) {
+                signInCancelled = true;
+            } else {
+                logger.logError(TelemetryEventsKeys.SignInError, `Interactive sign-in failed: ${message}`);
+            }
+        }
+    };
+
+    if (signInCancelled) {
+        return undefined;
+    }
+
+    if (pendingInteractiveAuth) {
+        await pendingInteractiveAuth;
+        if (signInCancelled) {
+            return undefined;
+        }
+        const silentSession = await trySilent();
+        if (silentSession) {
+            return silentSession;
+        }
+        while (pendingInteractiveAuth) {
+            await pendingInteractiveAuth;
+        }
+    }
+
+    pendingInteractiveAuth = (async () => {
+        try {
+            await runPrompt();
+            return true;
+        } finally {
+            pendingInteractiveAuth = null;
+        }
+    })();
+
+    await pendingInteractiveAuth;
+
+    return trySilent();
+}
+
 export async function FetchAccessToken(
     resource: Uri,
     requestUri: Uri,
     accountId: string | null,
     cancellationToken: AbortSignal | null,
-    autopickAccount: boolean = true
+    autopickAccount: boolean = true,
+    accountHint?: string
 ): Promise<AccessTokenResponse> {
     const accounts = await authentication.getAccounts(MICROSOFT_PROVIDER_ID);
-    if (accountId)
-    {    
-        const account = accounts.find(acc => acc.id === accountId);
+    if (accountId) {
+        const account = findStoredAccount(accounts, accountId, accountHint);
         if (account) {
             try {
-                const tokenInfo = await getAccessTokenByAccountId(resource, account.id);
+                const tokenInfo = await getAccessTokenByAccountId(resource, account.id, accountHint);
                 const response = await fetch(requestUri.toString(true), {
                     method: 'GET',
                     headers: {
@@ -46,20 +203,33 @@ export async function FetchAccessToken(
                     return { response, tokenInfo };
                 }
             } catch {
-                // If fetching with this account fails, we will try other account
+                // Fall through to interactive sign-in below.
             }
         }
+
+        const scope = Uri.from({ scheme: resource.scheme, authority: resource.authority, path: '/.default' }).toString(true);
+        const interactive = await ensureInteractiveSession([VSCODE_CLIENT_ID, scope], accountId, accountHint);
+        if (interactive) {
+            const tokenInfo = sessionToTokenInfo(interactive);
+            const response = await fetch(requestUri.toString(true), {
+                method: 'GET',
+                headers: { 'Authorization': `Bearer ${tokenInfo.accessToken}` },
+                signal: cancellationToken
+            });
+            return { response, tokenInfo };
+        }
+        throw new Error('Sign-in required for this agent. Please sign in to continue.');
     }
 
     if (autopickAccount) {
         for (const account of accounts) {
-            if (accountId && account.id !== accountId) {
-                // Skip the account we already tried
-                continue;
-            }
-
             try {
-                const tokenInfo = await getAccessTokenByAccountId(resource, account.id);
+                const scope = Uri.from({ scheme: resource.scheme, authority: resource.authority, path: '/.default' }).toString(true);
+                const silent = await getSilentSession([VSCODE_CLIENT_ID, scope], account);
+                if (!silent) {
+                    continue;
+                }
+                const tokenInfo = sessionToTokenInfo(silent);
                 const response = await fetch(requestUri.toString(true), {
                     method: 'GET',
                     headers: {
@@ -70,25 +240,36 @@ export async function FetchAccessToken(
                 if (response.ok) {
                     return { response, tokenInfo };
                 }
+            } catch {
+                // Try the next account.
             }
-            catch {
-                // If fetching with this account fails, we will try the next account
-            }        
         }
     }
 
-    // Fallback to default session
-    const fallbackTokenInfo = await getAccessToken(resource);
-    
-    const fallbackResponse = await fetch(requestUri.toString(true), {
-        method: 'GET',
-        headers: {
-            'Authorization': `Bearer ${fallbackTokenInfo.accessToken}`
-        },
-        signal: cancellationToken
-    });
+    const scope = Uri.from({ scheme: resource.scheme, authority: resource.authority, path: '/.default' }).toString(true);
+    const silentSession = await getSilentSession([VSCODE_CLIENT_ID, scope]);
+    if (silentSession) {
+        const fallbackTokenInfo = sessionToTokenInfo(silentSession);
+        const fallbackResponse = await fetch(requestUri.toString(true), {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${fallbackTokenInfo.accessToken}` },
+            signal: cancellationToken
+        });
+        return { response: fallbackResponse, tokenInfo: fallbackTokenInfo };
+    }
 
-    return { response: fallbackResponse, tokenInfo: fallbackTokenInfo };
+    const interactive = await ensureInteractiveSession([VSCODE_CLIENT_ID, scope]);
+    if (interactive) {
+        const tokenInfo = sessionToTokenInfo(interactive);
+        const response = await fetch(requestUri.toString(true), {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${tokenInfo.accessToken}` },
+            signal: cancellationToken
+        });
+        return { response, tokenInfo };
+    }
+
+    throw new Error('No signed-in account available for this request. Please sign in.');
 }
 
 /**
@@ -121,9 +302,9 @@ export async function getPreferredAccountId(clusterCategory: CoreServicesCluster
  * Uses coalescing to prevent multiple concurrent consent dialogs.
  */
 export async function switchAccount(clusterCategory: CoreServicesClusterCategory): Promise<boolean> {
-    // If interactive auth is already in progress, wait for it
-    if (pendingInteractiveAuth) {
-        return pendingInteractiveAuth;
+    signInCancelled = false;
+    while (pendingInteractiveAuth) {
+        await pendingInteractiveAuth;
     }
 
     const SCOPES = [
@@ -137,15 +318,27 @@ export async function switchAccount(clusterCategory: CoreServicesClusterCategory
 
     pendingInteractiveAuth = (async () => {
         try {
-            await authentication.getSession(MICROSOFT_PROVIDER_ID, SCOPES, {
+            const session = await authentication.getSession(MICROSOFT_PROVIDER_ID, SCOPES, {
                 clearSessionPreference: true,
                 createIfNone: true
             });
+
+            signInCancelled = false;
+
+            if (session) {
+                preferredTreeAccount = {
+                    accountId: session.account.id,
+                    accountEmail: session.account.label
+                };
+            }
             return true; // Successfully switched
         } catch (error) {
             // User cancelled or auth failed
-            const message = error instanceof Error ? error.message : String(error);
-            if (!message.includes('cancelled') && !message.includes('canceled')) {
+            if (isCancellationError(error)) {
+                signInCancelled = true;
+                logger.logInfo(TelemetryEventsKeys.SwitchAccountError, 'Switch account cancelled by user.');
+            } else {
+                const message = error instanceof Error ? error.message : String(error);
                 logger.logError(TelemetryEventsKeys.SwitchAccountError, `Failed to switch account: ${message}`);
             }
             return false; // Cancelled or failed
@@ -167,9 +360,8 @@ export async function switchToAccount(
     accountLabel: string,
     clusterCategory: CoreServicesClusterCategory
 ): Promise<boolean> {
-    // If interactive auth is already in progress, wait for it
-    if (pendingInteractiveAuth) {
-        return pendingInteractiveAuth;
+    while (pendingInteractiveAuth) {
+        await pendingInteractiveAuth;
     }
 
     const accounts = await authentication.getAccounts(MICROSOFT_PROVIDER_ID);
@@ -209,7 +401,12 @@ export async function switchToAccount(
 }
 
 export async function onAccountChange(onChange: () => void): Promise<Disposable> {
-    let previousSession = await authentication.getSession(MICROSOFT_PROVIDER_ID, [], { createIfNone: false });
+    const snapshotAccountIds = async (): Promise<string> => {
+        const accounts = await authentication.getAccounts(MICROSOFT_PROVIDER_ID);
+        return accounts.map(a => a.id).sort().join('|');
+    };
+
+    let previousKey = await snapshotAccountIds();
 
     // Don't call onChange() immediately - tree view handles initial state via getChildren().
     // This listener only fires on actual session changes.
@@ -219,14 +416,9 @@ export async function onAccountChange(onChange: () => void): Promise<Disposable>
             return;
         }
 
-        const currentSession = await authentication.getSession(MICROSOFT_PROVIDER_ID, [], { createIfNone: false });
-
-        // Call onChange if the session changed (first sign-in, logout, or switch)
-        const currentSessionId = currentSession?.id ?? null;
-        const previousSessionId = previousSession?.id ?? null;
-
-        if (currentSessionId !== previousSessionId) {
-            previousSession = currentSession;
+        const currentKey = await snapshotAccountIds();
+        if (currentKey !== previousKey) {
+            previousKey = currentKey;
             onChange();
         }
     });
@@ -243,42 +435,49 @@ export function isSignedIn(): Promise<boolean> {
     });
 }
 
-export function getCopilotStudioAccessTokenByAccountId(clusterCategory: CoreServicesClusterCategory, accountId: string | undefined): Promise<TokenInfo> {
+export function getCopilotStudioAccessTokenByAccountId(
+    clusterCategory: CoreServicesClusterCategory,
+    accountId: string | undefined,
+    accountHint?: string
+): Promise<TokenInfo> {
     const resource = Uri.from({ scheme: 'api', authority: getTokenScopeHostName(clusterCategory) });
-    return getAccessTokenByAccountId(resource, accountId);
+    return getAccessTokenByAccountId(resource, accountId, accountHint);
 }
 
-export async function getAccessTokenByAccountId(resource: Uri, accountId: string | undefined): Promise<TokenInfo> {
+export async function getAccessTokenByAccountId(resource: Uri, accountId: string | undefined, accountHint?: string): Promise<TokenInfo> {
+    const scope = Uri.from({ scheme: resource.scheme, authority: resource.authority, path: '/.default' }).toString(true);
+    const scopes = [VSCODE_CLIENT_ID, scope];
+
     if (accountId) {
         const accounts = await authentication.getAccounts(MICROSOFT_PROVIDER_ID);
-        const scope = Uri.from({ scheme: resource.scheme, authority: resource.authority, path: '/.default' }).toString(true);
-        const account = accounts.find(acc => acc.id === accountId);
+        const account = findStoredAccount(accounts, accountId, accountHint);
 
         if (account) {
-            const session = await authentication.getSession(
-                MICROSOFT_PROVIDER_ID,
-                [VSCODE_CLIENT_ID, scope],
-                {
-                    clearSessionPreference: false,
-                    createIfNone: false,
-                    account: account
-                }
-            );
-
+            const session = await getSilentSession(scopes, account);
             if (session) {
-                const tenantId = decodeIdToken(session.accessToken)?.tid || '';
-                return {
-                    accessToken: session.accessToken,
-                    accountId: session.account.id,
-                    accountEmail: session.account.label,
-                    tenantId
-                };
+                return sessionToTokenInfo(session);
             }
         }
+
+        const interactive = await ensureInteractiveSession(scopes, accountId, accountHint);
+        if (interactive) {
+            return sessionToTokenInfo(interactive);
+        }
+
+        throw new Error('Sign-in required for this agent. Please sign in to continue.');
     }
-    
-    // If no account is found, return token in current session.
+
     return getAccessToken(resource);
+}
+
+function sessionToTokenInfo(session: import('vscode').AuthenticationSession): TokenInfo {
+    const tenantId = decodeIdToken(session.accessToken)?.tid || '';
+    return {
+        accessToken: session.accessToken,
+        accountId: session.account.id,
+        accountEmail: session.account.label,
+        tenantId
+    };
 }
 
 // Prompts the user to sign in to Copilot Studio.
@@ -313,18 +512,51 @@ async function getAccessToken(uri: Uri): Promise<TokenInfo> {
     }
 
     const resource = Uri.from({ scheme: uri.scheme, authority: uri.authority, path: '/.default' }).toString(true);
-    const options: AuthenticationGetSessionOptions = { 
-        clearSessionPreference: clearSession,
+    const scopes = [VSCODE_CLIENT_ID, resource];
+
+    const silentSession = await getSilentSession(scopes);
+    if (silentSession) {
+        const tenantId = decodeIdToken(silentSession.accessToken)?.tid || '';
+        return {
+            accessToken: silentSession.accessToken,
+            accountId: silentSession.account.id,
+            tenantId,
+            accountEmail: silentSession.account.label
+        };
+    }
+
+    const storedAccounts = await authentication.getAccounts(MICROSOFT_PROVIDER_ID);
+    if (storedAccounts.length > 0) {
+        const preferred = preferredTreeAccount
+            ? findStoredAccount(storedAccounts, preferredTreeAccount.accountId, preferredTreeAccount.accountEmail) ?? storedAccounts[0]
+            : storedAccounts[0];
+        const interactive = await ensureInteractiveSession(scopes, preferred.id, preferred.label);
+        if (interactive) {
+            const tenantId = decodeIdToken(interactive.accessToken)?.tid || '';
+            return {
+                accessToken: interactive.accessToken,
+                accountId: interactive.account.id,
+                tenantId,
+                accountEmail: interactive.account.label
+            };
+        }
+    }
+
+    if (!clearSession) {
+        throw new Error("No signed-in account available for this request. Please sign in.");
+    }
+
+    const options: AuthenticationGetSessionOptions = {
+        clearSessionPreference: true,
         createIfNone: true,
     };
-
     clearSession = false;
 
-    const session = await authentication.getSession(MICROSOFT_PROVIDER_ID, [VSCODE_CLIENT_ID, resource], options);
+    const session = await authentication.getSession(MICROSOFT_PROVIDER_ID, scopes, options);
     if (session) {
         const tenantId = decodeIdToken(session.accessToken)?.tid || '';
-        return { 
-            accessToken: session.accessToken, 
+        return {
+            accessToken: session.accessToken,
             accountId: session.account.id,
             tenantId: tenantId,
             accountEmail: session.account.label
@@ -346,6 +578,7 @@ function decodeIdToken(idToken: string): { [key: string]: any } | null {
 
 export function resetAccount(): void{
     clearSession = true;
+    preferredTreeAccount = undefined;
 }
 
 function getTokenScopeHostName(clusterCategory: CoreServicesClusterCategory): string {
