@@ -31,7 +31,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
 
         public void LogEndContext(string message, params object[] @params)
         {
-            _logger.LogInformation($"EndContext: {message}", @params);
+            _logger.LogTrace($"EndContext: {message}", @params);
         }
 
         public void LogError(string message, params object[] @params)
@@ -67,7 +67,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
 
         public void LogStartContext(string message, params object[] @params)
         {
-            _logger.LogInformation($"StartContext: {message}", @params);
+            _logger.LogTrace($"StartContext: {message}", @params);
         }
 
         public void LogWarning(string message, params object[] @params)
