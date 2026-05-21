@@ -150,7 +150,8 @@ export async function listEnvironmentsAsync(clusterCategory: CoreServicesCluster
         "$filter=properties/environmentSku ne 'Platform'&$expand=properties.permissions",
         cancellationToken,
         accountId,
-        false
+        false,
+        undefined
     );
 
     const candidateEnvs = response.result.value.filter(env => hasEditPermission(env));

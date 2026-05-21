@@ -166,6 +166,7 @@ export async function getAgentInfo(agentUrl: string | undefined, context: Extens
                     clusterCategory: parseResult.clusterCategory
                   },
                   accountId: agentResult.accountId,
+                  accountEmail: agentResult.accountEmail,
                 },
                 requiresAccountSwitch,
                 targetAccountLabel: accountLabel,
@@ -311,7 +312,7 @@ export async function cloneAgentToLocalFolder(agent: IdentifyAgentResponse | und
     return;
   }
 
-  const { accountId, agentInfo, agentIdentifier, environmentInfo } = agent;
+  const { accountId, accountEmail, agentInfo, agentIdentifier, environmentInfo } = agent;
 
   // Show component picker first (if agent has component collections)
   const assets = await pickAssets(agentInfo);
@@ -349,6 +350,7 @@ export async function cloneAgentToLocalFolder(agent: IdentifyAgentResponse | und
       const cloneRequest: CloneAgentRequest = {
         ...await buildLspRequestPayload(undefined, environmentInfo, {
           accountId,
+          accountEmail,
           clusterCategory: agentIdentifier.clusterCategory
         }),
         agentInfo,

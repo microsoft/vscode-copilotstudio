@@ -32,7 +32,11 @@ export function getPreferredTreeAccount(): PreferredTreeAccount | undefined {
     return preferredTreeAccount;
 }
 
-let signInCancelled = false;
+const signInCancelled = new Set<string>();
+
+function cancellationKey(scopes: string[], accountId?: string, accountHint?: string): string {
+    return `${(accountId ?? accountHint ?? '').toLowerCase()}|${scopes.join(' ')}`;
+}
 
 function isCancellationError(error: unknown): boolean {
     const message = error instanceof Error ? error.message : String(error);
@@ -40,11 +44,11 @@ function isCancellationError(error: unknown): boolean {
 }
 
 export function clearSignInCancellation(): void {
-    signInCancelled = false;
+    signInCancelled.clear();
 }
 
 export function isSignInCancelled(): boolean {
-    return signInCancelled;
+    return signInCancelled.size > 0;
 }
 
 export async function hasStoredAccount(accountId?: string, accountHint?: string): Promise<boolean> {
@@ -111,6 +115,7 @@ async function ensureInteractiveSession(
     accountId?: string,
     accountHint?: string
 ): Promise<import('vscode').AuthenticationSession | undefined> {
+    const cancelKey = cancellationKey(scopes, accountId, accountHint);
     const trySilent = async () => {
         const accs = await authentication.getAccounts(MICROSOFT_PROVIDER_ID);
         const acc = findStoredAccount(accs, accountId, accountHint);
@@ -135,24 +140,25 @@ async function ensureInteractiveSession(
                     clearSessionPreference: true
                 });
             }
-            signInCancelled = false;
+
+            signInCancelled.delete(cancelKey);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             if (/cancel(l)?ed/i.test(message)) {
-                signInCancelled = true;
+                signInCancelled.add(cancelKey);
             } else {
                 logger.logError(TelemetryEventsKeys.SignInError, `Interactive sign-in failed: ${message}`);
             }
         }
     };
 
-    if (signInCancelled) {
+    if (signInCancelled.has(cancelKey)) {
         return undefined;
     }
 
     if (pendingInteractiveAuth) {
         await pendingInteractiveAuth;
-        if (signInCancelled) {
+        if (signInCancelled.has(cancelKey)) {
             return undefined;
         }
         const silentSession = await trySilent();
@@ -302,7 +308,7 @@ export async function getPreferredAccountId(clusterCategory: CoreServicesCluster
  * Uses coalescing to prevent multiple concurrent consent dialogs.
  */
 export async function switchAccount(clusterCategory: CoreServicesClusterCategory): Promise<boolean> {
-    signInCancelled = false;
+    signInCancelled.clear();
     while (pendingInteractiveAuth) {
         await pendingInteractiveAuth;
     }
@@ -323,7 +329,7 @@ export async function switchAccount(clusterCategory: CoreServicesClusterCategory
                 createIfNone: true
             });
 
-            signInCancelled = false;
+            signInCancelled.clear();
 
             if (session) {
                 preferredTreeAccount = {
@@ -335,7 +341,6 @@ export async function switchAccount(clusterCategory: CoreServicesClusterCategory
         } catch (error) {
             // User cancelled or auth failed
             if (isCancellationError(error)) {
-                signInCancelled = true;
                 logger.logInfo(TelemetryEventsKeys.SwitchAccountError, 'Switch account cancelled by user.');
             } else {
                 const message = error instanceof Error ? error.message : String(error);

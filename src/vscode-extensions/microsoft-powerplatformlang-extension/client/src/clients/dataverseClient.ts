@@ -20,11 +20,16 @@ export async function getAgentAsync(baseEndpoint: Uri, agentId: string, cancella
   };
 }
 
-export async function getSolutionVersionsAsync(baseEndpoint: Uri, cancellationToken: AbortSignal | null): Promise<SolutionInfo> {
+export async function getSolutionVersionsAsync(
+  baseEndpoint: Uri,
+  cancellationToken: AbortSignal | null,
+  accountId?: string,
+  accountHint?: string
+): Promise<SolutionInfo> {
   const solutions = solutionList.concat(additionalSolutions);
   const filterQuery = `$select=uniquename,version&$filter=${solutions.map(solution => `uniquename eq '${solution}'`).join(' or ')}`;
   const uri = baseEndpoint.with({ path: `api/data/v9.2/solutions`, query: filterQuery });
-  const result = await getAsync<ListResponse<SolutionData>>(uri, cancellationToken).then(response => response.result.value);
+  const result = await getAsync<ListResponse<SolutionData>>(uri, cancellationToken, accountId, accountHint).then(response => response.result.value);
   const solutionVersions: Record<string, string> = {};
 
   // Basing the default version on the PAC CLI default solution version.

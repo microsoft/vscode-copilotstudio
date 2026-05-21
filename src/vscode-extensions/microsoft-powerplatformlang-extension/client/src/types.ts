@@ -116,6 +116,7 @@ export interface IdentifyAgentResponse {
   agentInfo?: AgentInfo;
   accountName?: string;
   accountId?: string;
+  accountEmail?: string;
 }
 
 export interface AccountInfo {

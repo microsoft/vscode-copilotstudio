@@ -36,6 +36,7 @@ export interface AgentTreeItem extends CopilotStudioTreeItem {
 	kind: TreeItemKind.Agent;
 	environment: EnvironmentInfo;
 	agent: AgentInfo;
+    sourceAccount?: AccountInfo;
 }
 
 interface ErrorTreeItem extends CopilotStudioTreeItem {
@@ -390,7 +391,7 @@ class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTreeItem> {
 					
 					const allAgents = [...ownedAgents, ...sharedAgents];
 					const agents: CopilotStudioTreeItem[] = allAgents.map((agent) => {
-						return { kind: TreeItemKind.Agent, environment: envItem.environment, agent: agent } as AgentTreeItem;
+                        return { kind: TreeItemKind.Agent, environment: envItem.environment, agent: agent, sourceAccount: storeAccount } as AgentTreeItem;
 					});
 					resolve(agents);
 				} catch (e: any) {
