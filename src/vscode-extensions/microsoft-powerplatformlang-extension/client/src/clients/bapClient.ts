@@ -4,7 +4,7 @@ import { EnvironmentInfo } from "../types";
 import { CoreServicesClusterCategory, DefaultCoreServicesClusterCategory, TelemetryEventsKeys } from "../constants";
 import logger from "../services/logger";
 
-export type EnvironmentSku = 'Developer' | 'Default' | 'Sandbox' | 'Production' | 'Teams' | 'Trial';
+export type EnvironmentSku = 'Developer' | 'Default' | 'Sandbox' | 'Production' | 'Teams' | 'Trial' | 'SubscriptionBasedTrial';
 
 // ============ SHARED SKU QUERY DEFINITIONS ============
 // These are used by both progressive loading (QuickPick) and per-SKU loading (TreeView)
@@ -17,10 +17,11 @@ const SKU_QUERIES: Record<EnvironmentSku, string> = {
     'Production': "$filter=properties/environmentSku eq 'Production'&$expand=properties.permissions",
     'Teams': "$filter=properties/environmentSku eq 'Teams'&$expand=properties.permissions",
     'Trial': "$filter=properties/environmentSku eq 'Trial'&$expand=properties.permissions",
+    'SubscriptionBasedTrial': "$filter=properties/environmentSku eq 'SubscriptionBasedTrial'&$expand=properties.permissions",
 };
 
 /** Order for progressive loading - Developer first as it's fastest and most commonly used */
-const SKU_LOAD_ORDER: EnvironmentSku[] = ['Developer', 'Default', 'Sandbox', 'Production', 'Teams', 'Trial'];
+const SKU_LOAD_ORDER: EnvironmentSku[] = ['Developer', 'Default', 'Sandbox', 'Production', 'Teams', 'Trial', 'SubscriptionBasedTrial'];
 
 /**
  * Client-side SKU filter. The OData $filter can be unreliable, so we filter again after the response.

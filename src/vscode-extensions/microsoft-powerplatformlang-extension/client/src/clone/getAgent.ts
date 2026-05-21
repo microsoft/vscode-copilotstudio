@@ -191,7 +191,7 @@ export async function getAgentInfo(agentUrl: string | undefined, context: Extens
     });
 
     // Set up section headers upfront for progressive loading
-    const skuSections: EnvironmentSku[] = ['Developer', 'Default', 'Sandbox', 'Production', 'Teams', 'Trial'];
+    const skuSections: EnvironmentSku[] = ['Developer', 'Default', 'Sandbox', 'Production', 'Teams', 'Trial', 'SubscriptionBasedTrial'];
     const skuSeparators: Map<EnvironmentSku, QuickPickItem> = new Map();
     const skuItems: Map<EnvironmentSku, QuickPickItem[]> = new Map();
 
