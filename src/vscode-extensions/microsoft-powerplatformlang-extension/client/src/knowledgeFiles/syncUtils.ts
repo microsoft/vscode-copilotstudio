@@ -27,7 +27,7 @@ export function getTrackPath(workspaceUri: string): string {
 export async function getDataverseBotHandler(syncInfo: AgentSyncInfo): Promise<botComponentHandler> {
   try {
     const endpoint = vscode.Uri.parse(syncInfo.dataverseEndpoint);
-    const token = await getAccessTokenByAccountId(endpoint, syncInfo.accountInfo.accountId);
+    const token = await getAccessTokenByAccountId(endpoint, syncInfo.accountInfo.accountId, syncInfo.accountInfo.accountEmail);
     return new botComponentHandler(syncInfo.dataverseEndpoint, token.accessToken);
   } catch (err) {
     logger.logError(TelemetryEventsKeys.GetAccessTokenError, `Failed to get access token: <pii>${(err as Error).message}</pii>`);

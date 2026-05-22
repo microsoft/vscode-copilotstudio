@@ -1,12 +1,18 @@
 import * as vscode from 'vscode';
-import { EnvironmentInfo, ReattachAgentRequest, ReattachAgentResponse} from '../types';
+import { AccountInfo, EnvironmentInfo, ReattachAgentRequest, ReattachAgentResponse} from '../types';
 import { DefaultCoreServicesClusterCategory, LspMethods, TelemetryEventsKeys } from '../constants';
 import { listEnvironmentsAsync } from '../clients/bapClient';
-import { switchAccount } from '../clients/account';
+import { hasStoredAccount, switchAccount, getPreferredTreeAccount, listStoredAccounts } from '../clients/account';
 import { pushNewWorkspace } from '../sync/workspaceScm';
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import logger from '../services/logger';
 import { logWorkflowIssues, logAIPromptIssues, logNewCustomConnectorsRaw, withSyncCommandBusy } from '../sync/workspaceSynchronizer';
+import { getActiveAgentAccount, getAllProjectAccounts } from '../sync/localWorkspaces';
+
+type ReattachEnvironmentPickItem = vscode.QuickPickItem & {
+  environment: EnvironmentInfo;
+  sourceAccount?: AccountInfo;
+};
 
 export const registerReattachAgentCommand = (context: vscode.ExtensionContext) => {
   const reattachAgentCommand = vscode.commands.registerCommand('microsoft-copilot-studio.reattachAgent', async () => {
@@ -18,14 +24,78 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
       { iconPath: new vscode.ThemeIcon("sign-in"), tooltip: "Switch account" }
     ];
 
-    let environments: EnvironmentInfo[] = [];
     const loadEnvironments = async () => {
-      environments = await listEnvironmentsAsync(DefaultCoreServicesClusterCategory, null, null);
-      quickPick.items = environments.map(env => ({
-        label: env.displayName,
-        description: env.environmentId,
-        environment: env
-      }));
+      const preferred = getPreferredTreeAccount();
+      const projectAccounts = getAllProjectAccounts();
+
+      let candidateAccounts: (AccountInfo | undefined)[];
+      if (preferred) {
+        candidateAccounts = [{
+          accountId: preferred.accountId,
+          accountEmail: preferred.accountEmail ?? '',
+          tenantId: ''
+        } as AccountInfo];
+      } else if (projectAccounts.length > 0) {
+        candidateAccounts = projectAccounts;
+      } else {
+        const active = getActiveAgentAccount();
+        if (active) {
+          candidateAccounts = [active];
+        } else {
+          const stored = await listStoredAccounts();
+          candidateAccounts = stored.length > 0
+            ? stored.map<AccountInfo>(a => ({ accountId: a.accountId, accountEmail: a.accountEmail ?? '', tenantId: '' }))
+            : [undefined];
+        }
+      }
+
+      const signInChecks = await Promise.all(
+        candidateAccounts.map(async (acct) => {
+          if (!acct) {
+            return (await hasStoredAccount()) ? acct : null;
+          }
+          const hasAccount = await hasStoredAccount(acct.accountId, acct.accountEmail);
+          return hasAccount ? acct : null;
+        })
+      );
+      const accountsToQuery = signInChecks.filter((a): a is AccountInfo | undefined => a !== null);
+
+      const perAccountResults = await Promise.all(
+        accountsToQuery.map(async (acct) => {
+          try {
+            const envs = await listEnvironmentsAsync(
+              DefaultCoreServicesClusterCategory,
+              null,
+              acct?.accountId ?? null,
+              acct?.accountEmail
+            );
+            return envs.map<ReattachEnvironmentPickItem>(env => ({
+              label: env.displayName,
+              description: env.environmentId,
+              environment: env,
+              sourceAccount: acct
+            }));
+          } catch (error: any) {
+            logger.logError(TelemetryEventsKeys.LoadEnvironmentError, `[Reattach] Failed to load environments for ${acct?.accountId ?? 'default'}: ${error?.message || error}`);
+            return [] as ReattachEnvironmentPickItem[];
+          }
+        })
+      );
+
+      const seen = new Set<string>();
+      const items: ReattachEnvironmentPickItem[] = [];
+      for (const list of perAccountResults) {
+        for (const item of list) {
+          const key = item.environment.environmentId;
+          if (seen.has(key)) {
+            continue;
+          }
+          seen.add(key);
+          items.push(item);
+        }
+      }
+
+      quickPick.items = items;
       quickPick.busy = false;
     };
 
@@ -37,7 +107,7 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
     });
     
     quickPick.onDidAccept(async () => {
-      const pickedEnvironment = quickPick.selectedItems[0] as vscode.QuickPickItem & { environment: EnvironmentInfo };
+      const pickedEnvironment = quickPick.selectedItems[0] as ReattachEnvironmentPickItem;
       quickPick.hide();
 
       if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {        
@@ -58,8 +128,9 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
           // For sync buttons to be disabled and loading indicators to be visible during the REATTACH_AGENT call.
           await withSyncCommandBusy(workspaceUri, async () => {
             try {
+              const selectedAccount = pickedEnvironment.sourceAccount ?? getPreferredTreeAccount();
               const reattachRequest: ReattachAgentRequest = {
-                ...await buildLspRequestPayload(undefined, environmentInfo),
+                ...await buildLspRequestPayload(undefined, environmentInfo, selectedAccount),
                 workspaceUri
               };
               const reattachResult = await lspClient.sendRequest<ReattachAgentResponse>(LspMethods.REATTACH_AGENT, reattachRequest);

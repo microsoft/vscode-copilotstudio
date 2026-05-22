@@ -48,6 +48,7 @@ export function listEnvironmentsProgressiveAsync(
     clusterCategory: CoreServicesClusterCategory | null,
     cancellationToken: AbortSignal | null,
     accountId: string | null,
+    accountHint: string | undefined,
     callbacks: ProgressiveEnvironmentCallbacks
 ): void {
     // Run sequentially to avoid queueing contention with agent calls
@@ -67,7 +68,8 @@ export function listEnvironmentsProgressiveAsync(
                     query,
                     cancellationToken,
                     accountId,
-                    false
+                    false,
+                    accountHint
                 );
                 
                 // Client-side filter (OData filter is unreliable)
@@ -110,7 +112,9 @@ function sortWithinSku(a: EnvironmentDetails, b: EnvironmentDetails): number {
 export async function listEnvironmentsBySkuAsync(
     clusterCategory: CoreServicesClusterCategory | null,
     sku: EnvironmentSku,
-    cancellationToken: AbortSignal | null
+    cancellationToken: AbortSignal | null,
+    accountId: string | null = null,
+    accountHint?: string
 ): Promise<EnvironmentInfo[]> {
     const query = SKU_QUERIES[sku];
     
@@ -119,8 +123,9 @@ export async function listEnvironmentsBySkuAsync(
         'environments',
         query,
         cancellationToken,
-        null,
-        false
+        accountId,
+        false,
+        accountHint
     );
 
     // Client-side filter (OData filter is unreliable)
@@ -131,24 +136,24 @@ export async function listEnvironmentsBySkuAsync(
         .sort(sortWithinSku)
         .map(toEnvironmentInfo)
         .filter((env): env is EnvironmentInfo => env !== null);
-
-    if (permissionFilteredEnvs.length === 0)
-    {
-        const skuEnvsCount = skuFilteredEnvs.length;
-        logger.logInfo(TelemetryEventsKeys.LoadEnvironmentSuccess, `0/${skuEnvsCount} ${sku} environments are editable.`);
-    }
     
     return permissionFilteredEnvs;
 }
 
-export async function listEnvironmentsAsync(clusterCategory: CoreServicesClusterCategory | null, cancellationToken: AbortSignal | null, accountId: string | null): Promise<EnvironmentInfo[]> {
+export async function listEnvironmentsAsync(
+    clusterCategory: CoreServicesClusterCategory | null,
+    cancellationToken: AbortSignal | null,
+    accountId: string | null,
+    accountHint?: string
+): Promise<EnvironmentInfo[]> {
     const response = await getAsync<EnvironmentResponse>(
         clusterCategory,
         'environments',
         "$filter=properties/environmentSku ne 'Platform'&$expand=properties.permissions",
         cancellationToken,
         accountId,
-        false
+        false,
+        accountHint
     );
 
     const candidateEnvs = response.result.value.filter(env => hasEditPermission(env));
@@ -203,14 +208,21 @@ function hasEditPermission(env: EnvironmentDetails): boolean {
     return !!(permissions.UpdateEnvironment || permissions.CreatePowerApp);
 }  
 
-export async function getEnvironmentByIdAsync(clusterCategory: CoreServicesClusterCategory | null, environmentId: string, cancellationToken: AbortSignal| null): Promise<EnvironmentInfo | null> {
+export async function getEnvironmentByIdAsync(
+    clusterCategory: CoreServicesClusterCategory | null,
+    environmentId: string,
+    cancellationToken: AbortSignal| null,
+    accountId: string | null = null,
+    accountHint?: string
+): Promise<EnvironmentInfo | null> {
     const environmentDetails = await getAsync<EnvironmentDetails>(
         clusterCategory,
         `environments/${environmentId}`,
         '',
         cancellationToken,
-        null,
-        true
+        accountId,
+        true,
+        accountHint
     );
 
     return toEnvironmentInfo(environmentDetails.result);
@@ -222,7 +234,8 @@ async function getAsync<TResult>(
     additionalQueryString: string | null,
     cancellationToken: AbortSignal | null,
     accountId: string | null,
-    autopickAccount: boolean = true
+    autopickAccount: boolean = true,
+    accountHint?: string
 ): Promise<{ result: TResult; tokenInfo: TokenInfo }> {
     let query = 'api-version=2024-05-01';
     if (additionalQueryString) {
@@ -241,7 +254,7 @@ async function getAsync<TResult>(
         authority: getTokenScopeHostName(clusterCategory ?? DefaultCoreServicesClusterCategory)
     });
 
-    const { response, tokenInfo } = await FetchAccessToken(resource, uri, accountId, cancellationToken, autopickAccount);
+    const { response, tokenInfo } = await FetchAccessToken(resource, uri, accountId, cancellationToken, autopickAccount, accountHint);
     
     if (!response.ok) {
         const errorBody = await response.json().catch(() => null);

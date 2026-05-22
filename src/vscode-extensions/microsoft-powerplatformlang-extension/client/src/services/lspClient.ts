@@ -282,8 +282,8 @@ export const buildLspRequestPayload = async (syncInfo?: AgentSyncInfo, environme
 
   if (syncInfo) {
     const { accountInfo, agentManagementEndpoint, dataverseEndpoint, environmentId, solutionVersions } = syncInfo;
-    const copilotStudioAccessToken = await getCopilotStudioAccessTokenByAccountId(getClusterCategory(accountInfo), accountInfo.accountId);
-    const dataverseAccessToken = await getAccessTokenByAccountId(vscode.Uri.parse(dataverseEndpoint), accountInfo.accountId);
+    const copilotStudioAccessToken = await getCopilotStudioAccessTokenByAccountId(getClusterCategory(accountInfo), accountInfo.accountId, accountInfo.accountEmail);
+    const dataverseAccessToken = await getAccessTokenByAccountId(vscode.Uri.parse(dataverseEndpoint), accountInfo.accountId, accountInfo.accountEmail);
 
     payload = {
       accountInfo,
@@ -300,9 +300,9 @@ export const buildLspRequestPayload = async (syncInfo?: AgentSyncInfo, environme
   } else if (environmentInfo) {
     const clusterCategory = getClusterCategory(account);
     const parsedDataverseUrl = vscode.Uri.parse(environmentInfo.dataverseUrl);
-    const copilotStudioAccessToken = await getCopilotStudioAccessTokenByAccountId(clusterCategory, account?.accountId);
-    const dataverseAccessToken = await getAccessTokenByAccountId(parsedDataverseUrl, account?.accountId);
-    const solutionVersions = await getSolutionVersionsAsync(parsedDataverseUrl, null);
+    const copilotStudioAccessToken = await getCopilotStudioAccessTokenByAccountId(clusterCategory, account?.accountId, account?.accountEmail);
+    const dataverseAccessToken = await getAccessTokenByAccountId(parsedDataverseUrl, account?.accountId, account?.accountEmail);
+    const solutionVersions = await getSolutionVersionsAsync(parsedDataverseUrl, null, account?.accountId, account?.accountEmail);
 
     payload = {
       accountInfo: {

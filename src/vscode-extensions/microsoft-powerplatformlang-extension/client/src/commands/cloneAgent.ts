@@ -22,7 +22,8 @@ export const registerCloneAgentCommand = (context: vscode.ExtensionContext) => {
           },
           environmentInfo: treeItem.environment,
           agentInfo: treeItem.agent,
-          accountId: undefined,
+          accountId: treeItem.sourceAccount?.accountId,
+          accountEmail: treeItem.sourceAccount?.accountEmail,
         };
       } else {
         // Standard flow: show environment/agent picker
