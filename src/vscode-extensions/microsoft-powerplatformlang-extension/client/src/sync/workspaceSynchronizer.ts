@@ -185,14 +185,14 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
       : await vscode.window.withProgress({ location: vscode.ProgressLocation.SourceControl }, async () => {
         return await lspClient.sendRequest<SyncResponse>(methodName, request);
       });
-    logger.logInfo(TelemetryEventsKeys.SyncWorkspaceSuccess, `Successfully completed ${displayText}`);
+    logger.logInfo(TelemetryEventsKeys.SyncWorkspaceSuccess, `Successfully completed ${displayText}`, { showUI: true });
     logWorkflowIssues(result.workflowResponse);
     logAIPromptIssues(result.aiPromptResponse);
     logNewCustomConnectors(result.newlyCreatedCustomConnectors, workspace);
     return result;
   } catch (error) {
     if ((error as Error).message?.includes("UserNotMemberOfOrg")) {
-      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Your current account does not have permission. Please sign in with the account <pii>(${accountInfo.accountEmail ?? accountInfo.accountId})</pii> to perform this operation.`);
+      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Your current account does not have permission. Please sign in with the account <pii>(${accountInfo.accountEmail ?? accountInfo.accountId})</pii> to perform this operation.`, { showUI: true });
       try {
         resetAccount();
         return await sync(workspace, displayText, methodName, silent); // Retry sync with new log in
@@ -225,9 +225,9 @@ export function logWorkflowIssues(workflows: WorkflowResponse[] | undefined) {
   }
 
   if (disabledWorkflows.length > 0) {
-    logger.logWarning(TelemetryEventsKeys.SyncWorkspaceError, `These workflows need reestablish connection and need to be enabled in MCS portal: ${disabledWorkflows.join(", ")}`);
+    logger.logWarning(TelemetryEventsKeys.SyncWorkspaceError, `These workflows need reestablish connection and need to be enabled in MCS portal: ${disabledWorkflows.join(", ")}`, { showUI: true });
   } else if (failedWorkflows.length > 0) {
-    logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Workflow errors: ${failedWorkflows.join(", ")}`);
+    logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Workflow errors: ${failedWorkflows.join(", ")}`, { showUI: true });
   }
 }
 

@@ -49,13 +49,13 @@ namespace Microsoft.PowerPlatformLS.Impl.Core
                         // Peer (VS Code extension host) closed the IPC pipe. Treat as a graceful
                         // transport shutdown instead of letting IOException escape RunAsync and
                         // trigger BackgroundServiceStoppingHost on the IHost.
-                        _logger.LogInformation($"IPC transport closed while sending error response; {ex.Message}");
+                        _logger.LogTrace($"IPC transport closed while sending error response; {ex.Message}");
                         break;
                     }
                 }
                 else if (message is LspJsonRpcMessage lspMessage)
                 {
-                    _logger.LogInformation($"Received Message: method={lspMessage.Method}, id={lspMessage.Id}");
+                    _logger.LogTrace($"Received Message: method={lspMessage.Method}, id={lspMessage.Id}");
 
                     // Release the LSP log-forwarding pump once the client is initialized.
                     if (string.Equals(lspMessage.Method, LspMethods.Initialized, StringComparison.Ordinal))

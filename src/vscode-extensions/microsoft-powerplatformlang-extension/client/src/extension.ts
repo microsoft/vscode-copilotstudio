@@ -31,22 +31,22 @@ export async function activate(context: vscode.ExtensionContext) {
   const sessionId = randomUUID();
   const isDebugging = process.env.VSCODE_DEBUG === 'true';
 
-  // Logger includes the sessionId and shows a message in the VS Code UI.
-  logger.initialize(context, sessionId);
-  logger.logInfo(TelemetryEventsKeys.CopilotStudioStart, undefined, { isDebugMode: isDebugging.toString() });
+  // Create output channel for all extension and LSP logs.
+  // Using `createLogOutputChannel` gives each line a timestamp and a color-coded
+  // [error]/[warning]/[info] prefix.
+  const outputChannel = vscode.window.createOutputChannel("Copilot Studio", { log: true });
+  if (isDebugging) {
+    outputChannel.show();
+  }
+
+  // Logger includes the sessionId and writes to both telemetry and output channel.
+  logger.initialize(context, sessionId, outputChannel);
+  logger.logInfo(TelemetryEventsKeys.CopilotStudioStart, undefined, { data: { isDebugMode: isDebugging.toString() } });
 
   // Register commands and features that do not depend on the LSP client
   registerSignInCommand(context);
   registerResetAccountCommand(context);
   registerReportIssueCommand(context, sessionId);
-
-  // Create output channel for LSP logs.
-  // Using `createLogOutputChannel` gives each line a timestamp and a color-coded
-  // [error]/[warning]/[info] prefix.
-  const outputChannel = vscode.window.createOutputChannel("Copilot Studio Language Server", { log: true });
-  if (isDebugging) {
-    outputChannel.show();
-  }
 
   // Initialize and start LSP client
   try {

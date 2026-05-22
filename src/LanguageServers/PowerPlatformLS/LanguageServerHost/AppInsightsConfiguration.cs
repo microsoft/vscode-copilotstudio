@@ -1,6 +1,7 @@
 ﻿namespace Microsoft.PowerPlatformLS.LanguageServerHost
 {
     using Microsoft.ApplicationInsights.Channel;
+    using Microsoft.Extensions.Logging;
 
     internal static class AppInsightsConfiguration
     {
@@ -32,6 +33,11 @@
                         },
                         configureApplicationInsightsLoggerOptions: _ => { }
                     );
+
+                    // Only send Warning and above to App Insights to reduce telemetry noise.
+                    // Trace/Debug/Info logs go to the output channel only.
+                    builder.AddFilter<Microsoft.Extensions.Logging.ApplicationInsights.ApplicationInsightsLoggerProvider>(
+                        null, LogLevel.Warning);
                 });
             }
         }

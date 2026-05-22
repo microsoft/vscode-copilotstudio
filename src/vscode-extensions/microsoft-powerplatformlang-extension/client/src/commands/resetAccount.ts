@@ -8,7 +8,7 @@ export const registerResetAccountCommand = (context: vscode.ExtensionContext) =>
         try {
             resetAccount();
         } catch (error) {
-            logger.logError(TelemetryEventsKeys.ResetAccountError, `Failed to reset account: ${(error as Error).message}`);
+            logger.logError(TelemetryEventsKeys.ResetAccountError, `Failed to reset account: ${(error as Error).message}`, { showUI: true });
         }
     }));
 };

@@ -84,6 +84,8 @@ export const TelemetryEventsKeys = {
 export type TelemetryEventType = typeof TelemetryEventsKeys[keyof typeof TelemetryEventsKeys];
 
 export enum LogLevel {
+  Trace = 'Trace',
+  Debug = 'Debug',
   Info = 'Info',
   Warning = 'Warning',
   Error = 'Error'

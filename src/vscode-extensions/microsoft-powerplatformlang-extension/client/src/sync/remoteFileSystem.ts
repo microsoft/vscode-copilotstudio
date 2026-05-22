@@ -26,7 +26,7 @@ export class RemoteFileSystem implements FileSystemProvider {
         try {
             const workspace = findWorkspaceForUri(uri.query);
             if (!workspace) {
-                logger.logError(TelemetryEventsKeys.GetRemoteFileError, undefined, { message: `Error fetching file: could not locate workspace for file <pii>${uri}</pii>` });                
+                logger.logError(TelemetryEventsKeys.GetRemoteFileError, `Error fetching file: could not locate workspace for file <pii>${uri}</pii>`);                
                 return new Uint8Array();
             }
 

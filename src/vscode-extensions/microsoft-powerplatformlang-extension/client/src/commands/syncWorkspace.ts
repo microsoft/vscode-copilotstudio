@@ -78,7 +78,7 @@ const getDiagnosticsErrors = async (workspace: CopilotStudioWorkspace) => {
       const document = await VSworkspace.openTextDocument(fileUri);
       openedDocuments.push(document);
     } catch (error) {
-      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, { message: `Error opening file <pii>${fileUri.fsPath}</pii>: ${(error as Error).message}` });
+      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, { data: { message: `Error opening file <pii>${fileUri.fsPath}</pii>: ${(error as Error).message}` } });
     }
   }
 
@@ -127,9 +127,9 @@ const registerSyncCommand = (
 
       if (selectedWorkspace && !selectedWorkspace.syncInfo) {
         if (hasConnectionFileInWorkspace(selectedWorkspace.workspaceUri)) {
-          logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Cannot perform ${displayName} operation: connection settings in .mcs::conn.json are incomplete or invalid, please clone again.`);
+          logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Cannot perform ${displayName} operation: connection settings in .mcs::conn.json are incomplete or invalid, please clone again.`, { showUI: true });
         } else {
-          logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Cannot perform ${displayName} operation: connection file .mcs::conn.json is missing, please clone again.`);
+          logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Cannot perform ${displayName} operation: connection file .mcs::conn.json is missing, please clone again.`, { showUI: true });
         }
         return;
       }
@@ -203,7 +203,7 @@ const registerSyncCommand = (
 
       if ((id === 'microsoft-copilot-studio.syncPush' || id === 'microsoft-copilot-studio.applyChanges') && errors.count > 0) {
         const errorMessage = `Cannot perform ${displayName.toLowerCase()} operation: found ${errors.count} error(s) in ${errors.files} file(s).`;
-        logger.logWarning(TelemetryEventsKeys.SyncWorkspaceError, undefined, { message: errorMessage });
+        logger.logWarning(TelemetryEventsKeys.SyncWorkspaceError, undefined, { data: { message: errorMessage } });
         const detailView = await window.showErrorMessage(errorMessage, 'View Details');
 
         // Navigate to Problems view if user selects 'View Details'
@@ -212,7 +212,7 @@ const registerSyncCommand = (
         }
       }
     } catch (error) {
-      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Failed to execute ${displayName} operation: ${(error as Error).message}`);
+      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Failed to execute ${displayName} operation: ${(error as Error).message}`, { showUI: true });
     }
   });
 

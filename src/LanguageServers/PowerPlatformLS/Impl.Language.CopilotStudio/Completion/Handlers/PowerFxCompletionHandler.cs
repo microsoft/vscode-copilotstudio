@@ -27,13 +27,13 @@
                 completionEvent.Element.TryGetExpressionContext(requestContext, out var expressionContext))
             {
                 var time1 = stopwatch.ElapsedMilliseconds;
-                _logger.LogInformation($"TryGetExpressionContext time={time1}ms");
+                _logger.LogStartContext($"TryGetExpressionContext time={time1}ms");
 
                 stopwatch.Restart();
                 var intellisense = expressionContext.GetPowerFxIntellisense(_logger);
 
                 var time2 = stopwatch.ElapsedMilliseconds;
-                _logger.LogInformation($"GetPowerFxIntellisense time={time2}ms");
+                _logger.LogEndContext($"GetPowerFxIntellisense time={time2}ms");
 
                 foreach (var item in intellisense?.Suggestions ?? [])
                 {

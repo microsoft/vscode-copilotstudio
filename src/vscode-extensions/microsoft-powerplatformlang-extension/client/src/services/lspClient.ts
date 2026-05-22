@@ -188,9 +188,7 @@ class LspClientService {
     this._client = new LanguageClient("Copilot Studio Language Server" + sessionId, serverOptions, clientOptions);
     this._client.setTrace(Trace.Verbose);
     this._client.onDidChangeState((event) => {
-      logger.logInfo(TelemetryEventsKeys.LanguageServerInfo, undefined, {
-        message: `[LSP] State changed from ${State[event.oldState]} to ${State[event.newState]}`,
-      });
+      logger.debug("LSP", `State changed from ${State[event.oldState]} to ${State[event.newState]}`);
     });
 
     // Route window/logMessage into the LogOutputChannel for native
@@ -235,7 +233,7 @@ class LspClientService {
 
       context.subscriptions.push(this._client);
     } catch (error) {
-      logger.logError(TelemetryEventsKeys.LanguageServerError, `Copilot Studio Language Server failed to start: ${(error as Error).message}`);
+      logger.logError(TelemetryEventsKeys.LanguageServerError, `Copilot Studio Language Server failed to start: ${(error as Error).message}`, { showUI: true });
       throw error;
     }
   }

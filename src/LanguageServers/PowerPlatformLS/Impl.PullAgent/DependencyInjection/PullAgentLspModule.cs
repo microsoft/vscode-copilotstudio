@@ -13,6 +13,7 @@
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.Extensions.DependencyInjection;
+    using Microsoft.Extensions.Logging;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common.DependencyInjection;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
@@ -93,7 +94,7 @@
                     {
                         handlers.Add(sp.GetRequiredService<THandler>());
                         
-                        var logger = sp.GetRequiredService<ILspLogger>();
+                        var logger = sp.GetRequiredService<ILogger<LoggingHttpHandler>>();
                         handlers.Add(new LoggingHttpHandler(logger));
                     });
             }

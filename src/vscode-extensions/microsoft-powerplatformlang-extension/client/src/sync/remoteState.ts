@@ -25,7 +25,7 @@ export function initializeRemoteCacheDocumentContentProvider(context: ExtensionC
 async function getRemoteFileContent(uri: Uri): Promise<string | null> {
   const workspace = findWorkspaceForUri(uri.query);
   if (!workspace) {
-    logger.logError(TelemetryEventsKeys.GetRemoteFileError, undefined, { message: `Error fetching file: could not locate workspace for file <pii>${uri}</pii>` });
+    logger.logError(TelemetryEventsKeys.GetRemoteFileError, `Error fetching file: could not locate workspace for file <pii>${uri}</pii>`);
     return null;
   }
 

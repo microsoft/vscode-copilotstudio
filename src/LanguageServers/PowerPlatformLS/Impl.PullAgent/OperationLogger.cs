@@ -1,18 +1,18 @@
 ﻿namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 {
     using Microsoft.Agents.ObjectModel.Telemetry;
-    using Microsoft.CommonLanguageServerProtocol.Framework;
+    using Microsoft.Extensions.Logging;
     using System;
     using System.Collections.Generic;
     using System.Diagnostics;
     using System.Threading.Tasks;
 
-    // Log from a IOperationLogger to a ILspLogger.
+    // Log from a IOperationLogger to MEL ILogger.
     internal class LspOperationLogger : IOperationLogger
     {
-        private readonly ILspLogger _logger;
+        private readonly ILogger<LspOperationLogger> _logger;
 
-        public LspOperationLogger(ILspLogger logger)
+        public LspOperationLogger(ILogger<LspOperationLogger> logger)
         {
             _logger = logger;
         }
@@ -25,12 +25,12 @@
                 T result = function();
 
                 var ms = stopwatch.ElapsedMilliseconds;
-                _logger.LogInformation($"Operation: {operation}, duration={ms}ms");
+                _logger.LogTrace("Operation: {Operation}, duration={DurationMs}ms", operation, ms);
                 return result;
             }
             catch(Exception ex)
             {
-                _logger.LogException(ex, operation);
+                _logger.LogError(ex, "Operation failed: {Operation}", operation);
                 throw;
             }
         }
@@ -43,12 +43,12 @@
                 T result = function();
 
                 var ms = stopwatch.ElapsedMilliseconds;
-                _logger.LogInformation($"Activity: {activity}, duration={ms}ms");
+                _logger.LogTrace("Activity: {Activity}, duration={DurationMs}ms", activity, ms);
                 return result;
             }
             catch (Exception ex)
             {
-                _logger.LogException(ex, activity);
+                _logger.LogError(ex, "Activity failed: {Activity}", activity);
                 throw;
             }
         }
@@ -61,12 +61,12 @@
                 T result = await function();
 
                 var ms = stopwatch.ElapsedMilliseconds;
-                _logger.LogInformation($"Activity: {activity}, duration={ms}ms");
+                _logger.LogTrace("Activity: {Activity}, duration={DurationMs}ms", activity, ms);
                 return result;
             }
             catch (Exception ex)
             {
-                _logger.LogException(ex, activity);
+                _logger.LogError(ex, "Activity failed: {Activity}", activity);
                 throw;
             }
         }
@@ -79,12 +79,12 @@
                 T result = await function();
 
                 var ms = stopwatch.ElapsedMilliseconds;
-                _logger.LogInformation($"Activity: {activity}, duration={ms}ms");
+                _logger.LogTrace("Activity: {Activity}, duration={DurationMs}ms", activity, ms);
                 return result;
             }
             catch (Exception ex)
             {
-                _logger.LogException(ex, activity);
+                _logger.LogError(ex, "Activity failed: {Activity}", activity);
                 throw;
             }
         }

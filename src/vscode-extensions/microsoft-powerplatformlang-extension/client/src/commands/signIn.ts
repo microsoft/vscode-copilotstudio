@@ -8,7 +8,7 @@ export const registerSignInCommand = (context: vscode.ExtensionContext) => {
         try {
             await signIn(DefaultCoreServicesClusterCategory);
         } catch (error) {
-            logger.logError(TelemetryEventsKeys.SignInError, `Failed to sign in: ${(error as Error).message}`);
+            logger.logError(TelemetryEventsKeys.SignInError, `Failed to sign in: ${(error as Error).message}`, { showUI: true });
         }
     }));
 };

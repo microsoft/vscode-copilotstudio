@@ -490,8 +490,12 @@ export async function cloneAgentToLocalFolder(agent: IdentifyAgentResponse | und
       const cloneResp = await lspClient.sendRequest<CloneAgentResponse>(LspMethods.CLONE_AGENT, cloneRequest, cancellationToken);
 
       logger.logInfo(TelemetryEventsKeys.CloneAgentSuccess, `Agent ${agentInfo.displayName} cloned to <pii>${rootFolder}</pii>`, {
-        agentId: agentInfo.agentId,
-        environmentId: environmentInfo.environmentId,
+        showUI: true,
+        userMessage: `Agent ${agentInfo.displayName} cloned successfully.`,
+        data: {
+          agentId: agentInfo.agentId,
+          environmentId: environmentInfo.environmentId,
+        }
       });
 
       // After cloning the agent, setup a PostOpen instruction to open the agent file in the current window.

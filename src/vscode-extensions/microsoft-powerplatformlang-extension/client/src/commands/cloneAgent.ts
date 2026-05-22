@@ -37,8 +37,11 @@ export const registerCloneAgentCommand = (context: vscode.ExtensionContext) => {
       await cloneAgentToLocalFolder(agent, context);
     } catch (error) {
       logger.logError(TelemetryEventsKeys.CloneAgentError, `Error cloning agent: ${(error as Error).message}`, {
-        agentId: agent?.agentInfo?.agentId,
-        environmentId: agent?.environmentInfo?.environmentId,
+        showUI: true,
+        data: {
+          agentId: agent?.agentInfo?.agentId ?? '',
+          environmentId: agent?.environmentInfo?.environmentId ?? '',
+        }
       });
     }
   });

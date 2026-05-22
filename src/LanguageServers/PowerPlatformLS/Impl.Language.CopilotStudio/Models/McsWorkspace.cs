@@ -67,7 +67,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models
             base.AddDocument(document);
 
             int len = document.Text.Length;
-            _logger.LogInformation($"Document {document.Uri.AbsoluteUri}, len={len}, tracked in current workspace.");
+            _logger.LogStartContext($"Document tracked: len={len}, uri={document.Uri.AbsoluteUri}");
         }
 
         public IExpressionCheckerOperationContext GetOperationContext()

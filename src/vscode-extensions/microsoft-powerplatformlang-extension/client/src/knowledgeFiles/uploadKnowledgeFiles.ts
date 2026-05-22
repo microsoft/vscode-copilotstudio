@@ -245,7 +245,7 @@ export async function uploadKnowledgeFiles(ws: CopilotStudioWorkspace): Promise<
             details = ` - Raw: ${response.body.toString('utf8')}`;
           }
 
-          logger.logError(TelemetryEventsKeys.UploadKnowledgeFileError, undefined, { message: `Failed to upload <pii>${file}</pii>: ${response.statusCode}${details}` });
+          logger.logError(TelemetryEventsKeys.UploadKnowledgeFileError, `Failed to upload <pii>${file}</pii>: ${response.statusCode}${details}`);
           throw new Error(`Failed to upload ${file}: ${response.statusCode}${details}`);
         }
 

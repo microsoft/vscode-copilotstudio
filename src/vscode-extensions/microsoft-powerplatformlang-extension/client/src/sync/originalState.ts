@@ -24,7 +24,7 @@ async function retrieveLastSyncedFile(uri: Uri): Promise<string | null> {
 
   const workspace = getWorkspaceByUri(uri);
   if (!workspace) {
-    logger.logError(TelemetryEventsKeys.GetLocalFileError, undefined, { message: `Error retrieving file: could not locate workspace for file <pii>${uri}</pii>` });
+    logger.logError(TelemetryEventsKeys.GetLocalFileError, `Error retrieving file: could not locate workspace for file <pii>${uri}</pii>`);
     return null;
   }
 
