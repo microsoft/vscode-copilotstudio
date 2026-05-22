@@ -26,7 +26,7 @@
     <ProjectReference Include="..\..\CLaSP\Microsoft.CommonLanguageServerProtocol.Framework.csproj" />
     <ProjectReference Include="..\Contracts.FileLayout\Contracts.FileLayout.csproj" />
     <ProjectReference Include="..\Contracts.Internal\Contracts.Internal.csproj" />
-    <ProjectReference Include="..\Contracts.Lsp\Contracts.Lsp.csproj" />
+    <ProjectReference Include="..\Contracts.LSP\Contracts.LSP.csproj" />
     <ProjectReference Include="..\..\..\CopilotStudio.Sync\CopilotStudio.Sync.csproj" />
   </ItemGroup>
 

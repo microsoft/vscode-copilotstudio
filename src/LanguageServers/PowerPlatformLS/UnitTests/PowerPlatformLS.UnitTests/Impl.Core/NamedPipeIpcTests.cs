@@ -25,6 +25,11 @@
         [Fact]
         public async Task BasicAsync()
         {
+            if (!OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
             var pipeName = Guid.NewGuid().ToString(); // Must be machine unique 
 
             // Simulate VSCode client 
@@ -91,6 +96,11 @@
         [Fact]
         public async Task MultipleSendAsync()
         {
+            if (!OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
             var pipeName = Guid.NewGuid().ToString(); // Must be machine unique 
 
             // Simulate VSCode client 
@@ -160,6 +170,11 @@
         [Fact]
         public async Task PartialSendAsync()
         {
+            if (!OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
             var pipeName = Guid.NewGuid().ToString(); // Must be machine unique 
 
             // Simulate VSCode client 

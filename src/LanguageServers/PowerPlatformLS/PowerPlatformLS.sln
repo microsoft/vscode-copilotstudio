@@ -25,7 +25,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "CLaSP", "CLaSP", "{DDF3E6FB
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Microsoft.CommonLanguageServerProtocol.Framework", "..\CLaSP\Microsoft.CommonLanguageServerProtocol.Framework.csproj", "{8D0B3BC3-3B09-84C6-F4CD-8ED1D71BE349}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Contracts.Lsp", "Contracts.Lsp\Contracts.Lsp.csproj", "{0E6FA948-4DD5-1786-3A97-CB55441F6D04}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Contracts.LSP", "Contracts.LSP\Contracts.LSP.csproj", "{0E6FA948-4DD5-1786-3A97-CB55441F6D04}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Impl.PullAgent", "Impl.PullAgent\Impl.PullAgent.csproj", "{7ED0426C-56B3-49C3-8851-161DC027B1D9}"
 EndProject

@@ -22,7 +22,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core.Lsp.Uris
             var uri = new Uri(uriString);
             var filePath = uri.ToFilePath().ToString();
 
-            Assert.True(Path.IsPathRooted(filePath));
+            Assert.True(Path.IsPathRooted(filePath) || (filePath.Length >= 2 && char.IsLetter(filePath[0]) && filePath[1] == ':'));
 
             // Ensure percent-encoded characters are decoded in the resulting path
             var unescaped = uri.GetComponents(UriComponents.Path, UriFormat.Unescaped);

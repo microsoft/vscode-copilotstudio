@@ -393,7 +393,7 @@
         public void OnError_SemanticToken()
         {
             var world = new World();
-            var doc = world.AddFile("workspace/localworkspace/topics/OnError.mcs.yml");
+            var doc = world.AddFile("Workspace/LocalWorkspace/topics/OnError.mcs.yml");
             var fileSyntax = Assert.IsAssignableFrom<SyntaxNode>(doc.FileModel?.Syntax);
             var requestContext = world.GetRequestContext(doc, 0);
             var semanticTokenVisitor = new SemanticTokenVisitor(requestContext, Mock.Of<ILspLogger>());
