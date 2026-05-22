@@ -10,9 +10,15 @@ const additionalSolutions: ReadonlyArray<string> = [
 ];
 
 // No longer using FetchXML for solution queries
-export async function getAgentAsync(baseEndpoint: Uri, agentId: string, cancellationToken: AbortSignal | null): Promise<{ agent: AgentInfo; accountId: string; accountEmail?: string }> {
+export async function getAgentAsync(
+  baseEndpoint: Uri,
+  agentId: string,
+  cancellationToken: AbortSignal | null,
+  accountId?: string,
+  accountHint?: string
+): Promise<{ agent: AgentInfo; accountId: string; accountEmail?: string }> {
   const uri = baseEndpoint.with({ path: `api/data/v9.2/bots(${agentId})`, query: '$select=botid,name,iconbase64&$expand=bot_botcomponentcollection($select=schemaname,botcomponentcollectionid,name)' });
-  const { result, tokenInfo } = await getAsync<AgentDetails>(uri, cancellationToken);
+  const { result, tokenInfo } = await getAsync<AgentDetails>(uri, cancellationToken, accountId, accountHint);
   return {
     agent: getAgentInfo(result),
     accountId: tokenInfo.accountId,
@@ -152,8 +158,8 @@ function combineAbortSignals(...signals: AbortSignal[]): AbortSignal {
 }
 
 /** Pre-warm the WhoAmI cache for an environment. Call this early to avoid blocking later. */
-export function preWarmWhoAmI(baseEndpoint: Uri): void {
-  whoAmIAsync(baseEndpoint, null).catch(() => { /* ignore errors during pre-warm */ });
+export function preWarmWhoAmI(baseEndpoint: Uri, accountId?: string, accountHint?: string): void {
+  whoAmIAsync(baseEndpoint, null, accountId, accountHint).catch(() => { /* ignore errors during pre-warm */ });
 }
 
 export async function listAgentsAsync(
@@ -195,7 +201,18 @@ export async function listSharedAgentsAsync(
     query: `$select=botid,name,iconbase64&$filter=${filter}&$expand=bot_botcomponentcollection($select=schemaname,botcomponentcollectionid,name)`
   });
   const response = await getAsync<ListResponse<AgentDetails>>(uri, cancellationToken, accountId, accountHint);
-  return response.result.value.map(getSharedAgentInfo);
+  const writeAccess = await batchCheckWriteAccessAsync(
+    baseEndpoint,
+    response.result.value,
+    systemUserId,
+    cancellationToken,
+    accountId,
+    accountHint
+  );
+
+  return response.result.value
+    .filter((_, index) => writeAccess[index])
+    .map(getSharedAgentInfo);
 }
 
 /** Maximum number of requests per batch (Microsoft limit is 1000, using 500 for safety margin) */
@@ -210,7 +227,9 @@ async function batchCheckWriteAccessAsync(
   baseEndpoint: Uri,
   bots: AgentDetails[],
   systemUserId: string,
-  cancellationToken: AbortSignal | null
+  cancellationToken: AbortSignal | null,
+  accountId?: string,
+  accountHint?: string
 ): Promise<boolean[]> {
   if (bots.length === 0) {
     return [];
@@ -228,7 +247,9 @@ async function batchCheckWriteAccessAsync(
         baseEndpoint,
         chunk,
         systemUserId,
-        cancellationToken
+        cancellationToken,
+        accountId,
+        accountHint
       );
 
       // Copy chunk results to the correct positions in the main results array
@@ -252,7 +273,9 @@ async function executeSingleBatchAsync(
   baseEndpoint: Uri,
   bots: AgentDetails[],
   systemUserId: string,
-  cancellationToken: AbortSignal | null
+  cancellationToken: AbortSignal | null,
+  accountId?: string,
+  accountHint?: string
 ): Promise<boolean[]> {
   const batchUri = baseEndpoint.with({ path: `api/data/v9.2/$batch` });
   const boundary = `batch_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
@@ -282,7 +305,9 @@ async function executeSingleBatchAsync(
     batchUri,
     boundary,
     batchBody,
-    cancellationToken
+    cancellationToken,
+    accountId,
+    accountHint
   );
 
   // Parse multipart response to extract AccessRights for each bot
@@ -347,9 +372,11 @@ async function postBatchAsync<TResult>(
   batchUri: Uri,
   boundary: string,
   body: string,
-  cancellationToken: AbortSignal | null
+  cancellationToken: AbortSignal | null,
+  accountId?: string,
+  accountHint?: string
 ): Promise<{ result: TResult }> {
-  const { accessToken } = await getAccessTokenForUri(batchUri);
+  const { accessToken } = await getAccessTokenForUri(batchUri, accountId, accountHint);
 
   const response = await fetch(batchUri.toString(true), {
     method: 'POST',
@@ -380,9 +407,9 @@ async function postBatchAsync<TResult>(
  * Gets an access token for a URI without making a request.
  * Used by postBatchAsync which needs to make its own request.
  */
-async function getAccessTokenForUri(uri: Uri): Promise<{ accessToken: string }> {
+async function getAccessTokenForUri(uri: Uri, accountId?: string, accountHint?: string): Promise<{ accessToken: string }> {
   const { getAccessTokenByAccountId } = await import('./account.js');
-  const tokenInfo = await getAccessTokenByAccountId(uri, undefined);
+  const tokenInfo = await getAccessTokenByAccountId(uri, accountId, accountHint);
   return { accessToken: tokenInfo.accessToken };
 }
 

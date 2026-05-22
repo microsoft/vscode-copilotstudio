@@ -48,6 +48,7 @@ export function listEnvironmentsProgressiveAsync(
     clusterCategory: CoreServicesClusterCategory | null,
     cancellationToken: AbortSignal | null,
     accountId: string | null,
+    accountHint: string | undefined,
     callbacks: ProgressiveEnvironmentCallbacks
 ): void {
     // Run sequentially to avoid queueing contention with agent calls
@@ -67,7 +68,8 @@ export function listEnvironmentsProgressiveAsync(
                     query,
                     cancellationToken,
                     accountId,
-                    false
+                    false,
+                    accountHint
                 );
                 
                 // Client-side filter (OData filter is unreliable)
@@ -134,17 +136,16 @@ export async function listEnvironmentsBySkuAsync(
         .sort(sortWithinSku)
         .map(toEnvironmentInfo)
         .filter((env): env is EnvironmentInfo => env !== null);
-
-    if (permissionFilteredEnvs.length === 0)
-    {
-        const skuEnvsCount = skuFilteredEnvs.length;
-        logger.logInfo(TelemetryEventsKeys.LoadEnvironmentSuccess, `0/${skuEnvsCount} ${sku} environments are editable.`);
-    }
     
     return permissionFilteredEnvs;
 }
 
-export async function listEnvironmentsAsync(clusterCategory: CoreServicesClusterCategory | null, cancellationToken: AbortSignal | null, accountId: string | null): Promise<EnvironmentInfo[]> {
+export async function listEnvironmentsAsync(
+    clusterCategory: CoreServicesClusterCategory | null,
+    cancellationToken: AbortSignal | null,
+    accountId: string | null,
+    accountHint?: string
+): Promise<EnvironmentInfo[]> {
     const response = await getAsync<EnvironmentResponse>(
         clusterCategory,
         'environments',
@@ -152,7 +153,7 @@ export async function listEnvironmentsAsync(clusterCategory: CoreServicesCluster
         cancellationToken,
         accountId,
         false,
-        undefined
+        accountHint
     );
 
     const candidateEnvs = response.result.value.filter(env => hasEditPermission(env));
@@ -207,14 +208,21 @@ function hasEditPermission(env: EnvironmentDetails): boolean {
     return !!(permissions.UpdateEnvironment || permissions.CreatePowerApp);
 }  
 
-export async function getEnvironmentByIdAsync(clusterCategory: CoreServicesClusterCategory | null, environmentId: string, cancellationToken: AbortSignal| null): Promise<EnvironmentInfo | null> {
+export async function getEnvironmentByIdAsync(
+    clusterCategory: CoreServicesClusterCategory | null,
+    environmentId: string,
+    cancellationToken: AbortSignal| null,
+    accountId: string | null = null,
+    accountHint?: string
+): Promise<EnvironmentInfo | null> {
     const environmentDetails = await getAsync<EnvironmentDetails>(
         clusterCategory,
         `environments/${environmentId}`,
         '',
         cancellationToken,
-        null,
-        true
+        accountId,
+        true,
+        accountHint
     );
 
     return toEnvironmentInfo(environmentDetails.result);

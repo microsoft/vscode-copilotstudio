@@ -7,13 +7,16 @@ import { window, ExtensionContext, Uri, QuickPickItem, QuickPickItemKind, ThemeI
 import { AgentInfo, CloneAgentRequest, ClonedAssets, EnvironmentInfo, IdentifyAgentResponse, CloneAgentResponse } from '../types';
 import { getIcon } from '../icon';
 import { tryGetAgentIdentifier } from './agentIdentifier';
-import { getEnvironmentByIdAsync, listEnvironmentsProgressiveAsync, EnvironmentSku } from '../clients/bapClient';
+import { getEnvironmentByIdAsync, listEnvironmentsBySkuAsync, EnvironmentSku } from '../clients/bapClient';
 import { getAgentAsync, listAgentsAsync, listSharedAgentsAsync, preWarmWhoAmI } from '../clients/dataverseClient';
-import { switchAccount, switchToAccount, isSignedIn, getPreferredAccountId } from '../clients/account';
+import { switchAccount, switchToAccount, isSignedIn, getPreferredAccountId, getPreferredTreeAccount, hasStoredAccount, listStoredAccounts, getAccessTokenByAccountId } from '../clients/account';
 import { DefaultCoreServicesClusterCategory, LspMethods, TelemetryEventsKeys } from '../constants';
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import logger from '../services/logger';
 import { writePostOpenInstruction } from '../startup/postOpen';
+import { getActiveAgentAccount, getAllProjectAccounts } from '../sync/localWorkspaces';
+
+type EnvironmentPickItem = QuickPickItem & { environment: EnvironmentInfo; sourceAccount?: { accountId?: string; accountEmail?: string } };
 
 /**
  * A multi-step input using window.createQuickPick() and window.createInputBox().
@@ -70,7 +73,7 @@ export async function getAgentInfo(agentUrl: string | undefined, context: Extens
       if (isResolved) {
         return; // Already handled
       }
-      const first = selection[0] as QuickPickItem & { environment: EnvironmentInfo } & { agentData: IdentifyAgentResponse } & { requiresAccountSwitch?: boolean; targetAccountLabel?: string };
+      const first = selection[0] as EnvironmentPickItem & { agentData: IdentifyAgentResponse } & { requiresAccountSwitch?: boolean; targetAccountLabel?: string };
       if (first.agentData) {
         // Check if this clipboard agent requires an account switch
         if (first.requiresAccountSwitch && first.agentData.accountId) {
@@ -79,6 +82,21 @@ export async function getAgentInfo(agentUrl: string | undefined, context: Extens
           const accountLabel = first.targetAccountLabel || first.agentData.accountId;
           const switched = await switchToAccount(first.agentData.accountId, accountLabel, clusterCategory);
           if (switched) {
+            try {
+              const dataverseUrl = first.agentData.environmentInfo?.dataverseUrl;
+              if (dataverseUrl) {
+                await getAccessTokenByAccountId(
+                  Uri.parse(dataverseUrl),
+                  first.agentData.accountId,
+                  first.agentData.accountEmail
+                );
+              }
+            } catch (error) {
+              getAgentInfo(agentUrl, context)
+                .then(result => { safeResolve(result); })
+                .catch(err => { reject(err); });
+              return;
+            }
             safeResolve(first.agentData);
           } else {
             // User cancelled switch - reopen picker
@@ -92,11 +110,13 @@ export async function getAgentInfo(agentUrl: string | undefined, context: Extens
       } else if (first.environment) {
         isPickingAgent = true; // Mark that we're entering agent picker
         quickPick.dispose();
-        const agentInfo = await pickAgent(first.environment);
+        const agentInfo = await pickAgent(first.environment, first.sourceAccount);
         if (agentInfo) {
           const result: IdentifyAgentResponse = {
             agentInfo,
             environmentInfo: first.environment,
+            accountId: first.sourceAccount?.accountId,
+            accountEmail: first.sourceAccount?.accountEmail,
             agentIdentifier: {
               environmentId: first.environment.environmentId,
               agentId: agentInfo.agentId,
@@ -143,37 +163,85 @@ export async function getAgentInfo(agentUrl: string | undefined, context: Extens
       if (agentUrl) {
         const parseResult = tryGetAgentIdentifier(agentUrl);
         if (parseResult?.agentId) {
-          const environment = await getEnvironmentByIdAsync(parseResult.clusterCategory, parseResult.environmentId, null);
-          if (environment) {
-            const agentResult = await getAgentAsync(Uri.parse(environment.dataverseUrl), parseResult.agentId, null);
-            const agent = agentResult.agent;
-            if (agent) {
-              // Check if this agent requires switching to a different account
-              const requiresAccountSwitch = preferredAccountId !== null && agentResult.accountId !== preferredAccountId;
-              const accountLabel = agentResult.accountEmail || agentResult.accountId;
-
-              // an agent was picked from the URL.
-              const newItem: QuickPickItem & { agentData: IdentifyAgentResponse; requiresAccountSwitch?: boolean; targetAccountLabel?: string } = {
-                label: requiresAccountSwitch ? `$(arrow-swap) ${agent.displayName}` : agent.displayName,
-                description: requiresAccountSwitch ? `from clipboard (switch to ${accountLabel})` : "from clipboard",
-                iconPath: getIcon(agent),
-                agentData: {
-                  agentInfo: agent,
-                  environmentInfo: environment,
-                  agentIdentifier: {
-                    environmentId: environment.environmentId,
-                    agentId: agent.agentId,
-                    clusterCategory: parseResult.clusterCategory
-                  },
-                  accountId: agentResult.accountId,
-                  accountEmail: agentResult.accountEmail,
-                },
-                requiresAccountSwitch,
-                targetAccountLabel: accountLabel,
-              };
-              const separator: QuickPickItem = { kind: QuickPickItemKind.Separator, label: "" };
-              quickPick.items = [newItem, separator, ...quickPick.items];
+          const storedAccounts = await listStoredAccounts();
+          const probeOrder: ({ accountId?: string; accountEmail?: string } | undefined)[] = [];
+          const seenIds = new Set<string>();
+          if (preferredAccountId) {
+            const preferred = storedAccounts.find(a => a.accountId === preferredAccountId);
+            if (preferred) {
+              probeOrder.push(preferred);
+              seenIds.add(preferred.accountId);
+            } else {
+              probeOrder.push({ accountId: preferredAccountId });
+              seenIds.add(preferredAccountId);
             }
+          }
+          for (const a of storedAccounts) {
+            if (!seenIds.has(a.accountId)) {
+              probeOrder.push(a);
+              seenIds.add(a.accountId);
+            }
+          }
+          if (probeOrder.length === 0) {
+            probeOrder.push(undefined);
+          }
+
+          let environment: EnvironmentInfo | null = null;
+          let agentResult: { agent: AgentInfo; accountId: string; accountEmail?: string } | undefined;
+          for (const candidate of probeOrder) {
+            try {
+              const env = await getEnvironmentByIdAsync(
+                parseResult.clusterCategory,
+                parseResult.environmentId,
+                null,
+                candidate?.accountId ?? null,
+                candidate?.accountEmail
+              );
+              if (!env) {
+                continue;
+              }
+              const result = await getAgentAsync(
+                Uri.parse(env.dataverseUrl),
+                parseResult.agentId,
+                null,
+                candidate?.accountId,
+                candidate?.accountEmail
+              );
+              if (result.agent) {
+                environment = env;
+                agentResult = result;
+                break;
+              }
+            } catch (error) {
+              continue;
+            }
+          }
+
+          if (environment && agentResult?.agent) {
+            const agent = agentResult.agent;
+            const requiresAccountSwitch = preferredAccountId !== null && agentResult.accountId !== preferredAccountId;
+            const accountLabel = agentResult.accountEmail || agentResult.accountId;
+
+            const newItem: QuickPickItem & { agentData: IdentifyAgentResponse; requiresAccountSwitch?: boolean; targetAccountLabel?: string } = {
+              label: requiresAccountSwitch ? `$(arrow-swap) ${agent.displayName}` : agent.displayName,
+              description: requiresAccountSwitch ? `from clipboard (switch to ${accountLabel})` : "from clipboard",
+              iconPath: getIcon(agent),
+              agentData: {
+                agentInfo: agent,
+                environmentInfo: environment,
+                agentIdentifier: {
+                  environmentId: environment.environmentId,
+                  agentId: agent.agentId,
+                  clusterCategory: parseResult.clusterCategory
+                },
+                accountId: agentResult.accountId,
+                accountEmail: agentResult.accountEmail,
+              },
+              requiresAccountSwitch,
+              targetAccountLabel: accountLabel,
+            };
+            const separator: QuickPickItem = { kind: QuickPickItemKind.Separator, label: "" };
+            quickPick.items = [newItem, separator, ...quickPick.items];
           }
         }
       }
@@ -226,48 +294,110 @@ export async function getAgentInfo(agentUrl: string | undefined, context: Extens
     // Show initial structure with loading placeholders
     rebuildItems();
 
-    // Fire progressive loading with abort signal
-    // Always use extension's preferred account (null) for environment list, not the clipboard agent's account
     let preWarmedWhoAmI = false;
-    listEnvironmentsProgressiveAsync(clusterCategory, envAbortController.signal, null, {
-        onSkuLoaded: (sku: EnvironmentSku, environments: EnvironmentInfo[]) => {
-            // Pre-warm WhoAmI cache for the first environment to avoid queueing later
-            if (!preWarmedWhoAmI && environments.length > 0) {
-                preWarmedWhoAmI = true;
-                preWarmWhoAmI(Uri.parse(environments[0].dataverseUrl));
-            }
+    const preferredTreeAccount = getPreferredTreeAccount();
+    const projectAccounts = getAllProjectAccounts();
+    let candidateAccounts: ({ accountId?: string; accountEmail?: string } | undefined)[];
+    if (preferredTreeAccount) {
+      candidateAccounts = [preferredTreeAccount];
+    } else if (projectAccounts.length > 0) {
+      candidateAccounts = projectAccounts;
+    } else {
+      const active = getActiveAgentAccount();
+      if (active) {
+        candidateAccounts = [active];
+      } else {
+        const stored = await listStoredAccounts();
+        candidateAccounts = stored.length > 0 ? stored : [undefined];
+      }
+    }
 
-            // Update the separator label to show count
-            const count = environments.length;
-            const label = `${sku} (${count})`;
-            skuSeparators.set(sku, { kind: QuickPickItemKind.Separator, label });
-
-            // Update the items for this SKU
-            const envItems = environments.map((environment) => {
-                return {
-                    label: environment.displayName,
-                    description: environment.environmentId,
-                    environment: environment
-                } as QuickPickItem & { environment: EnvironmentInfo };
-            });
-            skuItems.set(sku, envItems);
-
-            // Rebuild the list
-            rebuildItems();
-        },
-        onAllComplete: () => {
-            quickPick.busy = false;
-        },
-        onError: (sku: EnvironmentSku, _error: unknown) => {
-            skuSeparators.set(sku, { kind: QuickPickItemKind.Separator, label: `${sku} (failed to load)` });
-            rebuildItems();
+    const signInChecks = await Promise.all(
+      candidateAccounts.map(async (acct) => {
+        if (!acct) {
+          return (await hasStoredAccount()) ? acct : null;
         }
-    });
+        const hasAccount = await hasStoredAccount(acct.accountId, acct.accountEmail);
+        return hasAccount ? acct : null;
+      })
+    );
+    const accountsToQuery = signInChecks.filter((acct): acct is { accountId?: string; accountEmail?: string } | undefined => acct !== null);
+
+    for (const sku of skuSections) {
+      if (envAbortController.signal.aborted) {
+        break;
+      }
+
+      try {
+        const perAccountResults = await Promise.all(
+          accountsToQuery.map(async (acct) => {
+            try {
+              const environments = await listEnvironmentsBySkuAsync(
+                clusterCategory,
+                sku,
+                envAbortController.signal,
+                acct?.accountId ?? null,
+                acct?.accountEmail
+              );
+              return environments.map<EnvironmentPickItem>((environment) => ({
+                label: environment.displayName,
+                description: environment.environmentId,
+                environment,
+                sourceAccount: acct
+              }));
+            } catch (error) {
+              logger.logError(
+                TelemetryEventsKeys.LoadEnvironmentError,
+                `Failed to load ${sku} environments for ${acct?.accountId ?? 'default'}: ${error instanceof Error ? error.message : String(error)}`
+              );
+              return [] as EnvironmentPickItem[];
+            }
+          })
+        );
+
+        const seen = new Set<string>();
+        const merged: EnvironmentPickItem[] = [];
+        for (const items of perAccountResults) {
+          for (const item of items) {
+            const key = item.environment.environmentId;
+            if (seen.has(key)) {
+              continue;
+            }
+            seen.add(key);
+            merged.push(item);
+          }
+        }
+
+        if (!preWarmedWhoAmI && merged.length > 0) {
+          preWarmedWhoAmI = true;
+          preWarmWhoAmI(
+            Uri.parse(merged[0].environment.dataverseUrl),
+            merged[0].sourceAccount?.accountId,
+            merged[0].sourceAccount?.accountEmail
+          );
+        }
+
+        skuSeparators.set(sku, { kind: QuickPickItemKind.Separator, label: `${sku} (${merged.length})` });
+        skuItems.set(sku, merged);
+        rebuildItems();
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          break;
+        }
+        skuSeparators.set(sku, { kind: QuickPickItemKind.Separator, label: `${sku} (failed to load)` });
+        rebuildItems();
+      }
+    }
+
+    quickPick.busy = false;
   });
 }
 
 
-async function pickAgent(environment: EnvironmentInfo): Promise<AgentInfo | undefined> {
+async function pickAgent(
+  environment: EnvironmentInfo,
+  sourceAccount?: { accountId?: string; accountEmail?: string }
+): Promise<AgentInfo | undefined> {
   return new Promise(async (resolve) => {
     const input = window.createQuickPick();
     input.busy = true;
@@ -293,8 +423,8 @@ async function pickAgent(environment: EnvironmentInfo): Promise<AgentInfo | unde
 
     // Load owned and shared agents in parallel, combine into single list
     const [ownedAgents, sharedAgents] = await Promise.all([
-      listAgentsAsync(Uri.parse(environment.dataverseUrl), null),
-      listSharedAgentsAsync(Uri.parse(environment.dataverseUrl), null)
+      listAgentsAsync(Uri.parse(environment.dataverseUrl), null, sourceAccount?.accountId, sourceAccount?.accountEmail),
+      listSharedAgentsAsync(Uri.parse(environment.dataverseUrl), null, sourceAccount?.accountId, sourceAccount?.accountEmail)
     ]);
 
     const allAgents = [...ownedAgents, ...sharedAgents];

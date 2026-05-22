@@ -27,6 +27,7 @@ export interface PreferredTreeAccount {
 }
 
 let preferredTreeAccount: PreferredTreeAccount | undefined;
+let noAccountCancellationNonce = 0;
 
 export function getPreferredTreeAccount(): PreferredTreeAccount | undefined {
     return preferredTreeAccount;
@@ -35,7 +36,13 @@ export function getPreferredTreeAccount(): PreferredTreeAccount | undefined {
 const signInCancelled = new Set<string>();
 
 function cancellationKey(scopes: string[], accountId?: string, accountHint?: string): string {
-    return `${(accountId ?? accountHint ?? '').toLowerCase()}|${scopes.join(' ')}`;
+    const identity = (accountId ?? accountHint)?.toLowerCase();
+    if (identity) {
+        return `${identity}|${scopes.join(' ')}`;
+    }
+
+    noAccountCancellationNonce += 1;
+    return `anonymous:${noAccountCancellationNonce}|${scopes.join(' ')}`;
 }
 
 function isCancellationError(error: unknown): boolean {
@@ -58,6 +65,20 @@ export async function hasStoredAccount(accountId?: string, accountHint?: string)
     }
     const accounts = await authentication.getAccounts(MICROSOFT_PROVIDER_ID);
     return !!findStoredAccount(accounts, accountId, accountHint);
+}
+
+export async function listStoredAccounts(): Promise<{ accountId: string; accountEmail?: string }[]> {
+    const accounts = await authentication.getAccounts(MICROSOFT_PROVIDER_ID);
+    const seen = new Set<string>();
+    const result: { accountId: string; accountEmail?: string }[] = [];
+    for (const a of accounts) {
+        if (seen.has(a.id)) {
+            continue;
+        }
+        seen.add(a.id);
+        result.push({ accountId: a.id, accountEmail: a.label });
+    }
+    return result;
 }
 
 function findStoredAccount(
@@ -122,26 +143,34 @@ async function ensureInteractiveSession(
         return getSilentSession(scopes, acc);
     };
 
-    const runPrompt = async (): Promise<void> => {
+    const runPrompt = async (): Promise<import('vscode').AuthenticationSession | undefined> => {
         try {
             const accounts = await authentication.getAccounts(MICROSOFT_PROVIDER_ID);
             const targetAccount = findStoredAccount(accounts, accountId, accountHint);
             const hintLabel = accountHint || targetAccount?.label;
             const detail = hintLabel ? `This agent was set up with ${hintLabel}. Sign in with that account to continue.` : 'Sign in to continue.';
 
+            let session: import('vscode').AuthenticationSession | undefined;
             if (targetAccount) {
-                await authentication.getSession(MICROSOFT_PROVIDER_ID, scopes, {
+                session = await authentication.getSession(MICROSOFT_PROVIDER_ID, scopes, {
                     createIfNone: true,
                     account: targetAccount
                 });
+                if (!session) {
+                    session = await authentication.getSession(MICROSOFT_PROVIDER_ID, scopes, {
+                        forceNewSession: { detail },
+                        account: targetAccount
+                    });
+                }
             } else {
-                await authentication.getSession(MICROSOFT_PROVIDER_ID, scopes, {
+                session = await authentication.getSession(MICROSOFT_PROVIDER_ID, scopes, {
                     forceNewSession: { detail },
                     clearSessionPreference: true
                 });
             }
 
             signInCancelled.delete(cancelKey);
+            return session;
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             if (/cancel(l)?ed/i.test(message)) {
@@ -149,6 +178,7 @@ async function ensureInteractiveSession(
             } else {
                 logger.logError(TelemetryEventsKeys.SignInError, `Interactive sign-in failed: ${message}`);
             }
+            return undefined;
         }
     };
 
@@ -170,10 +200,11 @@ async function ensureInteractiveSession(
         }
     }
 
+    let promptedSession: import('vscode').AuthenticationSession | undefined;
     pendingInteractiveAuth = (async () => {
         try {
-            await runPrompt();
-            return true;
+            promptedSession = await runPrompt();
+            return !!promptedSession;
         } finally {
             pendingInteractiveAuth = null;
         }
@@ -181,7 +212,7 @@ async function ensureInteractiveSession(
 
     await pendingInteractiveAuth;
 
-    return trySilent();
+    return promptedSession ?? await trySilent();
 }
 
 export async function FetchAccessToken(
@@ -336,6 +367,11 @@ export async function switchAccount(clusterCategory: CoreServicesClusterCategory
                     accountId: session.account.id,
                     accountEmail: session.account.label
                 };
+                try {
+                    const { clearWhoAmICache } = await import('./dataverseClient.js');
+                    clearWhoAmICache();
+                } catch {
+                }
             }
             return true; // Successfully switched
         } catch (error) {
@@ -394,6 +430,13 @@ export async function switchToAccount(
                 clearSessionPreference: true,
                 account: account
             });
+            if (session) {
+                try {
+                    const { clearWhoAmICache } = await import('./dataverseClient.js');
+                    clearWhoAmICache();
+                } catch {
+                }
+            }
             return !!session;
         } catch {
             return false;

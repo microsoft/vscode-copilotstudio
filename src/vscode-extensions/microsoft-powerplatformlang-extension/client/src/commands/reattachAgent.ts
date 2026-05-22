@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { AccountInfo, EnvironmentInfo, ReattachAgentRequest, ReattachAgentResponse} from '../types';
 import { DefaultCoreServicesClusterCategory, LspMethods, TelemetryEventsKeys } from '../constants';
 import { listEnvironmentsAsync } from '../clients/bapClient';
-import { hasStoredAccount, switchAccount, getPreferredTreeAccount } from '../clients/account';
+import { hasStoredAccount, switchAccount, getPreferredTreeAccount, listStoredAccounts } from '../clients/account';
 import { pushNewWorkspace } from '../sync/workspaceScm';
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import logger from '../services/logger';
@@ -35,8 +35,18 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
           accountEmail: preferred.accountEmail ?? '',
           tenantId: ''
         } as AccountInfo];
+      } else if (projectAccounts.length > 0) {
+        candidateAccounts = projectAccounts;
       } else {
-        candidateAccounts = projectAccounts.length > 0 ? projectAccounts : [getActiveAgentAccount()];
+        const active = getActiveAgentAccount();
+        if (active) {
+          candidateAccounts = [active];
+        } else {
+          const stored = await listStoredAccounts();
+          candidateAccounts = stored.length > 0
+            ? stored.map<AccountInfo>(a => ({ accountId: a.accountId, accountEmail: a.accountEmail ?? '', tenantId: '' }))
+            : [undefined];
+        }
       }
 
       const signInChecks = await Promise.all(
@@ -56,7 +66,8 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
             const envs = await listEnvironmentsAsync(
               DefaultCoreServicesClusterCategory,
               null,
-              acct?.accountId ?? null
+              acct?.accountId ?? null,
+              acct?.accountEmail
             );
             return envs.map<ReattachEnvironmentPickItem>(env => ({
               label: env.displayName,
