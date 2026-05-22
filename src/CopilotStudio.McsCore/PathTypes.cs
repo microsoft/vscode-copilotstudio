@@ -101,6 +101,13 @@ internal static class PathHelper
             throw new ArgumentException($"Path should use forward slash: {path}", nameof(path));
         }
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static bool IsAbsolutePath(string path)
+    {
+        return Path.IsPathRooted(path) ||
+               (path.Length >= 2 && char.IsLetter(path[0]) && path[1] == ':');
+    }
 }
 
 #endregion
@@ -210,7 +217,7 @@ public readonly struct DirectoryPath : IEquatable<DirectoryPath>
 
     public void EnsureIsRooted()
     {
-        if (!Path.IsPathRooted(_value))
+        if (!PathHelper.IsAbsolutePath(_value))
         {
             throw new InvalidOperationException($"Paths musted be rooted: {_value}");
         }
@@ -454,7 +461,7 @@ public readonly struct AgentFilePath : IEquatable<AgentFilePath>
     public AgentFilePath(FilePath path)
     {
         var pathValue = path.ToString();
-        if (Path.IsPathRooted(pathValue))
+        if (PathHelper.IsAbsolutePath(pathValue))
         {
             throw new ArgumentException("AgentFilePath must be relative to an agent directory.", nameof(path));
         }
