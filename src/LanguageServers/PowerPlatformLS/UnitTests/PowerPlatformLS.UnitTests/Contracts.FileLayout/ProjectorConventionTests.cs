@@ -54,9 +54,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
         #region Components with Legacy Overrides
 
         /// <summary>
-        /// GlobalVariableComponent has legacy infix override: .GlobalVariableComponent.
+        /// GlobalVariableComponent convention infix is now .globalvariable. (no legacy override needed).
         /// ObjectModel convention produces: .globalvariable. / variables/ (PluralForm="variables")
-        /// LspProjection overrides the infix to use legacy naming.
         /// </summary>
         [Fact]
         public void GlobalVariableComponent_HasLegacyOverride()
@@ -68,10 +67,10 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
             Assert.Equal(".globalvariable.", projector!.Infix);
             Assert.Equal("variables/", projector.Folder);
 
-            // Legacy metadata overrides the infix only
+            // Infix now matches convention — no legacy override needed
             var infix = LspProjection.GetRuleInfixForElementType(projector.ElementType);
             var folder = LspProjection.GetRuleFolderForElementType(projector.ElementType);
-            Assert.Equal(".GlobalVariableComponent.", infix);
+            Assert.Equal(".globalvariable.", infix);
             Assert.Equal("variables/", folder);
         }
 
@@ -189,7 +188,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
         /// </summary>
         [Theory]
         [InlineData(typeof(SkillComponent), typeof(SkillDefinition))]
-        [InlineData(typeof(GlobalVariableComponent), typeof(Variable))]
+        [InlineData(typeof(GlobalVariableComponent), typeof(VariableBase))]
         [InlineData(typeof(KnowledgeSourceComponent), typeof(KnowledgeSourceConfiguration))]
         [InlineData(typeof(ExternalTriggerComponent), typeof(ExternalTriggerConfiguration))]
         [InlineData(typeof(GptComponent), typeof(GptComponentMetadata))]
@@ -209,7 +208,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
         /// </summary>
         [Theory]
         [InlineData(typeof(SkillComponent), ".skill.")]
-        [InlineData(typeof(GlobalVariableComponent), ".GlobalVariableComponent.")]
+        [InlineData(typeof(GlobalVariableComponent), ".globalvariable.")]
         [InlineData(typeof(CustomEntityComponent), ".entity.")]
         [InlineData(typeof(KnowledgeSourceComponent), ".knowledge.")]
         public void GetEffectiveInfix_ReturnsCorrectValue(Type componentType, string expectedInfix)

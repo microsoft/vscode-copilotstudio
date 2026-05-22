@@ -1,4 +1,4 @@
-<botcomponent schemaname="cree9_agent.GlobalVariableComponent.Var1">
+<botcomponent schemaname="cree9_agent.globalvariable.Var1">
   <componenttype>9</componenttype>
   <description>Global variable 1.</description>
   <iscustomizable>0</iscustomizable>

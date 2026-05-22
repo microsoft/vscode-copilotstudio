@@ -129,7 +129,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Handlers
 
                 if (botDefinition != null && botDefinition.Entity != null)
                 {
-                    return new GlobalVariableSchemaName(botDefinition?.Entity?.SchemaName + ".GlobalVariableComponent." + setVariable.Variable.Path.VariableName);
+                    return new GlobalVariableSchemaName(botDefinition?.Entity?.SchemaName + ".globalvariable." + setVariable.Variable.Path.VariableName);
                 }
             }
 

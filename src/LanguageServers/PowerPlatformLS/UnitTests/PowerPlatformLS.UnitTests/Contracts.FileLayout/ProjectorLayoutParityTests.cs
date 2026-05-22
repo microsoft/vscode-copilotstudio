@@ -150,7 +150,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
         {
             Assert.True(LspProjectionLayout.FileStructureMap.ContainsKey("variables/"));
             var types = LspProjectionLayout.FileStructureMap["variables/"];
-            Assert.Contains(typeof(Variable), types);
+            Assert.Contains(typeof(VariableBase), types);
         }
 
         /// <summary>

@@ -279,7 +279,7 @@ The action wrapper itself is a `DialogComponent` in `botdefinition.json`. The re
 
 ### 9. Global variables (Variable / GlobalVariableComponent)
 
-**Projection rule**: infix `.GlobalVariableComponent.`, folder `variables/`, DotPassthrough disabled.
+**Projection rule**: infix `.globalvariable.`, folder `variables/`, DotPassthrough disabled.
 
 **What it is**: Agent-scoped global variables. The projector and round-trip tests exist in the extension codebase (`ProjectorOracleParityTests.GlobalVariableComponent_RoundTrip`), and the test fixtures use `scope: User` variables.
 

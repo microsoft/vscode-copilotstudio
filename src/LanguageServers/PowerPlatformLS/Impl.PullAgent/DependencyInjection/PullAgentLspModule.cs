@@ -20,6 +20,7 @@
     using System.Collections.Generic;
     using System.Collections.Immutable;
     using System.Globalization;
+    using System.Threading;
     using System.Threading.Tasks;
 
     public class PullAgentLspModule : ILspModule
@@ -63,6 +64,7 @@
             services.AddSingleton<IPluginEnrichmentService, MockPluginEnrichmentService>();
             services.AddSingleton<IAIModelEnrichmentService, MockAIModelEnrichmentService>();
             services.AddSingleton<ICloudFlowDefinitionEnrichementService, MockCloudFlowDefinitionEnrichementService>();
+            services.AddSingleton<ISkillResourceContentLoader, MockSkillResourceContentLoader>();
             services.AddTransient<AuthorizeDataverseRequestHandler>();
             services.AddTransient<AuthorizeCopilotStudioRequestHandler>();
             AddHttpClient<AuthorizeDataverseRequestHandler>(HttpClientNames.Dataverse);
@@ -198,6 +200,14 @@
             public Task<ImmutableArray<CloudFlowDefinition>> GetCloudFlowDefinitionsAsync(AuthoringOperationContextBase context, IEnumerable<Guid> workflowIds, CancellationToken ct)
             {
                 return Task.FromResult(ImmutableArray<CloudFlowDefinition>.Empty);
+            }
+        }
+
+        internal class MockSkillResourceContentLoader : ISkillResourceContentLoader
+        {
+            public Task<SkillResource?> LoadAsync(AuthoringOperationContextBase context, FileAttachmentComponent attachment, CancellationToken cancellationToken)
+            {
+                return Task.FromResult<SkillResource?>(null);
             }
         }
 

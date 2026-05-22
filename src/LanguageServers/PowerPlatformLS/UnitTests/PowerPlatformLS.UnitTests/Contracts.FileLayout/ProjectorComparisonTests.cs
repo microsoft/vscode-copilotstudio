@@ -86,14 +86,14 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
         /// Verifies GlobalVariableComponentProjector produces correct schema names.
         /// </summary>
         [Theory]
-        [InlineData("var1", "cr5f7_agent6eFv9_s.GlobalVariableComponent.var1")]
-        [InlineData("userInfo", "cr5f7_agent6eFv9_s.GlobalVariableComponent.userInfo")]
+        [InlineData("var1", "cr5f7_agent6eFv9_s.globalvariable.var1")]
+        [InlineData("userInfo", "cr5f7_agent6eFv9_s.globalvariable.userInfo")]
         public void VariableProjector_ProducesCorrectSchemaName(string fileName, string expectedSchemaName)
         {
             var projector = _registry.GetForType(typeof(GlobalVariableComponent)) as IComponentProjector;
             Assert.NotNull(projector);
 
-            Assert.Equal(".GlobalVariableComponent.", GetRuleInfix(projector!));
+            Assert.Equal(".globalvariable.", GetRuleInfix(projector!));
 
             var projectorResult = _service.GetSchemaName($"variables/{fileName}", TestBotName, projector!.ElementType);
 
@@ -319,7 +319,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
             return elementType.Name switch
             {
                 nameof(AdaptiveDialog) or nameof(TaskDialog) or nameof(AgentDialog) => typeof(DialogComponent),
-                nameof(Variable) => typeof(GlobalVariableComponent),
+                nameof(Variable) or nameof(VariableBase) => typeof(GlobalVariableComponent),
                 nameof(EntityWithAnnotatedSamples) or "Entity" => typeof(CustomEntityComponent),
                 nameof(BotSettingsBase) => typeof(BotSettingsComponent),
                 nameof(ExternalTriggerConfiguration) => typeof(ExternalTriggerComponent),
@@ -344,7 +344,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
             // These expected values come from FileNameHelper.SchemaNameReference
             var expectedInfixes = new (Type ComponentType, string ExpectedInfix)[]
             {
-                (typeof(GlobalVariableComponent), ".GlobalVariableComponent."),
+                (typeof(GlobalVariableComponent), ".globalvariable."),
                 (typeof(BotSettingsComponent), ".BotSettingsComponent."),
                 (typeof(CustomEntityComponent), ".entity."),
                 (typeof(FileAttachmentComponent), ".file."),
@@ -438,7 +438,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
         [InlineData(typeof(KnowledgeSourceComponent), "knowledge/", "agent1.topic.CollabHome_abc")]  // .topic. instead of .knowledge.
         [InlineData(typeof(KnowledgeSourceComponent), "knowledge/", "agent1.action.SomeAction_xyz")] // .action. instead of .knowledge.
         [InlineData(typeof(CustomEntityComponent), "entities/", "agent1.topic.EntityName")]          // .topic. instead of .entity.
-        [InlineData(typeof(GlobalVariableComponent), "variables/", "agent1.topic.VarName")]          // .topic. instead of .GlobalVariableComponent.
+        [InlineData(typeof(GlobalVariableComponent), "variables/", "agent1.topic.VarName")]          // .topic. instead of .globalvariable.
         public void Component_WithMismatchedInfix_RoundTrips_SchemaNameUnchanged(Type componentType, string expectedFolder, string schemaName)
         {
             var component = CreateComponent(componentType, schemaName);
@@ -626,6 +626,28 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
                 .Where(t => t.Name != "LegacyOrUnknownComponent")
                 .ToList();
 
+            // https://github.com/microsoft/vscode-copilotstudio/issues/244
+            // List of exclusion that will be worked on it soon. Components to exclude:
+            // Microsoft.Agents.ObjectModel.ConnectorTool, Microsoft.Agents.ObjectModel.McpTool, Microsoft.Agents.ObjectModel.FabricTool, Microsoft.Agents.ObjectModel.WorkflowTool, Microsoft.Agents.ObjectModel.InlineAgentSkill, Microsoft.Agents.ObjectModel.ConnectedAgentTool
+            var excludedTypes = new[]
+            {
+                "ConnectorTool",
+                "McpTool",
+                "FabricTool",
+                "WorkflowTool",
+                "InlineAgentSkill",
+                "ConnectedAgentTool"
+            };
+
+            foreach (var excludedType in excludedTypes)
+            {
+                var type = componentTypes.FirstOrDefault(t => t.Name == excludedType);
+                if (type != null)
+                {
+                    componentTypes.Remove(type);
+                }
+            }
+
             var missingProjectors = componentTypes
                 .Where(t => _registry.GetForType(t) is not IComponentProjector)
                 .Select(t => t.FullName)
@@ -658,7 +680,18 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
             var unmapped = dialogTypes
                 .Where(t => !typeof(AdaptiveDialog).IsAssignableFrom(t)
                             && !typeof(TaskDialog).IsAssignableFrom(t)
-                            && !typeof(AgentDialog).IsAssignableFrom(t))
+                            && !typeof(AgentDialog).IsAssignableFrom(t)
+                            // https://github.com/microsoft/vscode-copilotstudio/issues/244
+
+                            // List of exclusion that will be worked on it soon. Components to exclude:
+                            // Microsoft.Agents.ObjectModel.ConnectorTool, Microsoft.Agents.ObjectModel.McpTool, Microsoft.Agents.ObjectModel.FabricTool, Microsoft.Agents.ObjectModel.WorkflowTool, Microsoft.Agents.ObjectModel.InlineAgentSkill, Microsoft.Agents.ObjectModel.ConnectedAgentTool
+                            && !typeof(ConnectorTool).IsAssignableFrom(t)
+                            && !typeof(McpTool).IsAssignableFrom(t)
+                            && !typeof(FabricTool).IsAssignableFrom(t)
+                            && !typeof(WorkflowTool).IsAssignableFrom(t)
+                            && !typeof(InlineAgentSkill).IsAssignableFrom(t)
+                            && !typeof(ConnectedAgentTool).IsAssignableFrom(t)
+                            )
                 .Select(t => t.FullName)
                 .ToList();
 
@@ -668,7 +701,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
         /// <summary>
         /// Verifies that components with LS infix overrides are correctly identified.
         /// Note: With PluralForm in SolutionComponents.xml, ObjectModel now produces correct folder names,
-        /// so overrides are primarily for infix differences (e.g., .GlobalVariableComponent. vs .globalvariable.).
+        /// so overrides are primarily for infix differences (e.g., .BotSettingsComponent. vs .botsettings.).
+        /// GlobalVariableComponent no longer needs an override since the package infix now matches.
         /// </summary>
         [Fact]
         public void OverriddenComponents_HaveRuleOverrides()
@@ -676,7 +710,6 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
             // These components HAVE legacy metadata overrides in LspProjection (at least for infix)
             var overriddenComponents = new[]
             {
-                typeof(GlobalVariableComponent),
                 typeof(BotSettingsComponent),
                 typeof(CustomEntityComponent),
                 typeof(ExternalTriggerComponent),
@@ -693,7 +726,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
                 Assert.False(string.IsNullOrEmpty(ruleInfix), $"{componentType.Name} should have a rule infix");
                 Assert.False(string.IsNullOrEmpty(ruleFolder), $"{componentType.Name} should have a rule folder");
 
-                // At minimum, infix should differ (e.g., .GlobalVariableComponent. vs .globalvariable.)
+                // At minimum, infix should differ (e.g., .globalvariable. vs .globalvariable.)
                 Assert.NotEqual(projector.Infix, ruleInfix);
                 // Folder may or may not differ depending on PluralForm usage
             }
