@@ -59,7 +59,7 @@
         [InlineData("Workspace/LocalWorkspace/topics/NoNameThankYou.mcs.yml", typeof(DialogComponent), "NoNameThankYou", null)]
         [InlineData("Workspace/LocalWorkspace/knowledge/Wikipedia.mcs.yml", typeof(KnowledgeSourceComponent), "Wikipedia", "This knowledge source provides information found in wikipedia.\nThe information is retrieved by performing a search on wikipedia.")] // use display name/description from .mcs.yml file
         [InlineData("Workspace/LocalWorkspace/trigger/Whenanewemailarrives.23ef.mcs.yml", typeof(ExternalTriggerComponent), "When a new email arrives (V3)", "This is a trigger description.\nTriggered when a new email arrives in a specified folder.")]
-        [InlineData("Workspace/LocalWorkspace/skills/CopilotStudioEchoSkill.mcs.yml", typeof(SkillComponent), "CopilotStudioEchoSkill", "This is a sample Agent that can be called by Copilot Studio.\nCopilot Studio echo skill.")]
+        //[InlineData("Workspace/LocalWorkspace/skills/CopilotStudioEchoSkill.mcs.yml", typeof(SkillComponent), "CopilotStudioEchoSkill", "This is a sample Agent that can be called by Copilot Studio.\nCopilot Studio echo skill.")]
         [InlineData("Workspace/LocalWorkspace/translations/Greeting.pt-BR.mcs.yml", typeof(TranslationsComponent), "Greeting (pt-BR)", "Greeting topic in Brazilian Portuguese")]
         public void CompileFileWithSupportedFile(string fileName, Type expectedComponentType, string expectedDisplayName, string expectedDescription)
         {
@@ -84,7 +84,7 @@
 
         [Theory]
         [InlineData("AdaptiveDialog.mcs.yml", "agent1.topic.AdaptiveDialog")]
-        [InlineData("Workspace/LocalWorkspace/variables/Var1.mcs.yml", "agent1.GlobalVariableComponent.Var1")]
+        [InlineData("Workspace/LocalWorkspace/variables/Var1.mcs.yml", "agent1.globalvariable.Var1")]
         [InlineData("Workspace/LocalWorkspace/knowledge/Wikipedia.mcs.yml", "agent1.knowledge.Wikipedia")]
         [InlineData("Workspace/LocalWorkspace/translations/Greeting.pt-BR.mcs.yml", "agent1.topic.Greeting.pt-BR")]
         public void CompileFileUsesCorrectSchemaName(

@@ -139,12 +139,12 @@ internal static class LspProjection
 
             // Variables
             {
-                typeof(Variable),
-                new Rule(".GlobalVariableComponent.", "variables/", false)
+                typeof(VariableBase),
+                new Rule(".globalvariable.", "variables/", false)
             },
             {
                 typeof(GlobalVariableComponent),
-                new Rule(".GlobalVariableComponent.", "variables/", false)
+                new Rule(".globalvariable.", "variables/", false)
             },
 
             // Settings
@@ -199,11 +199,12 @@ internal static class LspProjection
             { 
                 typeof(CustomMetricDefinitionComponent), 
                 new Rule(".custommetric.", "custommetrics/", true, new[] { "custommetric" }) 
-            },
-            { 
-                typeof(AgentSkillComponent), 
-                new Rule(".agentskill.", "agentskills/", true, new[] { "agentskill" }) 
-            },
+            }
+            // https://github.com/microsoft/vscode-copilotstudio/issues/244
+            //{ 
+            //    typeof(AgentSkillComponent), 
+            //    new Rule(".agentskill.", "agentskills/", true, new[] { "agentskill" }) 
+            //},
         }.ToFrozenDictionary();
 
     /// <summary>
@@ -233,7 +234,7 @@ internal static class LspProjection
     private static readonly FrozenSet<string> ReservedShortNameInfixes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             ".topic.",
-            ".GlobalVariableComponent.",
+            ".globalvariable.",
         }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
@@ -344,7 +345,7 @@ internal static class LspProjection
         }
 
         var allowPreserve = !(subAgentFolder != null
-            && (typeof(Variable).IsAssignableFrom(elementType) || typeof(GlobalVariableComponent).IsAssignableFrom(elementType)));
+            && (typeof(VariableBase).IsAssignableFrom(elementType) || typeof(GlobalVariableComponent).IsAssignableFrom(elementType)));
 
         var preserveQualifiedSchemaName = allowPreserve && IsAlreadyQualifiedPath(rule, pathWithoutExtension);
         var shortName = DeriveShortName(schemaName, rule.Infix, botName, allowPreserve, preserveQualifiedSchemaName);
@@ -811,7 +812,7 @@ internal static class LspProjection
         // Translations - uses AdaptiveDialog, not LocalizableContentContainer
         AddToMap(map, "translations/", typeof(AdaptiveDialog));
         // Variables
-        AddToMap(map, "variables/", typeof(Variable));
+        AddToMap(map, "variables/", typeof(VariableBase));
         // Settings
         AddToMap(map, "settings/", typeof(BotSettingsBase));
         // Entities - uses EntityWithAnnotatedSamples, not Entity
@@ -829,7 +830,8 @@ internal static class LspProjection
         // Custom metric definitions
         AddToMap(map, "custommetrics/", typeof(CustomMetricDefinition));
         // Agent skills
-        AddToMap(map, "agentskills/", typeof(AgentSkillMetadata));
+        // https://github.com/microsoft/vscode-copilotstudio/issues/244
+        //AddToMap(map, "agentskills/", typeof(AgentSkillMetadata));
         // Environment variables
         AddToMap(map, "environmentvariables/", typeof(EnvironmentVariableDefinition));
 

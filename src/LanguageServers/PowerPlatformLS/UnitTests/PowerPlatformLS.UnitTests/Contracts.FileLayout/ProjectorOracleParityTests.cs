@@ -44,9 +44,9 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
             { "Microsoft.Agents.ObjectModel.FileAttachmentComponentMetadata", "knowledge/files/Statement.2024.Q4", "agent1.file.Statement.2024.Q4", "knowledge/files/Statement.2024.Q4.mcs.yml", "FilenameToFileAttachmentName", new object[] { "Statement.2024.Q4" }, BotName },
 
             // Variables
-            { "Microsoft.Agents.ObjectModel.Variable", "variables/var1", "agent1.GlobalVariableComponent.var1", "variables/var1.mcs.yml", "FilenameToVariableName", new object[] { "var1" }, BotName },
-            { "Microsoft.Agents.ObjectModel.Variable", "variables/agent1.GlobalVariableComponent.var1", "agent1.GlobalVariableComponent.var1", "variables/agent1.GlobalVariableComponent.var1.mcs.yml", "FilenameToVariableName", new object[] { "agent1.GlobalVariableComponent.var1" }, BotName },
-            { "Microsoft.Agents.ObjectModel.Variable", "variables/Var.With.Dots", "Var.With.Dots", "variables/Var.With.Dots.mcs.yml", "FilenameToVariableName", new object[] { "Var.With.Dots" }, BotName },
+            { "Microsoft.Agents.ObjectModel.VariableBase", "variables/var1", "agent1.globalvariable.var1", "variables/var1.mcs.yml", "FilenameToVariableName", new object[] { "var1" }, BotName },
+            { "Microsoft.Agents.ObjectModel.VariableBase", "variables/agent1.globalvariable.var1", "agent1.globalvariable.var1", "variables/agent1.globalvariable.var1.mcs.yml", "FilenameToVariableName", new object[] { "agent1.globalvariable.var1" }, BotName },
+            { "Microsoft.Agents.ObjectModel.VariableBase", "variables/Var.With.Dots", "Var.With.Dots", "variables/Var.With.Dots.mcs.yml", "FilenameToVariableName", new object[] { "Var.With.Dots" }, BotName },
 
             // Entities
             { "Microsoft.Agents.ObjectModel.EntityWithAnnotatedSamples", "entities/Customer", "agent1.entity.Customer", "entities/Customer.mcs.yml", "FilenameToCustomEntityName", new object[] { "Customer" }, BotName },
@@ -93,7 +93,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
         {
             { "Microsoft.Agents.ObjectModel.AdaptiveDialog", "agent1.topic.Greeting", "agents/SubAgent/", "agents/SubAgent/topics/Greeting.mcs.yml" },
             { "Microsoft.Agents.ObjectModel.TaskDialog", "agent1.action.RunTask", "agents/SubAgent/", "agents/SubAgent/actions/RunTask.mcs.yml" },
-            { "Microsoft.Agents.ObjectModel.Variable", "agent1.GlobalVariableComponent.var1", "agents/SubAgent/", "agents/SubAgent/variables/var1.mcs.yml" },
+            { "Microsoft.Agents.ObjectModel.VariableBase", "agent1.globalvariable.var1", "agents/SubAgent/", "agents/SubAgent/variables/var1.mcs.yml" },
         };
 
         public static TheoryData<string, string, string, object[]> UnknownTypeCases => new()
@@ -107,8 +107,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
             // Short names "agent" and "settings" should not be shortened into reserved filenames.
             { "Microsoft.Agents.ObjectModel.AdaptiveDialog", "agent1.topic.agent", "topics/agent1.topic.agent.mcs.yml" },
             { "Microsoft.Agents.ObjectModel.AdaptiveDialog", "agent1.topic.settings", "topics/agent1.topic.settings.mcs.yml" },
-            { "Microsoft.Agents.ObjectModel.Variable", "agent1.GlobalVariableComponent.agent", "variables/agent1.GlobalVariableComponent.agent.mcs.yml" },
-            { "Microsoft.Agents.ObjectModel.Variable", "agent1.GlobalVariableComponent.settings", "variables/agent1.GlobalVariableComponent.settings.mcs.yml" },
+            { "Microsoft.Agents.ObjectModel.VariableBase", "agent1.globalvariable.agent", "variables/agent1.globalvariable.agent.mcs.yml" },
+            { "Microsoft.Agents.ObjectModel.VariableBase", "agent1.globalvariable.settings", "variables/agent1.globalvariable.settings.mcs.yml" },
         };
 
         public static TheoryData<string, string, string, string> AgentAndGptFilePathCases => new()
@@ -480,7 +480,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
                 { "knowledge/", new[] { "Microsoft.Agents.ObjectModel.KnowledgeSource" } },
                 { "knowledge/files/", new[] { "Microsoft.Agents.ObjectModel.FileAttachmentComponent" } },
                 { "topics/", new[] { "Microsoft.Agents.ObjectModel.AdaptiveDialog" } },
-                { "variables/", new[] { "Microsoft.Agents.ObjectModel.Variable" } },
+                { "variables/", new[] { "Microsoft.Agents.ObjectModel.VariableBase" } },
                 { "entities/", new[] { "Microsoft.Agents.ObjectModel.EntityWithAnnotatedSamples" } },
                 { "settings/", new[] { "Microsoft.Agents.ObjectModel.BotSettingsBase" } },
                 { "trigger/", new[] { "Microsoft.Agents.ObjectModel.ExternalTriggerConfiguration" } },

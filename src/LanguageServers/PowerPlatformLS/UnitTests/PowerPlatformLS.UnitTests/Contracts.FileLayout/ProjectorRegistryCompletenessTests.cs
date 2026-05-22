@@ -113,10 +113,10 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
         }
 
         /// <summary>
-        /// GlobalVariableComponent round-trip with legacy infix.
+        /// GlobalVariableComponent round-trip with new infix.
         /// </summary>
         [Theory]
-        [InlineData("testBot.GlobalVariableComponent.UserInfo", "variables/UserInfo.mcs.yml")]
+        [InlineData("testBot.globalvariable.UserInfo", "variables/UserInfo.mcs.yml")]
         public void GlobalVariableComponent_RoundTrip(string schemaName, string expectedPath)
         {
             var projector = _registry.GetForType(typeof(GlobalVariableComponent)) as IComponentProjector;
