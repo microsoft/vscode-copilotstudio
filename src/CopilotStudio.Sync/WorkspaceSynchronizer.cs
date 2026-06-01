@@ -1318,10 +1318,15 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             // Remap local botIds (which were fabricated) to real botIds from the cloud.
             if (localComponent.ParentBotComponentId.HasValue && localComponent is not FileAttachmentComponent)
             {
-                var parentSchemaName = localDefinition.VerifiedGetBotComponentById(localComponent.ParentBotComponentId).SchemaNameString;
+                var localParentComponent = localDefinition.VerifiedGetBotComponentById(localComponent.ParentBotComponentId);
+                var parentSchemaName = localParentComponent.SchemaNameString;
                 if (cloudSnapshot.TryGetComponentBySchemaName(parentSchemaName, out var cloudComponentParent))
                 {
                     parentBotComponentId = cloudComponentParent.Id;
+                }
+                else if (isRemoteChange)
+                {
+                    parentBotComponentId = localParentComponent.Id;
                 }
                 else
                 {
