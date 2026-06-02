@@ -159,7 +159,7 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
         public async Task StartRequestAsync<TRequest, TResponse>(TRequest request, TRequestContext? context, IMethodHandler handler, string language, CancellationToken cancellationToken)
         {
             _requestHandlingStarted = true;
-            _logger.LogStartContext($"{MethodName}");
+            // Note: LogStartContext removed to reduce duplicate logging. Duration is logged in finally block.
             Stopwatch stopwatch = Stopwatch.StartNew();
 
             try

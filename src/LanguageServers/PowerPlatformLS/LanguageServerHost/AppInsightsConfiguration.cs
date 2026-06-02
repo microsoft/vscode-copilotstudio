@@ -32,6 +32,10 @@
                         },
                         configureApplicationInsightsLoggerOptions: _ => { }
                     );
+                    // Only send Warning and higher to Application Insights (reduces noise, improves signal).
+                    // Lower levels (Info, Debug, Trace) go to output channel only via LspWindowLogMessageLoggerProvider.
+                    builder.AddFilter<Microsoft.Extensions.Logging.ApplicationInsights.ApplicationInsightsLoggerProvider>(
+                        "", LogLevel.Warning);
                 });
             }
         }

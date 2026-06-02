@@ -1,7 +1,7 @@
 import { ExtensionContext, Uri, workspace } from "vscode";
 import { getWorkspaceByUri } from "./localWorkspaces";
 import { lspClient } from "../services/lspClient";
-import { LspMethods, TelemetryEventsKeys } from "../constants";
+import { LspMethods } from "../constants";
 import { GetFileRequest, GetFileResponse } from "../types";
 import logger from "../services/logger";
 
@@ -24,7 +24,7 @@ async function retrieveLastSyncedFile(uri: Uri): Promise<string | null> {
 
   const workspace = getWorkspaceByUri(uri);
   if (!workspace) {
-    logger.logError(TelemetryEventsKeys.GetLocalFileError, undefined, { message: `Error retrieving file: could not locate workspace for file <pii>${uri}</pii>` });
+    logger.logError(`Error retrieving file: could not locate workspace for file <pii>${uri}</pii>`, 'sync');
     return null;
   }
 
@@ -37,7 +37,7 @@ async function retrieveLastSyncedFile(uri: Uri): Promise<string | null> {
     const result = await lspClient.sendRequest<GetFileResponse>(LspMethods.GET_CACHED_FILE, request);
     return result.content;
   } catch (error) {
-    logger.logError(TelemetryEventsKeys.GetLocalFileError, `Error retrieving file: ${(error as Error).message}`);
+    logger.logError(`Error retrieving file: ${(error as Error).message}`, 'sync');
     return null;
   }
 }

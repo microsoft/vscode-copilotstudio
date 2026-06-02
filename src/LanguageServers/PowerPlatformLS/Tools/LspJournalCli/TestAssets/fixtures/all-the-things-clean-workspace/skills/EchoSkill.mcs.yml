@@ -1,5 +1,6 @@
-# Name: EchoSkill
-# A sample skill that echoes messages.
+mcs.metadata:
+  componentName: EchoSkill
+  description: A sample skill that echoes messages.
 kind: SkillDefinition
 appId:
   schemaName: test_allthethings.skill.EchoSkill.AppId

@@ -1,5 +1,6 @@
-# Name: ConversationStart
-# Triggered when the conversation begins.
+mcs.metadata:
+  componentName: ConversationStart
+  description: Triggered when the conversation begins.
 kind: AdaptiveDialog
 beginDialog:
   kind: OnConversationStart
@@ -7,6 +8,4 @@ beginDialog:
   actions:
     - kind: SendActivity
       id: sendMessage_start01
-      activity:
-        text:
-          - Welcome! I can help with many things.
+      activity: Welcome! I can help with many things.

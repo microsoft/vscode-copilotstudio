@@ -1,7 +1,7 @@
 import { Uri } from "vscode";
 import { FetchAccessToken, TokenInfo } from "./account";
 import { EnvironmentInfo } from "../types";
-import { CoreServicesClusterCategory, DefaultCoreServicesClusterCategory, TelemetryEventsKeys } from "../constants";
+import { CoreServicesClusterCategory, DefaultCoreServicesClusterCategory } from "../constants";
 import logger from "../services/logger";
 
 export type EnvironmentSku = 'Developer' | 'Default' | 'Sandbox' | 'Production' | 'Teams' | 'Trial' | 'SubscriptionBasedTrial';
@@ -136,6 +136,12 @@ export async function listEnvironmentsBySkuAsync(
         .sort(sortWithinSku)
         .map(toEnvironmentInfo)
         .filter((env): env is EnvironmentInfo => env !== null);
+
+    if (permissionFilteredEnvs.length === 0)
+    {
+        const skuEnvsCount = skuFilteredEnvs.length;
+        logger.logInfo(`0/${skuEnvsCount} ${sku} environments are editable.`, 'environments');
+    }
     
     return permissionFilteredEnvs;
 }

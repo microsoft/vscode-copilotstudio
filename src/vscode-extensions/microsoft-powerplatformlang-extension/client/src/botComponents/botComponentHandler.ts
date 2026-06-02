@@ -1,6 +1,5 @@
 import * as https from 'https';
 import logger from '../services/logger';
-import { TelemetryEventsKeys } from '../constants';
 import { AgentSyncInfo } from '../types';
 
 export interface WsComponentMetadata {
@@ -79,7 +78,7 @@ export class botComponentHandler {
     const res = await this.dataverseHttpRequest({ url, method: 'GET' });
 
     if (res.statusCode >= 400) {
-      logger.logError(TelemetryEventsKeys.DownloadKnowledgeFileError, undefined, { message: `Failed to list metadata: ${res.statusCode} - ${res.body}` });
+      logger.logError(`Failed to list metadata: ${res.statusCode} - ${res.body}`, 'knowledge');
       throw new Error(`Failed to list filtered metadata ${res.statusCode} - ${res.body}`);
     }
 
@@ -186,7 +185,7 @@ export class botComponentHandler {
     }
 
     const errorMsg = `Failed to fetch bot schema for Bot ID ${botId}, status code: ${botRes.statusCode}`;
-    logger.logError(TelemetryEventsKeys.GetBotPrefixError, undefined, { message: errorMsg});
+    logger.logError(errorMsg, 'knowledge');
     throw new Error(errorMsg);
   }
 
@@ -195,7 +194,7 @@ export class botComponentHandler {
     const res = await this.dataverseHttpRequest({ url, method: 'GET' });
 
     if (res.statusCode >= 400) {
-      logger.logError(TelemetryEventsKeys.DownloadKnowledgeFileError, undefined, { message: `Failed to download file: ${res.statusCode}` });
+      logger.logError(`Failed to download file: ${res.statusCode}`, 'knowledge');
       throw new Error(`Failed to download knowledge file: ${res.statusCode}`);
     }
 
@@ -207,7 +206,7 @@ export class botComponentHandler {
     const res = await this.dataverseHttpRequest({ url, method: 'DELETE' });
 
     if (res.statusCode >= 400) {
-      logger.logError(TelemetryEventsKeys.DeleteBotComponentError, undefined, { message: `Failed to delete bot component: ${res.statusCode}` });
+      logger.logError(`Failed to delete bot component: ${res.statusCode}`, 'knowledge');
       throw new Error(`Failed to delete bot component: ${res.statusCode}`);
     }
   }

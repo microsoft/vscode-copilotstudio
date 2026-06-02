@@ -6,7 +6,6 @@ import { botComponentHandler } from '../botComponents/botComponentHandler';
 import logger from '../services/logger';
 import { AgentSyncInfo, Change, ChangeType } from '../types';
 import { ChangeTrack } from './fileHelper';
-import { TelemetryEventsKeys } from '../constants';
 
 export function getFilesDir(workspaceUri: string, agentSchemaName?: string): string {
   const root = vscode.Uri.parse(workspaceUri).fsPath;
@@ -30,7 +29,7 @@ export async function getDataverseBotHandler(syncInfo: AgentSyncInfo): Promise<b
     const token = await getAccessTokenByAccountId(endpoint, syncInfo.accountInfo.accountId, syncInfo.accountInfo.accountEmail);
     return new botComponentHandler(syncInfo.dataverseEndpoint, token.accessToken);
   } catch (err) {
-    logger.logError(TelemetryEventsKeys.GetAccessTokenError, `Failed to get access token: <pii>${(err as Error).message}</pii>`);
+    logger.logError(`Failed to get access token: <pii>${(err as Error).message}</pii>`, 'auth');
     throw err;
   }
 }
@@ -48,11 +47,11 @@ export async function safeSaveFile(fullPath: string, tempPath: string, content: 
         await fs.copyFile(tempPath, fullPath);
         await fs.unlink(tempPath).catch(() => { /* best-effort cleanup */ });
       } catch (copyErr) {
-        logger.logError(TelemetryEventsKeys.SaveKnowledgeFileError, `Failed to copy <pii>${fullPath}</pii>: ${copyErr}`);
+        logger.logError(`Failed to copy <pii>${fullPath}</pii>: ${copyErr}`, 'knowledge');
         throw copyErr;
       }
     } else {
-      logger.logError(TelemetryEventsKeys.SaveKnowledgeFileError, `Failed to move <pii>${fullPath}</pii>: ${err}`);
+      logger.logError(`Failed to move <pii>${fullPath}</pii>: ${err}`, 'knowledge');
       throw err;
     }
   }
@@ -65,9 +64,7 @@ const readTrackingFile = async (path: string): Promise<ChangeTrack | null> => {
   } catch (error) {
     // file name instead of full path to avoid logging PII. Using :: instead of / so it is not flagged as PII in telemetry.
     const trackingFile = JSON.stringify(path.split(/[\\/]/).slice(-2).join('::'));
-    logger.logWarning(TelemetryEventsKeys.ReadKnowledgeFileError, undefined, {
-      message: `Could not read tracking file ${trackingFile}: ${(error as Error).message}`
-    });
+    logger.logWarning(`Could not read tracking file ${trackingFile}: ${(error as Error).message}`, 'knowledge');
     return null;
   }
 };
@@ -79,9 +76,7 @@ const readKnowledgeFilesDir = async (path: string): Promise<string[]> => {
   } catch (error) {
     // directory name instead of full path to avoid logging PII. Using :: instead of / so it is not flagged as PII in telemetry.
     const knowledgeFilesDir = JSON.stringify(path.split(/[\\/]/).slice(-2).join('::'));
-    logger.logWarning(TelemetryEventsKeys.ReadKnowledgeFileError, undefined, {
-      message: `Could not read local directory ${knowledgeFilesDir}: ${(error as Error).message}`
-    });
+    logger.logWarning(`Could not read local directory ${knowledgeFilesDir}: ${(error as Error).message}`, 'knowledge');
     return [];
   }
 };

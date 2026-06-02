@@ -20,6 +20,7 @@ internal sealed class LspSyncProgress : ISyncProgress
 
     public void Report(string message)
     {
-        _logger.LogInformation("[sync] {0}", message);
+        // Standardized format: [Sync] message for consistency with other feature areas
+        _logger.LogInformation("[Sync] {Message}", message);
     }
 }

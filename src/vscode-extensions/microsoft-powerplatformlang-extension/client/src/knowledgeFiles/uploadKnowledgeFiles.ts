@@ -5,7 +5,7 @@ import { CopilotStudioWorkspace } from '../sync/localWorkspaces';
 import { isTextFile, loadChangeTrack, resolveConflict, saveChangeTrack } from './fileHelper';
 import { generateSchemaNameForBotComponents } from '../botComponents/schemaName';
 import { getDataverseBotHandler, getAllKnowledgeFiles, getTrackPath } from './syncUtils';
-import { ConflictResolution, TelemetryEventsKeys } from '../constants';
+import { ConflictResolution } from '../constants';
 import logger from '../services/logger';
 import { ChangeType } from '../types';
 
@@ -88,7 +88,7 @@ export async function uploadKnowledgeFiles(ws: CopilotStudioWorkspace): Promise<
       delete prev.remoteChangeType;
       delete prev.schema;
     } else if (prev?.remoteChangeType === ChangeType.Delete && prev.localChangeType !== ChangeType.Delete) {
-      logger.logWarning(TelemetryEventsKeys.UploadKnowledgeFileWarning, `File <pii>"${file}"</pii> was deleted remotely but still exists locally. Please get changes before applying.`);
+      logger.logWarning(`File <pii>"${file}"</pii> was deleted remotely but still exists locally. Please get changes before applying.`, 'knowledge');
       skipped.push(file);
       continue;
     }
@@ -180,7 +180,7 @@ export async function uploadKnowledgeFiles(ws: CopilotStudioWorkspace): Promise<
 
   if (!toUpload.length) {
     if (deletedFiles.length) {
-      logger.logInfo(TelemetryEventsKeys.UploadKnowledgeFileSuccess, `Files deleted remotely: <pii>${deletedFiles.join(', ')}</pii>`);
+      logger.logInfo(`Files deleted remotely: <pii>${deletedFiles.join(', ')}</pii>`, 'knowledge');
     }
     return;
   }
@@ -245,7 +245,7 @@ export async function uploadKnowledgeFiles(ws: CopilotStudioWorkspace): Promise<
             details = ` - Raw: ${response.body.toString('utf8')}`;
           }
 
-          logger.logError(TelemetryEventsKeys.UploadKnowledgeFileError, undefined, { message: `Failed to upload <pii>${file}</pii>: ${response.statusCode}${details}` });
+          logger.logError(`Failed to upload <pii>${file}</pii>: ${response.statusCode}${details}`, 'knowledge');
           throw new Error(`Failed to upload ${file}: ${response.statusCode}${details}`);
         }
 
@@ -269,7 +269,7 @@ export async function uploadKnowledgeFiles(ws: CopilotStudioWorkspace): Promise<
         success = true;
       } catch (err) {
         failedUploads.push(file);
-        logger.logError(TelemetryEventsKeys.UploadKnowledgeFileError, `Failed to upload <pii>${file}</pii>: ${err}`);
+        logger.logError(`Failed to upload <pii>${file}</pii>: ${err}`, 'knowledge');
       }
 
 
@@ -287,17 +287,27 @@ export async function uploadKnowledgeFiles(ws: CopilotStudioWorkspace): Promise<
   await saveChangeTrack(trackPath, changeTrack);
 
   if (canceled) {
-    logger.logWarning(TelemetryEventsKeys.UploadKnowledgeFileWarning, 'Upload cancelled by user.');
+    logger.logWarning('Upload cancelled by user.', 'knowledge');
   } else {
     logger.logInfo(
-      TelemetryEventsKeys.UploadKnowledgeFileSuccess,
       [
         successfulUploads.length ? `Uploaded (${successfulUploads.length}): <pii>${successfulUploads.join(', ')}</pii>` : null,
         failedUploads.length ? `Failed (${failedUploads.length}): <pii>${failedUploads.join(', ')}</pii>` : null,
         conflicted.length ? `Conflicted (${conflicted.length}): <pii>${conflicted.join(', ')}</pii>` : null,
         skipped.length ? `Skipped (${skipped.length}): <pii>${skipped.join(', ')}</pii>` : null,
         deletedFiles.length ? `Deleted remotely (${deletedFiles.length}): <pii>${deletedFiles.join(', ')}</pii>` : null,
-      ].filter(Boolean).join('. ')
+      ].filter(Boolean).join('. '),
+      'knowledge'
     );
+    logger.logFeatureEvent({
+      feature: 'knowledge',
+      operation: 'uploadFiles',
+      outcome: failedUploads.length > 0 ? 'failure' : 'success',
+      uploadedCount: successfulUploads.length,
+      failedCount: failedUploads.length,
+      conflictedCount: conflicted.length,
+      skippedCount: skipped.length,
+      deletedCount: deletedFiles.length,
+    });
   }
 }

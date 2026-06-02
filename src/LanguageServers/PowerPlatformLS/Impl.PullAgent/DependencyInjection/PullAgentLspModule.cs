@@ -125,6 +125,13 @@
 
         internal class FakeAuthoringStatisticLogger : IAuthoringStatisticLogger
         {
+            private readonly ILspLogger _logger;
+
+            public FakeAuthoringStatisticLogger(ILspLogger logger)
+            {
+                _logger = logger;
+            }
+
             public void LogTelemetry(
                 ImmutableArray<BotComponentChange> BotComponentChanges,
                 ImmutableArray<EnvironmentVariableChange> EnvironmentVariableChanges,
@@ -132,7 +139,13 @@
                 BotEntity? changedEntity,
                 AuthoringOperationType operationType)
             {
-                return;
+                _logger.LogWarning(
+                    "AuthoringOperation: operationType={0}, components={1}, envVars={2}, connections={3}, entity={4}",
+                    operationType,
+                    BotComponentChanges.Length,
+                    EnvironmentVariableChanges.Length,
+                    ConnectionReferenceChanges.Length,
+                    changedEntity?.SchemaName ?? "<none>");
             }
         }
 

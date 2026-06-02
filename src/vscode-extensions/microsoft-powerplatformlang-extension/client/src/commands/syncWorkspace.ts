@@ -4,7 +4,6 @@ import { selectWorkspace } from "../sync/workspacePicker";
 import { getOrAddSynchronizer, withSyncCommandBusy, WorkspaceSynchronizer } from "../sync/workspaceSynchronizer";
 import { registerVirtualKnowledgeProvider } from "../knowledgeFiles/virtualKnowledgeFile";
 import { getWorkspaceChanges, refreshAgentChangesAfterFetch } from "../sync/workspaceScm";
-import { TelemetryEventsKeys } from "../constants";
 import logger from "../services/logger";
 
 type Workspace = { ws: CopilotStudioWorkspace } | CopilotStudioWorkspace | null;
@@ -78,7 +77,7 @@ const getDiagnosticsErrors = async (workspace: CopilotStudioWorkspace) => {
       const document = await VSworkspace.openTextDocument(fileUri);
       openedDocuments.push(document);
     } catch (error) {
-      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, { message: `Error opening file <pii>${fileUri.fsPath}</pii>: ${(error as Error).message}` });
+      logger.logError(`Error opening file: ${(error as Error).message}`, 'sync');
     }
   }
 
@@ -109,8 +108,21 @@ const registerSyncCommand = (
   { id, displayName, action }: SyncCommand
 ) => {
   const syncCommand = commands.registerCommand(id, async (workspace?: Workspace) => {
+    const syncStartTime = Date.now();
+    let syncOperation = '';
+    
     try {
-      logger.logInfo(TelemetryEventsKeys.SyncWorkspaceClick);
+      logger.logInfo(`${displayName} operation started`, 'sync');
+      
+      // Map command ID to operation name for telemetry
+      if (id === 'microsoft-copilot-studio.previewChanges') {
+        syncOperation = 'fetch';
+      } else if (id === 'microsoft-copilot-studio.getChanges') {
+        syncOperation = 'pull';
+      } else if (id === 'microsoft-copilot-studio.applyChanges') {
+        syncOperation = 'push';
+      }
+      
       const selectedWorkspace = workspace && typeof workspace === 'object' && 'ws' in workspace && workspace.ws
         ? workspace.ws
         : await selectWorkspace();
@@ -118,19 +130,38 @@ const registerSyncCommand = (
       if (!selectedWorkspace) {
         const workspaces = getAllWorkspaces();
         if (workspaces.length > 0) {
-          logger.logWarning(TelemetryEventsKeys.SyncWorkspaceCancel, `No workspace selected. ${displayName} operation cancelled.`);
+          logger.logInfo(`${displayName} operation cancelled - no workspace selected`, 'sync');
+          logger.logFeatureEvent({
+            feature: 'sync',
+            operation: syncOperation,
+            outcome: 'cancelled',
+            durationMs: Date.now() - syncStartTime,
+          });
         } else {
-          logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `No workspace found for ${displayName} operation`);
+          logger.logError(`${displayName} operation failed - no workspace found`, 'sync');
+          logger.logFeatureEvent({
+            feature: 'sync',
+            operation: syncOperation,
+            outcome: 'failure',
+            errorMessage: 'No workspace found',
+            durationMs: Date.now() - syncStartTime,
+          });
         }
         return;
       }
 
       if (selectedWorkspace && !selectedWorkspace.syncInfo) {
-        if (hasConnectionFileInWorkspace(selectedWorkspace.workspaceUri)) {
-          logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Cannot perform ${displayName} operation: connection settings in .mcs::conn.json are incomplete or invalid, please clone again.`);
-        } else {
-          logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Cannot perform ${displayName} operation: connection file .mcs::conn.json is missing, please clone again.`);
-        }
+        const errorMsg = hasConnectionFileInWorkspace(selectedWorkspace.workspaceUri)
+          ? 'Connection settings in .mcs/conn.json are incomplete or invalid'
+          : 'Connection file .mcs/conn.json is missing';
+        logger.logError(`${displayName} operation failed: ${errorMsg}`, 'sync');
+        logger.logFeatureEvent({
+          feature: 'sync',
+          operation: syncOperation,
+          outcome: 'failure',
+          errorMessage: errorMsg,
+          durationMs: Date.now() - syncStartTime,
+        });
         return;
       }
 
@@ -202,17 +233,41 @@ const registerSyncCommand = (
       });
 
       if ((id === 'microsoft-copilot-studio.syncPush' || id === 'microsoft-copilot-studio.applyChanges') && errors.count > 0) {
-        const errorMessage = `Cannot perform ${displayName.toLowerCase()} operation: found ${errors.count} error(s) in ${errors.files} file(s).`;
-        logger.logWarning(TelemetryEventsKeys.SyncWorkspaceError, undefined, { message: errorMessage });
-        const detailView = await window.showErrorMessage(errorMessage, 'View Details');
+        const errorMessage = `Found ${errors.count} error(s) in ${errors.files} file(s) - resolve validation errors before proceeding`;
+        logger.logError(errorMessage, 'sync');
+        logger.logFeatureEvent({
+          feature: 'sync',
+          operation: syncOperation,
+          outcome: 'failure',
+          errorMessage: errorMessage,
+          durationMs: Date.now() - syncStartTime,
+        });
+        const detailView = await window.showErrorMessage(`Cannot perform ${displayName.toLowerCase()} operation: ${errorMessage}`, 'View Details');
 
         // Navigate to Problems view if user selects 'View Details'
         if (detailView === 'View Details') {
           await commands.executeCommand('workbench.actions.view.problems');
         }
+      } else if (syncOperation) {
+        // Log successful completion
+        logger.logInfo(`${displayName} operation completed successfully`, 'sync');
+        logger.logFeatureEvent({
+          feature: 'sync',
+          operation: syncOperation,
+          outcome: 'success',
+          durationMs: Date.now() - syncStartTime,
+        });
       }
     } catch (error) {
-      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Failed to execute ${displayName} operation: ${(error as Error).message}`);
+      const errorMsg = (error as Error).message;
+      logger.logError(`${displayName} operation failed: ${errorMsg}`, 'sync');
+      logger.logFeatureEvent({
+        feature: 'sync',
+        operation: syncOperation || 'unknown',
+        outcome: 'failure',
+        errorMessage: errorMsg,
+        durationMs: Date.now() - syncStartTime,
+      });
     }
   });
 

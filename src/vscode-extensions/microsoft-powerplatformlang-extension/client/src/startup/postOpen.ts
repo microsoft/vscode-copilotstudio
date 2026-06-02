@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import logger from '../services/logger';
-import { TelemetryEventsKeys } from '../constants';
 
 export interface PostOpenInstruction {
     workspaceUri: string; // workspace folder to validate
@@ -45,7 +44,7 @@ export async function maybeOpenFileFromPostOpen(context: vscode.ExtensionContext
 
         if (data.expiresAt && Date.now() > data.expiresAt) {
             await clear();
-            logger.logInfo(TelemetryEventsKeys.PostOpenInstruction, undefined, { phase: 'expire', detail: 'postOpenInstruction expired' });
+            logger.logDebug('postOpenInstruction expired', 'postOpen');
             return;
         }
 
@@ -53,7 +52,7 @@ export async function maybeOpenFileFromPostOpen(context: vscode.ExtensionContext
         const currentWorkspaces = new Set((vscode.workspace.workspaceFolders ?? []).map(f => f.uri.toString(true)));
         if (!currentWorkspaces.has(intendedWs)) {
             await clear();
-            logger.logInfo(TelemetryEventsKeys.PostOpenInstruction, undefined, { phase: 'workspaceMismatch', detail: 'postOpenInstruction workspace mismatch' });
+            logger.logDebug('postOpenInstruction workspace mismatch', 'postOpen');
             return;
         }
 
@@ -64,10 +63,13 @@ export async function maybeOpenFileFromPostOpen(context: vscode.ExtensionContext
             await vscode.window.showTextDocument(doc, { preview: false });
         } catch (err) {
             // While postOpen is best-effort, we do want to log failures to open the identified file.
-            logger.logInfo(TelemetryEventsKeys.PostOpenError, undefined, {
-                phase: 'openFailed',
-                detail: 'Failed to auto-open identified agent file after clone',
-                error: err instanceof Error ? err.message : String(err)
+            const message = err instanceof Error ? err.message : String(err);
+            logger.logWarning(`Failed to auto-open identified agent file after clone: ${message}`, 'postOpen');
+            logger.logFeatureEvent({
+                feature: 'postOpen',
+                operation: 'openAgentFile',
+                outcome: 'failure',
+                errorMessage: message,
             });
         }
     } finally {

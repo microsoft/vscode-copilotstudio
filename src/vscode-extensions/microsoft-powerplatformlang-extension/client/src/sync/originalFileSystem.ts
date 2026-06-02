@@ -2,7 +2,7 @@ import { Uri, FileSystemProvider, FileChangeEvent, FileType, EventEmitter, FileS
 import { GetFileRequest, GetFileResponse } from "../types";
 import { getWorkspaceByUri } from "./localWorkspaces";
 import { lspClient } from "../services/lspClient";
-import { LspMethods, TelemetryEventsKeys } from "../constants";
+import { LspMethods } from "../constants";
 import logger from "../services/logger";
 
 export const LOCAL_STATE_SCHEME = "mcs";
@@ -26,9 +26,7 @@ export class OriginalFileSystem implements FileSystemProvider {
         try {
             const workspace = getWorkspaceByUri(uri);
             if (!workspace) {
-                logger.logError(TelemetryEventsKeys.GetLocalFileError, undefined, {
-                    message: `Error fetching file: could not locate workspace for file <pii>${uri}</pii>`
-                });
+                logger.logError(`Error fetching file: could not locate workspace for file <pii>${uri}</pii>`, 'sync');
                 return new Uint8Array();
             }
 
@@ -43,7 +41,7 @@ export class OriginalFileSystem implements FileSystemProvider {
 
             return Buffer.from(result.content ?? '', 'utf8');
         } catch (error) {
-            logger.logError(TelemetryEventsKeys.GetLocalFileError, `Error fetching file: ${(error as Error).message}`);
+            logger.logError(`Error fetching file: ${(error as Error).message}`, 'sync');
             return new Uint8Array();
         }
     }

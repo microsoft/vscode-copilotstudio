@@ -9,6 +9,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
     using System.Collections.Generic;
+    using System.Diagnostics;
     using System.Text.RegularExpressions;
     using System.Threading;
     using System.Threading.Tasks;
@@ -66,6 +67,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         public async Task<CloneAgentResponse> HandleRequestAsync(CloneAgentRequest request, RequestContext context, CancellationToken cancellationToken)
         {
             var referenceTracker = new ReferenceTracker();
+            var stopwatch = Stopwatch.StartNew();
 
             try
             {
@@ -154,6 +156,11 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     await _workspaceSynchronizer.ApplyTouchupsAsync(folder, referenceTracker, cancellationToken);
                 }
 
+                _logger.LogWarning(
+                    "FeatureEvent: feature=clone, operation=cloneAgent, outcome=success, durationMs={0}, folders={1}",
+                    stopwatch.ElapsedMilliseconds,
+                    touchups.Count);
+
                 return new CloneAgentResponse()
                 {
                     Code = 200,
@@ -164,6 +171,11 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             catch (DataverseBadRequestException ex)
             {
                 _logger.LogException(ex);
+                _logger.LogWarning(
+                    "FeatureEvent: feature=clone, operation=cloneAgent, outcome=failure, durationMs={0}, errorType={1}, statusCode={2}",
+                    stopwatch.ElapsedMilliseconds,
+                    ex.GetType().Name,
+                    ex.StatusCode);
                 return new CloneAgentResponse()
                 {
                     Code = ex.StatusCode,
@@ -173,6 +185,10 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             catch (Exception ex)
             {
                 _logger.LogException(ex);
+                _logger.LogWarning(
+                    "FeatureEvent: feature=clone, operation=cloneAgent, outcome=failure, durationMs={0}, errorType={1}",
+                    stopwatch.ElapsedMilliseconds,
+                    ex.GetType().Name);
                 return new CloneAgentResponse()
                 {
                     Code = -1,

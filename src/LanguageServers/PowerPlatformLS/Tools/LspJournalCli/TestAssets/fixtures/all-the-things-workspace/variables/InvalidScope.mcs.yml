@@ -1,5 +1,6 @@
-# Name: InvalidScope
-# Variable with invalid scope value — should trigger diagnostics.
+mcs.metadata:
+  componentName: InvalidScope
+  description: Variable with invalid scope value — should trigger diagnostics.
 kind: Variable
 name: InvalidScope
 scope: NotARealScope

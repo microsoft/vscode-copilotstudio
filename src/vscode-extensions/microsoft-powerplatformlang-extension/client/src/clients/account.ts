@@ -177,6 +177,13 @@ async function ensureInteractiveSession(
                 signInCancelled.add(cancelKey);
             } else {
                 logger.logError(TelemetryEventsKeys.SignInError, `Interactive sign-in failed: ${message}`);
+                logger.logFeatureEvent({
+                    feature: 'auth',
+                    operation: 'switchAccount',
+                    outcome: 'failure',
+                    errorType: error instanceof Error ? error.name : 'Error',
+                    errorMessage: message,
+                });
             }
             return undefined;
         }

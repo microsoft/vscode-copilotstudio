@@ -1,13 +1,13 @@
 import * as vscode from 'vscode';
 import logger from '../services/logger';
-import { DefaultCoreServicesClusterCategory, TelemetryEventsKeys } from '../constants';
+import { DefaultCoreServicesClusterCategory } from '../constants';
 import { cloneAgentToLocalFolder, getAgentInfo } from '../clone/getAgent';
 import { isCopilotStudioTreeItem, TreeItemKind } from '../clone/tree';
 import { IdentifyAgentResponse } from '../types';
 
 export const registerCloneAgentCommand = (context: vscode.ExtensionContext) => {
   const cloneAgentCommand = vscode.commands.registerCommand('microsoft-copilot-studio.cloneAgent', async (treeItem?: unknown) => {
-    logger.logInfo(TelemetryEventsKeys.CloneAgentClick);
+    logger.logInfo('Clone agent command invoked', 'clone');
 
     let agent: IdentifyAgentResponse | undefined;
     try {
@@ -36,7 +36,12 @@ export const registerCloneAgentCommand = (context: vscode.ExtensionContext) => {
       }
       await cloneAgentToLocalFolder(agent, context);
     } catch (error) {
-      logger.logError(TelemetryEventsKeys.CloneAgentError, `Error cloning agent: ${(error as Error).message}`, {
+      const errorMsg = (error as Error).message;
+      logger.logFeatureEvent({
+        feature: 'clone',
+        operation: 'cloneAgent',
+        outcome: 'failure',
+        errorMessage: errorMsg,
         agentId: agent?.agentInfo?.agentId,
         environmentId: agent?.environmentInfo?.environmentId,
       });

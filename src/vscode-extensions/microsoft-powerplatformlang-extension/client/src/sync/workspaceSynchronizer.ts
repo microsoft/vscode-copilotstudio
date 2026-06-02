@@ -5,7 +5,7 @@ import { CopilotStudioWorkspace, tryRepairAgentManagementEndpoint } from './loca
 import { uploadKnowledgeFiles } from '../knowledgeFiles/uploadKnowledgeFiles';
 import { virtualKnowledgeFileSystemProvider } from '../knowledgeFiles/virtualKnowledgeFile';
 import { knowledgeTreeDataProvider } from '../knowledgeFiles/knowledgeFileTree';
-import { LspMethods, TelemetryEventsKeys } from '../constants';
+import { LspMethods } from '../constants';
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import logger from '../services/logger';
 
@@ -185,23 +185,23 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
       : await vscode.window.withProgress({ location: vscode.ProgressLocation.SourceControl }, async () => {
         return await lspClient.sendRequest<SyncResponse>(methodName, request);
       });
-    logger.logInfo(TelemetryEventsKeys.SyncWorkspaceSuccess, `Successfully completed ${displayText}`);
+    logger.logInfo(`Successfully completed ${displayText}`, 'sync');
     logWorkflowIssues(result.workflowResponse);
     logAIPromptIssues(result.aiPromptResponse);
     logNewCustomConnectors(result.newlyCreatedCustomConnectors, workspace);
     return result;
   } catch (error) {
     if ((error as Error).message?.includes("UserNotMemberOfOrg")) {
-      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Your current account does not have permission. Please sign in with the account <pii>(${accountInfo.accountEmail ?? accountInfo.accountId})</pii> to perform this operation.`);
+      logger.logError(`Your current account does not have permission. Please sign in with the account <pii>(${accountInfo.accountEmail ?? accountInfo.accountId})</pii> to perform this operation.`, 'sync', { showDialog: true });
       try {
         resetAccount();
         return await sync(workspace, displayText, methodName, silent); // Retry sync with new log in
       } catch (error) {
-        logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Re-authentication failed: ${(error as Error).message}`);
+        logger.logError(`Re-authentication failed: ${(error as Error).message}`, 'sync', { showDialog: true });
         throw error;
       }
     } else {
-      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Error ${displayText}: ${(error as Error).message}`);
+      logger.logError(`Error ${displayText}: ${(error as Error).message}`, 'sync', { showDialog: true });
       throw error;
     }
   }
@@ -225,9 +225,9 @@ export function logWorkflowIssues(workflows: WorkflowResponse[] | undefined) {
   }
 
   if (disabledWorkflows.length > 0) {
-    logger.logWarning(TelemetryEventsKeys.SyncWorkspaceError, `These workflows need reestablish connection and need to be enabled in MCS portal: ${disabledWorkflows.join(", ")}`);
+    logger.logWarning(`These workflows need reestablish connection and need to be enabled in MCS portal: ${disabledWorkflows.join(", ")}`, 'sync');
   } else if (failedWorkflows.length > 0) {
-    logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Workflow errors: ${failedWorkflows.join(", ")}`);
+    logger.logError(`Workflow errors: ${failedWorkflows.join(", ")}`, 'sync');
   }
 }
 
@@ -248,10 +248,7 @@ export function logAIPromptIssues(prompts: AIPromptResponse[] | undefined) {
   }
 
   if (failed.length > 0) {
-    logger.logError(
-      TelemetryEventsKeys.SyncWorkspaceError,
-      `Failed to push AI Builder prompt(s): ${failed.join('; ')}`
-    );
+    logger.logError(`Failed to push AI Builder prompt(s): ${failed.join('; ')}`, 'sync');
   }
 }
 
@@ -262,10 +259,10 @@ export function logNewCustomConnectorsRaw(connectors: string[] | undefined, work
   const agentName = workspaceUri.split(/[\\/]/).filter(Boolean).pop() ?? 'agent';
   for (const connectorName of connectors) {
     logger.logWarning(
-      TelemetryEventsKeys.SyncWorkspaceSuccess,
       `New custom connector '${connectorName}' was created. ` +
       `Go to Power Apps maker (https://make.powerapps.com) to create a Connection for this connector, ` +
-      `then update the connection reference in VS Code and apply the change.`
+      `then update the connection reference in VS Code and apply the change.`,
+      'sync'
     );
   }
 }

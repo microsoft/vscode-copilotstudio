@@ -448,7 +448,7 @@ export async function cloneAgentToLocalFolder(agent: IdentifyAgentResponse | und
   const assets = await pickAssets(agentInfo);
   if (!assets) {
     // User cancelled the component picker
-    logger.logWarning(TelemetryEventsKeys.CloneAgentCancel, "Component selection cancelled. Clone agent canceled.");
+    logger.logInfo("Component selection cancelled. Clone agent canceled.", "clone");
     return;
   }
 
@@ -460,7 +460,7 @@ export async function cloneAgentToLocalFolder(agent: IdentifyAgentResponse | und
 
   const rootFolder = folder?.pop()?.fsPath;
   if (!rootFolder) {
-    logger.logWarning(TelemetryEventsKeys.CloneAgentCancel, "No folder selected. Clone agent canceled.");
+    logger.logInfo("No folder selected. Clone agent canceled.", "clone");
     return;
   }
 
@@ -469,9 +469,14 @@ export async function cloneAgentToLocalFolder(agent: IdentifyAgentResponse | und
       ? "Cloning agent " + agentInfo.displayName + " to " + rootFolder
       : "Cloning agent " + agentInfo.displayName + " with dependencies to " + rootFolder;
 
+    let cloneStartTime = Date.now();
     await window.withProgress({ location: ProgressLocation.Notification, cancellable: true, title }, async (progress, cancellationToken) => {
       cancellationToken.onCancellationRequested(() => {
-        logger.logInfo(TelemetryEventsKeys.CloneAgentCancel, undefined, {
+        logger.logFeatureEvent({
+          feature: 'clone',
+          operation: 'cloneAgent',
+          outcome: 'cancelled',
+          durationMs: Date.now() - cloneStartTime,
           agentId: agentInfo.agentId,
           environmentId: environmentInfo.environmentId,
         });
@@ -489,7 +494,13 @@ export async function cloneAgentToLocalFolder(agent: IdentifyAgentResponse | und
       };
       const cloneResp = await lspClient.sendRequest<CloneAgentResponse>(LspMethods.CLONE_AGENT, cloneRequest, cancellationToken);
 
-      logger.logInfo(TelemetryEventsKeys.CloneAgentSuccess, `Agent ${agentInfo.displayName} cloned to <pii>${rootFolder}</pii>`, {
+      const cloneDurationMs = Date.now() - cloneStartTime;
+      logger.logInfo(`Agent ${agentInfo.displayName} cloned to <pii>${rootFolder}</pii>`, 'clone');
+      logger.logFeatureEvent({
+        feature: 'clone',
+        operation: 'cloneAgent',
+        outcome: 'success',
+        durationMs: cloneDurationMs,
         agentId: agentInfo.agentId,
         environmentId: environmentInfo.environmentId,
       });
@@ -502,12 +513,10 @@ export async function cloneAgentToLocalFolder(agent: IdentifyAgentResponse | und
           await workspace.fs.stat(candidateAgentFile);
           await writePostOpenInstruction(context, workspaceUri, candidateAgentFile);
         } catch {
-          logger.logInfo(TelemetryEventsKeys.PostOpenInstruction, undefined, {
-            agentId: agentInfo.agentId,
-            environmentId: environmentInfo.environmentId,
-            phase: 'skipNoAgentFile',
-            detail: 'A concrete agent.mcs.yml was not recorded as a postOpen instruction'
-          });
+          logger.logDebug(
+            `Post-open instruction: agent file not found or could not be recorded`,
+            'clone'
+          );
         }
       }
 

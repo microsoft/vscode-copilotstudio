@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
 import { ServerOptions, TransportKind, LanguageClient, LanguageClientOptions, Trace, State, LogMessageNotification } from "vscode-languageclient/node";
-import { TELEMETRY_CONNECTION_STRING, TelemetryEventsKeys } from '../constants';
+import { TELEMETRY_CONNECTION_STRING } from '../constants';
 import { AccountInfo, AgentSyncInfo, EnvironmentInfo, RemoteApiRequest } from '../types';
 import { getAccessTokenByAccountId, getCopilotStudioAccessTokenByAccountId } from '../clients/account';
 import { getSolutionVersionsAsync } from '../clients/dataverseClient';
@@ -61,7 +61,7 @@ class LspClientService {
       const response = spawnSync('chmod', ['+x', lspHostPath]);
       if (response.status !== 0) {
         const errorMessage = new TextDecoder().decode(response.stderr);
-        logger.logError(TelemetryEventsKeys.UnixPlatformError, errorMessage);
+        logger.logError(`Failed to make LanguageServerHost executable: ${errorMessage}`, 'lsp');
       }
     }
 
@@ -99,9 +99,7 @@ class LspClientService {
           },
           sender: {
             sendCancellation(conn, id) {
-              logger.logInfo(TelemetryEventsKeys.LanguageServerInfo, undefined, {
-                message: `[LSP] sendCancellation: ${id}`
-              });
+              logger.logTrace(`[LSP] sendCancellation: ${id}`, 'lsp');
               return Promise.resolve();
             },
             enableCancellation(request) {},
@@ -125,9 +123,7 @@ class LspClientService {
           try {
             next(uri, diagnostics);
           } catch (error) {
-            logger.logError(TelemetryEventsKeys.LanguageServerError, undefined, {
-              message: `[LSP] Diagnostics error: ${(error as Error).message}`,
-            });
+            logger.logError(`[LSP] Diagnostics error: ${(error as Error).message}`, 'lsp');
             throw error;
           }
         },
@@ -135,43 +131,31 @@ class LspClientService {
           // Using :: instead of / so it is not flagged as PII in telemetry.
           const notificationType = JSON.stringify(typeof type === 'string' ? type : type.method).replace(/[./\\]/g, "::");
 
-          logger.logInfo(TelemetryEventsKeys.LanguageServerInfo, undefined, {
-            message: `[LSP] Sending notification: ${notificationType}`,
-          });
+          logger.logTrace(`[LSP] Sending notification: ${notificationType}`, 'lsp');
 
           try {
             await next(type, params);
-            logger.logInfo(TelemetryEventsKeys.LanguageServerInfo, undefined, {
-              message: `[LSP] Notification ${notificationType} sent successfully`,
-            });
+            logger.logTrace(`[LSP] Notification ${notificationType} sent successfully`, 'lsp');
           } catch (error) {
-            logger.logError(TelemetryEventsKeys.LanguageServerError, undefined, {
-              message: `[LSP] Notification ${notificationType} failed: ${(error as Error).message}`,
-            });
+            logger.logError(`[LSP] Notification ${notificationType} failed: ${(error as Error).message}`, 'lsp');
             throw error;
           }
         },
         sendRequest: async (type, param, token, next) => {
           // Using :: instead of / so it is not flagged as PII in telemetry.
           const requestType = JSON.stringify(typeof type === 'string' ? type : type.method).replace(/[./\\]/g, "::");
-          logger.logInfo(TelemetryEventsKeys.LanguageServerInfo, undefined, {
-            message: `[LSP] Sending request: ${requestType}`,
-          });
+          logger.logTrace(`[LSP] Sending request: ${requestType}`, 'lsp');
 
           try {
             const result = await next(type, param, token);
             if (result && typeof result === 'object' && 'code' in result && (result as any).code !== 200) {
               throw new Error((result as any).message ?? `Request ${requestType} failed with code ${result.code}`);
             } else {
-              logger.logInfo(TelemetryEventsKeys.LanguageServerInfo, undefined, {
-                message: `[LSP] Request ${requestType} completed successfully`,
-              });
+              logger.logTrace(`[LSP] Request ${requestType} completed successfully`, 'lsp');
               return result;
             }
           } catch (error) {
-            logger.logError(TelemetryEventsKeys.LanguageServerError, undefined, {
-              message: `[LSP] Request ${requestType} failed: ${(error as Error).message}`
-            });
+            logger.logError(`[LSP] Request ${requestType} failed: ${(error as Error).message}`, 'lsp');
             throw error;
           }
         },
@@ -188,9 +172,7 @@ class LspClientService {
     this._client = new LanguageClient("Copilot Studio Language Server" + sessionId, serverOptions, clientOptions);
     this._client.setTrace(Trace.Verbose);
     this._client.onDidChangeState((event) => {
-      logger.logInfo(TelemetryEventsKeys.LanguageServerInfo, undefined, {
-        message: `[LSP] State changed from ${State[event.oldState]} to ${State[event.newState]}`,
-      });
+      logger.logInfo(`[LSP] State changed from ${State[event.oldState]} to ${State[event.newState]}`, 'lsp');
     });
 
     // Route window/logMessage into the LogOutputChannel for native
@@ -231,11 +213,23 @@ class LspClientService {
           await this._client!.start();
         }
       );
-      logger.logInfo(TelemetryEventsKeys.LanguageServerInfo, "Copilot Studio Language Server has started");
+      logger.logInfo('Copilot Studio Language Server has started', 'lsp');
+      logger.logFeatureEvent({
+        feature: 'lsp',
+        operation: 'startup',
+        outcome: 'success'
+      });
 
       context.subscriptions.push(this._client);
     } catch (error) {
-      logger.logError(TelemetryEventsKeys.LanguageServerError, `Copilot Studio Language Server failed to start: ${(error as Error).message}`);
+      const errorMsg = (error as Error).message;
+      logger.logError(`Copilot Studio Language Server failed to start: ${errorMsg}`, 'lsp');
+      logger.logFeatureEvent({
+        feature: 'lsp',
+        operation: 'startup',
+        outcome: 'failure',
+        errorMessage: errorMsg
+      });
       throw error;
     }
   }

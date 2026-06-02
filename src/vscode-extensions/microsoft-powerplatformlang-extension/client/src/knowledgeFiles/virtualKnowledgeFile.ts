@@ -8,7 +8,7 @@ import { ChangeTrack, isTextFile, loadChangeTrack, resolveConflict, saveChangeTr
 import { knowledgeTreeDataProvider } from './knowledgeFileTree';
 import { randId } from '../botComponents/schemaName';
 import logger from '../services/logger';
-import { ConflictResolution, TelemetryEventsKeys } from '../constants';
+import { ConflictResolution } from '../constants';
 import { ChangeType } from '../types';
 
 let virtualKnowledgeProvider: virtualKnowledgeFileSystemProvider | undefined;
@@ -98,7 +98,7 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
       try {
         await this.refreshWorkspace(ws);
       } catch (err) {
-        logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `Failed to refresh workspace <pii>${ws.workspaceUri.toString()}</pii>: ${err}`);
+        logger.logError(`Failed to refresh workspace <pii>${ws.workspaceUri.toString()}</pii>: ${err}`, 'knowledge');
       }
     }
 
@@ -170,7 +170,7 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
     }
     
     if (deletedLocallyDueToRemote.length > 0) {
-      logger.logInfo(TelemetryEventsKeys.VirtualKnowledgeFileProgress, `Files deleted locally due to remote changes: <pii>${deletedLocallyDueToRemote.join(', ')}</pii>`);
+      logger.logInfo(`Files deleted locally due to remote changes: <pii>${deletedLocallyDueToRemote.join(', ')}</pii>`, 'knowledge');
     }
 
     for (const file of Object.keys(track)) {
@@ -192,7 +192,7 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
     const key = uri.path.slice(1);
     const component = this.components.get(key);
     if (!component) {
-      logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `File not found in components map: <pii>${key}</pii>`);
+      logger.logError(`File not found in components map: <pii>${key}</pii>`, 'knowledge');
       throw vscode.FileSystemError.FileNotFound();
     }
     return { type: vscode.FileType.File, ctime: 0, mtime: component.mtime, size: 0 };
@@ -200,7 +200,7 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
 
   async readDirectory(uri: vscode.Uri): Promise<[string, vscode.FileType][]> {
     if (uri.path !== '/') {
-      logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `Invalid directory access: <pii>${uri.path}</pii>`);
+      logger.logError(`Invalid directory access: <pii>${uri.path}</pii>`, 'knowledge');
       throw vscode.FileSystemError.FileNotFound();
     }
     return Array.from(this.components.keys()).map(name => [name, vscode.FileType.File]);
@@ -210,7 +210,7 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
     const key = decodeURIComponent(uri.path.slice(1));
     const component = this.components.get(key);
     if (!component) {
-      logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `File not found: <pii>${key}</pii>`);
+      logger.logError(`File not found: <pii>${key}</pii>`, 'knowledge');
       throw vscode.FileSystemError.FileNotFound();
     }
 
@@ -231,7 +231,7 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
       const botHandler = await getDataverseBotHandler(syncInfo);
       remoteContent = await botHandler.downloadKnowledgeFile(component.id);
     } catch (err) {
-      logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `Failed to download <pii>${filename}</pii>: ${err}`);
+      logger.logError(`Failed to download <pii>${filename}</pii>: ${err}`, 'knowledge');
       throw vscode.FileSystemError.Unavailable();
     }
 
@@ -282,7 +282,7 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
         delete track[filename].remoteChangeType;
         delete track[filename].localChangeType;
 
-        logger.logInfo(TelemetryEventsKeys.VirtualKnowledgeFileProgress, `File downloaded and saved to <pii>knowledge\\files\\${filename}</pii>`);
+        logger.logInfo(`File downloaded and saved to <pii>knowledge\\files\\${filename}</pii>`, 'knowledge');
       });
     }
 

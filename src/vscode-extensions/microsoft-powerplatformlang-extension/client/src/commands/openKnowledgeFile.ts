@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import logger from '../services/logger';
-import { TelemetryEventsKeys } from '../constants';
 
 export const registerOpenKnowledgeFileCommand = (context: vscode.ExtensionContext) => {
     context.subscriptions.push(
@@ -8,7 +7,15 @@ export const registerOpenKnowledgeFileCommand = (context: vscode.ExtensionContex
             try {
                 await vscode.workspace.fs.readFile(uri);
             } catch (error) {
-                logger.logError(TelemetryEventsKeys.OpenKnowledgeFileError, `Failed to open local file for <pii>${uri.path}</pii>: ${error}`);
+                const message = `Failed to open local file for <pii>${uri.path}</pii>: ${error}`;
+                logger.logError(message, 'knowledge', { showDialog: true });
+                logger.logFeatureEvent({
+                    feature: 'knowledge',
+                    operation: 'openLocalFile',
+                    outcome: 'failure',
+                    errorType: error instanceof Error ? error.name : 'Error',
+                    errorMessage: message,
+                });
             }
         })
     );

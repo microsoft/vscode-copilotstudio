@@ -1,5 +1,6 @@
-# Name: Rich Actions Demo
-# Topic demonstrating diverse action types for element-level coverage.
+mcs.metadata:
+  componentName: Rich Actions Demo
+  description: Topic demonstrating diverse action types for element-level coverage.
 kind: AdaptiveDialog
 beginDialog:
   kind: OnRecognizedIntent
@@ -14,23 +15,27 @@ beginDialog:
     - kind: SetVariable
       id: setVar_01
       variable: Global.UserChoice
-      value: "=System.Activity.Text"
+      value: =System.Activity.Text
 
-    - kind: IfCondition
-      id: ifCond_01
-      condition: =Global.UserChoice = "help"
-      actions:
-        - kind: SendActivity
+    - actions:
+        - activity:
+            text:
+              - Value: You asked for help. Let me assist you.
+
           id: sendMessage_help01
-          activity:
-            text:
-              - You asked for help. Let me assist you.
+          kind: SendActivity
+
+      condition: =Global.UserChoice = "help"
       elseActions:
-        - kind: SendActivity
-          id: sendMessage_other01
-          activity:
+        - activity:
             text:
-              - Processing your request...
+              - Value: Processing your request...
+
+          id: sendMessage_other01
+          kind: SendActivity
+
+      id: ifCond_01
+      kind: IfCondition
 
     - kind: BeginDialog
       id: beginDialog_01
@@ -39,13 +44,11 @@ beginDialog:
     - kind: EmitEvent
       id: emitEvent_01
       eventName: CustomEvent
-      eventValue: "=Global.UserChoice"
+      eventValue: =Global.UserChoice
 
     - kind: SendActivity
       id: sendMessage_final01
-      activity:
-        text:
-          - All done!
+      activity: All done!
 
     - kind: EndDialog
       id: endDialog_01

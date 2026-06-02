@@ -145,16 +145,38 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
                   syncInfo: reattachResult.agentSyncInfo
                 };
                 await pushNewWorkspace(context, newWorkspace);
-                logger.logInfo(TelemetryEventsKeys.ReattachAgentInfo, `New agent ${reattachResult.agentSyncInfo.agentId} reattached successfully.`);
+                logger.logInfo(`New agent ${reattachResult.agentSyncInfo.agentId} reattached successfully.`, 'reattach');
+                logger.logFeatureEvent({
+                  feature: 'reattach',
+                  operation: 'reattachAgent',
+                  outcome: 'success',
+                  isNewAgent: 'true',
+                  agentId: reattachResult.agentSyncInfo.agentId,
+                });
               } else {
-                logger.logInfo(TelemetryEventsKeys.ReattachAgentInfo, `Existing agent ${reattachResult.agentSyncInfo.agentId} reattached successfully.`);
+                logger.logInfo(`Existing agent ${reattachResult.agentSyncInfo.agentId} reattached successfully.`, 'reattach');
+                logger.logFeatureEvent({
+                  feature: 'reattach',
+                  operation: 'reattachAgent',
+                  outcome: 'success',
+                  isNewAgent: 'false',
+                  agentId: reattachResult.agentSyncInfo.agentId,
+                });
               }
 
               logWorkflowIssues(reattachResult.workflowResponse);
               logAIPromptIssues(reattachResult.aiPromptResponse);
               logNewCustomConnectorsRaw(reattachResult.newlyCreatedCustomConnectors, workspaceUri);
             } catch (error) {
-              logger.logError(TelemetryEventsKeys.ReattachAgentError, `Error reattaching agent: ${(error as Error).message}`);
+              const message = (error as Error).message;
+              logger.logError(`Error reattaching agent: ${message}`, 'reattach', { showDialog: true });
+              logger.logFeatureEvent({
+                feature: 'reattach',
+                operation: 'reattachAgent',
+                outcome: 'failure',
+                errorType: (error as Error).name || 'Error',
+                errorMessage: message,
+              });
             }
           });
         }

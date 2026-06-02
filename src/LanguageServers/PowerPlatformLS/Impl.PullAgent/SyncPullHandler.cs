@@ -14,6 +14,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     [LanguageServerEndpoint("powerplatformls/syncPull", LanguageServerConstants.DefaultLanguageName)]
     internal class SyncPullHandler : SyncHandler
     {
+        protected override string OperationName => "syncPull";
+
         public SyncPullHandler(CopilotStudio.Sync.IIslandControlPlaneService islandControlPlaneService, CopilotStudio.Sync.IWorkspaceSynchronizer workspaceSynchronizer, ITokenManager dataverseTokenManager, ISyncDataverseClient dataverseClient, LspDataverseHttpClientAccessor dataverseHttpClientAccessor, CopilotStudio.Sync.IOperationContextProvider operationContextProvider, ILspLogger logger)
             : base(islandControlPlaneService, workspaceSynchronizer, dataverseTokenManager, dataverseClient, dataverseHttpClientAccessor, operationContextProvider, logger)
         {

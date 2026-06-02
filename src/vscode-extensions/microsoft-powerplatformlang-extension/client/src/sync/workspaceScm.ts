@@ -9,7 +9,7 @@ import { getKnowledgeLocalChanges, getKnowledgeRemoteChanges } from "../knowledg
 import { registerVirtualKnowledgeProvider } from "../knowledgeFiles/virtualKnowledgeFile";
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import { isChildUri, isSameUri } from "../utils/genericUtils";
-import { LspMethods, TelemetryEventsKeys } from "../constants";
+import { LspMethods } from "../constants";
 import logger from "../services/logger";
 import { refreshAgentChangesTree } from "./agentChangesTreeProvider";
 
@@ -62,9 +62,7 @@ export function onWorkspaceChange(uri: string): void {
       void scm.onLocalChange()
         .then(() => refreshAgentChangesTree())
         .catch(err => {
-          logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-            message: `[SCM] onLocalChange failed: ${(err as Error).message}`
-          });
+          logger.logError(`[SCM] onLocalChange failed: ${(err as Error).message}`, 'sync');
         });
       return;
     }
@@ -142,9 +140,7 @@ export async function refreshWorkspaces(workspaces: CopilotStudioWorkspace[], co
     for (const r of results) {
       if (r.status === 'rejected') {
         const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
-        logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-          message: `[SCM] Workspace setup failed: ${reason}`
-        });
+        logger.logError(`[SCM] Workspace setup failed: ${reason}`, 'sync');
       }
     }
   }
@@ -293,9 +289,7 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
         lastFileAnnotations = newUris;
         fileDecorationChangeEmitter?.fire(changedUris);
       } catch (e) {
-        logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-          message: `onLocalChangeError: ${e instanceof Error ? e.message : String(e)}`
-        });
+        logger.logError(`onLocalChangeError: ${e instanceof Error ? e.message : String(e)}`, 'sync');
         throw e;
       }
     },
@@ -324,9 +318,7 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
         remoteHadSuccess = true;
       } catch (e) {
         if (remoteHadSuccess) {
-          logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-            message: `onRemoteChangeErrorAfterSuccess: ${e instanceof Error ? e.message : String(e)}`
-          });
+          logger.logError(`onRemoteChangeErrorAfterSuccess: ${e instanceof Error ? e.message : String(e)}`, 'sync');
         }
         // Swallow to avoid aborting setup; remote can retry later.
       }
@@ -356,9 +348,7 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
         const remoteChanges = result.getRemoteChanges();
         if (remoteChanges.length > 0) {
           // Unexpected clearing with remaining remote items (4)
-          logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-            message: 'clearingRemoteWithRemainingChanges'
-          });
+          logger.logError('clearingRemoteWithRemainingChanges', 'sync');
         }
         // Clear after sync operations that reconcile state
         if (remoteChangeGroup) {
@@ -389,9 +379,7 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
   }
   return result;
   } catch (e) {
-    logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-      message: `setupChangeTrackingRejected: ${e instanceof Error ? e.message : String(e)}`
-    });
+    logger.logError(`setupChangeTrackingRejected: ${e instanceof Error ? e.message : String(e)}`, 'sync');
     // Dispose any partially created resources
     try {
       provider?.dispose();

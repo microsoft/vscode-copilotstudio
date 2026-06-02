@@ -84,9 +84,33 @@ export const TelemetryEventsKeys = {
 export type TelemetryEventType = typeof TelemetryEventsKeys[keyof typeof TelemetryEventsKeys];
 
 export enum LogLevel {
+  Trace = 'Trace',
+  Debug = 'Debug',
   Info = 'Info',
   Warning = 'Warning',
   Error = 'Error'
+}
+
+/**
+ * Structured telemetry event for high-signal feature tracking.
+ * Only this schema should be sent to Application Insights.
+ * All other logging goes to output channel only.
+ */
+export interface FeatureTelemetryEvent {
+  /** Feature area: "clone" | "sync" | "auth" | "knowledge" | "lsp" */
+  feature: string;
+  /** Operation within the feature: "cloneAgent" | "syncPush" | "syncPull" | "signIn" | ... */
+  operation: string;
+  /** Outcome of the operation */
+  outcome: "success" | "failure" | "cancelled";
+  /** Duration in milliseconds (optional, for timed operations) */
+  durationMs?: number;
+  /** Error type if outcome is failure (e.g., exception class name or error code) */
+  errorType?: string;
+  /** Error message if outcome is failure (PII will be redacted) */
+  errorMessage?: string;
+  /** Additional structured properties */
+  [key: string]: string | number | undefined;
 }
 
 export const ConflictResolution = {

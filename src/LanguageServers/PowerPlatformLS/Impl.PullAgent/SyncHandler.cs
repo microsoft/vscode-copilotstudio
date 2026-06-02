@@ -10,6 +10,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
     using System.Collections.Immutable;
+    using System.Diagnostics;
     using System.Threading;
     using System.Threading.Tasks;
 
@@ -43,8 +44,11 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
         public bool MutatesSolutionState => true;
 
+        protected abstract string OperationName { get; }
+
         public async Task<SyncAgentResponse> HandleRequestAsync(SyncAgentRequest request, RequestContext context, CancellationToken cancellationToken)
         {
+            var stopwatch = Stopwatch.StartNew();
             try
             {
                 _islandControlPlaneService.SetConnectionContext(
@@ -63,6 +67,12 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 var (updatedDefinition, workflowResponse, aiPromptResponse, newlyCreatedCustomConnectors) = await ExecuteAsync(workspace, operationContext, _dataverseClient, syncInfo, cancellationToken);
                 var (_, localChanges) = await _synchronizer.GetLocalChangesAsync(workspace.FolderPath, updatedDefinition, _dataverseClient, syncInfo, cancellationToken);
 
+                _logger.LogWarning(
+                    "FeatureEvent: feature=sync, operation={0}, outcome=success, durationMs={1}, localChanges={2}",
+                    OperationName,
+                    stopwatch.ElapsedMilliseconds,
+                    localChanges.Length);
+
                 return new SyncAgentResponse
                 {
                     Code = 200,
@@ -76,6 +86,11 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             catch (InvalidOperationException ex)
             {
                 // User errors
+                _logger.LogWarning(
+                    "FeatureEvent: feature=sync, operation={0}, outcome=failure, durationMs={1}, errorType={2}, statusCode=400",
+                    OperationName,
+                    stopwatch.ElapsedMilliseconds,
+                    ex.GetType().Name);
                 return new SyncAgentResponse
                 {
                     Code = 400,
@@ -85,6 +100,11 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             catch (DataverseServiceUnavailableException ex)
             {
                 _logger.LogException(ex);
+                _logger.LogWarning(
+                    "FeatureEvent: feature=sync, operation={0}, outcome=failure, durationMs={1}, errorType={2}, statusCode=503",
+                    OperationName,
+                    stopwatch.ElapsedMilliseconds,
+                    ex.GetType().Name);
                 return new SyncAgentResponse
                 {
                     Code = 503,
@@ -94,6 +114,11 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             catch (Exception ex)
             {
                 _logger.LogException(ex);
+                _logger.LogWarning(
+                    "FeatureEvent: feature=sync, operation={0}, outcome=failure, durationMs={1}, errorType={2}, statusCode=500",
+                    OperationName,
+                    stopwatch.ElapsedMilliseconds,
+                    ex.GetType().Name);
                 return new SyncAgentResponse
                 {
                     Code = 500,

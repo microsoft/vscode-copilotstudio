@@ -4,7 +4,6 @@ import * as vscode from 'vscode';
 import { randomUUID } from "node:crypto";
 import lspClientService from './services/lspClient';
 import logger from './services/logger';
-import { TelemetryEventsKeys } from './constants';
 import { configureTreeView } from './clone/tree';
 import { initializeAgentDirectoryHandler } from './clone/agentDirectory';
 import { initializeWorkspaceManager } from './sync/workspaceManager';
@@ -31,22 +30,23 @@ export async function activate(context: vscode.ExtensionContext) {
   const sessionId = randomUUID();
   const isDebugging = process.env.VSCODE_DEBUG === 'true';
 
-  // Logger includes the sessionId and shows a message in the VS Code UI.
-  logger.initialize(context, sessionId);
-  logger.logInfo(TelemetryEventsKeys.CopilotStudioStart, undefined, { isDebugMode: isDebugging.toString() });
-
-  // Register commands and features that do not depend on the LSP client
-  registerSignInCommand(context);
-  registerResetAccountCommand(context);
-  registerReportIssueCommand(context, sessionId);
-
-  // Create output channel for LSP logs.
+  // Create output channel for LSP logs and extension logs.
   // Using `createLogOutputChannel` gives each line a timestamp and a color-coded
   // [error]/[warning]/[info] prefix.
   const outputChannel = vscode.window.createOutputChannel("Copilot Studio Language Server", { log: true });
   if (isDebugging) {
     outputChannel.show();
   }
+
+  // Initialize logger with output channel for both telemetry and output window writes.
+  // Logger includes the sessionId for correlation across telemetry and logs.
+  logger.initialize(context, sessionId, outputChannel);
+  logger.logInfo(`Extension activating (debug=${isDebugging})`, 'startup');
+
+  // Register commands and features that do not depend on the LSP client
+  registerSignInCommand(context);
+  registerResetAccountCommand(context);
+  registerReportIssueCommand(context, sessionId);
 
   // Initialize and start LSP client
   try {
@@ -76,10 +76,11 @@ export async function activate(context: vscode.ExtensionContext) {
   // This is a one-shot operation, so we just fire-and-forget here.
   void maybeOpenFileFromPostOpen(context)
     .catch(err => {
-      logger.logWarning(TelemetryEventsKeys.PostOpenError, undefined, {
-        message: (err as Error).message,
-        detail: 'Post-open file logic failed'
-      });
+      logger.logError(
+        `Post-open file logic failed: ${(err as Error).message}`,
+        'startup',
+        { showDialog: false }
+      );
     });
 
   // expose test-friendly API

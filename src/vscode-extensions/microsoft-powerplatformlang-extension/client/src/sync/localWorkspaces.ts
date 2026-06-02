@@ -10,7 +10,6 @@ import { getEnvironmentByIdAsync } from '../clients/bapClient';
 import { onAccountChange } from '../clients/account';
 import { LspMethods } from '../constants';
 import logger from '../services/logger';
-import { TelemetryEventsKeys } from '../constants';
 
 export type  WorkspaceIcon = IconPath | ThemeIcon;
 
@@ -174,7 +173,7 @@ async function refreshAndNotify() {
   try {
     while (refreshPending) {
       if (iterations++ >= MAX_REFRESH_ITERATIONS) {
-        logger.logInfo(TelemetryEventsKeys.WorkspaceRefreshLoopCap);
+        logger.logWarning('Workspace refresh loop hit iteration cap', 'workspaces');
         break;
       }
       refreshPending = false;
