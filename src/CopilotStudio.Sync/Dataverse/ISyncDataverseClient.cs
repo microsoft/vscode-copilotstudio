@@ -51,12 +51,12 @@ public interface ISyncDataverseClient
     /// <summary>
     /// Creates an unbound connection reference.
     /// </summary>
-    Task CreateConnectionReferenceAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken, Guid? customConnectorRowId = null);
+    Task CreateConnectionReferenceAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken, Guid? customConnectorRowId = null, string? connectionId = null);
 
     /// <summary>
     /// Ensures connection reference exists (creates if missing).
     /// </summary>
-    Task EnsureConnectionReferenceExistsAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken, Guid? customConnectorRowId = null);
+    Task EnsureConnectionReferenceExistsAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken, Guid? customConnectorRowId = null, string? connectionId = null);
 
     /// <summary>
     /// Get connection references by logical names.

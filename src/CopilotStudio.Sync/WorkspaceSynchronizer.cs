@@ -726,7 +726,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                     connRef.ConnectionReferenceLogicalName.ToString(),
                     connRef.ConnectorId.ToString(),
                     cancellationToken,
-                    customConnectorRowId).ConfigureAwait(false);
+                    customConnectorRowId,
+                    connRef.ConnectionId?.ToString()).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -2917,7 +2918,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         if (logicalNames.Any())
         {
             var result = await dataverseClient.GetConnectionReferencesByLogicalNamesAsync(logicalNames, cancellationToken).ConfigureAwait(false);
-            references = result.Select(dto => new ConnectionReference(connectionReferenceLogicalName: dto.ConnectionReferenceLogicalName, connectionId: dto.ConnectionReferenceId.ToString(), connectorId: dto.ConnectorId ?? throw new InvalidOperationException($"ConnectorId missing for connection reference {dto.ConnectionReferenceLogicalName}"))).ToImmutableArray();
+            references = result.Select(dto => new ConnectionReference(connectionReferenceLogicalName: dto.ConnectionReferenceLogicalName, connectionId: dto.ConnectionId, connectorId: dto.ConnectorId ?? throw new InvalidOperationException($"ConnectorId missing for connection reference {dto.ConnectionReferenceLogicalName}"))).ToImmutableArray();
         }
 
         return references;
@@ -3250,10 +3251,35 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             using var sw = new StreamWriter(file, Encoding.UTF8);
             using var yamlContext = YamlSerializationContext.UseStandardSerializationContextIfNotDefined(throwOnInvalidYaml: false);
 
-            CodeSerializer.SerializeConnectionReferences(sw, uniqueConnectionReferences);
+            SerializeConnectionReferences(sw, uniqueConnectionReferences);
         }
 
         return Task.CompletedTask;
+    }
+
+    private static void SerializeConnectionReferences(TextWriter target, IEnumerable<ConnectionReference> connectionReferences)
+    {
+        target.WriteLine("connectionReferences:");
+
+        var orderedRefs = connectionReferences
+            .OrderBy(c => c.ConnectionReferenceLogicalName.ToString(), StringComparer.Ordinal)
+            .ToList();
+
+        if (!orderedRefs.Any())
+        {
+            target.WriteLine("  []");
+            return;
+        }
+
+        foreach (var connRef in orderedRefs)
+        {
+            target.WriteLine("  - connectionReferenceLogicalName: " + connRef.ConnectionReferenceLogicalName.ToString());
+            target.WriteLine("    connectorId: " + connRef.ConnectorId.ToString());
+            if (!string.IsNullOrWhiteSpace(connRef.ConnectionId?.ToString()))
+            {
+                target.WriteLine("    connectionId: " + connRef.ConnectionId?.ToString());
+            }
+        }
     }
 
     private async Task WriteCustomConnectorsAsync(IFileAccessor fileAccessor, DirectoryPath workspaceFolder, DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)

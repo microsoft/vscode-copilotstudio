@@ -512,6 +512,8 @@
             // Arrange
             var connectionRefName = "cre6c_test.shared_msnweather.12345";
             var connectorId = "/providers/Microsoft.PowerApps/apis/shared_msnweather";
+                var connectionId = "/providers/Microsoft.PowerApps/connections/maker-connection-1";
+                string? requestBody = null;
 
             var handlerMock = new Mock<HttpMessageHandler>();
             handlerMock
@@ -524,6 +526,7 @@
                        req.RequestUri.ToString().Contains("/connectionreferences")),
                    ItExpr.IsAny<CancellationToken>()
                )
+               .Callback<HttpRequestMessage, CancellationToken>((req, _) => requestBody = req.Content?.ReadAsStringAsync().GetAwaiter().GetResult())
                .ReturnsAsync(new HttpResponseMessage
                {
                    StatusCode = HttpStatusCode.Created,
@@ -534,7 +537,7 @@
             var client = CreateClientFromHttpClient(httpClient);
 
             // Act
-            await client.CreateConnectionReferenceAsync(connectionRefName, connectorId, CancellationToken.None);
+                await client.CreateConnectionReferenceAsync(connectionRefName, connectorId, CancellationToken.None, connectionId: connectionId);
 
             // Assert - no exception thrown
             handlerMock.Protected().Verify(
@@ -542,6 +545,12 @@
                Times.Once(),
                ItExpr.IsAny<HttpRequestMessage>(),
                ItExpr.IsAny<CancellationToken>());
+
+                Assert.NotNull(requestBody);
+                using var document = JsonDocument.Parse(requestBody!);
+                Assert.Equal(connectionRefName, document.RootElement.GetProperty("connectionreferencelogicalname").GetString());
+                Assert.Equal(connectorId, document.RootElement.GetProperty("connectorid").GetString());
+                Assert.Equal(connectionId, document.RootElement.GetProperty("connectionid").GetString());
         }
 
         [Fact]
@@ -778,7 +787,8 @@
                     {
                         connectionreferenceid = Guid.NewGuid(),
                         connectionreferencelogicalname = "cr1",
-                        connectorid = "connector"
+                        connectorid = "connector",
+                        connectionid = "/providers/Microsoft.PowerApps/connections/connection-1"
                     }
                 }
             });
@@ -805,11 +815,13 @@
                 CancellationToken.None);
 
             Assert.Single(result);
+            Assert.Equal("/providers/Microsoft.PowerApps/connections/connection-1", result[0].ConnectionId);
             Assert.NotNull(capturedRequest);
 
             var uri = Uri.UnescapeDataString(capturedRequest!.RequestUri!.ToString());
 
             Assert.Contains("connectionreferences", uri);
+            Assert.Contains("connectionid", uri);
             Assert.Contains("connectionreferencelogicalname eq 'cr1'", uri);
         }
 
