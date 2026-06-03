@@ -179,7 +179,7 @@ public class SyncDataverseClient : ISyncDataverseClient
         }
 
         var filter = string.Join(" or ", names.Select(n => $"connectionreferencelogicalname eq '{n}'"));
-        var requestUri = $"{DataverseUrl}/api/data/v9.2/connectionreferences?$select=connectionreferenceid,connectionreferencelogicalname,connectorid&$filter={Uri.EscapeDataString(filter)}";
+        var requestUri = $"{DataverseUrl}/api/data/v9.2/connectionreferences?$select=connectionreferenceid,connectionreferencelogicalname,connectorid,connectionid&$filter={Uri.EscapeDataString(filter)}";
 
         var response = await SendAsync<ConnectionReferenceQueryResponse>(HttpMethod.Get, requestUri, null, false, cancellationToken).ConfigureAwait(false);
         return response?.Value ?? Array.Empty<ConnectionReferenceInfo>();
@@ -994,6 +994,9 @@ public class SyncDataverseClient : ISyncDataverseClient
 
         [JsonPropertyName("connectorid")]
         public string? ConnectorId { get; set; } = string.Empty;
+
+        [JsonPropertyName("connectionid")]
+        public string? ConnectionId { get; set; } = string.Empty;
     }
 
     internal class AgentSyncInfoDetail

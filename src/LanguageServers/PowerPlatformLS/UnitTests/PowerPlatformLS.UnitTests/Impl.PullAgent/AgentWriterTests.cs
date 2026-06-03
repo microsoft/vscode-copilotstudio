@@ -5,9 +5,7 @@
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.CopilotStudio.Sync.Dataverse;
-    using Microsoft.PowerPlatformLS.Contracts.FileLayout;
-    using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
-    using Microsoft.PowerPlatformLS.Impl.PullAgent;
+    using Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio;
     using Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods;
     using Microsoft.PowerPlatformLS.UnitTests.TestUtilities;
     using Moq;
@@ -30,6 +28,11 @@
         private static readonly DirectoryPath ContractsWorkspaceFolderPath = new DirectoryPath(string.Empty);
         private static readonly AgentFilePath BotCachePath = new AgentFilePath(".mcs/botdefinition.json");
         private static readonly AgentFilePath OldBotCachePath = new AgentFilePath(".mcs/botdefinition.yml");
+
+        private static bool IsWorkspaceCompilationFile(string file) =>
+            file.Equals(".mcs/botdefinition.json", StringComparison.OrdinalIgnoreCase) ||
+            file.EndsWith(".mcs.yml", StringComparison.OrdinalIgnoreCase) ||
+            file.EndsWith(".mcs.yaml", StringComparison.OrdinalIgnoreCase);
 
         [Fact]
         public async Task WriteConnections()
@@ -338,6 +341,128 @@ kind: AdaptiveDialog
             Assert.Equal("", currentAgentMcsYml.Trim());
         }
 
+        [Theory]
+        [InlineData("/providers/Microsoft.PowerApps/connections/conRef", false)]
+        [InlineData(null, true)]
+        public async Task CloneChangesAsync_MakerConnection(string? connectionId, bool expectConnectionNotSet)
+        {
+            var filesystem = new InMemoryFileWriter();
+            var cancel = CancellationToken.None;
+            var schemaName = "cr123_agent";
+
+            var botEntity = new BotEntity.Builder
+            {
+                SchemaName = schemaName,
+                CdsBotId = Guid.Parse("00000000-0000-0000-0000-000000000001"),
+                AuthenticationMode = BotAuthenticationMode.Integrated,
+            }.Build();
+            var connectionReference = new ConnectionReference.Builder
+            {
+                Id = new ConnectionReferenceId(Guid.Parse("00000000-0000-0000-0000-000000000003")),
+                ConnectionReferenceLogicalName = "conRef",
+                ConnectorId = "/providers/Microsoft.PowerApps/apis/conRef",
+                ConnectionId = connectionId,
+            }.Build();
+            var connectorDefinition = new ConnectorDefinition.Builder
+            {
+                ConnectorId = "/providers/Microsoft.PowerApps/apis/conRef",
+                HasPublicData = false,
+                Operations =
+                {
+                    new ConnectorOperation.Builder
+                    {
+                        OperationId = "opId",
+                        InputType = DataType.EmptyRecord,
+                        OutputType = DataType.EmptyRecord,
+                    },
+                },
+            }.Build();
+            var dialogComponent = new DialogComponent.Builder
+            {
+                SchemaName = $"{schemaName}.topic.testMakerConnectorAction",
+                Id = new BotComponentId(Guid.Parse("00000000-0000-0000-0000-000000000002")),
+                Dialog = new AdaptiveDialog.Builder
+                {
+                    BeginDialog = new OnRedirect.Builder
+                    {
+                        Id = "beginDialog_test",
+                        Actions =
+                        {
+                            new InvokeConnectorAction.Builder
+                            {
+                                OperationId = "opId",
+                                Id = "invokeConnectorAction_test",
+                                ConnectionReference = "conRef",
+                                DynamicInputSchema = DataType.EmptyRecord,
+                                DynamicOutputSchema = DataType.EmptyRecord,
+                                ConnectionProperties = new ConnectionProperties.Builder
+                                {
+                                    Mode = ConnectionMode.Maker,
+                                },
+                            },
+                        },
+                    },
+                },
+            }.Build();
+
+            var changeset = new PvaComponentChangeSet(
+                botComponentChanges: new BotComponentChange[] { new BotComponentInsert(dialogComponent) },
+                connectorDefinitionChanges: new ConnectorDefinitionChange[] { new ConnectorDefinitionInsert(connectorDefinition) },
+                environmentVariableChanges: null,
+                connectionReferenceChanges: new ConnectionReferenceChange[] { new ConnectionReferenceInsert(connectionReference) },
+                aIPluginOperationChanges: null,
+                componentCollectionChanges: null,
+                dataverseTableSearchChanges: null,
+                dataverseTableSearchEntityConfigurationChanges: null,
+                connectedAgentDefinitionChanges: null,
+                bot: botEntity,
+                changeToken: "change-token-1");
+
+            var islandControlPlaneServiceMock = new Mock<IIslandControlPlaneService>();
+            islandControlPlaneServiceMock
+                .Setup(x => x.GetComponentsAsync(FakeOperationContext, null, cancel))
+                .ReturnsAsync(changeset);
+
+            var writer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem, islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+
+            await writer.CloneChangesAsync(
+                WorkspaceFolderPath,
+                new ReferenceTracker(),
+                FakeOperationContext,
+                new MockDataverseClient(),
+                new AgentSyncInfo { AgentId = Guid.NewGuid() },
+                cancel);
+
+            var world = new World();
+            foreach (var file in filesystem.Filenames.Where(IsWorkspaceCompilationFile))
+            {
+                var content = await filesystem.ReadStringAsync(new AgentFilePath(file), cancel);
+                world.AddFile(file, content, elementCheck: false);
+            }
+
+            var workspace = world.GetWorkspace();
+            workspace.BuildCompilationModel();
+
+            var connectionNotSetErrors = workspace.Definition
+                .DescendantsAndSelf()
+                .SelectMany(element => element.Diagnostics)
+                .OfType<PropertyError>()
+                .Where(error => error.ErrorCode?.Value == ValidationErrorCode.ConnectionNotSet)
+                .ToArray();
+
+            if (expectConnectionNotSet)
+            {
+                var error = Assert.Single(connectionNotSetErrors);
+                Assert.Equal("ConnectionReference", error.PropertyName);
+            }
+            else
+            {
+                Assert.Empty(connectionNotSetErrors);
+            }
+
+            var clonedReference = Assert.Single(workspace.Definition.ConnectionReferences);
+            Assert.Equal(connectionId, clonedReference.ConnectionId?.ToString());
+        }
 
         [Theory]
         [InlineData(true)]
@@ -2135,7 +2260,8 @@ beginDialog:
                 new ConnectionReference.Builder
                 {
                     ConnectionReferenceLogicalName = new ConnectionReferenceLogicalName("cr123_sharedmsnweather_12345"),
-                    ConnectorId = new ConnectorId("/providers/Microsoft.PowerApps/apis/shared_msnweather")
+                    ConnectorId = new ConnectorId("/providers/Microsoft.PowerApps/apis/shared_msnweather"),
+                    ConnectionId = "/providers/Microsoft.PowerApps/connections/maker-connection-1"
                 }.Build(),
                 new ConnectionReference.Builder
                 {

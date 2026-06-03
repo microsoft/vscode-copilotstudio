@@ -2917,7 +2917,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         if (logicalNames.Any())
         {
             var result = await dataverseClient.GetConnectionReferencesByLogicalNamesAsync(logicalNames, cancellationToken).ConfigureAwait(false);
-            references = result.Select(dto => new ConnectionReference(connectionReferenceLogicalName: dto.ConnectionReferenceLogicalName, connectionId: dto.ConnectionReferenceId.ToString(), connectorId: dto.ConnectorId ?? throw new InvalidOperationException($"ConnectorId missing for connection reference {dto.ConnectionReferenceLogicalName}"))).ToImmutableArray();
+            references = result.Select(dto => new ConnectionReference(connectionReferenceLogicalName: dto.ConnectionReferenceLogicalName, connectionId: dto.ConnectionId, connectorId: dto.ConnectorId ?? throw new InvalidOperationException($"ConnectorId missing for connection reference {dto.ConnectionReferenceLogicalName}"))).ToImmutableArray();
         }
 
         return references;

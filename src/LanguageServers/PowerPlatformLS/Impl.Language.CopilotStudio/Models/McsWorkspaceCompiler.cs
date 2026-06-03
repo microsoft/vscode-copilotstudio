@@ -200,10 +200,22 @@
                 var fileRefs = connectionReferencesFile.ConnectionReferences;
                 
                 // Merge file references with existing ones, preferring file content
-                var mergedRefs = fileRefs.Concat(existingRefs.Where(er => 
-                    !fileRefs.Any(fr => fr.ConnectionReferenceLogicalName.Equals(er.ConnectionReferenceLogicalName))
-                ));
-                
+                var mergedRefs = fileRefs
+                    .Select(fileRef =>
+                    {
+                        if (!string.IsNullOrEmpty(fileRef.ConnectionId?.ToString()))
+                        {
+                            return fileRef;
+                        }
+
+                        var cachedRef = existingRefs.FirstOrDefault(existingRef => existingRef.ConnectionReferenceLogicalName.Equals(fileRef.ConnectionReferenceLogicalName));
+                        var cachedConnectionId = cachedRef?.ConnectionId?.ToString();
+
+                        return string.IsNullOrEmpty(cachedConnectionId) ? fileRef : fileRef.WithConnectionId(cachedConnectionId);
+                    })
+                    .Concat(existingRefs.Where(existingRef =>
+                        !fileRefs.Any(fileRef => fileRef.ConnectionReferenceLogicalName.Equals(existingRef.ConnectionReferenceLogicalName))));
+
                 result = result.WithConnectionReferences(mergedRefs);
             }
             

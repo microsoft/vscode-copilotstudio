@@ -4,7 +4,7 @@
     using System.Globalization;
 
     /// <summary>
-    /// Default configuration for enabled features.
+    /// Default configuration for feature flags.
     /// Could be populated from configurations if any overrides is necessary.
     /// </summary>
     internal class EnabledFeatures : IFeatureConfiguration
@@ -15,8 +15,8 @@
 
         public string GetStringValue(string settingName, string defaultValue) => defaultValue;
 
-        public bool IsEnvironmentFeatureEnabled(string featureName, bool defaultValue) => true;
+        public bool IsEnvironmentFeatureEnabled(string featureName, bool defaultValue) => defaultValue;
 
-        public bool IsTenantFeatureEnabled(string featureName, bool defaultValue) => true;
+        public bool IsTenantFeatureEnabled(string featureName, bool defaultValue) => defaultValue;
     }
 }
