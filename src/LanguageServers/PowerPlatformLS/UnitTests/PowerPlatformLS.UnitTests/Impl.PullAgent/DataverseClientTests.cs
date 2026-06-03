@@ -512,7 +512,6 @@
             // Arrange
             var connectionRefName = "cre6c_test.shared_msnweather.12345";
             var connectorId = "/providers/Microsoft.PowerApps/apis/shared_msnweather";
-                var connectionId = "/providers/Microsoft.PowerApps/connections/maker-connection-1";
                 string? requestBody = null;
 
             var handlerMock = new Mock<HttpMessageHandler>();
@@ -537,7 +536,7 @@
             var client = CreateClientFromHttpClient(httpClient);
 
             // Act
-                await client.CreateConnectionReferenceAsync(connectionRefName, connectorId, CancellationToken.None, connectionId: connectionId);
+                await client.CreateConnectionReferenceAsync(connectionRefName, connectorId, CancellationToken.None);
 
             // Assert - no exception thrown
             handlerMock.Protected().Verify(
@@ -550,7 +549,7 @@
                 using var document = JsonDocument.Parse(requestBody!);
                 Assert.Equal(connectionRefName, document.RootElement.GetProperty("connectionreferencelogicalname").GetString());
                 Assert.Equal(connectorId, document.RootElement.GetProperty("connectorid").GetString());
-                Assert.Equal(connectionId, document.RootElement.GetProperty("connectionid").GetString());
+                Assert.False(document.RootElement.TryGetProperty("connectionid", out _));
         }
 
         [Fact]

@@ -726,8 +726,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                     connRef.ConnectionReferenceLogicalName.ToString(),
                     connRef.ConnectorId.ToString(),
                     cancellationToken,
-                    customConnectorRowId,
-                    connRef.ConnectionId?.ToString()).ConfigureAwait(false);
+                    customConnectorRowId).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -3251,35 +3250,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             using var sw = new StreamWriter(file, Encoding.UTF8);
             using var yamlContext = YamlSerializationContext.UseStandardSerializationContextIfNotDefined(throwOnInvalidYaml: false);
 
-            SerializeConnectionReferences(sw, uniqueConnectionReferences);
+            CodeSerializer.SerializeConnectionReferences(sw, uniqueConnectionReferences);
         }
 
         return Task.CompletedTask;
-    }
-
-    private static void SerializeConnectionReferences(TextWriter target, IEnumerable<ConnectionReference> connectionReferences)
-    {
-        target.WriteLine("connectionReferences:");
-
-        var orderedRefs = connectionReferences
-            .OrderBy(c => c.ConnectionReferenceLogicalName.ToString(), StringComparer.Ordinal)
-            .ToList();
-
-        if (!orderedRefs.Any())
-        {
-            target.WriteLine("  []");
-            return;
-        }
-
-        foreach (var connRef in orderedRefs)
-        {
-            target.WriteLine("  - connectionReferenceLogicalName: " + connRef.ConnectionReferenceLogicalName.ToString());
-            target.WriteLine("    connectorId: " + connRef.ConnectorId.ToString());
-            if (!string.IsNullOrWhiteSpace(connRef.ConnectionId?.ToString()))
-            {
-                target.WriteLine("    connectionId: " + connRef.ConnectionId?.ToString());
-            }
-        }
     }
 
     private async Task WriteCustomConnectorsAsync(IFileAccessor fileAccessor, DirectoryPath workspaceFolder, DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)

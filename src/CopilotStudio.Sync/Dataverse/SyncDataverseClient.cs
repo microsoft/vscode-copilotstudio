@@ -559,8 +559,7 @@ public class SyncDataverseClient : ISyncDataverseClient
         string connectionReferenceLogicalName,
         string connectorId,
         CancellationToken cancellationToken,
-        Guid? customConnectorRowId = null,
-        string? connectionId = null)
+        Guid? customConnectorRowId = null)
     {
         var requestUri = new Uri(new Uri(DataverseUrl), "/api/data/v9.2/connectionreferences");
 
@@ -569,11 +568,6 @@ public class SyncDataverseClient : ISyncDataverseClient
             ["connectionreferencelogicalname"] = connectionReferenceLogicalName,
             ["connectorid"] = connectorId
         };
-
-        if (!string.IsNullOrWhiteSpace(connectionId))
-        {
-            body["connectionid"] = connectionId!;
-        }
 
         if (customConnectorRowId.HasValue)
         {
@@ -689,13 +683,12 @@ public class SyncDataverseClient : ISyncDataverseClient
         string connectionReferenceLogicalName,
         string connectorId,
         CancellationToken cancellationToken,
-        Guid? customConnectorRowId = null,
-        string? connectionId = null)
+        Guid? customConnectorRowId = null)
     {
         var exists = await ConnectionReferenceExistsAsync(connectionReferenceLogicalName, cancellationToken).ConfigureAwait(false);
         if (!exists)
         {
-            await CreateConnectionReferenceAsync(connectionReferenceLogicalName, connectorId, cancellationToken, customConnectorRowId, connectionId).ConfigureAwait(false);
+            await CreateConnectionReferenceAsync(connectionReferenceLogicalName, connectorId, cancellationToken, customConnectorRowId).ConfigureAwait(false);
         }
     }
 

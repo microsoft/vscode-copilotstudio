@@ -2280,7 +2280,7 @@ beginDialog:
             await synchronizer.ProvisionConnectionReferencesAsync(definition, mockDataverse, new CancellationToken());
 
             Assert.Equal(2, mockDataverse.ProvisionedConnections.Count);
-            Assert.Contains(mockDataverse.ProvisionedConnections, c => c.name == "cr123_sharedmsnweather_12345" && c.connectorId == "/providers/Microsoft.PowerApps/apis/shared_msnweather" && c.connectionId == "/providers/Microsoft.PowerApps/connections/maker-connection-1");
+            Assert.Contains(mockDataverse.ProvisionedConnections, c => c.name == "cr123_sharedmsnweather_12345" && c.connectorId == "/providers/Microsoft.PowerApps/apis/shared_msnweather");
             Assert.Contains(mockDataverse.ProvisionedConnections, c => c.name == "cr123_sharedsendmail_67890" && c.connectorId == "/providers/Microsoft.PowerApps/apis/shared_sendmail");
         }
 
