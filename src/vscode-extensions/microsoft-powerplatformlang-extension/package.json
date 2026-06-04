@@ -330,13 +330,13 @@
     "package": "npx -y @vscode/vsce@^3.3.2 package --target win32-x64 --no-dependencies --pre-release"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
-    "@types/vscode": "^1.108.0",
-    "@typescript-eslint/eslint-plugin": "^8.30.0",
-    "@typescript-eslint/parser": "^8.30.0",
+    "@types/node": "^22.19.19",
+    "@types/vscode": "^1.120.0",
+    "@typescript-eslint/eslint-plugin": "^8.60.1",
+    "@typescript-eslint/parser": "^8.60.1",
     "@vscode/test-electron": "^2.4.1",
     "esbuild": "0.28.0",
-    "eslint": "^10.0.0",
+    "eslint": "^10.4.1",
     "nerdbank-gitversioning": "^3.7.115",
     "npm-run-all2": "^7.0.2",
     "shared": "file:../shared",
@@ -344,8 +344,8 @@
   },
   "dependencies": {
     "@types/semver": "^7.7.0",
-    "@vscode/extension-telemetry": "^1.0.0",
-    "semver": "^7.7.2"
+    "@vscode/extension-telemetry": "^1.5.2",
+    "semver": "^7.8.2"
   },
   "overrides": {
     "glob": ">=11.0.2"
