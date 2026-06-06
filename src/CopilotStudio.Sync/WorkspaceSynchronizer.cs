@@ -3154,12 +3154,24 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
     {
         DataType type = DataType.String;
 
-        if (propValue.TryGetProperty("type", out var typeNode))
+        var schemaType = propValue.TryGetProperty("type", out var typeNode) ? typeNode.GetString() : null;
+
+        if (schemaType != null)
         {
-            type = MapFlowType(typeNode.GetString() ?? "string");
+            type = MapFlowType(schemaType);
         }
 
-        if (propValue.TryGetProperty("x-ms-content-hint", out var hintNode) && string.Equals(hintNode.GetString(), "FILE", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(schemaType, "object", StringComparison.OrdinalIgnoreCase) && propValue.TryGetProperty("properties", out var nestedProps) && nestedProps.ValueKind == JsonValueKind.Object)
+        {
+            var fields = new Dictionary<string, PropertyInfo>(StringComparer.OrdinalIgnoreCase);
+            foreach (var nested in nestedProps.EnumerateObject())
+            {
+                fields[nested.Name] = CreatePropertyInfoFromJson(nested.Value, nested.Name);
+            }
+
+            type = fields.Count == 0 ? DataType.EmptyRecord : new RecordDataType(fields.ToImmutableDictionary(StringComparer.OrdinalIgnoreCase));
+        }
+        else if (propValue.TryGetProperty("x-ms-content-hint", out var hintNode) && string.Equals(hintNode.GetString(), "FILE", StringComparison.OrdinalIgnoreCase))
         {
             type = DataType.File;
         }

@@ -1375,6 +1375,74 @@ beginDialog:
         }
 
         [Fact]
+        public async Task GetWorkflowsAsync_FileInputWithNestedProperties_BuildsRecordType()
+        {
+            using var tempWorkspace = new TempDirectory();
+            var workspaceFolder = new DirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
+            var workflowId = Guid.NewGuid();
+            var agentId = Guid.NewGuid();
+
+            var clientData = @"
+            {
+                ""properties"": {
+                    ""definition"": {
+                        ""triggers"": {
+                            ""manual"": {
+                                ""inputs"": {
+                                    ""schema"": {
+                                        ""properties"": {
+                                            ""file"": {
+                                                ""type"": ""object"",
+                                                ""x-ms-content-hint"": ""FILE"",
+                                                ""title"": ""File Input"",
+                                                ""properties"": {
+                                                    ""name"": { ""type"": ""string"", ""title"": ""File Name"" },
+                                                    ""contentBytes"": { ""type"": ""string"", ""format"": ""byte"", ""title"": ""File Content"" }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        ""actions"": {}
+                    }
+                }
+            }";
+
+            var mockDataverse = new MockDataverseClient();
+            mockDataverse.SetWorkflowsForAgent(new[]
+            {
+                new WorkflowMetadata
+                {
+                    WorkflowId = workflowId,
+                    Name = "FileWorkflow",
+                    ClientData = clientData,
+                    StateCode = 1
+                }
+            });
+
+            var filesystem = new InMemoryFileWriter();
+            var synchronizer = new WorkspaceSynchronizer(
+                new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
+                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem,
+                Mock.Of<IIslandControlPlaneService>(),
+                Mock.Of<ISyncProgress>(),
+                new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+
+            var workflows = await synchronizer.GetWorkflowsAsync(workspaceFolder, mockDataverse, new AgentSyncInfo { AgentId = agentId }, filesystem, CancellationToken.None);
+
+            var workflow = Assert.Single(workflows.Workflows);
+
+            Assert.NotNull(workflow.InputType);
+
+            var fileType = workflow.InputType!.Properties["file"].Type;
+            var fileRecord = Assert.IsAssignableFrom<RecordDataType>(fileType);
+            Assert.Equal(DataType.String, fileRecord.GetPropertyType("name"));
+            Assert.Equal(DataType.String, fileRecord.GetPropertyType("contentBytes"));
+        }
+
+        [Fact]
         public async Task GetWorkflowsAsync_OutputType_NestedInScope()
         {
             using var tempWorkspace = new TempDirectory();
