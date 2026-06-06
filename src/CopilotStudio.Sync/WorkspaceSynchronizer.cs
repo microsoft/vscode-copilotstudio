@@ -266,7 +266,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         var originalSnapshot = ReadCloudCacheSnapshot(fileAccessor);
 
         // Apply raw changeSet on cloud cache
-        var (newSnapshot, _) = UpdateCloudCache(fileAccessor, remoteChangeset, workflows);
+        var (newSnapshot, _) = UpdateCloudCache(fileAccessor, remoteChangeset, workflows, agentId: syncInfo.AgentId);
 
         // Persist new delta token
         await WriteChangeTokenAsync(fileAccessor, remoteChangeset, cancellationToken).ConfigureAwait(false);
@@ -601,7 +601,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
         var connectorPushResult = await PushCustomConnectorsAsync(workspaceFolder, dataverseClient, cancellationToken).ConfigureAwait(false);
 
-        await WriteChangeSetAsync(workspaceFolder, changeset, cloudFlowMetadata, aiPrompts, cancellationToken).ConfigureAwait(false);
+        await WriteChangeSetAsync(workspaceFolder, changeset, cloudFlowMetadata, aiPrompts, agentId, cancellationToken).ConfigureAwait(false);
 
         var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
         var postPushSnapshot = ReadCloudCacheSnapshot(fileAccessor);
@@ -779,6 +779,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             definition = definition.WithAIModelDefinitions(BuildAIModelDefinitions(aiPrompts));
         }
 
+        definition = EnsureEntityCdsBotId(definition, syncInfo.AgentId);
+
         await fileAccessor.WriteAsync(GitIgnorePath, "*", cancellationToken).ConfigureAwait(false);
         WriteCloudCache(fileAccessor, definition);
 
@@ -808,10 +810,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         PvaComponentChangeSet changeset,
         CloudFlowMetadata? cloudFlowMetadata,
         ImmutableArray<AIPromptMetadata> aiPrompts,
+        Guid? agentId,
         CancellationToken cancellationToken)
     {
         var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
-        var (definition, deletedComponents) = UpdateCloudCache(fileAccessor, changeset, cloudFlowMetadata, aiPrompts);
+        var (definition, deletedComponents) = UpdateCloudCache(fileAccessor, changeset, cloudFlowMetadata, aiPrompts, agentId);
         await UpdateWorkspaceDirectoryAsync(fileAccessor, changeset, definition, deletedComponents, cancellationToken).ConfigureAwait(false);
         await WriteChangeTokenAsync(fileAccessor, changeset, cancellationToken).ConfigureAwait(false);
     }
@@ -1096,7 +1099,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
     // This will ensure our cloud cache reflects the actual cloud. This is simple because:
     // - the cloud cache has BotIds, so it's easy to apply the changeset.
     // - the user can't edit the cloud cache, so there's never any conflict resolution. 
-    private (DefinitionBase newCache, ImmutableArray<BotComponentBase> deletedComponents) UpdateCloudCache(IFileAccessor fileAccessor, PvaComponentChangeSet changeset, CloudFlowMetadata? cloudFlowMetadata = null, ImmutableArray<AIPromptMetadata> aiPrompts = default)
+    private (DefinitionBase newCache, ImmutableArray<BotComponentBase> deletedComponents) UpdateCloudCache(IFileAccessor fileAccessor, PvaComponentChangeSet changeset, CloudFlowMetadata? cloudFlowMetadata = null, ImmutableArray<AIPromptMetadata> aiPrompts = default, Guid? agentId = null)
     {
         var snapshot = ReadCloudCacheSnapshot(fileAccessor);
         if (snapshot == null)
@@ -1111,6 +1114,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         {
             newSnapshot = bd.WithEntity(changeset.Bot);
         }
+
+        newSnapshot = EnsureEntityCdsBotId(newSnapshot, agentId ?? GetSnapshotCdsBotId(snapshot));
 
         foreach (var item in changeset.BotComponentChanges.OfType<BotComponentDelete>())
         {
@@ -1137,6 +1142,33 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
         WriteCloudCache(fileAccessor, newSnapshot);
         return (newSnapshot, deletedComponents.ToImmutable());
+    }
+
+    private static Guid? GetSnapshotCdsBotId(DefinitionBase snapshot)
+    {
+        if (snapshot is BotDefinition bd && bd.Entity is BotEntity entity && entity.CdsBotId != default)
+        {
+            return entity.CdsBotId.Value;
+        }
+
+        return null;
+    }
+
+    private static DefinitionBase EnsureEntityCdsBotId(DefinitionBase definition, Guid? agentId)
+    {
+        if (agentId is null || agentId.Value == Guid.Empty)
+        {
+            return definition;
+        }
+
+        if (definition is not BotDefinition bd || bd.Entity is not BotEntity entity || entity.CdsBotId != default)
+        {
+            return definition;
+        }
+
+        var builder = entity.ToBuilder();
+        builder.CdsBotId = agentId.Value;
+        return bd.WithEntity(builder.Build());
     }
 
     private async Task WriteChangeTokenAsync(IFileAccessor fileAccessor, PvaComponentChangeSet changeSet, CancellationToken cancellationToken)
