@@ -51,6 +51,7 @@ internal static class LspProjection
     /// Optional ordered override list. The first matching override replaces infix/folder/blocklist
     /// for the current path or schema while preserving <paramref name="DotPassthrough"/>.
     /// </param>
+    /// <param name="PreserveBotPrefixedFiles">If true, bot-prefixed filenames are preserved instead of normalized.</param>
     internal readonly record struct Rule(string Infix, string Folder, bool DotPassthrough = false, string[]? DotInfixBlocklist = null, RuleOverride[]? Overrides = null, bool PreserveBotPrefixedFiles = false);
 
     /// <summary>
