@@ -82,6 +82,9 @@ public class AgentSyncInfo
     /// Each host derives this from its own discovery mechanism (BAP for pac, VS Code sessions for extension).
     /// </summary>
     public Uri? AgentManagementEndpoint { get; init; }
+
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public AgentFormat? Format { get; set; }
 }
 
 public class AssetsToClone
@@ -362,6 +365,8 @@ internal interface IMcsWorkspace
     DirectoryPath FolderPath { get; }
 
     DefinitionBase Definition { get; }
+
+    AgentFormat Format { get; }
 }
 
 #endregion

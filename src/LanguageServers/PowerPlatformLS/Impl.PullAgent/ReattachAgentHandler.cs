@@ -129,7 +129,13 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 bool updateWorkspaceDirectory = false;
                 if (agentId == Guid.Empty)
                 {
-                    var newAgent = await _dataverseClient.CreateNewAgentAsync(agentDisplayName, thisSchema, cancellationToken);
+                    var agentFormat = workspace.Format;
+                    if (agentFormat == AgentFormat.Unknown)
+                    {
+                        agentFormat = AgentFormatDetector.DetectFromFolder(workspaceFolder.ToString());
+                    }
+
+                    var newAgent = await _dataverseClient.CreateNewAgentAsync(agentDisplayName, thisSchema, agentFormat, cancellationToken);
                     agentId = newAgent.AgentId;
                     isNewAgent = true;
 

@@ -1,5 +1,6 @@
 import { EventEmitter, ExtensionContext, TreeDataProvider, TreeItem, TreeItemCollapsibleState, window } from "vscode";
 import { addWorkspaceChangeSubscription, CopilotStudioWorkspace, getAllWorkspaces, initializeLocalWorkspaces } from "./localWorkspaces";
+import { AgentFormat } from "../types";
 
 export function initializeWorkspaceManager(context: ExtensionContext) {
   initializeLocalWorkspaces(context);
@@ -25,7 +26,8 @@ class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioWorkspace> 
   getTreeItem(element: CopilotStudioWorkspace): TreeItem {
     const item = new TreeItem(element.displayName, TreeItemCollapsibleState.None);
     item.iconPath = element.icon;
-    item.description = element.description;
+    const formatBadge = formatBadgeFor(element.syncInfo?.format);
+    item.description = formatBadge ? `${formatBadge}  ${element.description}` : element.description;
     item.label = element.displayName;
     return item;
   }
@@ -36,5 +38,13 @@ class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioWorkspace> 
     } else {
       return Promise.resolve([]);
     }
+  }
+}
+
+function formatBadgeFor(format: AgentFormat | undefined): string | undefined {
+  switch (format) {
+    case AgentFormat.Cli: return 'CLI';
+    case AgentFormat.Classic: return 'Classic';
+    default: return undefined;
   }
 }

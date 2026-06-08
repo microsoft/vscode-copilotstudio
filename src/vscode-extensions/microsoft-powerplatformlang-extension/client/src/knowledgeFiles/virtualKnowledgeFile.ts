@@ -9,7 +9,7 @@ import { knowledgeTreeDataProvider } from './knowledgeFileTree';
 import { randId } from '../botComponents/schemaName';
 import logger from '../services/logger';
 import { ConflictResolution, TelemetryEventsKeys } from '../constants';
-import { ChangeType } from '../types';
+import { AgentFormat, ChangeType } from '../types';
 
 let virtualKnowledgeProvider: virtualKnowledgeFileSystemProvider | undefined;
 let virtualTreeProvider: knowledgeTreeDataProvider | undefined;
@@ -122,11 +122,16 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
     const metadata = await botHandler.listWsComponentMetadata(syncInfo);
     const remoteFilenames = new Set<string>();
 
+    const isCli = syncInfo.format === AgentFormat.Cli;
     for (const componentMetadata of metadata) {
-      if ((componentMetadata.schemaName.includes('.file.') || componentMetadata.schemaName.includes('.knowledge.')) &&
+      const isKnowledgeFile = isCli
+        ? !componentMetadata.schemaName.includes('.files.') && !!componentMetadata.filename
+        : (componentMetadata.schemaName.includes('.file.') || componentMetadata.schemaName.includes('.knowledge.')) &&
           !componentMetadata.schemaName.includes('.files.') &&
-          componentMetadata.filename) {
-        const filename = decodeURIComponent(componentMetadata.filename);
+          !!componentMetadata.filename;
+
+      if (isKnowledgeFile) {
+        const filename = decodeURIComponent(componentMetadata.filename!);
         const displayName = `${filename} (${componentMetadata.agentSchemaName})`;
         this.components.set(displayName, {
           id: componentMetadata.id,

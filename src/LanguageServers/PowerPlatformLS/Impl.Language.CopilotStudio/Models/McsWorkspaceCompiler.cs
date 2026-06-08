@@ -119,7 +119,11 @@
 
             if (!hasAgentFile && documents.Any())
             {
-                AddErrorForDocument(errors, documents.First().Value, new AgentFileMissingException(_clientInfo));
+                var isCliAgent = settings != null && AgentFormatDetector.Detect(new BotDefinition().WithEntity(settings)) == AgentFormat.Cli;
+                if (!isCliAgent)
+                {
+                    AddErrorForDocument(errors, documents.First().Value, new AgentFileMissingException(_clientInfo));
+                }
             }
 
             bool validateAcrossComponents = false;

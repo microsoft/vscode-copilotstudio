@@ -4,6 +4,7 @@
 
 using Microsoft.Agents.ObjectModel;
 using Microsoft.Agents.Platform.Content.Abstractions;
+using Microsoft.CopilotStudio.McsCore;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -44,12 +45,12 @@ public class SyncDataverseClient : ISyncDataverseClient
         _dataverseUrl.Value = dataverseUrl ?? throw new ArgumentNullException(nameof(dataverseUrl));
     }
 
-    public virtual async Task<AgentInfo> CreateNewAgentAsync(string displayName, string schemaName, CancellationToken cancellationToken)
+    public virtual async Task<AgentInfo> CreateNewAgentAsync(string displayName, string schemaName, AgentFormat agentFormat, CancellationToken cancellationToken)
     {
         var requestBody = new Dictionary<string, object?>
         {
             ["name"] = displayName ?? throw new ArgumentNullException(nameof(displayName)),
-            ["template"] = "empty-1.0.0",
+            ["template"] = agentFormat == AgentFormat.Cli ? "cliagent-1.0.0" : "empty-1.0.0",
             ["schemaname"] = string.IsNullOrWhiteSpace(schemaName) ? null : schemaName
         };
         var requestUri = $"{DataverseUrl}/api/data/v9.2/bots";

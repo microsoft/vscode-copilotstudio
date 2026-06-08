@@ -9,5 +9,7 @@
         DirectoryPath FolderPath { get; }
 
         DefinitionBase Definition { get; }
+
+        AgentFormat Format { get; }
     }
 }

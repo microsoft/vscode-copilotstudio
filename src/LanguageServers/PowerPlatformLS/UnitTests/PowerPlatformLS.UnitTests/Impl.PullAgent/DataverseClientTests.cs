@@ -1,6 +1,7 @@
 ﻿namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
 {
     using Microsoft.Agents.Platform.Content.Abstractions;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.CopilotStudio.Sync.Dataverse;
     using Moq;
@@ -48,7 +49,7 @@
                 });
             });
 
-            var result = await client.CreateNewAgentAsync(DisplayName, inputSchemaName, CancellationToken.None);
+            var result = await client.CreateNewAgentAsync(DisplayName, inputSchemaName, AgentFormat.Classic, CancellationToken.None);
 
             Assert.Equal(_agentId, result.AgentId);
             Assert.Equal(DisplayName, result.DisplayName);
@@ -60,8 +61,40 @@
         public async Task CreateNewAgentAsyncWithFailedResponse()
         {
             var client = CreateClientWithHandler((req, index) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest)));
-            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => client.CreateNewAgentAsync(DisplayName, SchemaName, CancellationToken.None));
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => client.CreateNewAgentAsync(DisplayName, SchemaName, AgentFormat.Classic, CancellationToken.None));
             Assert.Contains("400", ex.Message);
+        }
+
+        [Theory]
+        [InlineData(AgentFormat.Cli, "cliagent-1.0.0")]
+        [InlineData(AgentFormat.Classic, "empty-1.0.0")]
+        [InlineData(AgentFormat.Unknown, "empty-1.0.0")]
+        public async Task CreateNewAgentAsyncUsesTemplateForFormat(AgentFormat format, string expectedTemplate)
+        {
+            string? capturedTemplate = null;
+            var client = CreateClientWithHandler(async (req, index) =>
+            {
+                var body = req.Content == null ? string.Empty : await req.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(body);
+                capturedTemplate = doc.RootElement.GetProperty("template").GetString();
+
+                var responseBody = JsonSerializer.Serialize(new
+                {
+                    botid = _agentId,
+                    name = DisplayName,
+                    iconbase64 = IconBase64,
+                    schemaname = SchemaName
+                });
+                return new HttpResponseMessage
+                {
+                    StatusCode = HttpStatusCode.OK,
+                    Content = new StringContent(responseBody, Encoding.UTF8, "application/json")
+                };
+            });
+
+            await client.CreateNewAgentAsync(DisplayName, SchemaName, format, CancellationToken.None);
+
+            Assert.Equal(expectedTemplate, capturedTemplate);
         }
 
         [Theory]
@@ -717,7 +750,7 @@
             var httpClient = new HttpClient(handlerMock.Object);
             var client = CreateClientFromHttpClient(httpClient);
 
-            await client.CreateNewAgentAsync("TestAgent", "TestSchema", CancellationToken.None);
+            await client.CreateNewAgentAsync("TestAgent", "TestSchema", AgentFormat.Classic, CancellationToken.None);
 
             Assert.NotNull(capturedRequest);
             Assert.True(capturedRequest!.Headers.UserAgent.Any(), "User-Agent header should be present");

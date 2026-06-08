@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { window, ExtensionContext, Uri, QuickPickItem, QuickPickItemKind, ThemeIcon, commands, ProgressLocation, workspace } from 'vscode';
-import { AgentInfo, CloneAgentRequest, ClonedAssets, EnvironmentInfo, IdentifyAgentResponse, CloneAgentResponse } from '../types';
+import { AgentInfo, CloneAgentRequest, ClonedAssets, EnvironmentInfo, IdentifyAgentResponse, CloneAgentResponse, AgentFormat } from '../types';
 import { getIcon } from '../icon';
 import { tryGetAgentIdentifier } from './agentIdentifier';
 import { getEnvironmentByIdAsync, listEnvironmentsBySkuAsync, EnvironmentSku } from '../clients/bapClient';
@@ -498,7 +498,8 @@ export async function cloneAgentToLocalFolder(agent: IdentifyAgentResponse | und
       const workspaceUri = Uri.file(rootFolder);
       if (cloneResp?.agentFolderName) {
         try {
-          const candidateAgentFile = Uri.joinPath(workspaceUri, cloneResp.agentFolderName, 'agent.mcs.yml');
+          const primaryFileName = cloneResp.format === AgentFormat.Cli ? 'settings.mcs.yml' : 'agent.mcs.yml';
+          const candidateAgentFile = Uri.joinPath(workspaceUri, cloneResp.agentFolderName, primaryFileName);
           await workspace.fs.stat(candidateAgentFile);
           await writePostOpenInstruction(context, workspaceUri, candidateAgentFile);
         } catch {

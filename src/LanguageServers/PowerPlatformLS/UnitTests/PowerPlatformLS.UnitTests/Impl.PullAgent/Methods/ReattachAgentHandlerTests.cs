@@ -61,7 +61,7 @@
             var context = CreateTestSetup();
             var failingClient = new Mock<ISyncDataverseClient>();
             failingClient.Setup(c => c.GetAgentIdBySchemaNameAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(Guid.Empty);
-            failingClient.Setup(c => c.CreateNewAgentAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ThrowsAsync(new InvalidOperationException("Dataverse failure!"));
+            failingClient.Setup(c => c.CreateNewAgentAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<AgentFormat>(), It.IsAny<CancellationToken>())).ThrowsAsync(new InvalidOperationException("Dataverse failure!"));
             var handler = TestHandlerFactory.CreateHandler(failingClient.Object, new TestWorkspaceSynchronizer(), CreateOperationProvider());
 
             var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
@@ -340,7 +340,7 @@
             _workflowsForAgent = workflows;
         }
 
-        public virtual Task<AgentInfo> CreateNewAgentAsync(string newAgentName, string schemaName, CancellationToken cancellationToken)
+        public virtual Task<AgentInfo> CreateNewAgentAsync(string newAgentName, string schemaName, AgentFormat agentFormat, CancellationToken cancellationToken)
         {
             var fakeAgent = new AgentInfo
             {

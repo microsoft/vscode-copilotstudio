@@ -1,0 +1,135 @@
+:root {
+  color-scheme: light dark;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+}
+
+#toolbar {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 10;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+#toolbar button {
+  min-width: 28px;
+  height: 26px;
+  border: 1px solid var(--vscode-button-border, transparent);
+  background: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
+  color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+#toolbar button:hover {
+  background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground));
+}
+
+#banner {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--vscode-inputValidation-warningBackground);
+  border: 1px solid var(--vscode-inputValidation-warningBorder);
+  color: var(--vscode-foreground);
+  font-size: 12px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+#canvas {
+  position: absolute;
+  inset: 0;
+}
+
+#surface {
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+
+#surface.panning {
+  cursor: grabbing;
+}
+
+.wf-container {
+  fill: var(--vscode-editorWidget-background);
+  fill-opacity: 0.35;
+  stroke: var(--vscode-editor-foreground, var(--vscode-foreground));
+  stroke-width: 1.75;
+  stroke-opacity: 0.95;
+  stroke-dasharray: 4 3;
+  rx: 10;
+}
+
+.wf-container-label {
+  fill: var(--vscode-descriptionForeground);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.wf-node-card {
+  fill: var(--vscode-editorWidget-background);
+  stroke: var(--vscode-widget-border, var(--vscode-editorWidget-border));
+  stroke-width: 1;
+  rx: 8;
+  cursor: pointer;
+}
+
+.wf-node-card:hover {
+  stroke: var(--vscode-focusBorder);
+  stroke-width: 2;
+}
+
+.wf-node.selected .wf-node-card {
+  stroke: var(--vscode-focusBorder);
+  stroke-width: 2.5;
+}
+
+.wf-node-accent {
+  rx: 8;
+}
+
+.wf-node-label {
+  fill: var(--vscode-foreground);
+  font-size: 13px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.wf-node-type {
+  fill: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  pointer-events: none;
+}
+
+.wf-edge {
+  fill: none;
+  stroke: var(--vscode-editor-foreground, var(--vscode-foreground));
+  stroke-width: 1.75;
+  opacity: 0.95;
+}
+
+.wf-edge-label {
+  fill: var(--vscode-descriptionForeground);
+  font-size: 11px;
+}
+
+.wf-edge-label-bg {
+  fill: var(--vscode-editor-background);
+}

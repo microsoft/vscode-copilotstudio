@@ -1,7 +1,7 @@
 import * as https from 'https';
 import logger from '../services/logger';
 import { TelemetryEventsKeys } from '../constants';
-import { AgentSyncInfo } from '../types';
+import { AgentFormat, AgentSyncInfo } from '../types';
 
 export interface WsComponentMetadata {
   id: string;
@@ -66,12 +66,16 @@ export class botComponentHandler {
 
   public async listWsComponentMetadata(syncInfo: AgentSyncInfo): Promise<WsComponentMetadata[]> {    
     const botPrefix = await this.getBotPrefix(syncInfo.agentId);    
-    const childAgents = await this.getChildAgents(syncInfo, botPrefix);
+    const childAgents = syncInfo.format === AgentFormat.Cli ? [] : await this.getChildAgents(syncInfo, botPrefix);
     const allAgentIds = [syncInfo.agentId, ...childAgents.map(c => c.id)];
-      
+
+    const filter = syncInfo.format === AgentFormat.Cli
+      ? `_parentbotid_value eq ${syncInfo.agentId}`
+      : `startswith(schemaname,'${botPrefix}')`;
+
     const query = [
       `$select=botcomponentid,schemaname,modifiedon,_parentbotcomponentid_value`,
-      `$filter=startswith(schemaname,'${botPrefix}')`,
+      `$filter=${filter}`,
       `$expand=botcomponent_FileAttachments($select=filesizeinbytes,filename)`
     ].join('&');
 

@@ -51,7 +51,7 @@ internal static class LspProjection
     /// Optional ordered override list. The first matching override replaces infix/folder/blocklist
     /// for the current path or schema while preserving <paramref name="DotPassthrough"/>.
     /// </param>
-    internal readonly record struct Rule(string Infix, string Folder, bool DotPassthrough = false, string[]? DotInfixBlocklist = null, RuleOverride[]? Overrides = null);
+    internal readonly record struct Rule(string Infix, string Folder, bool DotPassthrough = false, string[]? DotInfixBlocklist = null, RuleOverride[]? Overrides = null, bool PreserveBotPrefixedFiles = false);
 
     /// <summary>
     /// Result for schema name derivation that carries whether qualified names should be preserved.
@@ -116,25 +116,25 @@ internal static class LspProjection
             // Knowledge
             {
                 typeof(KnowledgeSource),
-                new Rule(".knowledge.", "knowledge/", true, new[] { "knowledge", "topic", "action" })
+                new Rule(".knowledge.", "knowledge/", true, new[] { "knowledge", "topic", "action" }, PreserveBotPrefixedFiles: true)
             },
             {
                 typeof(KnowledgeSourceConfiguration),
-                new Rule(".knowledge.", "knowledge/", true, new[] { "knowledge", "topic", "action" })
+                new Rule(".knowledge.", "knowledge/", true, new[] { "knowledge", "topic", "action" }, PreserveBotPrefixedFiles: true)
             },
             {
                 typeof(KnowledgeSourceComponent),
-                new Rule(".knowledge.", "knowledge/", true, new[] { "knowledge", "topic", "action" })
+                new Rule(".knowledge.", "knowledge/", true, new[] { "knowledge", "topic", "action" }, PreserveBotPrefixedFiles: true)
             },
 
             // File attachments
             {
                 typeof(FileAttachmentComponentMetadata),
-                new Rule(".file.", "knowledge/files/", true, new[] { "file" })
+                new Rule(".file.", "knowledge/files/", true, new[] { "file" }, PreserveBotPrefixedFiles: true)
             },
             {
                 typeof(FileAttachmentComponent),
-                new Rule(".file.", "knowledge/files/", true, new[] { "file" })
+                new Rule(".file.", "knowledge/files/", true, new[] { "file" }, PreserveBotPrefixedFiles: true)
             },
 
             // Variables
@@ -185,6 +185,28 @@ internal static class LspProjection
             {
                 typeof(SkillComponent),
                 new Rule(".skill.", "skills/", true, new[] { "skill" })
+            },
+
+            {
+                typeof(InlineAgentSkill),
+                new Rule(".skill.", "behaviors/", true, new[] { "skill" })
+            },
+
+            {
+                typeof(ConnectorTool),
+                new Rule(".tool.", "capabilities/tools/", true, new[] { "tool" })
+            },
+            {
+                typeof(WorkflowTool),
+                new Rule(".tool.", "capabilities/tools/", true, new[] { "tool" })
+            },
+            {
+                typeof(McpTool),
+                new Rule(".tool.", "capabilities/tools/", true, new[] { "tool" })
+            },
+            {
+                typeof(ConnectedAgentTool),
+                new Rule(".tool.connected-agent.", "capabilities/agents/", true, new[] { "tool" })
             },
 
             // Translations (locale-aware, dot passthrough)
@@ -283,11 +305,24 @@ internal static class LspProjection
         // Dot handling: follow legacy rules for dotted filenames
         if (fileName.Contains('.'))
         {
+            if (rule.PreserveBotPrefixedFiles && StartsWithBotPrefix(fileName, botName))
+            {
+                return new SchemaNameResult(fileName, PreserveQualifiedSchemaName: true);
+            }
+
             if (ShouldExpandDottedName(rule, fileName))
             {
                 return new SchemaNameResult(Expand(rule.Infix, fileName, botName), PreserveQualifiedSchemaName: false);
             }
 
+            return new SchemaNameResult(fileName, PreserveQualifiedSchemaName: true);
+        }
+
+        if (rule.PreserveBotPrefixedFiles
+            && fileName.IndexOf('_') > 0
+            && (string.IsNullOrEmpty(botName)
+                || !fileName.StartsWith(botName + "_", StringComparison.OrdinalIgnoreCase)))
+        {
             return new SchemaNameResult(fileName, PreserveQualifiedSchemaName: true);
         }
 
@@ -347,7 +382,9 @@ internal static class LspProjection
         var allowPreserve = !(subAgentFolder != null
             && (typeof(VariableBase).IsAssignableFrom(elementType) || typeof(GlobalVariableComponent).IsAssignableFrom(elementType)));
 
-        var preserveQualifiedSchemaName = allowPreserve && IsAlreadyQualifiedPath(rule, pathWithoutExtension);
+        var preserveQualifiedSchemaName = allowPreserve
+            && (IsAlreadyQualifiedPath(rule, pathWithoutExtension)
+                || (rule.PreserveBotPrefixedFiles && IsBotPrefixedFile(pathWithoutExtension, botName)));
         var shortName = DeriveShortName(schemaName, rule.Infix, botName, allowPreserve, preserveQualifiedSchemaName);
 
         if (IsAgentsTopicRule(rule) && !preserveQualifiedSchemaName)
@@ -578,12 +615,13 @@ internal static class LspProjection
                         ruleOverride.Infix,
                         ruleOverride.Folder,
                         rule.DotPassthrough,
-                        ruleOverride.DotInfixBlocklist ?? rule.DotInfixBlocklist);
+                        ruleOverride.DotInfixBlocklist ?? rule.DotInfixBlocklist,
+                        PreserveBotPrefixedFiles: rule.PreserveBotPrefixedFiles);
                 }
             }
         }
 
-        return new Rule(rule.Infix, rule.Folder, rule.DotPassthrough, rule.DotInfixBlocklist);
+        return new Rule(rule.Infix, rule.Folder, rule.DotPassthrough, rule.DotInfixBlocklist, PreserveBotPrefixedFiles: rule.PreserveBotPrefixedFiles);
     }
 
     private static string? GetAgentDialogSchemaName(string pathWithoutExtension, string? botName)
@@ -678,6 +716,33 @@ internal static class LspProjection
         }
 
         return !ShouldExpandDottedName(rule, fileName);
+    }
+
+    private static bool StartsWithBotPrefix(string fileName, string? botName)
+    {
+        if (string.IsNullOrEmpty(botName) || string.IsNullOrEmpty(fileName))
+        {
+            return false;
+        }
+
+        if (!fileName.StartsWith(botName + ".", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var rest = fileName.Substring(botName!.Length + 1);
+        return rest.Length > 0 && rest.IndexOf('.') < 0;
+    }
+
+    private static bool IsBotPrefixedFile(string? pathWithoutExtension, string? botName)
+    {
+        if (string.IsNullOrEmpty(pathWithoutExtension) || string.IsNullOrEmpty(botName))
+        {
+            return false;
+        }
+
+        var fileName = System.IO.Path.GetFileName(pathWithoutExtension!.Replace('\\', '/'));
+        return StartsWithBotPrefix(fileName, botName);
     }
 
     private static string DeriveShortName(
@@ -823,6 +888,13 @@ internal static class LspProjection
         AddToMap(map, "knowledge/files/", typeof(FileAttachmentComponent));
         // Skills
         AddToMap(map, "skills/", typeof(SkillDefinition));
+        AddToMap(map, "behaviors/", typeof(AgentSkillBase));
+        AddToMap(map, "behaviors/", typeof(InlineAgentSkill));
+        AddToMap(map, "capabilities/tools/", typeof(AgentToolBase));
+        AddToMap(map, "capabilities/tools/", typeof(ConnectorTool));
+        AddToMap(map, "capabilities/tools/", typeof(WorkflowTool));
+        AddToMap(map, "capabilities/tools/", typeof(McpTool));
+        AddToMap(map, "capabilities/agents/", typeof(ConnectedAgentTool));
         // External triggers
         AddToMap(map, "trigger/", typeof(ExternalTriggerConfiguration));
         // Test cases

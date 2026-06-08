@@ -141,7 +141,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
         // On clone, if there is no GptComponentMetadata (Agent.mcs.yml), write a default one.
         var isAgent = result.Definition is BotDefinition;
-        if (isAgent && !HasGptComponentMetadata(result.Changeset))
+        var format = AgentFormatDetector.Detect(result.Definition);
+        if (isAgent && format != AgentFormat.Cli && !HasGptComponentMetadata(result.Changeset))
         {
             WriteDefaultGptComponentMetadata(fileAccessor, cancellationToken);
         }
@@ -1609,7 +1610,48 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             var path = new AgentFilePath(PathResolver.GetComponentPath(groundedComponent, Definition));
             using var stream = FileAccessor.OpenWrite(path);
             using var textWriter = new StreamWriter(stream);
-            CodeSerializer.SerializeAsMcsYml(textWriter, groundedComponent);
+            CodeSerializer.SerializeAsMcsYml(textWriter, NormalizeForMcsYml(groundedComponent));
+        }
+
+        private static BotComponentBase NormalizeForMcsYml(BotComponentBase component)
+        {
+            if (component is not DialogComponent)
+            {
+                return component;
+            }
+
+            if (string.IsNullOrWhiteSpace(component.DisplayName) && string.IsNullOrWhiteSpace(component.Description))
+            {
+                return component;
+            }
+
+            using var probe = new StringWriter();
+            CodeSerializer.SerializeAsMcsYml(probe, component);
+            if (probe.ToString().Contains("mcs.metadata:", StringComparison.Ordinal))
+            {
+                return component;
+            }
+
+            try
+            {
+                string json;
+                using (YamlSerializationContext.UseYamlPassThroughSerializationContext())
+                {
+                    json = JsonSerializer.Serialize<DefinitionBase>(new BotDefinition().WithComponents(ImmutableArray.Create(component)), ElementSerializer.CreateOptions());
+                }
+
+                DefinitionBase? roundTripped;
+                using (YamlSerializationContext.UseYamlPassThroughSerializationContext())
+                {
+                    roundTripped = JsonSerializer.Deserialize<DefinitionBase>(json, ElementSerializer.CreateOptions());
+                }
+
+                return roundTripped?.Components.SingleOrDefault() ?? component;
+            }
+            catch (JsonException)
+            {
+                return component;
+            }
         }
     }
 

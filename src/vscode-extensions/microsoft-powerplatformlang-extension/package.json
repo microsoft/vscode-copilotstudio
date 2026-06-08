@@ -113,6 +113,13 @@
       ]
     },
     "menus": {
+      "editor/title": [
+        {
+          "command": "microsoft-copilot-studio.workflow.visualize",
+          "when": "resourceFilename == workflow.json && resourcePath =~ /workflows/",
+          "group": "navigation"
+        }
+      ],
       "view/title": [
         {
           "command": "microsoft-copilot-studio.refreshAgentTreeView",
@@ -184,6 +191,10 @@
           "command": "microsoft-copilot-studio.reportIssue",
           "when": "true",
           "group": "help"
+        },
+        {
+          "command": "microsoft-copilot-studio.workflow.visualize",
+          "when": "resourceFilename == workflow.json"
         }
       ]
     },
@@ -291,6 +302,11 @@
         "command": "microsoft-copilot-studio.switchAccount",
         "title": "Copilot Studio: Switch Account",
         "icon": "$(sign-in)"
+      },
+      {
+        "command": "microsoft-copilot-studio.workflow.visualize",
+        "title": "Copilot Studio: Visualize Workflow",
+        "icon": "$(type-hierarchy)"
       }
     ],
     "colors": [
@@ -345,6 +361,7 @@
   "dependencies": {
     "@types/semver": "^7.7.0",
     "@vscode/extension-telemetry": "^1.0.0",
+    "jsonc-parser": "^3.3.1",
     "semver": "^7.7.2"
   },
   "overrides": {

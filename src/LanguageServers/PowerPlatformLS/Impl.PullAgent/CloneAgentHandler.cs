@@ -154,11 +154,35 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     await _workspaceSynchronizer.ApplyTouchupsAsync(folder, referenceTracker, cancellationToken);
                 }
 
+                AgentFormat? detectedFormat = null;
+                if (agentFolderName != null)
+                {
+                    var agentFolder = rootPath.GetChildDirectoryPath(agentFolderName);
+                    detectedFormat = AgentFormatDetector.DetectFromFolder(agentFolder.ToString());
+                    if (detectedFormat != AgentFormat.Unknown && _workspaceSynchronizer.IsSyncInfoAvailable(agentFolder))
+                    {
+                        try
+                        {
+                            var persisted = await _workspaceSynchronizer.GetSyncInfoAsync(agentFolder);
+                            if (persisted.Format != detectedFormat)
+                            {
+                                persisted.Format = detectedFormat;
+                                await _workspaceSynchronizer.SaveSyncInfoAsync(agentFolder, persisted);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogException(ex);
+                        }
+                    }
+                }
+
                 return new CloneAgentResponse()
                 {
                     Code = 200,
                     Message = string.Empty,
-                    AgentFolderName = agentFolderName
+                    AgentFolderName = agentFolderName,
+                    Format = detectedFormat,
                 };
             }
             catch (DataverseBadRequestException ex)
