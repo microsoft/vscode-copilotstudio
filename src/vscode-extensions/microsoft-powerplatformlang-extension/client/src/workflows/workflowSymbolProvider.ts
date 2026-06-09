@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { parseWorkflow } from './workflowParser';
 import type { WfNode } from './workflowParser';
 
-function graphKindToSymbolKind(graphType: string | undefined): vscode.SymbolKind {
+function graphKindToSymbolKind(graphType: string | undefined): vscode.SymbolKind | undefined {
   switch (graphType) {
     case 'agent':
       return vscode.SymbolKind.Class;
@@ -25,8 +25,9 @@ function graphKindToSymbolKind(graphType: string | undefined): vscode.SymbolKind
     case 'canvasNote':
       return vscode.SymbolKind.Object;
     default:
-      return undefined as unknown as vscode.SymbolKind;
+      return undefined;
   }
+}
 }
 
 function actionTypeToSymbolKind(actionType: string | undefined): vscode.SymbolKind {
