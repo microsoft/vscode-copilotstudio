@@ -21,7 +21,7 @@ export function buildWebviewHtml(webview: vscode.Webview, extensionUri: vscode.U
   const csp = [
     `default-src 'none'`,
     `img-src ${webview.cspSource} https: data:`,
-    `style-src ${webview.cspSource} 'unsafe-inline'`,
+    `style-src ${webview.cspSource}`,
     `script-src 'nonce-${nonce}'`,
     `font-src ${webview.cspSource}`,
   ].join('; ');
