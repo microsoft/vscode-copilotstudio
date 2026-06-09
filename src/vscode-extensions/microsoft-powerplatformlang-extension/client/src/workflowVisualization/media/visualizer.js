@@ -19,14 +19,34 @@
     m365Copilot: '#0A8043',
     connector: '#CA5010',
     variable: '#4894FE',
+    response: '#0A6C6F',
     loop: '#6B69D6',
     ifElse: '#9A6324',
     builtinFunction: '#5D5A88',
     canvasNote: '#797673',
   };
 
+  const FALLBACK_COLORS = [
+    '#4F6BED',
+    '#CA5010',
+    '#0A8043',
+    '#8661C5',
+    '#C19C00',
+    '#0E7FC1',
+    '#9A6324',
+    '#0A6C6F',
+  ];
+
+  function fallbackColorFor(type) {
+    let hash = 0;
+    for (let index = 0; index < type.length; index += 1) {
+      hash = ((hash << 5) - hash + type.charCodeAt(index)) | 0;
+    }
+    return FALLBACK_COLORS[Math.abs(hash) % FALLBACK_COLORS.length];
+  }
+
   function colorFor(type) {
-    return TYPE_COLORS[type] || 'var(--vscode-descriptionForeground)';
+    return TYPE_COLORS[type] || fallbackColorFor(type || 'default');
   }
 
   function el(name, attrs, parent) {

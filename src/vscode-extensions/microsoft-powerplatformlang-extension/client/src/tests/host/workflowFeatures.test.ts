@@ -94,6 +94,128 @@ function overlappingContainerText(): string {
 	}, null, 2);
 }
 
+function classicWorkflowText(): string {
+	return JSON.stringify({
+		properties: {
+			definition: {
+				triggers: {
+					manual: {
+						type: 'Request',
+						kind: 'Skills',
+					},
+				},
+				actions: {
+					Respond_to_the_agent: {
+						type: 'Response',
+						runAfter: {
+							Send_an_email_notification: ['SUCCEEDED'],
+						},
+					},
+					Send_an_email_notification: {
+						type: 'OpenApiConnection',
+						inputs: {
+							host: {
+								operationId: 'SendEmailV3',
+							},
+						},
+						runAfter: {},
+					},
+				},
+			},
+		},
+	}, null, 2);
+}
+
+function classicConditionWorkflowText(): string {
+	return JSON.stringify({
+		properties: {
+			definition: {
+				triggers: {
+					manual: { type: 'Request' },
+				},
+				actions: {
+					List_rows: {
+						type: 'OpenApiConnection',
+						runAfter: {},
+					},
+					Condition: {
+						type: 'If',
+						runAfter: { List_rows: ['SUCCEEDED'] },
+						actions: {
+							Scope: {
+								type: 'Scope',
+								actions: {
+									Scope_1: {
+										type: 'Scope',
+										actions: {
+											Respond_to_the_agent: { type: 'Response' },
+										},
+									},
+								},
+							},
+						},
+						else: {
+							actions: {
+								Scope_3: { type: 'Scope', actions: {} },
+							},
+						},
+					},
+				},
+			},
+		},
+	}, null, 2);
+}
+
+function classicSwitchWorkflowText(): string {
+	return JSON.stringify({
+		properties: {
+			definition: {
+				triggers: {
+					manual: { type: 'Request' },
+				},
+				actions: {
+					Switch: {
+						type: 'Switch',
+						runAfter: {},
+						cases: {
+							Case: {
+								case: 'US',
+								actions: {
+									Run_an_agent: { type: 'OpenApiConnection' },
+								},
+							},
+							'Case 2': {
+								case: 'CA',
+								actions: {
+									Request_information: { type: 'OpenApiConnectionWebhook' },
+									Apply_to_each: {
+										type: 'Foreach',
+										runAfter: { List_rows: ['Succeeded'] },
+										actions: {},
+									},
+									List_rows: {
+										type: 'OpenApiConnection',
+										runAfter: { Request_information: ['Succeeded'] },
+									},
+								},
+							},
+						},
+						default: {
+							actions: {
+								Do_until: { type: 'Until', actions: {} },
+							},
+						},
+					},
+					After_switch: {
+						type: 'OpenApiConnection',
+						runAfter: { Switch: ['Succeeded'] },
+					},
+				},
+			},
+		},
+	}, null, 2);
+}
+
 describe('workflowParser', () => {
 	test('recognizes workflow.json only under workflow folders', () => {
 		assert.strictEqual(isWorkflowFile('C:/agent/workflows/TestWorkflow/workflow.json'), true);
@@ -174,5 +296,89 @@ describe('workflowGraphModel', () => {
 		assert.strictEqual(loop3.isContainer, true);
 		assert.ok(loop.x + loop.width < loop3.x, `expected fitted containers not to overlap, got ${JSON.stringify({ loop, loop3 })}`);
 		assert.ok(loop.width < 600, 'expected stale saved width to be reduced to child bounds');
+	});
+
+	test('builds a fallback graph for classic workflows without graph metadata', () => {
+		const text = classicWorkflowText();
+		const model = buildGraphModel(text);
+
+		assert.strictEqual(model.valid, true);
+		assert.ok(model.nodes.find((node) => node.id === 'trigger:manual'), 'expected trigger node');
+		const sendEmail = model.nodes.find((node) => node.id === 'Send_an_email_notification');
+		assert.ok(sendEmail, 'expected connector action node');
+		assert.strictEqual(sendEmail.label, 'Send an email notification');
+		assert.strictEqual(sendEmail.type, 'OpenApiConnection');
+		assert.strictEqual(sendEmail.actionOffset !== undefined, true);
+
+		assert.ok(model.edges.find((edge) => edge.source === 'trigger:manual' && edge.target === 'Send_an_email_notification'));
+		assert.ok(model.edges.find((edge) => edge.source === 'Send_an_email_notification' && edge.target === 'Respond_to_the_agent'));
+	});
+
+	test('nests classic condition branches and scope children', () => {
+		const model = buildGraphModel(classicConditionWorkflowText());
+
+		const condition = model.nodes.find((node) => node.id === 'Condition');
+		const trueBranch = model.nodes.find((node) => node.id === 'Condition/true');
+		const falseBranch = model.nodes.find((node) => node.id === 'Condition/false');
+		const scope = model.nodes.find((node) => node.id === 'Condition/true/Scope');
+		const scope1 = model.nodes.find((node) => node.id === 'Condition/true/Scope/Scope_1');
+		const respond = model.nodes.find((node) => node.id === 'Condition/true/Scope/Scope_1/Respond_to_the_agent');
+		const falseScope = model.nodes.find((node) => node.id === 'Condition/false/Scope_3');
+
+		assert.ok(condition?.isContainer, 'expected condition container');
+		assert.strictEqual(condition.type, 'If');
+		assert.strictEqual(respond?.type, 'Response');
+		assert.strictEqual(trueBranch?.parentId, 'Condition');
+		assert.strictEqual(falseBranch?.parentId, 'Condition');
+		assert.strictEqual(trueBranch?.label, 'true');
+		assert.strictEqual(falseBranch?.label, 'false');
+		assert.strictEqual(scope?.parentId, 'Condition/true');
+		assert.strictEqual(scope1?.parentId, 'Condition/true/Scope');
+		assert.strictEqual(respond?.parentId, 'Condition/true/Scope/Scope_1');
+		assert.strictEqual(falseScope?.parentId, 'Condition/false');
+		assert.ok(condition.width > trueBranch!.width + falseBranch!.width, 'expected condition to wrap both branch containers');
+
+		const trueEdge = model.edges.find((edge) => edge.source === 'Condition' && edge.target === 'Condition/true');
+		assert.strictEqual(trueEdge?.label, 'true');
+		assert.strictEqual(trueEdge?.sourceHandle, 'internal-source');
+	});
+
+	test('renders classic switch as an action with case containers', () => {
+		const model = buildGraphModel(classicSwitchWorkflowText());
+
+		const switchNode = model.nodes.find((node) => node.id === 'Switch');
+		const branchBlock = model.nodes.find((node) => node.id === 'Switch/branches');
+		const caseNode = model.nodes.find((node) => node.id === 'Switch/case:Case');
+		const case2Node = model.nodes.find((node) => node.id === 'Switch/case:Case 2');
+		const defaultNode = model.nodes.find((node) => node.id === 'Switch/default');
+		const runAgent = model.nodes.find((node) => node.id === 'Switch/case:Case/Run_an_agent');
+		const listRows = model.nodes.find((node) => node.id === 'Switch/case:Case 2/List_rows');
+		const applyToEach = model.nodes.find((node) => node.id === 'Switch/case:Case 2/Apply_to_each');
+		const afterSwitch = model.nodes.find((node) => node.id === 'After_switch');
+
+		assert.ok(switchNode, 'expected switch action node');
+		assert.strictEqual(switchNode.isContainer, false);
+		assert.strictEqual(switchNode.type, 'Switch');
+		assert.strictEqual(switchNode.parentId, 'Switch/branches');
+		assert.strictEqual(branchBlock?.isContainer, true);
+		assert.strictEqual(branchBlock?.type, 'SwitchBlock');
+		assert.ok(switchNode.y > branchBlock!.y, 'expected switch action inside switch branch block');
+		assert.strictEqual(caseNode?.parentId, 'Switch/branches');
+		assert.strictEqual(case2Node?.parentId, 'Switch/branches');
+		assert.strictEqual(defaultNode?.parentId, 'Switch/branches');
+		assert.strictEqual(caseNode?.isContainer, true);
+		assert.strictEqual(case2Node?.isContainer, true);
+		assert.strictEqual(defaultNode?.isContainer, true);
+		assert.strictEqual(runAgent?.parentId, 'Switch/case:Case');
+		assert.strictEqual(listRows?.parentId, 'Switch/case:Case 2');
+		assert.strictEqual(applyToEach?.parentId, 'Switch/case:Case 2');
+		assert.ok(listRows!.y < applyToEach!.y, 'expected local dependency to place List_rows before Apply_to_each');
+
+		assert.ok(afterSwitch!.y > branchBlock!.y + branchBlock!.height, 'expected downstream action below switch branch block');
+
+		const caseEdge = model.edges.find((edge) => edge.source === 'Switch' && edge.target === 'Switch/case:Case');
+		assert.strictEqual(caseEdge?.label, 'US');
+		assert.ok(model.edges.find((edge) => edge.source === 'Switch/case:Case 2/List_rows' && edge.target === 'Switch/case:Case 2/Apply_to_each'));
+		assert.ok(model.edges.find((edge) => edge.source === 'Switch/branches' && edge.target === 'After_switch'));
 	});
 });
