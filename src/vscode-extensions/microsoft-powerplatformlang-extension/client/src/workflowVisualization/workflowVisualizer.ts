@@ -128,6 +128,4 @@ export class WorkflowVisualizerController {
     while (this.disposables.length) {
       this.disposables.pop()?.dispose();
     }
-    this.panel.dispose();
-  }
 }
