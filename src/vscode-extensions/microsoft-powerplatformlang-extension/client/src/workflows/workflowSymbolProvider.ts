@@ -28,7 +28,6 @@ function graphKindToSymbolKind(graphType: string | undefined): vscode.SymbolKind
       return undefined;
   }
 }
-}
 
 function actionTypeToSymbolKind(actionType: string | undefined): vscode.SymbolKind {
   switch (actionType) {
