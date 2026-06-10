@@ -6,11 +6,12 @@
 //   - Connection-reference change emission (Insert / Update / Delete).
 //   - Per-route file-deletion → BotComponentDelete in the changeset.
 //   - CLI new-file scan discovers user-added files.
-//   - Destructive deletes are gated on agent.yaml (the migration-safe rule).
+//   - Destructive deletes are gated on the agent.sync.yaml layout marker
+//     (the migration-safe rule).
 //   - Classic regression: HRAgent emits no CR changes (no CLI dispatch).
 //   - Failure modes: malformed component file → skip-and-warn; missing
-//     agent.yaml under an active CLI route → operations still proceed
-//     (no destructive intent without the gate).
+//     agent.sync.yaml marker under an active CLI route → operations still
+//     proceed (no destructive intent without the gate).
 
 using Microsoft.Agents.ObjectModel;
 using Microsoft.Agents.Platform.Content;
@@ -30,7 +31,6 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests;
 
 public class CliAgentNodeFPushTests
 {
-    private static readonly AgentFilePath AgentYamlPath = new AgentFilePath("agent.yaml");
     private static readonly AgentFilePath SettingsPath = new AgentFilePath("settings.mcs.yml");
     private static readonly AgentFilePath CachePath = new AgentFilePath(".mcs/botdefinition.json");
 

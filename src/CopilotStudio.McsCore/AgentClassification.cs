@@ -25,9 +25,9 @@ namespace Microsoft.CopilotStudio.McsCore
     /// <summary>
     /// Local workspace file-projection family. A separate concept from
     /// <see cref="AuthoringShape"/>: it describes how files are laid out on disk, not
-    /// the persisted schema lineage. The CLI layered layout is keyed off the canonical
-    /// <c>agent.yaml</c> identity file; the classic layout is keyed off
-    /// <c>settings.mcs.yml</c>.
+    /// the persisted schema lineage. The CLI layered layout is identified by the
+    /// <c>settings.mcs.yml</c> entity (typed <c>AgentSettings</c>) and declared by the
+    /// forward-looking <c>agent.sync.yaml</c> marker; the classic layout is the default.
     /// </summary>
     public enum WorkspaceLayout
     {

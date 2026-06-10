@@ -2,7 +2,7 @@
 //
 // CliAgentSyncSupport / Node E — read-side inverse of D5's per-reference
 // projection. Overlays on-disk fields from
-// infrastructure/connections/{logicalName}.yaml onto the cloud-cache
+// infrastructure/connections/{logicalName}.sync.yaml onto the cloud-cache
 // ConnectionReference collection, preserving fields the on-disk shape
 // does not carry (Id, ConnectionId, CustomConnectorId, DisplayName,
 // SharedConnectionParameters — see om/src/ObjectModel/SolutionComponents.xml
@@ -10,7 +10,7 @@
 //
 // Migration-safe activation gate (rubber-duck blocking #1):
 // The layered shape is "active" iff infrastructure/connections/ has at
-// least one direct *.yaml child. When inactive, the caller keeps the
+// least one direct *.sync.yaml child. When inactive, the caller keeps the
 // cloud-cache verbatim. This handles three pre-existing states without
 // silent data loss:
 //   (a) Clones written by a pre-D5 build (no infrastructure/ folder).

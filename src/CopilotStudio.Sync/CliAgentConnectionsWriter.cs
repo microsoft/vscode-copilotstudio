@@ -4,7 +4,7 @@
 // agents. Projects the ConnectionReference collection (carried on
 // DefinitionBase.ConnectionReferences per om/.../BotDefinition.xml line 69)
 // from the existing flat connectionreferences.mcs.yml at the workspace
-// root to per-reference files at infrastructure/connections/{name}.yaml.
+// root to per-reference files at infrastructure/connections/{name}.sync.yaml.
 //
 // Unlike D2/D3/D4, ConnectionReference is NOT a BotComponentBase — it
 // lives on DefinitionBase, not in the Components collection walked by
