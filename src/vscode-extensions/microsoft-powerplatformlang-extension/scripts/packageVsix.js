@@ -128,7 +128,8 @@ function run(command, args) {
     // .cmd files without shell: true (throws EINVAL). Use the shell on Windows
     // and wrap every argument in double quotes so cmd.exe treats shell
     // metacharacters (e.g. the ^ in @vscode/vsce@^3.3.2) literally.
-    const useShell = process.platform === 'win32';
+    const useShell =
+        process.platform === 'win32' && (command === 'npm' || command === 'npx');
     const spawnArgs = useShell ? args.map((value) => `"${value}"`) : args;
 
     const result = spawnSync(commandName(command), spawnArgs, {
