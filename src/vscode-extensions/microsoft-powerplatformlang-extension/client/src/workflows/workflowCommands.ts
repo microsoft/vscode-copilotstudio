@@ -41,7 +41,7 @@ async function focusNode(args: FocusNodeArgs): Promise<void> {
 }
 
 function buildEmbeddedUri(sourceUri: vscode.Uri, path: (string | number)[], label: string): vscode.Uri {
-  const query = JSON.stringify({ src: sourceUri.toString(), path });
+  const query = encodeURIComponent(JSON.stringify({ src: sourceUri.toString(), path }));
   const safeLabel = label.replace(/[^A-Za-z0-9._-]/g, '_');
   return vscode.Uri.from({
     scheme: EMBEDDED_SCHEME,
@@ -57,7 +57,7 @@ interface EmbeddedTarget {
 
 function decodeEmbeddedUri(uri: vscode.Uri): EmbeddedTarget | undefined {
   try {
-    const parsed = JSON.parse(uri.query) as { src: string; path: (string | number)[] };
+    const parsed = JSON.parse(decodeURIComponent(uri.query)) as { src: string; path: (string | number)[] };
     return { src: vscode.Uri.parse(parsed.src), path: parsed.path };
   } catch {
     return undefined;
