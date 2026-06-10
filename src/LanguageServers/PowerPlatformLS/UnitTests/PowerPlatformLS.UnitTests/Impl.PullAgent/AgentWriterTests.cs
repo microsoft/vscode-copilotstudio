@@ -1973,27 +1973,19 @@ beginDialog:
                 new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
 
             var mockDataverse = new MockDataverseClient();
-            mockDataverse.SetWorkflowsForAgent(new[]
-            {
-                new WorkflowMetadata
-                {
-                    WorkflowId = workflowId,
-                    Name = "Test",
-                    ClientData = "{ \"test\": \"data\" }"
-                }
-            });
 
-            var (changeSet, changes) = await synchronizer.GetLocalChangesAsync(
+            var (_, changes) = await synchronizer.GetLocalChangesAsync(
                 workspaceFolder,
                 emptyBotDefinition,
                 mockDataverse,
                 new AgentSyncInfo { AgentId = agentId },
                 cancel);
 
-            var workflowChange = changes.Single(c => c.ChangeKind == BotElementKind.CloudFlowDefinition.ToString());
+            var workflowChange = changes.Single(c => c.SchemaName == $"Mcs.Workflow.{workflowId}");
+            var metadataChange = changes.Single(c => c.SchemaName == $"Mcs.Workflow.{workflowId}.metadata");
 
             Assert.Equal(ChangeType.Create, workflowChange.ChangeType);
-            Assert.Contains(workflowId.ToString(), workflowChange.SchemaName);
+            Assert.Equal(ChangeType.Create, metadataChange.ChangeType);
         }
 
         [Fact]
@@ -2062,10 +2054,11 @@ beginDialog:
                 cancel
             );
 
-            var workflowChange = changes.Single(c => c.ChangeKind == BotElementKind.CloudFlowDefinition.ToString());
+            var clientChange = changes.First(c => c.ChangeKind == BotElementKind.CloudFlowDefinition.ToString() && !c.SchemaName.EndsWith(".metadata"));
 
-            Assert.Equal(ChangeType.Update, workflowChange.ChangeType);
-            Assert.Contains(workflowId.ToString(), workflowChange.SchemaName);
+            Assert.Equal(ChangeType.Update, clientChange.ChangeType);
+            Assert.Contains(workflowId.ToString(), clientChange.SchemaName);
+            Assert.Contains(changes, c => c.SchemaName == $"Mcs.Workflow.{workflowId}.metadata" && c.ChangeType == ChangeType.Update);
         }
 
         [Fact]
@@ -2160,9 +2153,11 @@ beginDialog:
                 new AgentSyncInfo { AgentId = Guid.NewGuid() },
                 cancel);
 
-            var workflowChange = changes.Single(c => c.ChangeKind == BotElementKind.CloudFlowDefinition.ToString());
+            var workflowChange = changes.Single(c => c.SchemaName == $"Mcs.Workflow.{workflowId}");
+            var metadataChange = changes.Single(c => c.SchemaName == $"Mcs.Workflow.{workflowId}.metadata");
+
             Assert.Equal(ChangeType.Create, workflowChange.ChangeType);
-            Assert.Contains(workflowId.ToString(), workflowChange.SchemaName);
+            Assert.Equal(ChangeType.Create, metadataChange.ChangeType);
         }
 
         [Fact]
@@ -2221,9 +2216,10 @@ beginDialog:
                 new AgentSyncInfo { AgentId = Guid.NewGuid() },
                 cancel);
 
-            var workflowChange = changes.Single(c => c.ChangeKind == BotElementKind.CloudFlowDefinition.ToString());
-            Assert.Equal(ChangeType.Update, workflowChange.ChangeType);
-            Assert.Contains(workflowId.ToString(), workflowChange.SchemaName);
+            var clientChange = changes.First(c => c.ChangeKind == BotElementKind.CloudFlowDefinition.ToString() && !c.SchemaName.EndsWith(".metadata"));
+            Assert.Equal(ChangeType.Update, clientChange.ChangeType);
+            Assert.Contains(workflowId.ToString(), clientChange.SchemaName);
+            Assert.Contains(changes, c => c.SchemaName == $"Mcs.Workflow.{workflowId}.metadata" && c.ChangeType == ChangeType.Update);
         }
 
         [Fact]

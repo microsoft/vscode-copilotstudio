@@ -46,16 +46,23 @@
                 if (request.SchemaName.StartsWith("Mcs.Workflow."))
                 {
                     var workflowId = request.SchemaName.Substring("Mcs.Workflow.".Length);
+                    var isMetadata = workflowId.EndsWith(".metadata", StringComparison.OrdinalIgnoreCase);
+                    if (isMetadata)
+                    {
+                        workflowId = workflowId.Substring(0, workflowId.Length - ".metadata".Length);
+                    }
+
                     var flow = originalDefinition?.Flows.FirstOrDefault(f => f.WorkflowId.Value.ToString().Equals(workflowId, StringComparison.OrdinalIgnoreCase));
                     if (flow == null && contextDefinition != null)
                     {
                         flow = contextDefinition.Flows.FirstOrDefault(f => f.WorkflowId.Value.ToString().Equals(workflowId, StringComparison.OrdinalIgnoreCase));
                     }
 
-                    if (flow?.ExtensionData?.Properties.TryGetValue("clientdata", out var value) == true && value is StringDataValue s && !string.IsNullOrWhiteSpace(s.Value))
+                    var extensionKey = isMetadata ? "metadata" : "clientdata";
+                    if (flow?.ExtensionData?.Properties.TryGetValue(extensionKey, out var value) == true && value is StringDataValue s && !string.IsNullOrWhiteSpace(s.Value))
                     {
                         var content = s.Value.TrimStart();
-                        if (content.StartsWith("{") || content.StartsWith("["))
+                        if (!isMetadata && (content.StartsWith("{") || content.StartsWith("[")))
                         {
                             try
                             {
@@ -70,7 +77,7 @@
                         return Task.FromResult(new GetFileResponse
                         {
                             Code = 200,
-                            Content = content
+                            Content = isMetadata ? s.Value : content
                         });
                     }
                 }

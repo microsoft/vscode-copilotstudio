@@ -218,7 +218,7 @@
                 callIndex++;
                 return callIndex switch
                 {
-                    1 => throw new HttpRequestException(),
+                    1 => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)),
                     2 => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Created)),
                     3 => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(new { value = new[] { new { botcomponentid = botComponentId } } })) }),
                     4 => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NoContent)),

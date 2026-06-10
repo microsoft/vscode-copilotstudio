@@ -168,8 +168,22 @@ export async function pushNewWorkspace(context: ExtensionContext, ws: CopilotStu
   const workspace = updatedCache.find(w =>  Uri.parse(w.workspaceUri).toString() === Uri.parse(ws.workspaceUri).toString());
   const synchronizer = getOrAddSynchronizer(workspace ?? ws);
   const virtualKnowledgeProvider = await registerVirtualKnowledgeProvider(context, workspace ?? ws);
-  await synchronizer.pull(virtualKnowledgeProvider);
-  await synchronizer.push();
+
+  const maxAttempts = 4;
+  for (let attempt = 1; ; attempt++) {
+    await synchronizer.pull(virtualKnowledgeProvider);
+    try {
+      await synchronizer.push(true);
+      break;
+    } catch (error) {
+      const isTransient = (error as Error).message?.includes('Improper response, not implemented');
+      if (!isTransient || attempt >= maxAttempts) {
+        throw error;
+      }
+      await new Promise(resolve => setTimeout(resolve, attempt * 2000));
+    }
+  }
+
   await synchronizer.pull(virtualKnowledgeProvider);
 }
 

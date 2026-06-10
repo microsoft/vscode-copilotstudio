@@ -79,6 +79,9 @@ export const TelemetryEventsKeys = {
   WorkspaceRefreshLoopCap: "WorkspaceRefreshLoopCap",
   LoadEnvironmentError: "LoadEnvironmentError",
   LoadEnvironmentSuccess: "LoadEnvironmentSuccess",
+  WorkflowFocusNodeError: "WorkflowFocusNodeError",
+  WorkflowEditEmbeddedJsonError: "WorkflowEditEmbeddedJsonError",
+  WorkflowVisualizeError: "WorkflowVisualizeError",
 } as const;
 
 export type TelemetryEventType = typeof TelemetryEventsKeys[keyof typeof TelemetryEventsKeys];

@@ -24,6 +24,8 @@ import { maybeOpenFileFromPostOpen } from './startup/postOpen';
 import { registerSignInCommand } from './commands/signIn';
 import { registerOriginalFileSystemProvider } from './commands/originalFileSystemProvider';
 import { registerRemoteFileSystemProvider } from './commands/remoteFileSystemProvider';
+import { initializeWorkflowFeatures } from './workflows';
+import { initializeWorkflowVisualization } from './workflowVisualization';
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -70,6 +72,8 @@ export async function activate(context: vscode.ExtensionContext) {
   registerSessionInfoCommand(context, sessionId);
   registerOpenKnowledgeFileCommand(context);
   registerReattachAgentCommand(context);
+  initializeWorkflowFeatures(context);
+  initializeWorkflowVisualization(context);
 
   // We use a post-window-reload instruction to open the cloned agent file
   // after the workspace has been added to the window.

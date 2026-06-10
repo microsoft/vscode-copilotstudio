@@ -120,7 +120,8 @@ export async function getKnowledgeLocalChanges(syncInfo: AgentSyncInfo, workspac
 
   const changes: Change[] = [];
   const botHandler = await getDataverseBotHandler(syncInfo);
-  const wsMeta = await botHandler.listWsComponentMetadata(syncInfo);
+  const isCli = isCliLayeredWorkspace(vscode.Uri.parse(workspaceUri).fsPath);
+  const wsMeta = await botHandler.listWsComponentMetadata(syncInfo, isCli);
   const remoteFiles = new Set(wsMeta.map(metadata => decodeURIComponent(metadata.filename ?? '')));
 
   for (const file of localFiles) {
@@ -149,7 +150,8 @@ export async function getKnowledgeRemoteChanges(syncInfo: AgentSyncInfo, workspa
   const localFileMap = new Map(localFiles.map(f => [f.name.toLowerCase(), f]));
   const changes: Change[] = [];
   const botHandler = await getDataverseBotHandler(syncInfo);
-  const wsMeta = await botHandler.listWsComponentMetadata(syncInfo);
+  const isCli = isCliLayeredWorkspace(vscode.Uri.parse(workspaceUri).fsPath);
+  const wsMeta = await botHandler.listWsComponentMetadata(syncInfo, isCli);
   const remoteFiles = new Map<string, { fileName: string, schemaName: string }>();
   for (const { filename, schemaName } of wsMeta) {
     const decodedFile = decodeURIComponent(filename ?? '');

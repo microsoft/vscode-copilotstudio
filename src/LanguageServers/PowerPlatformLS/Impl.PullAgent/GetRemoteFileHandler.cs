@@ -92,7 +92,6 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
                 if (request.SchemaName.StartsWith("Mcs.Workflow."))
                 {
-                    var workflowId = request.SchemaName.Substring("Mcs.Workflow.".Length);
                     var workflowChange = changes.FirstOrDefault(c => c.SchemaName.Equals(request.SchemaName, StringComparison.OrdinalIgnoreCase));
 
                     if (workflowChange != null && !string.IsNullOrWhiteSpace(workflowChange.RemoteWorkflowContent))

@@ -68,7 +68,7 @@ export async function withSyncCommandBusy<T>(workspaceUri: string, body: () => P
 export interface WorkspaceSynchronizer {
     workspace: CopilotStudioWorkspace;
     syncState: SyncState;
-    push: () => Promise<SyncResponse | undefined>;
+    push: (suppressErrorNotification?: boolean) => Promise<SyncResponse | undefined>;
     pull: (virtualProvider: virtualKnowledgeFileSystemProvider) => Promise<SyncResponse | undefined >;
     fetch: () => Promise<void>;
     subscribe: (listener: SyncStateListener) => () => void;
@@ -117,10 +117,10 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
   return {
     workspace: ws,
     get syncState() { return currentState; },
-    push: async (): Promise<SyncResponse> => {
+    push: async (suppressErrorNotification = false): Promise<SyncResponse> => {
       return await executeSyncOperation(async () => {
         await uploadKnowledgeFiles(ws);
-        return await sync(ws, 'applying changes', LspMethods.SYNC_PUSH, false);
+        return await sync(ws, 'applying changes', LspMethods.SYNC_PUSH, false, suppressErrorNotification);
       }, SyncState.Pushing);
     },
     pull: async (virtualProvider: virtualKnowledgeFileSystemProvider): Promise<SyncResponse> => {
@@ -157,7 +157,7 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
   };
 }
 
-export async function sync(workspace: CopilotStudioWorkspace, displayText: string, methodName: string, silent: boolean): Promise<SyncResponse> {
+export async function sync(workspace: CopilotStudioWorkspace, displayText: string, methodName: string, silent: boolean, suppressErrorNotification = false): Promise<SyncResponse> {
   const { syncInfo, workspaceUri } = workspace;
   if (!syncInfo) {
     throw new Error(`${displayText} failed. Connection file .mcs::conn.json is missing, please clone again.`);
@@ -195,11 +195,14 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
       logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Your current account does not have permission. Please sign in with the account <pii>(${accountInfo.accountEmail ?? accountInfo.accountId})</pii> to perform this operation.`);
       try {
         resetAccount();
-        return await sync(workspace, displayText, methodName, silent); // Retry sync with new log in
+        return await sync(workspace, displayText, methodName, silent, suppressErrorNotification); // Retry sync with new log in
       } catch (error) {
         logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Re-authentication failed: ${(error as Error).message}`);
         throw error;
       }
+    } else if (suppressErrorNotification) {
+      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, { message: `Error ${displayText}: <pii>${(error as Error).message}</pii>` });
+      throw error;
     } else {
       logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Error ${displayText}: ${(error as Error).message}`);
       throw error;

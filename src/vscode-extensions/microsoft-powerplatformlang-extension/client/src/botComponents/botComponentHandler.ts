@@ -64,14 +64,18 @@ export class botComponentHandler {
     });
   }
 
-  public async listWsComponentMetadata(syncInfo: AgentSyncInfo): Promise<WsComponentMetadata[]> {    
+  public async listWsComponentMetadata(syncInfo: AgentSyncInfo, isCli: boolean): Promise<WsComponentMetadata[]> {    
     const botPrefix = await this.getBotPrefix(syncInfo.agentId);    
-    const childAgents = await this.getChildAgents(syncInfo, botPrefix);
+    const childAgents = isCli ? [] : await this.getChildAgents(syncInfo, botPrefix);
     const allAgentIds = [syncInfo.agentId, ...childAgents.map(c => c.id)];
-      
+
+    const filter = isCli
+      ? `_parentbotid_value eq ${syncInfo.agentId}`
+      : `startswith(schemaname,'${botPrefix}')`;
+
     const query = [
       `$select=botcomponentid,schemaname,modifiedon,_parentbotcomponentid_value`,
-      `$filter=startswith(schemaname,'${botPrefix}')`,
+      `$filter=${filter}`,
       `$expand=botcomponent_FileAttachments($select=filesizeinbytes,filename)`
     ].join('&');
 
