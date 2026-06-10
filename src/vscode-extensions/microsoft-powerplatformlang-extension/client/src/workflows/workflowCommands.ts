@@ -33,7 +33,10 @@ async function focusNode(args: FocusNodeArgs): Promise<void> {
     await vscode.commands.executeCommand('editor.unfoldRecursively');
     editor.revealRange(new vscode.Range(startPos, endPos), vscode.TextEditorRevealType.AtTop);
   } catch (error) {
-    logger.logError(TelemetryEventsKeys.WorkflowFocusNodeError, `Failed to focus workflow node: <pii>${error}</pii>`);
+    logger.logError(
+      TelemetryEventsKeys.WorkflowFocusNodeError,
+      `Failed to focus workflow node: <pii>${error instanceof Error ? error.message : String(error)}</pii>`,
+    );
   }
 }
 
