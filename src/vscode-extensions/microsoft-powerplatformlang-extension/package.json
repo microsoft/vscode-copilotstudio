@@ -327,7 +327,7 @@
     "lint": "eslint client/src",
     "test": "node ./scripts/runHostTests.js",
     "postinstall": "(cd client && npm install)",
-    "package": "npx -y @vscode/vsce@^3.3.2 package --target win32-x64 --no-dependencies --pre-release"
+    "package": "node ./scripts/packageVsix.js"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
