@@ -36,7 +36,7 @@ public sealed class CloneTests : IDisposable
 
         Assert.Equal(0, result.ExitCode);
 
-        // SYNC-SEMANTICS.md: clone must produce agent.mcs.yml and .mcs/conn.json
+        // SYNC-SEMANTICS-CLASSIC.md: clone must produce agent.mcs.yml and .mcs/conn.json
         Assert.True(File.Exists(Path.Combine(_workspace.Path, "agent.mcs.yml")),
             "Clone must produce agent.mcs.yml");
         Assert.True(File.Exists(Path.Combine(_workspace.Path, ".mcs", "conn.json")),
@@ -75,7 +75,7 @@ public sealed class CloneTests : IDisposable
         _output.WriteLine("STDOUT:\n" + result.Stdout);
         Assert.Equal(0, result.ExitCode);
 
-        // All subdirectories must map to known entity types per SYNC-SEMANTICS.md
+        // All subdirectories must map to known entity types per SYNC-SEMANTICS-CLASSIC.md
         var knownDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "topics", "actions", "agents", "knowledge", "variables",
@@ -90,7 +90,7 @@ public sealed class CloneTests : IDisposable
         foreach (var dir in actualDirs)
         {
             Assert.True(knownDirs.Contains(dir),
-                $"Unexpected directory '{dir}' not in SYNC-SEMANTICS.md entity type set");
+                $"Unexpected directory '{dir}' not in SYNC-SEMANTICS-CLASSIC.md entity type set");
         }
     }
 }

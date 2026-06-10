@@ -4,6 +4,7 @@
 
 using System.Threading;
 using Microsoft.Agents.ObjectModel;
+using Microsoft.CopilotStudio.McsCore;
 using static Microsoft.CopilotStudio.Sync.Dataverse.SyncDataverseClient;
 
 namespace Microsoft.CopilotStudio.Sync.Dataverse;
@@ -21,7 +22,7 @@ public interface ISyncDataverseClient
     /// <summary>
     /// Create new agent by agent name and schema name.
     /// </summary>
-    Task<AgentInfo> CreateNewAgentAsync(string displayName, string schemaName, CancellationToken cancellationToken);
+    Task<AgentInfo> CreateNewAgentAsync(string displayName, string schemaName, AuthoringShape authoringShape, CancellationToken cancellationToken);
 
     /// <summary>
     /// Get an agent with the given schemaName.

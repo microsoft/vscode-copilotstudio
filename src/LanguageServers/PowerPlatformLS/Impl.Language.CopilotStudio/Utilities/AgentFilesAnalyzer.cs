@@ -23,8 +23,10 @@
         IEnumerable<FilePath> EnumerateMcsFiles(DirectoryPath path);
 
         /// <summary>
-        /// Given a directory, check if it contains a valid agent.mcs.yml that's a root agent.
-        /// This is the preferred check. 
+        /// Given a directory, check if it is a root agent directory. The classic signal is a
+        /// root <c>agent.mcs.yml</c> that is a <c>GptComponentMetadata</c>; the CLI signal
+        /// (TDD D29) is the root <c>agent.sync.yaml</c> layout marker (a CliCopilot workspace,
+        /// D22, has no root <c>agent.mcs.yml</c>). This is the preferred check.
         /// </summary>
         /// <param name="path"></param>
         /// <returns></returns>
@@ -56,7 +58,8 @@
             _fileProvider = fileProvider;
         }
 
-        // Has a agent.mcs.yml that's a GptComponentMetadata
+        // Has an agent.mcs.yml that's a GptComponentMetadata (classic), or the agent.sync.yaml
+        // layout marker (TDD D29) for a CLI agent (which has no agent.mcs.yml, D22).
         public bool IsStrictAgentDirectory(DirectoryPath path)
         {
             var agentFilePathWithoutExt = path.GetChildFilePath("agent");
@@ -114,6 +117,18 @@
                 {
                     // File was not a match. 
                 }
+            }
+
+            // CLI agents (TDD D22) have no root agent.mcs.yml. A CliCopilot workspace always
+            // carries the agent.sync.yaml layout marker (TDD D29), so its presence is dispositive
+            // for the CLI agent root. Anchoring here as a first-class strict signal avoids relying
+            // on the loose folder-guess fallback, which can mis-root a CLI subfolder (e.g.
+            // capabilities/ matches the classic knowledge/ key via capabilities/knowledge/).
+            var markerFilePath = path.GetChildFilePath(AgentClassifier.WorkspaceLayoutMarkerFileName);
+
+            if (_fileProvider.GetFileInfo(markerFilePath).Exists)
+            {
+                return true;
             }
 
             return false;

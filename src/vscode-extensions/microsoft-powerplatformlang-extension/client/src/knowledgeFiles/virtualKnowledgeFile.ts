@@ -282,7 +282,10 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
         delete track[filename].remoteChangeType;
         delete track[filename].localChangeType;
 
-        logger.logInfo(TelemetryEventsKeys.VirtualKnowledgeFileProgress, `File downloaded and saved to <pii>knowledge\\files\\${filename}</pii>`);
+        // Shape-keyed display: report the actual on-disk location (classic knowledge/files vs CLI
+        // capabilities/knowledge/files) instead of a hardcoded classic path (TDD D34/D36).
+        const savedRelPath = path.relative(vscode.Uri.parse(workspaceUri).fsPath, localPath);
+        logger.logInfo(TelemetryEventsKeys.VirtualKnowledgeFileProgress, `File downloaded and saved to <pii>${savedRelPath}</pii>`);
       });
     }
 

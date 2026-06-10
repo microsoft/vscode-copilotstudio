@@ -154,11 +154,36 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     await _workspaceSynchronizer.ApplyTouchupsAsync(folder, referenceTracker, cancellationToken);
                 }
 
+                AuthoringShape? detectedShape = null;
+                if (agentFolderName != null)
+                {
+                    var agentFolder = rootPath.GetChildDirectoryPath(agentFolderName);
+                    var shape = AgentClassifier.DetectAuthoringShapeFromFolder(agentFolder.ToString());
+                    detectedShape = shape;
+                    if (shape != AuthoringShape.Unknown && _workspaceSynchronizer.IsSyncInfoAvailable(agentFolder))
+                    {
+                        try
+                        {
+                            var persisted = await _workspaceSynchronizer.GetSyncInfoAsync(agentFolder);
+                            if (persisted.AuthoringShape != shape)
+                            {
+                                persisted.AuthoringShape = shape;
+                                await _workspaceSynchronizer.SaveSyncInfoAsync(agentFolder, persisted);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogException(ex);
+                        }
+                    }
+                }
+
                 return new CloneAgentResponse()
                 {
                     Code = 200,
                     Message = string.Empty,
-                    AgentFolderName = agentFolderName
+                    AgentFolderName = agentFolderName,
+                    AuthoringShape = detectedShape,
                 };
             }
             catch (DataverseBadRequestException ex)

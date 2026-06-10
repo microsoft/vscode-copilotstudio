@@ -17,6 +17,20 @@ internal sealed class LspComponentPathResolver : IComponentPathResolver
     /// <inheritdoc />
     public string GetComponentPath(BotComponentBase component, DefinitionBase? definition = null)
     {
+        // Derive the authoring shape from the definition's entity so that every
+        // call site (write, read, delete-detection, clone diff, known-paths) is
+        // shape-aware and CONSISTENT without each having to thread the shape
+        // explicitly (TDD D20, D30 single-source-of-truth). Classic/Unknown
+        // entities resolve to AuthoringShape.Classic -> classic projection stays
+        // byte-identical.
+        var botDefinition = definition as BotDefinition ?? component.ParentOfType<BotDefinition>();
+        var shape = AgentClassifier.DetectAuthoringShape(botDefinition?.Entity);
+        return GetComponentPath(component, definition, shape);
+    }
+
+    /// <inheritdoc />
+    public string GetComponentPath(BotComponentBase component, DefinitionBase? definition, AuthoringShape shape)
+    {
         var botDefinition = definition as BotDefinition ?? component.ParentOfType<BotDefinition>();
         var collectionDefinition = definition as BotComponentCollectionDefinition ?? component.ParentOfType<BotComponentCollectionDefinition>();
 
@@ -29,7 +43,7 @@ internal sealed class LspComponentPathResolver : IComponentPathResolver
         }
 
         var context = new ProjectionContext(botName, subAgentFolder, botDefinition);
-        var path = ProjectorService.GetFilePath(component, context, pathWithoutExtension);
+        var path = ProjectorService.GetFilePath(component, context, pathWithoutExtension, shape);
         if (path == null)
         {
             throw new InvalidOperationException($"Failed to get file path for component type: {component.GetType().Name}.");

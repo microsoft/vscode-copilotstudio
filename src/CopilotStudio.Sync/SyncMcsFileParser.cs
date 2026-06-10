@@ -27,13 +27,16 @@ internal class SyncMcsFileParser : IMcsFileParser
     }
 
     public (BotComponentBase? component, Exception? error) CompileFile(AgentFilePath relativePath, BotElement fileModel, ProjectionContext context)
+        => CompileFile(relativePath, fileModel, context, AuthoringShape.Classic);
+
+    public (BotComponentBase? component, Exception? error) CompileFile(AgentFilePath relativePath, BotElement fileModel, ProjectionContext context, AuthoringShape shape)
     {
         if (fileModel == null)
         {
             return (null, new InvalidDataException($"File model is null for {relativePath}"));
         }
 
-        var schemaName = McsFileParserCore.DeriveSchemaName(_projectorService, fileModel, relativePath, context);
+        var schemaName = McsFileParserCore.DeriveSchemaName(_projectorService, fileModel, relativePath, context, shape);
 
         if (schemaName == null)
         {

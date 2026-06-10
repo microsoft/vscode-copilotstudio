@@ -80,6 +80,16 @@
                 projectionContext = new ProjectionContext();
             }
 
+            // The authoring shape selects the projection rule set (TDD D31, parallels the
+            // sync-side D20). CLI agents store the entity in settings.mcs.yml with a typed
+            // AgentSettings block; threading CliCopilot lets the three-layer .mcs.yml
+            // components (behaviors/, capabilities/tools/, capabilities/knowledge/) resolve
+            // to their CLI schema names instead of being mis-schema'd via the classic path.
+            // (.sync.yaml overlays route to generic YAML and never reach this MCS compiler.)
+            var authoringShape = settings != null
+                ? AgentClassifier.DetectAuthoringShape(settings)
+                : AuthoringShape.Classic;
+
             bool hasAgentFile = componentCollection != null;
             string? iconBase64 = null;
 
@@ -99,7 +109,7 @@
                     continue;
                 }
 
-                var (component, error) = _fileParser.CompileFile(mcsDocument, projectionContext);
+                var (component, error) = _fileParser.CompileFile(mcsDocument, projectionContext, authoringShape);
 
                 if (component != null)
                 {
@@ -119,7 +129,11 @@
 
             if (!hasAgentFile && documents.Any())
             {
-                AddErrorForDocument(errors, documents.First().Value, new AgentFileMissingException(_clientInfo));
+                var isCliAgent = authoringShape == AuthoringShape.CliCopilot;
+                if (!isCliAgent)
+                {
+                    AddErrorForDocument(errors, documents.First().Value, new AgentFileMissingException(_clientInfo));
+                }
             }
 
             bool validateAcrossComponents = false;

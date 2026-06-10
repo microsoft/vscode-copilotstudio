@@ -9,5 +9,7 @@
         DirectoryPath FolderPath { get; }
 
         DefinitionBase Definition { get; }
+
+        AuthoringShape AuthoringShape { get; }
     }
 }
