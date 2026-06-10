@@ -3570,6 +3570,16 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                     SchemaName = $"Mcs.Workflow.{workflowId}",
                     RemoteWorkflowContent = remoteClientData
                 });
+
+                changes.Add(new Change
+                {
+                    Name = name,
+                    Uri = workflowMetadataPath.ToString(),
+                    ChangeType = ChangeType.Create,
+                    ChangeKind = BotElementKind.CloudFlowDefinition.ToString(),
+                    SchemaName = $"Mcs.Workflow.{workflowId}.metadata",
+                    RemoteWorkflowContent = remoteMetadata
+                });
             }
             else
             {
