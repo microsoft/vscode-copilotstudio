@@ -1,7 +1,7 @@
 import * as https from 'https';
 import logger from '../services/logger';
 import { TelemetryEventsKeys } from '../constants';
-import { AgentFormat, AgentSyncInfo } from '../types';
+import { AgentSyncInfo } from '../types';
 
 export interface WsComponentMetadata {
   id: string;
@@ -64,12 +64,12 @@ export class botComponentHandler {
     });
   }
 
-  public async listWsComponentMetadata(syncInfo: AgentSyncInfo): Promise<WsComponentMetadata[]> {    
+  public async listWsComponentMetadata(syncInfo: AgentSyncInfo, isCli: boolean): Promise<WsComponentMetadata[]> {    
     const botPrefix = await this.getBotPrefix(syncInfo.agentId);    
-    const childAgents = syncInfo.format === AgentFormat.Cli ? [] : await this.getChildAgents(syncInfo, botPrefix);
+    const childAgents = isCli ? [] : await this.getChildAgents(syncInfo, botPrefix);
     const allAgentIds = [syncInfo.agentId, ...childAgents.map(c => c.id)];
 
-    const filter = syncInfo.format === AgentFormat.Cli
+    const filter = isCli
       ? `_parentbotid_value eq ${syncInfo.agentId}`
       : `startswith(schemaname,'${botPrefix}')`;
 

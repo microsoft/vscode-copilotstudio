@@ -27,6 +27,15 @@ internal interface IMcsFileParser
     (BotComponentBase? component, Exception? error) CompileFile(AgentFilePath relativePath, BotElement fileModel, ProjectionContext context);
 
     /// <summary>
+    /// Shape-aware overload of <see cref="CompileFile(AgentFilePath, BotElement, ProjectionContext)"/>.
+    /// The <paramref name="shape"/> selects the projection rule set used to derive the
+    /// component schema name from the file path (TDD D20), so CLI three-layer
+    /// <c>.mcs.yml</c> files resolve to their CLI schema names. Classic shape keeps the
+    /// existing behavior byte-identical.
+    /// </summary>
+    (BotComponentBase? component, Exception? error) CompileFile(AgentFilePath relativePath, BotElement fileModel, ProjectionContext context, AuthoringShape shape);
+
+    /// <summary>
     /// Compiles a file model based on the schema name and the BotElement model.
     /// This is useful for compiling content that is not directly associated with a specific document,
     /// e.g. merged content from multiple sources.

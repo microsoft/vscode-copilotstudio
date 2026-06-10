@@ -22,7 +22,7 @@ public interface ISyncDataverseClient
     /// <summary>
     /// Create new agent by agent name and schema name.
     /// </summary>
-    Task<AgentInfo> CreateNewAgentAsync(string displayName, string schemaName, AgentFormat agentFormat, CancellationToken cancellationToken);
+    Task<AgentInfo> CreateNewAgentAsync(string displayName, string schemaName, AuthoringShape authoringShape, CancellationToken cancellationToken);
 
     /// <summary>
     /// Get an agent with the given schemaName.

@@ -49,7 +49,7 @@
                 });
             });
 
-            var result = await client.CreateNewAgentAsync(DisplayName, inputSchemaName, AgentFormat.Classic, CancellationToken.None);
+            var result = await client.CreateNewAgentAsync(DisplayName, inputSchemaName, AuthoringShape.Classic, CancellationToken.None);
 
             Assert.Equal(_agentId, result.AgentId);
             Assert.Equal(DisplayName, result.DisplayName);
@@ -61,15 +61,15 @@
         public async Task CreateNewAgentAsyncWithFailedResponse()
         {
             var client = CreateClientWithHandler((req, index) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest)));
-            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => client.CreateNewAgentAsync(DisplayName, SchemaName, AgentFormat.Classic, CancellationToken.None));
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => client.CreateNewAgentAsync(DisplayName, SchemaName, AuthoringShape.Classic, CancellationToken.None));
             Assert.Contains("400", ex.Message);
         }
 
         [Theory]
-        [InlineData(AgentFormat.Cli, "cliagent-1.0.0")]
-        [InlineData(AgentFormat.Classic, "empty-1.0.0")]
-        [InlineData(AgentFormat.Unknown, "empty-1.0.0")]
-        public async Task CreateNewAgentAsyncUsesTemplateForFormat(AgentFormat format, string expectedTemplate)
+        [InlineData(AuthoringShape.CliCopilot, "cliagent-1.0.0")]
+        [InlineData(AuthoringShape.Classic, "empty-1.0.0")]
+        [InlineData(AuthoringShape.Unknown, "empty-1.0.0")]
+        public async Task CreateNewAgentAsyncUsesTemplateForFormat(AuthoringShape format, string expectedTemplate)
         {
             string? capturedTemplate = null;
             var client = CreateClientWithHandler(async (req, index) =>
@@ -750,7 +750,7 @@
             var httpClient = new HttpClient(handlerMock.Object);
             var client = CreateClientFromHttpClient(httpClient);
 
-            await client.CreateNewAgentAsync("TestAgent", "TestSchema", AgentFormat.Classic, CancellationToken.None);
+            await client.CreateNewAgentAsync("TestAgent", "TestSchema", AuthoringShape.Classic, CancellationToken.None);
 
             Assert.NotNull(capturedRequest);
             Assert.True(capturedRequest!.Headers.UserAgent.Any(), "User-Agent header should be present");

@@ -27,7 +27,6 @@ export interface AgentSyncInfo {
 
   accountInfo: AccountInfo;
   solutionVersions: SolutionInfo;
-  format?: AgentFormat;
 }
 
 export interface SyncRequest extends RemoteApiRequest {
@@ -81,13 +80,6 @@ export interface CloneAgentRequest extends RemoteApiRequest {
 
 export interface CloneAgentResponse extends RemoteApiResponse {
   agentFolderName?: string; // canonical sanitized top-level agent folder name
-  format?: AgentFormat;
-}
-
-export const enum AgentFormat {
-  Unknown = 0,
-  Classic = 1,
-  Cli = 2,
 }
 
 export interface AgentInfo {

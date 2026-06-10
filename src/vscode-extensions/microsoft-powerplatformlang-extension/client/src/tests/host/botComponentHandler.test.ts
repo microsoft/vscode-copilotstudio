@@ -87,7 +87,7 @@ describe('botComponentHandler', () => {
             }))
         });
 
-        const metadata: WsComponentMetadata[] = await handler.listWsComponentMetadata({ agentId: '123' } as any);
+        const metadata: WsComponentMetadata[] = await handler.listWsComponentMetadata({ agentId: '123' } as any, false);
         assert.strictEqual(metadata.length, 1);
         assert.strictEqual(metadata[0].id, 'abc');
         assert.strictEqual(metadata[0].schemaName, 'botPrefix_d1c');

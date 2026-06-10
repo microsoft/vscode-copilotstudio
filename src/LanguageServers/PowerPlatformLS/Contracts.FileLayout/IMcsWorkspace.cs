@@ -10,6 +10,6 @@
 
         DefinitionBase Definition { get; }
 
-        AgentFormat Format { get; }
+        AuthoringShape AuthoringShape { get; }
     }
 }

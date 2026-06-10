@@ -70,6 +70,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
     private static readonly AgentFilePath SettingsPath = new AgentFilePath("settings.mcs.yml");
 
     /// <summary>
+    /// Forward-looking workspace layout marker (TDD D29). Sync overlay, generic YAML
+    /// (never MCS-parsed); CLI-only; layout-only (no identity/shape echo).
+    /// </summary>
+    private static readonly AgentFilePath AgentSyncMarkerPath = new AgentFilePath(AgentClassifier.WorkspaceLayoutMarkerFileName);
+
+    /// <summary>
     /// Write connection references for provisioning.
     /// </summary>
     private static readonly AgentFilePath ConnectionReferencesPath = new AgentFilePath("connectionreferences.mcs.yml");
@@ -86,7 +92,13 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
     private static readonly AgentFilePath ReferencesCollectionPath = new AgentFilePath("references.mcs.yml");
 
-    private static readonly string KnowledgeFilesSubPath = Path.Combine("knowledge", "files");
+    // Knowledge-file content folders (TDD D34). Shape-keyed, NOT a migration: classic stays
+    // at knowledge/files/ byte-identical; only CLI uses capabilities/knowledge/files/, mirroring
+    // the projection (LspProjection.FolderToElementTypes, D21/D30). Forward slashes match the
+    // projection folder and the AgentFilePath key form (IFileAccessor.ListFiles normalizes
+    // separators, so this is byte-equivalent to the prior Path.Combine value in production).
+    private const string KnowledgeFilesSubPath = "knowledge/files";
+    private const string CliKnowledgeFilesSubPath = "capabilities/knowledge/files";
 
     /// <summary>
     /// Icon path within the agent.
@@ -140,9 +152,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         }
 
         // On clone, if there is no GptComponentMetadata (Agent.mcs.yml), write a default one.
+        // Skip for CLI agents: agent.mcs.yml is the classic GptComponentMetadata file, and
+        // fabricating a default for a CLI agent creates a phantom GptComponent (TDD D22).
         var isAgent = result.Definition is BotDefinition;
-        var format = AgentFormatDetector.Detect(result.Definition);
-        if (isAgent && format != AgentFormat.Cli && !HasGptComponentMetadata(result.Changeset))
+        var isCliAgentClone = result.Definition is BotDefinition bd && bd.Entity != null && IsCliAgentEntity(bd.Entity);
+        if (isAgent && !isCliAgentClone && !HasGptComponentMetadata(result.Changeset))
         {
             WriteDefaultGptComponentMetadata(fileAccessor, cancellationToken);
         }
@@ -258,9 +272,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         // Collect change conflicts
         var localChanges = await GetLocalChangesAsync(workspaceFolder, previousDefinition, dataverseClient, syncInfo, cancellationToken).ConfigureAwait(false);
         var remoteChanges = await GetRemoteChangesAsync(workspaceFolder, operationContext, dataverseClient, syncInfo, cancellationToken).ConfigureAwait(false);
-        var localChangesWithoutKnowledgeFiles = localChanges.Item2.Where(c => c.ChangeKind != BotElementKind.FileAttachmentComponent.ToString()).ToImmutableArray();
-
-        var conflictingChanges = GetConflicts(localChangesWithoutKnowledgeFiles, remoteChanges.Item2);
 
         var remoteChangeset = remoteChanges.Item1;
 
@@ -272,80 +283,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         // Persist new delta token
         await WriteChangeTokenAsync(fileAccessor, remoteChangeset, cancellationToken).ConfigureAwait(false);
 
-        var updatedChangeSetBuilder = remoteChangeset.ToBuilder();
-        if (conflictingChanges.Length != 0)
-        {
-            //  Apply 3-way diff on conflicting items and update changeSet
-            foreach (var schemaName in conflictingChanges)
-            {
-                var localChange = localChanges.Item1.BotComponentChanges.OfType<BotComponentUpsert>().FirstOrDefault(c => c.Component?.SchemaNameString == schemaName)?.Component;
-
-                var remoteChange = remoteChangeset.BotComponentChanges.OfType<BotComponentUpsert>().FirstOrDefault(c => c.Component?.SchemaNameString == schemaName);
-                var remoteChangeComponent = remoteChange?.Component;
-                BotComponentBase? originalComponent = null;
-                if (originalSnapshot?.TryGetComponentBySchemaName(schemaName, out var component) == true)
-                {
-                    originalComponent = component;
-                }
-
-
-                // If both are deletes, there is nothing to merge
-                if (localChange == null && remoteChange == null)
-                {
-                    continue;
-                }
-
-                // Merge changes into a new component
-                var updatedComponent = MergeComponent(schemaName, originalComponent, localChange, remoteChangeComponent);
-
-                // Update change set with new component
-                if (remoteChange != null)
-                {
-                    updatedChangeSetBuilder.BotComponentChanges.Remove(remoteChange);
-                }
-
-                if (localChange == null)
-                {
-                    updatedChangeSetBuilder.BotComponentChanges.Add(new BotComponentInsert(updatedComponent));
-                }
-                else
-                {
-                    updatedChangeSetBuilder.BotComponentChanges.Add(new BotComponentUpdate(updatedComponent));
-                }
-            }
-        }
-
-        PvaComponentChangeSet updatedChangeSet;
-
-        // Conflict on Bot Entity
-        if (localChanges.Item1.Bot != null && remoteChanges.Item1.Bot != null && localChanges.Item1.Bot.Version != remoteChanges.Item1.Bot.Version)
-        {
-            var originalEntity = (originalSnapshot as BotDefinition)?.Entity;
-            var originalComponentYaml = originalEntity == null ? null : GetMcsYaml(originalEntity.WithOnlySettingsYamlProperties());
-            var localYaml = localChanges.Item1.Bot == null ? null : GetMcsYaml(localChanges.Item1.Bot);
-            var remoteYaml = remoteChanges.Item1.Bot == null ? null : GetMcsYaml(remoteChanges.Item1.Bot.WithOnlySettingsYamlProperties());
-
-            var updatedEntityString = MergeStrings(originalComponentYaml, localYaml, remoteYaml);
-
-            // remoteChanges.Item1.Bot is non-null — guarded by the if-condition on line 234
-            var remoteBot = remoteChanges.Item1.Bot!;
-            var bot = CodeSerializer.Deserialize<BotEntity>(updatedEntityString) ?? remoteBot;
-            // The 3-way merge operates on settings YAML only (WithOnlySettingsYamlProperties
-            // strips IconBase64 and other metadata from original/remote). Restore non-settings
-            // properties — including IconBase64 — from the remote bot.
-            bot = remoteBot.ApplySettingsYamlProperties(bot);
-            updatedChangeSetBuilder.Bot = bot;
-            updatedChangeSet = updatedChangeSetBuilder.Build();
-        }
-        else
-        {
-            updatedChangeSet = updatedChangeSetBuilder.Build().WithBot(remoteChanges.Item1.Bot);
-        }
-
-        // Filter out components that are identical to the pre-pull cloud cache snapshot.
-        // This prevents silently overwriting local edits when the server returns a full
-        // component set (non-delta) instead of just the changed components.
-        updatedChangeSet = FilterUnchangedComponents(updatedChangeSet, originalSnapshot);
+        // Resolve conflicting component / bot-entity edits via the shared
+        // 3-way merge. CliAgentSyncSupport / Node G: this seam is identity
+        // (schema-name) based and path-agnostic, so the CLI layered shape
+        // flows through it unchanged — the layered files were already read
+        // back into schema-name-keyed components by the Node E/F readers.
+        var updatedChangeSet = ApplyThreeWayMerge(localChanges, remoteChanges, originalSnapshot);
 
         var deletedComponents = ImmutableArray.CreateBuilder<BotComponentBase>();
         foreach (var item in updatedChangeSet.BotComponentChanges.OfType<BotComponentDelete>())
@@ -470,7 +413,116 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         return result;
     }
 
-    private string MergeStrings(
+    /// <summary>
+    /// CliAgentSyncSupport / Node G: the 3-way merge orchestration extracted
+    /// from <see cref="PullExistingChangesAsync"/> so it is testable in
+    /// isolation (the pull entry point mixes real-filesystem workflow / AI
+    /// prompt handling with the in-memory accessor, which makes it
+    /// impractical to drive end-to-end in a unit test).
+    /// </summary>
+    /// <remarks>
+    /// This is a behaviour-preserving extraction: it computes the same
+    /// conflict set and applies the same per-component and bot-entity merges
+    /// the inline block did, then runs <see cref="FilterUnchangedComponents"/>.
+    /// It is a pure transform over (local changes, remote changes, original
+    /// snapshot) — it performs no I/O, does not touch the cloud cache or
+    /// change token, and does not handle workflows / AI prompts / knowledge
+    /// downloads (those stay in the caller). The merge is identity (schema
+    /// name) based: connection references and other non-<c>BotComponent</c>
+    /// changes are NOT 3-way merged here (the remote changeset's entries pass
+    /// through), matching the classic-shape behaviour.
+    /// </remarks>
+    internal PvaComponentChangeSet ApplyThreeWayMerge(
+        (PvaComponentChangeSet ChangeSet, ImmutableArray<Change> Changes) localChanges,
+        (PvaComponentChangeSet ChangeSet, ImmutableArray<Change> Changes) remoteChanges,
+        DefinitionBase? originalSnapshot)
+    {
+        var localChangesWithoutKnowledgeFiles = localChanges.Changes
+            .Where(c => c.ChangeKind != BotElementKind.FileAttachmentComponent.ToString())
+            .ToImmutableArray();
+
+        var conflictingChanges = GetConflicts(localChangesWithoutKnowledgeFiles, remoteChanges.Changes);
+
+        var remoteChangeset = remoteChanges.ChangeSet;
+        var updatedChangeSetBuilder = remoteChangeset.ToBuilder();
+        if (conflictingChanges.Length != 0)
+        {
+            //  Apply 3-way diff on conflicting items and update changeSet
+            foreach (var schemaName in conflictingChanges)
+            {
+                var localChange = localChanges.ChangeSet.BotComponentChanges.OfType<BotComponentUpsert>().FirstOrDefault(c => c.Component?.SchemaNameString == schemaName)?.Component;
+
+                var remoteChange = remoteChangeset.BotComponentChanges.OfType<BotComponentUpsert>().FirstOrDefault(c => c.Component?.SchemaNameString == schemaName);
+                var remoteChangeComponent = remoteChange?.Component;
+                BotComponentBase? originalComponent = null;
+                if (originalSnapshot?.TryGetComponentBySchemaName(schemaName, out var component) == true)
+                {
+                    originalComponent = component;
+                }
+
+
+                // If both are deletes, there is nothing to merge
+                if (localChange == null && remoteChange == null)
+                {
+                    continue;
+                }
+
+                // Merge changes into a new component
+                var updatedComponent = MergeComponent(schemaName, originalComponent, localChange, remoteChangeComponent);
+
+                // Update change set with new component
+                if (remoteChange != null)
+                {
+                    updatedChangeSetBuilder.BotComponentChanges.Remove(remoteChange);
+                }
+
+                if (localChange == null)
+                {
+                    updatedChangeSetBuilder.BotComponentChanges.Add(new BotComponentInsert(updatedComponent));
+                }
+                else
+                {
+                    updatedChangeSetBuilder.BotComponentChanges.Add(new BotComponentUpdate(updatedComponent));
+                }
+            }
+        }
+
+        PvaComponentChangeSet updatedChangeSet;
+
+        // Conflict on Bot Entity
+        if (localChanges.ChangeSet.Bot != null && remoteChanges.ChangeSet.Bot != null && localChanges.ChangeSet.Bot.Version != remoteChanges.ChangeSet.Bot.Version)
+        {
+            var originalEntity = (originalSnapshot as BotDefinition)?.Entity;
+            var originalComponentYaml = originalEntity == null ? null : GetMcsYaml(originalEntity.WithOnlySettingsYamlProperties());
+            var localYaml = localChanges.ChangeSet.Bot == null ? null : GetMcsYaml(localChanges.ChangeSet.Bot);
+            var remoteYaml = remoteChanges.ChangeSet.Bot == null ? null : GetMcsYaml(remoteChanges.ChangeSet.Bot.WithOnlySettingsYamlProperties());
+
+            var updatedEntityString = MergeStrings(originalComponentYaml, localYaml, remoteYaml);
+
+            // remoteChanges.ChangeSet.Bot is non-null — guarded by the if-condition above
+            var remoteBot = remoteChanges.ChangeSet.Bot!;
+            var bot = CodeSerializer.Deserialize<BotEntity>(updatedEntityString) ?? remoteBot;
+            // The 3-way merge operates on settings YAML only (WithOnlySettingsYamlProperties
+            // strips IconBase64 and other metadata from original/remote). Restore non-settings
+            // properties — including IconBase64 — from the remote bot.
+            bot = remoteBot.ApplySettingsYamlProperties(bot);
+            updatedChangeSetBuilder.Bot = bot;
+            updatedChangeSet = updatedChangeSetBuilder.Build();
+        }
+        else
+        {
+            updatedChangeSet = updatedChangeSetBuilder.Build().WithBot(remoteChanges.ChangeSet.Bot);
+        }
+
+        // Filter out components that are identical to the pre-pull cloud cache snapshot.
+        // This prevents silently overwriting local edits when the server returns a full
+        // component set (non-delta) instead of just the changed components.
+        updatedChangeSet = FilterUnchangedComponents(updatedChangeSet, originalSnapshot);
+
+        return updatedChangeSet;
+    }
+
+    internal string MergeStrings(
       string? original,
       string? local,
       string? remote)
@@ -508,7 +560,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         return writer.ToString();
     }
 
-    private BotComponentBase? MergeComponent(
+    internal BotComponentBase? MergeComponent(
         string schemaName,
         BotComponentBase? originalComponent,
         BotComponentBase? localChange,
@@ -550,7 +602,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 : Guid.Empty).WithVersion(remoteChange?.Version ?? localChange?.Version ?? 0);
     }
 
-    private ImmutableArray<string> GetConflicts(ImmutableArray<Change> local, ImmutableArray<Change> remote)
+    internal ImmutableArray<string> GetConflicts(ImmutableArray<Change> local, ImmutableArray<Change> remote)
     {
         return local.Select(m => m.SchemaName).Intersect(remote.Select(r => r.SchemaName)).ToImmutableArray();
     }
@@ -586,6 +638,18 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         CancellationToken cancellationToken,
         bool uploadAllKnowledgeFiles = false)
     {
+        // CliAgentSyncSupport / Node Q2 (TDD D29 evolution contract): fail closed if the
+        // workspace declares an UNKNOWN-higher layoutVersion than this tooling supports.
+        // Packing/pushing a newer layout we cannot interpret could relocate or drop files,
+        // so refuse rather than risk corruption (best-effort at most on read, never on write).
+        var layoutGateAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        if (CliAgentBotEntityReader.HasUnsupportedHigherLayoutVersion(layoutGateAccessor, out var declaredLayoutVersion))
+        {
+            throw new InvalidOperationException(
+                $"Workspace uses a newer layout (layoutVersion {declaredLayoutVersion}) than this tooling supports " +
+                $"(up to {AgentClassifier.CurrentLayoutVersion}). Update the Copilot Studio tooling to push this workspace.");
+        }
+
         if (operationContext is BotComponentCollectionAuthoringOperationContext collectionContext)
         {
             uploadAllKnowledgeFiles = true;
@@ -702,6 +766,18 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             UploadedKnowledgeFileCount = numberOfUploadedFiles,
             NewlyCreatedCustomConnectors = connectorPushResult.NewlyCreatedConnectorNames,
         };
+    }
+
+    public virtual async Task ProvisionConnectionReferencesAsync(
+        DirectoryPath workspaceFolder,
+        DefinitionBase definition,
+        ISyncDataverseClient dataverseClient,
+        CancellationToken cancellationToken,
+        IReadOnlyDictionary<string, Guid>? pushedConnectorIds = null)
+    {
+        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var effectiveDefinition = OverlayCliConnectionReferences(definition, fileAccessor, cancellationToken);
+        await ProvisionConnectionReferencesAsync(effectiveDefinition, dataverseClient, cancellationToken, pushedConnectorIds).ConfigureAwait(false);
     }
 
     public virtual async Task ProvisionConnectionReferencesAsync(
@@ -864,6 +940,17 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         CancellationToken cancellationToken)
     {
         var thisSchema = string.Empty;
+
+        // CliAgentSyncSupport / Nodes D2 + D3 + D4: compute kind ONCE per
+        // UpdateWorkspaceDirectoryAsync call and plumb it to every per-
+        // component decision (entity write, tool write, skill write,
+        // knowledge write, deletes). The shared AgentClassifier is the
+        // single classification chokepoint (PRD R1, cli-merge Node F).
+        var effectiveEntity = (definition is BotDefinition botForKind)
+            ? (changeset.Bot ?? botForKind.Entity)
+            : null;
+        var isCliAgent = effectiveEntity != null && IsCliAgentEntity(effectiveEntity);
+
         if (definition is BotComponentCollectionDefinition collection)
         {
             var cc = changeset.ComponentCollectionChanges.OfType<BotComponentCollectionUpsert>().Select(cc => cc.ComponentCollection).FirstOrDefault(static d => d != null);
@@ -888,11 +975,16 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             FileAccessor = fileAccessor,
             Definition = updatedDefinition,
             PathResolver = _pathResolver,
-            SyncProgress = _syncProgress
+            SyncProgress = _syncProgress,
         };
 
         // Write connectionreferences.mcs.yml with updated connection references from cloud.
-        await WriteConnectionReferencesAsync(fileAccessor, updatedDefinition, cancellationToken).ConfigureAwait(false);
+        // CliAgentSyncSupport / Node D5: pass isCliAgent so the writer can
+        // branch to the per-reference layered shape (infrastructure/connections/)
+        // for CLI agents while preserving the classic flat file for everyone
+        // else. ConnectionReference is not a BotComponentBase, so this is the
+        // only dispatch site (no per-component delete loop participates).
+        await WriteConnectionReferencesAsync(fileAccessor, updatedDefinition, isCliAgent, cancellationToken).ConfigureAwait(false);
 
         // Write References.mcs.yml.
         await WriteReferencesAsync(fileAccessor, changeset.ComponentCollectionChanges, thisSchema).ConfigureAwait(false);
@@ -927,6 +1019,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
         foreach (var deleted in deletedComponents)
         {
+            // Shape-aware single source of truth (D20/D30): the delete target is
+            // the same .mcs.yml path the writer/reader use, so a server-deleted
+            // component is removed from the workspace at its projected location.
             var path = new AgentFilePath(_pathResolver.GetComponentPath(deleted, updatedDefinition));
             fileAccessor.Delete(path);
         }
@@ -1047,12 +1142,48 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             await fileAccessor.WriteAsync(IconPath, icon, cancellationToken).ConfigureAwait(false);
         }
 
-        using var file = fileAccessor.OpenWrite(SettingsPath);
-        using var sw = new StreamWriter(file, new UTF8Encoding(false));
+        // CLI and classic agents both persist the BotEntity identity to the
+        // language-recognized settings.mcs.yml via the OM serializer. The CLI
+        // recognizer + agentSettings live in BotConfiguration, which
+        // WithOnlySettingsYamlProperties preserves, so a single OM path serves both
+        // shapes (TDD D22). The separate curated agent.yaml writer is retired.
+        using (var file = fileAccessor.OpenWrite(SettingsPath))
+        using (var sw = new StreamWriter(file, new UTF8Encoding(false)))
+        using (var yamlContext = YamlSerializationContext.UseStandardSerializationContextIfNotDefined(throwOnInvalidYaml: false))
+        {
+            YamlSerializer.SerializeWithoutKind(sw, entity.WithOnlySettingsYamlProperties());
+        }
 
-        using var yamlContext = YamlSerializationContext.UseStandardSerializationContextIfNotDefined(throwOnInvalidYaml: false);
-        YamlSerializer.SerializeWithoutKind(sw, entity.WithOnlySettingsYamlProperties());
+        // CliAgentSyncSupport / Node Q2 (TDD D29): emit the forward-looking workspace
+        // layout marker for CLI agents ONLY. Generic-YAML .sync.yaml (never MCS-parsed),
+        // layout-only (no identity/shape echo - settings.mcs.yml is the single identity
+        // source). Classic agents emit nothing, preserving classic byte-identity. The
+        // marker is excluded from the D30 component allowlist scan by construction (it is
+        // .sync.yaml at the root, not a .mcs.yml in a component folder), so push never
+        // uploads it.
+        if (IsCliAgentEntity(entity))
+        {
+            await fileAccessor.WriteAsync(AgentSyncMarkerPath, BuildAgentSyncMarker(), cancellationToken).ConfigureAwait(false);
+        }
     }
+
+    /// <summary>
+    /// Builds the <c>agent.sync.yaml</c> marker body (TDD D29). Self-describing header
+    /// comment + the single <c>layoutVersion</c> field; nothing else.
+    /// </summary>
+    private static string BuildAgentSyncMarker() =>
+        "# Workspace layout marker (Sync overlay; generic YAML, never MCS-parsed).\n" +
+        "# Declares the on-disk layout version only; identity lives in settings.mcs.yml.\n" +
+        $"layoutVersion: {AgentClassifier.CurrentLayoutVersion}\n";
+
+    /// <summary>
+    /// CLI/classic discriminator for the per-component dispatch seam. Routes through
+    /// the shared <see cref="AgentClassifier"/> so the sync engine and the product
+    /// surfaces use one classification contract (PRD R1). Prefers native CLI
+    /// configuration-shape over template prefix (D15).
+    /// </summary>
+    private static bool IsCliAgentEntity(BotEntity entity)
+        => AgentClassifier.DetectAuthoringShape(entity) == AuthoringShape.CliCopilot;
 
     // This should be bot definition from cloud (not local).
     // This is bot definition at point of time when we synced from cloud.
@@ -1242,12 +1373,39 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         }
 
         var changeToken = await GetChangeTokenOrNullAsync(fileAccessor, cancellationToken).ConfigureAwait(false);
-        var (changeSet, changes) = GetLocalChanges(workspaceDefinition, cloudSnapshot, fileAccessor, changeToken);
+        var effectiveDefinition = OverlayCliConnectionReferences(workspaceDefinition, fileAccessor, cancellationToken);
+        var (changeSet, changes) = GetLocalChanges(effectiveDefinition, cloudSnapshot, fileAccessor, changeToken);
 
         var workflowChanges = GetLocalWorkflowChangesAsync(workspaceFolder, dataverseClient, syncInfo, fileAccessor, cloudSnapshot, cancellationToken);
         changes = changes.AddRange(await workflowChanges.ConfigureAwait(false));
 
         return (changeSet, changes);
+    }
+
+    /// <summary>
+    /// Overlays the on-disk CLI connection references (the per-reference
+    /// <c>infrastructure/connections/*.sync.yaml</c> layered shape) onto a definition before a
+    /// local diff (TDD D38). CLI connection-reference files route to generic YAML and never
+    /// reach the MCS workspace compiler, so the LSP <c>workspace.Definition</c> the push /
+    /// local-diff handlers pass into <see cref="GetLocalChangesAsync"/> does NOT contain them.
+    /// Without this overlay <see cref="GetCliConnectionReferenceChanges"/> builds its
+    /// insert/update set from a definition missing the disk references, so CLI
+    /// connection-reference CREATE/UPDATE are missed on the VS Code push/diff path (the delete
+    /// side already enumerates disk via <c>ListDiskLogicalNames</c>). This mirrors the overlay
+    /// <see cref="ReadWorkspaceDefinitionAsync"/> applies on the sync-engine path, and is a
+    /// no-op for classic agents and for an already-overlaid definition.
+    /// </summary>
+    private DefinitionBase OverlayCliConnectionReferences(DefinitionBase definition, IFileAccessor fileAccessor, CancellationToken cancellationToken)
+    {
+        var entity = (definition as BotDefinition)?.Entity;
+        if (entity != null && IsCliAgentEntity(entity) && CliAgentConnectionsReader.IsLayeredShapeActive(fileAccessor))
+        {
+            var overlaid = CliAgentConnectionsReader.Overlay(
+                fileAccessor, definition.ConnectionReferences, _syncProgress.Report, cancellationToken);
+            return definition.WithConnectionReferences(overlaid.ToImmutableArray());
+        }
+
+        return definition;
     }
 
     // Determine remote changes by comparing the user files to the cloud cache. 
@@ -1430,20 +1588,185 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         var (environmentVariableChanges, changesOfEnvironmentVariables) = GetEnvironmentVariableLocalChanges(localDefinition, cloudSnapshot, fileAccessor, isRemoteChange);
         changes.AddRange(changesOfEnvironmentVariables);
 
+        // CliAgentSyncSupport / Node F: connection-reference change
+        // emission. CLI-only; classic agents have no per-reference disk
+        // shape so there's nothing to diff.
+        List<ConnectionReferenceChange>? connectionReferenceChanges = null;
+        if (botEntity != null && IsCliAgentEntity(botEntity))
+        {
+            connectionReferenceChanges = GetCliConnectionReferenceChanges(
+                fileAccessor, localDefinition, cloudSnapshot, changes, isRemoteChange);
+        }
+
         var changeset = new PvaComponentChangeSet(
-              botComponentBuilderList,
-              null,
-              environmentVariableChanges,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              botEntity,
-              changeToken);
+              botComponentChanges: botComponentBuilderList,
+              connectorDefinitionChanges: null,
+              environmentVariableChanges: environmentVariableChanges,
+              connectionReferenceChanges: connectionReferenceChanges,
+              aIPluginOperationChanges: null,
+              componentCollectionChanges: null,
+              dataverseTableSearchChanges: null,
+              dataverseTableSearchEntityConfigurationChanges: null,
+              connectedAgentDefinitionChanges: null,
+              bot: botEntity,
+              changeToken: changeToken);
 
         return (changeset, changes.ToImmutable());
+    }
+
+    /// <summary>
+    /// CliAgentSyncSupport / Node F: diff connection references against the
+    /// cloud-cache snapshot and emit Insert/Update/Delete changes. CLI-only.
+    /// </summary>
+    /// <remarks>
+    /// Delete detection (TDD D32) sources its "present" set by direction:
+    /// <list type="bullet">
+    /// <item>LOCAL (push) diff (<paramref name="isRemoteChange"/> false):
+    /// <paramref name="localDefinition"/> is the post-overlay disk read, and Node E's
+    /// overlay preserves cloud-only refs verbatim, so "deleted on disk" never shows up as
+    /// missing from the in-memory definition. The disk enumeration
+    /// (<see cref="CliAgentConnectionsReader.ListDiskLogicalNames"/>) is the only signal
+    /// that surfaces destructive intent, and deletes are gated on isCliLayoutAdopted so a
+    /// pre-D1 clone never synthesizes phantom delete intent.</item>
+    /// <item>REMOTE (pull) preview (<paramref name="isRemoteChange"/> true):
+    /// <paramref name="localDefinition"/> is the cloud-applied snapshot (the NEW cloud
+    /// state), so its own ref set is authoritative and local disk must NOT be consulted
+    /// (mirrors the env-var handling in <see cref="GetEnvironmentVariableLocalChanges"/>):
+    /// a ref in the old cloud cache but absent from the new cloud state is an incoming
+    /// remote delete, while a local-only on-disk delete is NOT an incoming remote change.</item>
+    /// </list>
+    /// </remarks>
+    private List<ConnectionReferenceChange> GetCliConnectionReferenceChanges(
+        IFileAccessor fileAccessor,
+        DefinitionBase localDefinition,
+        DefinitionBase cloudSnapshot,
+        ImmutableArray<Change>.Builder changes,
+        bool isRemoteChange = false)
+    {
+        var result = new List<ConnectionReferenceChange>();
+        var isCliLayoutAdopted = CliAgentBotEntityReader.IsCliLayoutAdopted(fileAccessor);
+
+        // Index cloud refs by logical name (OrdinalIgnoreCase — matches
+        // CliAgentConnectionsReader / WriteConnectionReferencesAsync).
+        var cloudByName = new Dictionary<string, ConnectionReference>(StringComparer.OrdinalIgnoreCase);
+        foreach (var cr in cloudSnapshot.ConnectionReferences)
+        {
+            var name = cr?.ConnectionReferenceLogicalName.Value;
+            if (string.IsNullOrEmpty(name))
+            {
+                continue;
+            }
+            cloudByName[name!] = cr!;
+        }
+
+        // Local definition is post-overlay (Node E); reflects disk content
+        // plus cloud-only refs. Drive Insert/Update from this set.
+        var localByName = new Dictionary<string, ConnectionReference>(StringComparer.OrdinalIgnoreCase);
+        foreach (var cr in localDefinition.ConnectionReferences)
+        {
+            var name = cr?.ConnectionReferenceLogicalName.Value;
+            if (string.IsNullOrEmpty(name))
+            {
+                continue;
+            }
+            localByName[name!] = cr!;
+        }
+
+        // Present-name set drives delete detection (a cloud ref absent from this set is
+        // treated as deleted). Sourced by direction per TDD D32 - see the method remarks.
+        HashSet<string> presentNames;
+        bool emitDeletes;
+        if (isRemoteChange)
+        {
+            presentNames = new HashSet<string>(localByName.Keys, StringComparer.OrdinalIgnoreCase);
+            emitDeletes = true;
+        }
+        else
+        {
+            presentNames = isCliLayoutAdopted
+                ? CliAgentConnectionsReader.ListDiskLogicalNames(fileAccessor)
+                : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            emitDeletes = isCliLayoutAdopted;
+        }
+
+        foreach (var kvp in localByName)
+        {
+            var name = kvp.Key;
+            var local = kvp.Value;
+
+            if (cloudByName.TryGetValue(name, out var cloud))
+            {
+                var connectorChanged = !string.Equals(
+                    local.ConnectorId.Value ?? string.Empty,
+                    cloud.ConnectorId.Value ?? string.Empty,
+                    StringComparison.Ordinal);
+                if (connectorChanged)
+                {
+                    // Carry forward cloud Id/Version on Update so the
+                    // server can apply by Id.
+                    var builder = local.ToBuilder();
+                    builder.Id = cloud.Id;
+                    builder.Version = cloud.Version;
+                    result.Add(new ConnectionReferenceUpdate(builder.Build()));
+                    changes.Add(new Change
+                    {
+                        ChangeType = ChangeType.Update,
+                        Name = name,
+                        Uri = $"{CliAgentConnectionsWriter.InfrastructureConnectionsFolder}/{name}{CliAgentConnectionsWriter.FileExtension}",
+                        SchemaName = name,
+                        ChangeKind = nameof(ConnectionReference),
+                    });
+                }
+            }
+            else
+            {
+                result.Add(new ConnectionReferenceInsert(local));
+                changes.Add(new Change
+                {
+                    ChangeType = ChangeType.Create,
+                    Name = name,
+                    Uri = $"{CliAgentConnectionsWriter.InfrastructureConnectionsFolder}/{name}{CliAgentConnectionsWriter.FileExtension}",
+                    SchemaName = name,
+                    ChangeKind = nameof(ConnectionReference),
+                });
+            }
+        }
+
+        if (!emitDeletes)
+        {
+            // Pre-D1 local clone (no CLI layout adopted) — never emit destructive delete
+            // intent. Remote previews always emit deletes (emitDeletes is forced true).
+            return result;
+        }
+
+        foreach (var kvp in cloudByName)
+        {
+            var name = kvp.Key;
+            var cloud = kvp.Value;
+            if (presentNames.Contains(name))
+            {
+                continue;
+            }
+            if (cloud.Id.Value == Guid.Empty)
+            {
+                // Cloud entry without a server-assigned Id can't be deleted
+                // through the changeset (Apply pivots on Id). Skip and log.
+                _syncProgress.Report(
+                    $"CLI connection reference '{name}' missing from disk but cloud cache has no Id; cannot emit delete.");
+                continue;
+            }
+            result.Add(new ConnectionReferenceDelete(cloud.Id.Value, cloud.Version));
+            changes.Add(new Change
+            {
+                ChangeType = ChangeType.Delete,
+                Name = name,
+                Uri = $"{CliAgentConnectionsWriter.InfrastructureConnectionsFolder}/{name}{CliAgentConnectionsWriter.FileExtension}",
+                SchemaName = name,
+                ChangeKind = nameof(ConnectionReference),
+            });
+        }
+
+        return result;
     }
 
     private static (ImmutableArray<EnvironmentVariableChange>, ImmutableArray<Change>) GetEnvironmentVariableLocalChanges(DefinitionBase localDefinition, DefinitionBase cloudSnapshot, IFileAccessor fileAccessor, bool isRemoteChange = false)
@@ -1607,51 +1930,17 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 return;
             }
 
+            // CLI and classic both fall through to the single tail: the
+            // shape-aware PathResolver.GetComponentPath (TDD D20/D30 derives the
+            // authoring shape from Definition.Entity) routes CLI components to
+            // the three-layer .mcs.yml paths and classic components to their
+            // classic locations, and SerializeAsMcsYml emits the full component
+            // body (with mcs.metadata) at that path. The hand-coded CliAgent*
+            // writer dispatch (bare-dialog .yaml bodies) is retired (Node Q).
             var path = new AgentFilePath(PathResolver.GetComponentPath(groundedComponent, Definition));
             using var stream = FileAccessor.OpenWrite(path);
             using var textWriter = new StreamWriter(stream);
-            CodeSerializer.SerializeAsMcsYml(textWriter, NormalizeForMcsYml(groundedComponent));
-        }
-
-        private static BotComponentBase NormalizeForMcsYml(BotComponentBase component)
-        {
-            if (component is not DialogComponent)
-            {
-                return component;
-            }
-
-            if (string.IsNullOrWhiteSpace(component.DisplayName) && string.IsNullOrWhiteSpace(component.Description))
-            {
-                return component;
-            }
-
-            using var probe = new StringWriter();
-            CodeSerializer.SerializeAsMcsYml(probe, component);
-            if (probe.ToString().Contains("mcs.metadata:", StringComparison.Ordinal))
-            {
-                return component;
-            }
-
-            try
-            {
-                string json;
-                using (YamlSerializationContext.UseYamlPassThroughSerializationContext())
-                {
-                    json = JsonSerializer.Serialize<DefinitionBase>(new BotDefinition().WithComponents(ImmutableArray.Create(component)), ElementSerializer.CreateOptions());
-                }
-
-                DefinitionBase? roundTripped;
-                using (YamlSerializationContext.UseYamlPassThroughSerializationContext())
-                {
-                    roundTripped = JsonSerializer.Deserialize<DefinitionBase>(json, ElementSerializer.CreateOptions());
-                }
-
-                return roundTripped?.Components.SingleOrDefault() ?? component;
-            }
-            catch (JsonException)
-            {
-                return component;
-            }
+            CodeSerializer.SerializeAsMcsYml(textWriter, groundedComponent);
         }
     }
 
@@ -2587,6 +2876,43 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             throw new FileNotFoundException(".mcs/botdefinition.json was not found. Please resync.");
         }
 
+        // CliAgentSyncSupport / Node E: compute kind ONCE per read so every
+        // per-component decision uses the same discriminator. Mirrors the
+        // single-chokepoint pattern from UpdateWorkspaceDirectoryAsync, routed
+        // through the shared AgentClassifier (PRD R1).
+        var isCliAgent = definition is BotDefinition botForKind
+                         && botForKind.Entity != null
+                         && IsCliAgentEntity(botForKind.Entity);
+
+        // CliAgentSyncSupport / Node F: "CLI layout adopted" gate. Used to
+        // gate destructive per-component / connection-reference delete
+        // detection later in this method, and (transitively) in
+        // GetLocalChanges. Computed once here. Note: this is the agent.yaml
+        // exists check — stronger than per-route IsActive signals
+        // (because deleting the only file in a route would disable the
+        // per-route signal).
+        var isCliLayoutAdopted = isCliAgent && CliAgentBotEntityReader.IsCliLayoutAdopted(fileAccessor);
+
+        // CliAgentSyncSupport / Node Q (D30, old-layout-no-nuke): the workspace has
+        // adopted the new .mcs.yml component layout when it is a CLI agent with the
+        // settings.mcs.yml entity present AND no legacy bare-body .yaml component
+        // files linger in the three-layer folders. Only then may a missing
+        // component file be interpreted as a user delete; an old-layout workspace
+        // (whose components are .yaml, written by pre-Q code) must instead preserve
+        // the cloud cache so the new reader never synthesizes a phantom delete.
+        var cliNewLayoutAdopted = isCliLayoutAdopted && !HasLegacyCliYamlComponentFiles(fileAccessor);
+
+        // CliAgentSyncSupport / Node F: agent.yaml overlay. When the
+        // workspace has adopted the CLI layout (agent.yaml exists), overlay
+        // identity + recognizer + agentSettings from disk onto the
+        // cloud-cache entity. Hard-fails on malformed agent.yaml or
+        // schemaName change — see CliAgentBotEntityReader for rationale.
+        if (isCliLayoutAdopted && definition is BotDefinition botForOverlay && botForOverlay.Entity != null)
+        {
+            var overlaidEntity = CliAgentBotEntityReader.Overlay(fileAccessor, botForOverlay.Entity);
+            definition = botForOverlay.WithEntity(overlaidEntity);
+        }
+
         var updatedComponents = new List<BotComponentBase>();
         var existingSchemaNames = new HashSet<string>();
 
@@ -2601,22 +2927,56 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 continue;
             }
 
-            var relativePath = _pathResolver.GetComponentPath(component, definition);
-            var filePath = new AgentFilePath(relativePath);
+            // CliAgentSyncSupport / Node Q (D20/D30): the reader resolves every
+            // component (CLI + classic) through the SAME shape-aware
+            // PathResolver.GetComponentPath the writer used, so read/write/delete
+            // stay in agreement and the reader never synthesizes a phantom delete.
+            var filePath = new AgentFilePath(_pathResolver.GetComponentPath(component, definition));
 
             if (!fileAccessor.Exists(filePath))
             {
-                // User deleted the file — omit from definition
+                if (isCliAgent && !cliNewLayoutAdopted)
+                {
+                    // Old/transition CLI layout: pre-Q code wrote component bodies
+                    // as bare .yaml (not .mcs.yml), so a missing .mcs.yml is NOT a
+                    // user delete. Preserve the cloud-cache component; reading an
+                    // old-layout workspace with new code must never nuke it
+                    // (re-clone migrates to the .mcs.yml layout). [old-layout-no-nuke]
+                    updatedComponents.Add(component);
+                    continue;
+                }
+
+                // Classic, or an adopted CLI .mcs.yml layout: the user deleted the
+                // file -> drop the component (synthesize delete intent). [delete-safety]
                 continue;
             }
 
-            using var stream = fileAccessor.OpenRead(filePath);
-            using var reader = new StreamReader(stream, Encoding.UTF8);
-            // No #if: small component file; boundary cancellation is sufficient.
-            cancellationToken.ThrowIfCancellationRequested();
-            var yaml = await reader.ReadToEndAsync().ConfigureAwait(false);
+            string yaml;
+            BotElement? deserialized;
+            try
+            {
+                using var stream = fileAccessor.OpenRead(filePath);
+                using var reader = new StreamReader(stream, Encoding.UTF8);
+                // No #if: small component file; boundary cancellation is sufficient.
+                cancellationToken.ThrowIfCancellationRequested();
+                yaml = await reader.ReadToEndAsync().ConfigureAwait(false);
 
-            var deserialized = CodeSerializer.Deserialize(yaml, component.RootElement?.GetType() ?? typeof(BotElement), null);
+                deserialized = CodeSerializer.Deserialize(yaml, component.RootElement?.GetType() ?? typeof(BotElement), null);
+            }
+            catch (Exception ex) when (isCliAgent && ex is not OperationCanceledException)
+            {
+                // CliAgentSyncSupport / Node E (rubber-duck non-blocking #4):
+                // CLI-path deserialize errors must not abort the entire
+                // read, but cancellation must still propagate. Scope the
+                // skip-and-warn to CLI files only (classic shape was
+                // hard-fail before Node E and stays hard-fail to preserve
+                // pre-existing behavior).
+                _syncProgress.Report(
+                    $"CLI component file '{filePath}' could not be read or parsed: {ex.Message}. Keeping cloud-cache version.");
+                updatedComponents.Add(component);
+                continue;
+            }
+
             var (parsed, error) = _fileParser.CompileFileModel(component.SchemaNameString, deserialized, component.DisplayName, component.Description);
 
             if (error != null || parsed == null)
@@ -2636,39 +2996,61 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             updatedComponents.Add(builder.Build());
         }
 
-        // Detect new local files
-        var knownPaths = definition.Components.Select(c => _pathResolver.GetComponentPath(c, definition)).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var localFiles = fileAccessor.ListFiles(filePattern: "*.mcs.yml").ToList();
-        var newLocalFiles = localFiles.Where(f => !knownPaths.Contains(f.ToString())).ToList();
-
-        if (newLocalFiles.Count != 0)
+        // CliAgentSyncSupport / Node E (rubber-duck non-blocking #5): gate
+        // the classic *.mcs.yml new-file scan when the workspace is a CLI
+        // agent. On CLI workspaces, the only *.mcs.yml files would be stale
+        // siblings from a pre-CLI-rewrite clone (D1 deletes settings.mcs.yml
+        // but does not sweep topics/, knowledge/, etc.). Treating those as
+        // "new local files" would synthesize phantom components that the
+        // next push would then attempt to insert into the cloud — clearly
+        // wrong. New-CLI-file discovery (capabilities/tools/foo.yaml, etc.)
+        // is a push-side problem handled by ScanForNewCliFiles below.
+        if (!isCliAgent)
         {
-            var projectionContext = new ProjectionContext(GetSchemaName(definition));
+            // Detect new local files
+            var knownPaths = definition.Components.Select(c => _pathResolver.GetComponentPath(c, definition)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var localFiles = fileAccessor.ListFiles(filePattern: "*.mcs.yml").ToList();
+            var newLocalFiles = localFiles.Where(f => !knownPaths.Contains(f.ToString())).ToList();
 
-            foreach (var localFile in newLocalFiles)
+            if (newLocalFiles.Count != 0)
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                var projectionContext = new ProjectionContext(GetSchemaName(definition));
 
-                var yaml = await fileAccessor.ReadStringAsync(localFile, cancellationToken).ConfigureAwait(false);
-
-                if (CodeSerializer.Deserialize(yaml, typeof(BotElement), null) is not BotElement element)
+                foreach (var localFile in newLocalFiles)
                 {
-                    continue;
-                }
+                    cancellationToken.ThrowIfCancellationRequested();
 
-                var (component, error) = _fileParser.CompileFile(localFile, element, projectionContext);
+                    var yaml = await fileAccessor.ReadStringAsync(localFile, cancellationToken).ConfigureAwait(false);
 
-                if (component != null && error == null)
-                {
-                    updatedComponents.Add(component);
+                    if (CodeSerializer.Deserialize(yaml, typeof(BotElement), null) is not BotElement element)
+                    {
+                        continue;
+                    }
+
+                    var (component, error) = _fileParser.CompileFile(localFile, element, projectionContext);
+
+                    if (component != null && error == null)
+                    {
+                        updatedComponents.Add(component);
+                    }
                 }
             }
+        }
+        else
+        {
+            // CliAgentSyncSupport / Node F: scan CLI route directories for
+            // new files the user authored locally (no cloud-cache match).
+            // Mirrors the classic new-file scan but uses the route-specific
+            // filename → schemaName projections (TryProjectSchemaNameFromFilePath).
+            ScanForNewCliFiles(fileAccessor, definition, updatedComponents, existingSchemaNames, cancellationToken);
         }
 
         if (checkKnowledgeFiles)
         {
-            // Detect new knowledge files
-            var knowledgeFiles = fileAccessor.ListFiles(KnowledgeFilesSubPath, "*.*").Where(f => !f.FileName.EndsWith(".mcs.yml", StringComparison.OrdinalIgnoreCase)).ToList();
+            // Detect new knowledge files. Shape-keyed scan folder (TDD D34): CLI knowledge
+            // content lives at capabilities/knowledge/files/, classic at knowledge/files/.
+            var knowledgeFilesSubPath = isCliAgent ? CliKnowledgeFilesSubPath : KnowledgeFilesSubPath;
+            var knowledgeFiles = fileAccessor.ListFiles(knowledgeFilesSubPath, "*.*").Where(f => !f.FileName.EndsWith(".mcs.yml", StringComparison.OrdinalIgnoreCase)).ToList();
             var existingKnowledgeNames = definition.Components.OfType<FileAttachmentComponent>().Select(c => c.DisplayName).Where(n => !string.IsNullOrEmpty(n)).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             foreach (var file in knowledgeFiles)
@@ -2701,7 +3083,164 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         // Read environment variables from environmentvariables/*.mcs.yml
         var updatedEnvVars = await ReadEnvironmentVariablesAsync(fileAccessor, definition, cancellationToken).ConfigureAwait(false);
 
-        return definition.WithComponents(updatedComponents).WithEnvironmentVariables(updatedEnvVars);
+        // CliAgentSyncSupport / Node E: overlay on-disk connection refs
+        // (per-reference layered shape from D5) onto cloud-cache. Gated by
+        // the migration-safe activation rule — see CliAgentConnectionsReader
+        // for rationale on why we keep cache verbatim when the directory
+        // is empty or absent.
+        var updatedConnectionRefs = definition.ConnectionReferences;
+        if (isCliAgent && CliAgentConnectionsReader.IsLayeredShapeActive(fileAccessor))
+        {
+            var overlaid = CliAgentConnectionsReader.Overlay(
+                fileAccessor,
+                definition.ConnectionReferences,
+                _syncProgress.Report,
+                cancellationToken);
+            updatedConnectionRefs = overlaid.ToImmutableArray();
+        }
+
+        return definition
+            .WithComponents(updatedComponents)
+            .WithEnvironmentVariables(updatedEnvVars)
+            .WithConnectionReferences(updatedConnectionRefs);
+    }
+
+    /// <summary>
+    /// CliAgentSyncSupport / Node Q (D30): positive-allowlist scan for new
+    /// user-authored CLI component files. Scans ONLY the <c>.mcs.yml</c> files that
+    /// are direct children of the three-layer component folders LspProjection
+    /// projects to, so <c>settings.mcs.yml</c>, <c>agent.sync.yaml</c>, and other
+    /// <c>.sync.*</c> overlays are excluded by construction (they are never
+    /// components). Each discovered file is compiled with the CLI projection shape
+    /// so its schema name is derived from the CLI rules, mirroring the writer exactly.
+    /// </summary>
+    private void ScanForNewCliFiles(
+        IFileAccessor fileAccessor,
+        DefinitionBase definition,
+        List<BotComponentBase> updatedComponents,
+        HashSet<string> existingSchemaNames,
+        CancellationToken cancellationToken)
+    {
+        var knownPaths = definition.Components
+            .Select(c => _pathResolver.GetComponentPath(c, definition))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var projectionContext = new ProjectionContext(GetSchemaName(definition));
+
+        foreach (var folder in CliComponentFolders)
+        {
+            foreach (var file in fileAccessor.ListFiles(folder, "*" + McsFileExtension))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // Allowlist: only a direct .mcs.yml child of a component folder.
+                if (!IsDirectMcsComponentFile(file, folder) || knownPaths.Contains(file.ToString()))
+                {
+                    continue;
+                }
+
+                string yaml;
+                try
+                {
+                    using var stream = fileAccessor.OpenRead(file);
+                    using var sr = new StreamReader(stream, Encoding.UTF8);
+                    yaml = sr.ReadToEnd();
+                }
+                catch (Exception ex)
+                {
+                    _syncProgress.Report($"CLI new-file scan: '{file}' could not be read: {ex.Message}. Skipping.");
+                    continue;
+                }
+
+                if (CodeSerializer.Deserialize(yaml, typeof(BotElement), null) is not BotElement element)
+                {
+                    continue;
+                }
+
+                var (component, error) = _fileParser.CompileFile(file, element, projectionContext, AuthoringShape.CliCopilot);
+                if (component == null || error != null || existingSchemaNames.Contains(component.SchemaNameString))
+                {
+                    continue;
+                }
+
+                updatedComponents.Add(component);
+                existingSchemaNames.Add(component.SchemaNameString);
+            }
+        }
+    }
+
+    /// <summary>Component-body file extension (language-recognized MCS, D28).</summary>
+    private const string McsFileExtension = ".mcs.yml";
+
+    /// <summary>
+    /// The CLI three-layer component-body folders for the D30 allowlist scan, sourced
+    /// from <see cref="LspProjection.CliComponentBodyFolders"/> (derived from the CLI
+    /// projection rules) so this scan cannot drift from the projection.
+    /// </summary>
+    private static string[] CliComponentFolders => LspProjection.CliComponentBodyFolders;
+
+    /// <summary>
+    /// True when <paramref name="file"/> is a direct <c>.mcs.yml</c> child of
+    /// <paramref name="folder"/> (no nested path segment), the D30 allowlist predicate.
+    /// </summary>
+    private static bool IsDirectMcsComponentFile(AgentFilePath file, string folder)
+    {
+        var prefix = folder + "/";
+        var pathStr = file.ToString();
+        if (!pathStr.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var leaf = pathStr.Substring(prefix.Length);
+        if (leaf.IndexOf('/') >= 0 || leaf.IndexOf('\\') >= 0)
+        {
+            return false;
+        }
+
+        return leaf.EndsWith(McsFileExtension, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// CliAgentSyncSupport / Node Q (old-layout-no-nuke): true when any legacy
+    /// bare-body <c>.yaml</c> component file (written by pre-Q code) lingers as a
+    /// direct child of a CLI three-layer component folder. Used to detect an
+    /// old/transition workspace so the new <c>.mcs.yml</c> reader does not interpret
+    /// the absent <c>.mcs.yml</c> files as user deletes (re-clone migrates).
+    /// </summary>
+    private static bool HasLegacyCliYamlComponentFiles(IFileAccessor fileAccessor)
+    {
+        foreach (var folder in CliComponentFolders)
+        {
+            var prefix = folder + "/";
+            foreach (var file in fileAccessor.ListFiles(folder, "*.yaml"))
+            {
+                var pathStr = file.ToString();
+                if (!pathStr.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var leaf = pathStr.Substring(prefix.Length);
+                if (leaf.IndexOf('/') >= 0 || leaf.IndexOf('\\') >= 0)
+                {
+                    continue;
+                }
+
+                // *.yaml does not match .mcs.yml (different extension). Exclude the
+                // .sync.yaml overlay family and the rare .mcs.yaml so only genuine
+                // legacy bare-body component files count.
+                if (leaf.EndsWith(".sync.yaml", StringComparison.Ordinal)
+                    || leaf.EndsWith(".mcs.yaml", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private async Task<ImmutableArray<EnvironmentVariableDefinition>> ReadEnvironmentVariablesAsync(
@@ -3321,7 +3860,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         return changeset;
     }
 
-    private Task WriteConnectionReferencesAsync(IFileAccessor fileAccessor, DefinitionBase definition, CancellationToken cancellationToken)
+    private Task WriteConnectionReferencesAsync(IFileAccessor fileAccessor, DefinitionBase definition, bool isCliAgent, CancellationToken cancellationToken)
     {
         var uniqueConnectionReferences = definition.ConnectionReferences
                 .Where(cr => !string.IsNullOrEmpty(cr.ConnectionReferenceLogicalName.Value))
@@ -3329,7 +3868,33 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 .Select(g => g.Last())
                 .ToList();
 
-        // Write connectionreferences.mcs.yml if there are any connection references
+        if (isCliAgent)
+        {
+            // CliAgentSyncSupport / Node D5 + TDD D33: per-reference layered shape at
+            // infrastructure/connections/{logicalName}.sync.yaml, suppressing the flat
+            // connectionreferences.mcs.yml. The per-file set is written+committed FIRST,
+            // and only then is any stale flat file (left over from a prior classic-shape
+            // clone) removed. This ordering makes a cancellation/IO failure recoverable:
+            // the flat file stays intact until the per-file set is complete, so an
+            // interruption never leaves BOTH gone (which would make the next push read zero
+            // connection references on disk and synthesize a delete for every cloud ref).
+            // The writer pre-prunes infrastructure/connections/ for orphan removal, so this
+            // branch is correct even on the 0-reference case.
+            CliAgentConnectionsWriter.WriteAll(
+                fileAccessor,
+                uniqueConnectionReferences,
+                _syncProgress.Report,
+                cancellationToken);
+
+            if (fileAccessor.Exists(ConnectionReferencesPath))
+            {
+                fileAccessor.Delete(ConnectionReferencesPath);
+            }
+
+            return Task.CompletedTask;
+        }
+
+        // Classic kind: unchanged flat file at workspace root.
         if (uniqueConnectionReferences.Any())
         {
             using var file = fileAccessor.OpenWrite(ConnectionReferencesPath);

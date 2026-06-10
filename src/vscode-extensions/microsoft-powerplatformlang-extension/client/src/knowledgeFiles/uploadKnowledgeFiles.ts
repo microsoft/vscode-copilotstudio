@@ -4,7 +4,7 @@ import * as path from 'path';
 import { CopilotStudioWorkspace } from '../sync/localWorkspaces';
 import { isTextFile, loadChangeTrack, resolveConflict, saveChangeTrack } from './fileHelper';
 import { generateSchemaNameForBotComponents } from '../botComponents/schemaName';
-import { getDataverseBotHandler, getAllKnowledgeFiles, getTrackPath } from './syncUtils';
+import { getDataverseBotHandler, getAllKnowledgeFiles, getTrackPath, isCliLayeredWorkspace } from './syncUtils';
 import { ConflictResolution, TelemetryEventsKeys } from '../constants';
 import logger from '../services/logger';
 import { ChangeType } from '../types';
@@ -19,7 +19,8 @@ export async function uploadKnowledgeFiles(ws: CopilotStudioWorkspace): Promise<
   const knowledgeFiles = await getAllKnowledgeFiles(workspaceUri);
   const changeTrack = await loadChangeTrack(trackPath);
   const botHandler = await getDataverseBotHandler(syncInfo);
-  const wsMeta = await botHandler.listWsComponentMetadata(syncInfo);
+  const isCli = isCliLayeredWorkspace(vscode.Uri.parse(workspaceUri).fsPath);
+  const wsMeta = await botHandler.listWsComponentMetadata(syncInfo, isCli);
 
   const remoteFilenames = new Set(wsMeta.map(m => decodeURIComponent(m.filename ?? '')));
   const wsByFilename = new Map(wsMeta.map(m => [decodeURIComponent(m.filename ?? ''), m]));
@@ -249,7 +250,7 @@ export async function uploadKnowledgeFiles(ws: CopilotStudioWorkspace): Promise<
           throw new Error(`Failed to upload ${file}: ${response.statusCode}${details}`);
         }
 
-        const updatedMeta = await botHandler.listWsComponentMetadata(syncInfo);
+        const updatedMeta = await botHandler.listWsComponentMetadata(syncInfo, isCli);
         const updated = updatedMeta.find(m => m.schemaName === schema);
         const existing = changeTrack[file] ?? {};
 

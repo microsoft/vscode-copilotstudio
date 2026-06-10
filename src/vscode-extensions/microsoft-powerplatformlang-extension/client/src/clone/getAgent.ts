@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { window, ExtensionContext, Uri, QuickPickItem, QuickPickItemKind, ThemeIcon, commands, ProgressLocation, workspace } from 'vscode';
-import { AgentInfo, CloneAgentRequest, ClonedAssets, EnvironmentInfo, IdentifyAgentResponse, CloneAgentResponse, AgentFormat } from '../types';
+import { AgentInfo, CloneAgentRequest, ClonedAssets, EnvironmentInfo, IdentifyAgentResponse, CloneAgentResponse } from '../types';
 import { getIcon } from '../icon';
 import { tryGetAgentIdentifier } from './agentIdentifier';
 import { getEnvironmentByIdAsync, listEnvironmentsBySkuAsync, EnvironmentSku } from '../clients/bapClient';
@@ -14,6 +14,7 @@ import { DefaultCoreServicesClusterCategory, LspMethods, TelemetryEventsKeys } f
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import logger from '../services/logger';
 import { writePostOpenInstruction } from '../startup/postOpen';
+import { isCliLayeredWorkspace } from '../knowledgeFiles/syncUtils';
 import { getActiveAgentAccount, getAllProjectAccounts } from '../sync/localWorkspaces';
 
 type EnvironmentPickItem = QuickPickItem & { environment: EnvironmentInfo; sourceAccount?: { accountId?: string; accountEmail?: string } };
@@ -497,9 +498,14 @@ export async function cloneAgentToLocalFolder(agent: IdentifyAgentResponse | und
       // After cloning the agent, setup a PostOpen instruction to open the agent file in the current window.
       const workspaceUri = Uri.file(rootFolder);
       if (cloneResp?.agentFolderName) {
+        const agentRootUri = Uri.joinPath(workspaceUri, cloneResp.agentFolderName);
+        // CLI-layered agents (agent.sync.yaml marker, D22/D29) center on settings.mcs.yml and have no
+        // agent.mcs.yml; classic agents keep agent.mcs.yml. Shape-key the post-open target via the
+        // on-disk marker (the TS CloneAgentResponse does not carry AuthoringShape, D26) so the cloned
+        // agent's entry file actually opens instead of falling through to skipNoAgentFile.
+        const entryFileName = isCliLayeredWorkspace(agentRootUri.fsPath) ? 'settings.mcs.yml' : 'agent.mcs.yml';
         try {
-          const primaryFileName = cloneResp.format === AgentFormat.Cli ? 'settings.mcs.yml' : 'agent.mcs.yml';
-          const candidateAgentFile = Uri.joinPath(workspaceUri, cloneResp.agentFolderName, primaryFileName);
+          const candidateAgentFile = Uri.joinPath(agentRootUri, entryFileName);
           await workspace.fs.stat(candidateAgentFile);
           await writePostOpenInstruction(context, workspaceUri, candidateAgentFile);
         } catch {
@@ -507,7 +513,7 @@ export async function cloneAgentToLocalFolder(agent: IdentifyAgentResponse | und
             agentId: agentInfo.agentId,
             environmentId: environmentInfo.environmentId,
             phase: 'skipNoAgentFile',
-            detail: 'A concrete agent.mcs.yml was not recorded as a postOpen instruction'
+            detail: `A concrete ${entryFileName} was not recorded as a postOpen instruction`
           });
         }
       }

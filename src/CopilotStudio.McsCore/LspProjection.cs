@@ -51,7 +51,11 @@ internal static class LspProjection
     /// Optional ordered override list. The first matching override replaces infix/folder/blocklist
     /// for the current path or schema while preserving <paramref name="DotPassthrough"/>.
     /// </param>
-    /// <param name="PreserveBotPrefixedFiles">If true, bot-prefixed filenames are preserved instead of normalized.</param>
+    /// <param name="PreserveBotPrefixedFiles">
+    /// If true, bot-prefixed display-name filenames (e.g. <c>{botName}.MyFile_id</c>)
+    /// are preserved as-is instead of being normalized/expanded with the infix. Used by
+    /// the CLI knowledge/file three-layer rules (TDD D21).
+    /// </param>
     internal readonly record struct Rule(string Infix, string Folder, bool DotPassthrough = false, string[]? DotInfixBlocklist = null, RuleOverride[]? Overrides = null, bool PreserveBotPrefixedFiles = false);
 
     /// <summary>
@@ -117,25 +121,25 @@ internal static class LspProjection
             // Knowledge
             {
                 typeof(KnowledgeSource),
-                new Rule(".knowledge.", "knowledge/", true, new[] { "knowledge", "topic", "action" }, PreserveBotPrefixedFiles: true)
+                new Rule(".knowledge.", "knowledge/", true, new[] { "knowledge", "topic", "action" })
             },
             {
                 typeof(KnowledgeSourceConfiguration),
-                new Rule(".knowledge.", "knowledge/", true, new[] { "knowledge", "topic", "action" }, PreserveBotPrefixedFiles: true)
+                new Rule(".knowledge.", "knowledge/", true, new[] { "knowledge", "topic", "action" })
             },
             {
                 typeof(KnowledgeSourceComponent),
-                new Rule(".knowledge.", "knowledge/", true, new[] { "knowledge", "topic", "action" }, PreserveBotPrefixedFiles: true)
+                new Rule(".knowledge.", "knowledge/", true, new[] { "knowledge", "topic", "action" })
             },
 
             // File attachments
             {
                 typeof(FileAttachmentComponentMetadata),
-                new Rule(".file.", "knowledge/files/", true, new[] { "file" }, PreserveBotPrefixedFiles: true)
+                new Rule(".file.", "knowledge/files/", true, new[] { "file" })
             },
             {
                 typeof(FileAttachmentComponent),
-                new Rule(".file.", "knowledge/files/", true, new[] { "file" }, PreserveBotPrefixedFiles: true)
+                new Rule(".file.", "knowledge/files/", true, new[] { "file" })
             },
 
             // Variables
@@ -188,28 +192,6 @@ internal static class LspProjection
                 new Rule(".skill.", "skills/", true, new[] { "skill" })
             },
 
-            {
-                typeof(InlineAgentSkill),
-                new Rule(".skill.", "behaviors/", true, new[] { "skill" })
-            },
-
-            {
-                typeof(ConnectorTool),
-                new Rule(".tool.", "capabilities/tools/", true, new[] { "tool" })
-            },
-            {
-                typeof(WorkflowTool),
-                new Rule(".tool.", "capabilities/tools/", true, new[] { "tool" })
-            },
-            {
-                typeof(McpTool),
-                new Rule(".tool.", "capabilities/tools/", true, new[] { "tool" })
-            },
-            {
-                typeof(ConnectedAgentTool),
-                new Rule(".tool.connected-agent.", "capabilities/agents/", true, new[] { "tool" })
-            },
-
             // Translations (locale-aware, dot passthrough)
             {
                 typeof(TranslationsComponent),
@@ -231,19 +213,133 @@ internal static class LspProjection
         }.ToFrozenDictionary();
 
     /// <summary>
+    /// CLI-agent (<see cref="AuthoringShape.CliCopilot"/>) projection overrides,
+    /// consulted before the shared classic <see cref="Rules"/> when projecting a CLI
+    /// agent (TDD D20). Classic and Unknown shapes never consult this map, so classic
+    /// projection stays byte-identical.
+    /// </summary>
+    /// <remarks>
+    /// Recovered from PR #265 (the CLI three-layer routes, TDD D21), but kept in this
+    /// shape-gated map instead of the shared classic <see cref="Rules"/>. Connected
+    /// agents route to <c>capabilities/tools/</c> per D10 (PR #265 used
+    /// <c>capabilities/agents/</c>); knowledge/files route to <c>capabilities/knowledge/</c>
+    /// and <c>capabilities/knowledge/files/</c> (D21, diverging from PR #265's
+    /// <c>knowledge/</c>). Connection references are a separate Sync-overlay mechanism
+    /// (<see cref="ConnectionReference"/> is not a <c>BotComponentBase</c>), handled by
+    /// CliAgentConnectionsWriter at <c>infrastructure/connections/</c> - not projected
+    /// here (D27).
+    /// </remarks>
+    internal static readonly FrozenDictionary<Type, Rule> CliRules = new Dictionary<Type, Rule>
+        {
+            // Behaviors (CLI inline skills) -> behaviors/
+            {
+                typeof(InlineAgentSkill),
+                new Rule(".skill.", "behaviors/", true, new[] { "skill" })
+            },
+
+            // Tools -> capabilities/tools/
+            {
+                typeof(ConnectorTool),
+                new Rule(".tool.", "capabilities/tools/", true, new[] { "tool" })
+            },
+            {
+                typeof(WorkflowTool),
+                new Rule(".tool.", "capabilities/tools/", true, new[] { "tool" })
+            },
+            {
+                typeof(McpTool),
+                new Rule(".tool.", "capabilities/tools/", true, new[] { "tool" })
+            },
+            // D10: connected agents route to capabilities/tools/, NOT capabilities/agents/.
+            {
+                typeof(ConnectedAgentTool),
+                new Rule(".tool.connected-agent.", "capabilities/tools/", true, new[] { "tool" })
+            },
+
+            // Knowledge (shared type) -> capabilities/knowledge/ (D21). PreserveBotPrefixedFiles
+            // keeps bot-prefixed display-name knowledge files (e.g. "{bot}.MyBook_id") as-is.
+            {
+                typeof(KnowledgeSource),
+                new Rule(".knowledge.", "capabilities/knowledge/", true, new[] { "knowledge", "topic", "action" }, PreserveBotPrefixedFiles: true)
+            },
+            {
+                typeof(KnowledgeSourceConfiguration),
+                new Rule(".knowledge.", "capabilities/knowledge/", true, new[] { "knowledge", "topic", "action" }, PreserveBotPrefixedFiles: true)
+            },
+            {
+                typeof(KnowledgeSourceComponent),
+                new Rule(".knowledge.", "capabilities/knowledge/", true, new[] { "knowledge", "topic", "action" }, PreserveBotPrefixedFiles: true)
+            },
+
+            // File attachments (knowledge content) -> capabilities/knowledge/files/ (D21).
+            // The metadata leaf is the schema-derived {leaf}.mcs.yml; the content file is
+            // written to the SAME directory (download uses ParentDirectoryName), so moving
+            // this rule relocates metadata + content together.
+            {
+                typeof(FileAttachmentComponentMetadata),
+                new Rule(".file.", "capabilities/knowledge/files/", true, new[] { "file" }, PreserveBotPrefixedFiles: true)
+            },
+            {
+                typeof(FileAttachmentComponent),
+                new Rule(".file.", "capabilities/knowledge/files/", true, new[] { "file" }, PreserveBotPrefixedFiles: true)
+            },
+        }.ToFrozenDictionary();
+
+    /// <summary>
+    /// Top-level CLI component-body folders (TDD D30 allowlist), DERIVED from
+    /// <see cref="CliRules"/> so the sync new-file scan and old-layout detection cannot
+    /// drift from the projection: adding a CLI rule extends the writer, the resolver, and
+    /// this scan together from one source of truth. A folder strictly nested under another
+    /// in the set (e.g. <c>capabilities/knowledge/files/</c>, whose file-attachment
+    /// content/metadata is discovered via the dedicated knowledge-file path, not the
+    /// component scan) is excluded, since the scan matches direct children only. No
+    /// trailing slash, to match the scan-site folder usage.
+    /// </summary>
+    internal static readonly string[] CliComponentBodyFolders = BuildCliComponentBodyFolders();
+
+    private static string[] BuildCliComponentBodyFolders()
+    {
+        var all = CliRules.Values
+            .Select(r => r.Folder)
+            .Where(f => !string.IsNullOrEmpty(f))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+        return all
+            .Where(f => !all.Any(other =>
+                !string.Equals(other, f, StringComparison.Ordinal)
+                && f.StartsWith(other, StringComparison.Ordinal)))
+            .Select(f => f.TrimEnd('/'))
+            .OrderBy(f => f, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    /// <summary>
     /// Gets the rule infix for an element type, if one exists.
     /// </summary>
     internal static string? GetRuleInfixForElementType(Type elementType)
+        => GetRuleInfixForElementType(elementType, AuthoringShape.Classic);
+
+    /// <summary>
+    /// Shape-aware rule infix lookup (CLI agents consult <see cref="CliRules"/>).
+    /// </summary>
+    internal static string? GetRuleInfixForElementType(Type elementType, AuthoringShape shape)
     {
-        return TryGetRuleForElementType(elementType, null, null, out var rule) ? rule.Infix : null;
+        return TryGetRuleForElementType(elementType, null, null, out var rule, shape) ? rule.Infix : null;
     }
 
     /// <summary>
     /// Gets the rule folder for an element type, if one exists.
     /// </summary>
     internal static string? GetRuleFolderForElementType(Type elementType)
+        => GetRuleFolderForElementType(elementType, AuthoringShape.Classic);
+
+    /// <summary>
+    /// Shape-aware rule folder lookup (CLI agents consult <see cref="CliRules"/>).
+    /// </summary>
+    internal static string? GetRuleFolderForElementType(Type elementType, AuthoringShape shape)
     {
-        if (!TryGetRuleForElementType(elementType, null, null, out var rule))
+        if (!TryGetRuleForElementType(elementType, null, null, out var rule, shape))
         {
             return null;
         }
@@ -267,12 +363,24 @@ internal static class LspProjection
     /// <param name="botName">Bot entity schema name prefix.</param>
     /// <param name="elementType">Known element type for the file.</param>
     /// <returns>Full schema name (e.g., "botName.topic.MyTopic").</returns>
+    /// <remarks>
+    /// This exact 3-parameter signature is preserved (some callers and tests resolve
+    /// it by reflection); the shape-aware variant is a separate overload.
+    /// </remarks>
     internal static string? GetSchemaName(string pathWithoutExtension, string? botName, Type elementType)
     {
-        return GetSchemaNameResult(pathWithoutExtension, botName, elementType).SchemaName;
+        return GetSchemaName(pathWithoutExtension, botName, elementType, AuthoringShape.Classic);
     }
 
-    internal static SchemaNameResult GetSchemaNameResult(string pathWithoutExtension, string? botName, Type elementType)
+    /// <summary>
+    /// Shape-aware schema name derivation. CLI agents consult the CLI projection rules.
+    /// </summary>
+    internal static string? GetSchemaName(string pathWithoutExtension, string? botName, Type elementType, AuthoringShape shape)
+    {
+        return GetSchemaNameResult(pathWithoutExtension, botName, elementType, shape).SchemaName;
+    }
+
+    internal static SchemaNameResult GetSchemaNameResult(string pathWithoutExtension, string? botName, Type elementType, AuthoringShape shape = AuthoringShape.Classic)
     {
         var normalized = pathWithoutExtension.Replace('\\', '/');
         var fileName = System.IO.Path.GetFileName(normalized);
@@ -291,7 +399,7 @@ internal static class LspProjection
         }
 
         // Look up rule for element type
-        if (!TryGetRuleForElementType(elementType, null, normalized, out var rule))
+        if (!TryGetRuleForElementType(elementType, null, normalized, out var rule, shape))
         {
             // No rule found - return null to let caller fall back
             return new SchemaNameResult(null, PreserveQualifiedSchemaName: false);
@@ -306,6 +414,7 @@ internal static class LspProjection
         // Dot handling: follow legacy rules for dotted filenames
         if (fileName.Contains('.'))
         {
+            // CLI knowledge/file rules keep bot-prefixed display-name files as-is.
             if (rule.PreserveBotPrefixedFiles && StartsWithBotPrefix(fileName, botName))
             {
                 return new SchemaNameResult(fileName, PreserveQualifiedSchemaName: true);
@@ -319,6 +428,8 @@ internal static class LspProjection
             return new SchemaNameResult(fileName, PreserveQualifiedSchemaName: true);
         }
 
+        // CLI knowledge/file rules also preserve underscore-bearing display-name files
+        // that are not bot-prefixed (no dot, no infix to expand against).
         if (rule.PreserveBotPrefixedFiles
             && fileName.IndexOf('_') > 0
             && (string.IsNullOrEmpty(botName)
@@ -338,7 +449,7 @@ internal static class LspProjection
     /// <param name="schemaName">Full schema name.</param>
     /// <param name="botName">Bot name prefix.</param>
     /// <param name="subAgentFolder">Sub-agent folder prefix (e.g., "agents/MyAgent/").</param>
-    /// <returns>Always returns null. Use <see cref="GetFilePath(Type, string, string?, string?, string?)"/> instead.</returns>
+    /// <returns>Always returns null. Use <see cref="GetFilePath(Type, string, string?, string?, string?, AuthoringShape)"/> instead.</returns>
     /// <remarks>
     /// This overload cannot reliably determine the file path because it lacks the original
     /// file path context needed to distinguish between short names and already-qualified names.
@@ -350,7 +461,7 @@ internal static class LspProjection
         return null;
     }
 
-    internal static string? GetFilePath(Type elementType, string schemaName, string? botName, string? subAgentFolder, string? pathWithoutExtension)
+    internal static string? GetFilePath(Type elementType, string schemaName, string? botName, string? subAgentFolder, string? pathWithoutExtension, AuthoringShape shape = AuthoringShape.Classic)
     {
         var prefix = subAgentFolder ?? string.Empty;
 
@@ -369,7 +480,7 @@ internal static class LspProjection
         }
 
         // Look up rule
-        if (!TryGetRuleForElementType(elementType, schemaName, pathWithoutExtension, out var rule))
+        if (!TryGetRuleForElementType(elementType, schemaName, pathWithoutExtension, out var rule, shape))
         {
             return null;
         }
@@ -565,9 +676,23 @@ internal static class LspProjection
 
     #region Private Helpers
 
-    internal static bool TryGetRuleForElementType(Type elementType, string? schemaName, string? path, out Rule rule)
+    internal static bool TryGetRuleForElementType(Type elementType, string? schemaName, string? path, out Rule rule, AuthoringShape shape = AuthoringShape.Classic)
     {
-        if (Rules.TryGetValue(elementType, out var exactRule))
+        // CLI agents consult the CLI-specific overrides first; any type not present
+        // there falls back to the shared classic Rules. Classic and Unknown shapes
+        // never consult CliRules, so classic projection is byte-identical (TDD D20).
+        if (shape == AuthoringShape.CliCopilot
+            && TryGetRuleFromMap(CliRules, elementType, schemaName, path, out rule))
+        {
+            return true;
+        }
+
+        return TryGetRuleFromMap(Rules, elementType, schemaName, path, out rule);
+    }
+
+    private static bool TryGetRuleFromMap(FrozenDictionary<Type, Rule> map, Type elementType, string? schemaName, string? path, out Rule rule)
+    {
+        if (map.TryGetValue(elementType, out var exactRule))
         {
             rule = ResolveRule(exactRule, path, schemaName);
             return true;
@@ -578,7 +703,7 @@ internal static class LspProjection
         Type? bestMatch = null;
         Rule bestRule = default;
 
-        foreach (var kvp in Rules)
+        foreach (var kvp in map)
         {
             if (kvp.Key.IsAssignableFrom(elementType))
             {
@@ -643,6 +768,37 @@ internal static class LspProjection
 
         var agentName = parts[1];
         return $"{botName}.agent.{agentName}";
+    }
+
+    /// <summary>
+    /// True when a filename is a bot-prefixed display-name file: it starts with
+    /// "{botName}." and the remainder has no further dots (e.g. "{bot}.MyFile_id").
+    /// </summary>
+    private static bool StartsWithBotPrefix(string fileName, string? botName)
+    {
+        if (string.IsNullOrEmpty(botName) || string.IsNullOrEmpty(fileName))
+        {
+            return false;
+        }
+
+        if (!fileName.StartsWith(botName + ".", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var rest = fileName.Substring(botName!.Length + 1);
+        return rest.Length > 0 && rest.IndexOf('.') < 0;
+    }
+
+    private static bool IsBotPrefixedFile(string? pathWithoutExtension, string? botName)
+    {
+        if (string.IsNullOrEmpty(pathWithoutExtension) || string.IsNullOrEmpty(botName))
+        {
+            return false;
+        }
+
+        var fileName = System.IO.Path.GetFileName(pathWithoutExtension!.Replace('\\', '/'));
+        return StartsWithBotPrefix(fileName, botName);
     }
 
     private static string Expand(string infix, string fileName, string? botName)
@@ -717,33 +873,6 @@ internal static class LspProjection
         }
 
         return !ShouldExpandDottedName(rule, fileName);
-    }
-
-    private static bool StartsWithBotPrefix(string fileName, string? botName)
-    {
-        if (string.IsNullOrEmpty(botName) || string.IsNullOrEmpty(fileName))
-        {
-            return false;
-        }
-
-        if (!fileName.StartsWith(botName + ".", StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        var rest = fileName.Substring(botName!.Length + 1);
-        return rest.Length > 0 && rest.IndexOf('.') < 0;
-    }
-
-    private static bool IsBotPrefixedFile(string? pathWithoutExtension, string? botName)
-    {
-        if (string.IsNullOrEmpty(pathWithoutExtension) || string.IsNullOrEmpty(botName))
-        {
-            return false;
-        }
-
-        var fileName = System.IO.Path.GetFileName(pathWithoutExtension!.Replace('\\', '/'));
-        return StartsWithBotPrefix(fileName, botName);
     }
 
     private static string DeriveShortName(
@@ -889,13 +1018,18 @@ internal static class LspProjection
         AddToMap(map, "knowledge/files/", typeof(FileAttachmentComponent));
         // Skills
         AddToMap(map, "skills/", typeof(SkillDefinition));
+        // CLI three-layer (D21); folders are disjoint from classic, so the combined
+        // read-side map stays unambiguous. Connected agents -> capabilities/tools/ (D10).
         AddToMap(map, "behaviors/", typeof(AgentSkillBase));
         AddToMap(map, "behaviors/", typeof(InlineAgentSkill));
         AddToMap(map, "capabilities/tools/", typeof(AgentToolBase));
         AddToMap(map, "capabilities/tools/", typeof(ConnectorTool));
         AddToMap(map, "capabilities/tools/", typeof(WorkflowTool));
         AddToMap(map, "capabilities/tools/", typeof(McpTool));
-        AddToMap(map, "capabilities/agents/", typeof(ConnectedAgentTool));
+        AddToMap(map, "capabilities/tools/", typeof(ConnectedAgentTool));
+        // CLI shared types: knowledge + file attachments (D21).
+        AddToMap(map, "capabilities/knowledge/", typeof(KnowledgeSource));
+        AddToMap(map, "capabilities/knowledge/files/", typeof(FileAttachmentComponent));
         // External triggers
         AddToMap(map, "trigger/", typeof(ExternalTriggerConfiguration));
         // Test cases

@@ -154,19 +154,20 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     await _workspaceSynchronizer.ApplyTouchupsAsync(folder, referenceTracker, cancellationToken);
                 }
 
-                AgentFormat? detectedFormat = null;
+                AuthoringShape? detectedShape = null;
                 if (agentFolderName != null)
                 {
                     var agentFolder = rootPath.GetChildDirectoryPath(agentFolderName);
-                    detectedFormat = AgentFormatDetector.DetectFromFolder(agentFolder.ToString());
-                    if (detectedFormat != AgentFormat.Unknown && _workspaceSynchronizer.IsSyncInfoAvailable(agentFolder))
+                    var shape = AgentClassifier.DetectAuthoringShapeFromFolder(agentFolder.ToString());
+                    detectedShape = shape;
+                    if (shape != AuthoringShape.Unknown && _workspaceSynchronizer.IsSyncInfoAvailable(agentFolder))
                     {
                         try
                         {
                             var persisted = await _workspaceSynchronizer.GetSyncInfoAsync(agentFolder);
-                            if (persisted.Format != detectedFormat)
+                            if (persisted.AuthoringShape != shape)
                             {
-                                persisted.Format = detectedFormat;
+                                persisted.AuthoringShape = shape;
                                 await _workspaceSynchronizer.SaveSyncInfoAsync(agentFolder, persisted);
                             }
                         }
@@ -182,7 +183,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     Code = 200,
                     Message = string.Empty,
                     AgentFolderName = agentFolderName,
-                    Format = detectedFormat,
+                    AuthoringShape = detectedShape,
                 };
             }
             catch (DataverseBadRequestException ex)

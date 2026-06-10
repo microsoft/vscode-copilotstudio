@@ -8,6 +8,6 @@
         // Canonical folder name containing the top-level agent.mcs.yml (main agent clone).
         public string? AgentFolderName { get; set; }
 
-        public AgentFormat? Format { get; set; }
+        public AuthoringShape? AuthoringShape { get; set; }
     }
 }

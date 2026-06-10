@@ -1,4 +1,15 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
+//
+// Recovered from PR #265 (deferred from Node N), adjusted for Node Q:
+//   - Three-layer .mcs.yml paths (D21): tools -> capabilities/tools/, skills ->
+//     behaviors/, connected agents -> capabilities/tools/ (D10, NOT
+//     capabilities/agents/).
+//   - CompileFile is called with the CliCopilot shape so the CLI projection rules
+//     derive the component schema name (the rules are shape-gated, D20).
+//
+// The maker-safety net: SerializeAsMcsYml_CliComponent_AfterJsonRoundTrip_* exercises
+// the JSON round-trip that exposed the Node-L $kind instruction-wipe; it must still
+// carry mcs.metadata and a discriminatable body after a structured round-trip.
 
 using Microsoft.Agents.ObjectModel;
 using Microsoft.Agents.ObjectModel.FileProjection;
@@ -19,19 +30,19 @@ public class CliFileParserTests
 
     [Theory]
     [InlineData("kind: WorkflowTool\nworkflowId: 4f66c140-e032-f111-88b4-7ced8d3b6119\n",
-                "tools/AgentFlow1.mcs.yml",
+                "capabilities/tools/AgentFlow1.mcs.yml",
                 "Default_draft_ECaOPZ.tool.AgentFlow1")]
     [InlineData("kind: ConnectorTool\nconnectionReference: shared_x\noperationId: GetRow\n",
-                "tools/Getarow.mcs.yml",
+                "capabilities/tools/Getarow.mcs.yml",
                 "Default_draft_ECaOPZ.tool.Getarow")]
     [InlineData("kind: InlineAgentSkill\ncontent: |\n  ---\n  name: w\n  ---\n  Skill body\n",
-                "skills/weather.mcs.yml",
+                "behaviors/weather.mcs.yml",
                 "Default_draft_ECaOPZ.skill.weather")]
     [InlineData("kind: ConnectedAgentTool\nbotSchemaName: cre98_AgentC4\n",
-                "capabilities/agents/cre98_AgentC4.mcs.yml",
+                "capabilities/tools/cre98_AgentC4.mcs.yml",
                 "Default_draft_ECaOPZ.tool.connected-agent.cre98_AgentC4")]
     [InlineData("kind: McpTool\nserverUrl: https://example/mcp\n",
-                "tools/WorkIQCopilotPreview.mcs.yml",
+                "capabilities/tools/WorkIQCopilotPreview.mcs.yml",
                 "Default_draft_ECaOPZ.tool.WorkIQCopilotPreview")]
     public void CompileFile_CliKind_RoutesToExpectedComponent(string yaml, string filePath, string expectedSchemaName)
     {
@@ -42,7 +53,7 @@ public class CliFileParserTests
         var ctx = new ProjectionContext(BotName: Bot);
         var relativePath = new AgentFilePath(filePath);
 
-        var (component, error) = parser.CompileFile(relativePath, model!, ctx);
+        var (component, error) = parser.CompileFile(relativePath, model!, ctx, AuthoringShape.CliCopilot);
 
         Assert.Null(error);
         Assert.NotNull(component);
@@ -167,6 +178,8 @@ public class CliFileParserTests
             .Deserialize<DefinitionBase>(structuredJson, ElementSerializer.CreateOptions())!
             .Components.OfType<DialogComponent>().Single();
 
+        // The structured (non-pass-through) round-trip strips mcs.metadata: this probe
+        // documents why the cloud cache + clone path stay in the pass-through context.
         using (var probe = new StringWriter())
         {
             CodeSerializer.SerializeAsMcsYml(probe, cloudSkill);
@@ -177,9 +190,15 @@ public class CliFileParserTests
         var workspace = new DirectoryPath("c:/test/clone-skill/");
         var operationContext = ComponentWriterDefensiveTests.CreateMockOperationContext();
 
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: " + Bot)!;
+        // Use the fixture's genuine CLI entity (carries AgentSettings) so the writer
+        // derives the CliCopilot shape and routes the skill to behaviors/ (D20/D30).
+        // The cloud component is the pass-through-loaded skill (carries mcs.metadata in
+        // ExtensionData, exactly as a real Island clone delivers it), so the converged
+        // SerializeAsMcsYml writer re-emits mcs.metadata at the behaviors/ path.
+        var botEntity = ((BotDefinition)definition!).Entity!;
+        Assert.Equal(AuthoringShape.CliCopilot, AgentClassifier.DetectAuthoringShape(botEntity));
         var changeset = new PvaComponentChangeSet(
-            new System.Collections.Generic.List<BotComponentChange> { new BotComponentInsert(cloudSkill) },
+            new System.Collections.Generic.List<BotComponentChange> { new BotComponentInsert(skill) },
             botEntity,
             "token-1");
 

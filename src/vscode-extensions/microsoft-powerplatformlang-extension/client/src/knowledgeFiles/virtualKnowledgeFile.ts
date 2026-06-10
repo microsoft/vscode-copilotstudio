@@ -9,7 +9,8 @@ import { knowledgeTreeDataProvider } from './knowledgeFileTree';
 import { randId } from '../botComponents/schemaName';
 import logger from '../services/logger';
 import { ConflictResolution, TelemetryEventsKeys } from '../constants';
-import { AgentFormat, ChangeType } from '../types';
+import { ChangeType } from '../types';
+import { isCliLayeredWorkspace } from './syncUtils';
 
 let virtualKnowledgeProvider: virtualKnowledgeFileSystemProvider | undefined;
 let virtualTreeProvider: knowledgeTreeDataProvider | undefined;
@@ -119,10 +120,9 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
     const trackPath = getTrackPath(workspaceUri);
     const track = await loadChangeTrack(trackPath);
     const botHandler = await getDataverseBotHandler(syncInfo);
-    const metadata = await botHandler.listWsComponentMetadata(syncInfo);
+    const isCli = isCliLayeredWorkspace(vscode.Uri.parse(workspaceUri).fsPath);
+    const metadata = await botHandler.listWsComponentMetadata(syncInfo, isCli);
     const remoteFilenames = new Set<string>();
-
-    const isCli = syncInfo.format === AgentFormat.Cli;
     for (const componentMetadata of metadata) {
       const isKnowledgeFile = isCli
         ? !componentMetadata.schemaName.includes('.files.') && !!componentMetadata.filename
@@ -287,7 +287,10 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
         delete track[filename].remoteChangeType;
         delete track[filename].localChangeType;
 
-        logger.logInfo(TelemetryEventsKeys.VirtualKnowledgeFileProgress, `File downloaded and saved to <pii>knowledge\\files\\${filename}</pii>`);
+        // Shape-keyed display: report the actual on-disk location (classic knowledge/files vs CLI
+        // capabilities/knowledge/files) instead of a hardcoded classic path (TDD D34/D36).
+        const savedRelPath = path.relative(vscode.Uri.parse(workspaceUri).fsPath, localPath);
+        logger.logInfo(TelemetryEventsKeys.VirtualKnowledgeFileProgress, `File downloaded and saved to <pii>${savedRelPath}</pii>`);
       });
     }
 

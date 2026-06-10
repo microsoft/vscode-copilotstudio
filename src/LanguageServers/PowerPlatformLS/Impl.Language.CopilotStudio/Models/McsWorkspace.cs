@@ -62,7 +62,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models
             }
         }
 
-        public AgentFormat Format => AgentFormatDetector.Detect(CompilationAnalyzer?.RootDefinition);
+        public AuthoringShape AuthoringShape => AgentClassifier.DetectAuthoringShape(CompilationAnalyzer?.RootDefinition);
 
         public override void AddDocument(LspDocument document)
         {

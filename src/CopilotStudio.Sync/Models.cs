@@ -84,7 +84,7 @@ public class AgentSyncInfo
     public Uri? AgentManagementEndpoint { get; init; }
 
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
-    public AgentFormat? Format { get; set; }
+    public AuthoringShape? AuthoringShape { get; set; }
 }
 
 public class AssetsToClone
@@ -366,7 +366,7 @@ internal interface IMcsWorkspace
 
     DefinitionBase Definition { get; }
 
-    AgentFormat Format { get; }
+    AuthoringShape AuthoringShape { get; }
 }
 
 #endregion

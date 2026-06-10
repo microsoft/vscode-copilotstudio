@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import { existsSync } from 'fs';
 import { getAccessTokenByAccountId } from '../clients/account';
 import { botComponentHandler } from '../botComponents/botComponentHandler';
 import logger from '../services/logger';
@@ -8,15 +9,38 @@ import { AgentSyncInfo, Change, ChangeType } from '../types';
 import { ChangeTrack } from './fileHelper';
 import { TelemetryEventsKeys } from '../constants';
 
+// Knowledge-file content folder is shape-keyed (TDD D34), NOT a migration: classic agents
+// keep knowledge/files/; CLI layered agents use capabilities/knowledge/files/, mirroring the
+// C# sync engine and the projection. The CLI layered layout is signalled by the agent.sync.yaml
+// marker the CLI clone emits (classic clones never emit it, see the C# WorkspaceLayout marker).
+// Exported as the canonical client-side CLI-layout signal (TDD D29/D36): clone post-open and other
+// client paths reuse it instead of re-deriving the marker (the TS CloneAgentResponse does not carry
+// AuthoringShape, so the on-disk marker is the threaded signal, D26).
+export function isCliLayeredWorkspace(root: string): boolean {
+  return existsSync(path.join(root, 'agent.sync.yaml'));
+}
+
+function mainKnowledgeFilesDir(root: string): string {
+  return isCliLayeredWorkspace(root)
+    ? path.join(root, 'capabilities', 'knowledge', 'files')
+    : path.join(root, 'knowledge', 'files');
+}
+
+function subAgentKnowledgeFilesDir(root: string, agentFolder: string): string {
+  return isCliLayeredWorkspace(root)
+    ? path.join(root, 'agents', agentFolder, 'capabilities', 'knowledge', 'files')
+    : path.join(root, 'agents', agentFolder, 'knowledge', 'files');
+}
+
 export function getFilesDir(workspaceUri: string, agentSchemaName?: string): string {
   const root = vscode.Uri.parse(workspaceUri).fsPath;
 
   if (agentSchemaName && agentSchemaName.includes('.agent.')) {
     const agentFolder = agentSchemaName.split('.agent.').pop();
-    return path.join(root, 'agents', agentFolder!, 'knowledge', 'files');
+    return subAgentKnowledgeFilesDir(root, agentFolder!);
   }
 
-  return path.join(root, 'knowledge', 'files');
+  return mainKnowledgeFilesDir(root);
 }
 
 export function getTrackPath(workspaceUri: string): string {
@@ -96,7 +120,8 @@ export async function getKnowledgeLocalChanges(syncInfo: AgentSyncInfo, workspac
 
   const changes: Change[] = [];
   const botHandler = await getDataverseBotHandler(syncInfo);
-  const wsMeta = await botHandler.listWsComponentMetadata(syncInfo);
+  const isCli = isCliLayeredWorkspace(vscode.Uri.parse(workspaceUri).fsPath);
+  const wsMeta = await botHandler.listWsComponentMetadata(syncInfo, isCli);
   const remoteFiles = new Set(wsMeta.map(metadata => decodeURIComponent(metadata.filename ?? '')));
 
   for (const file of localFiles) {
@@ -125,7 +150,8 @@ export async function getKnowledgeRemoteChanges(syncInfo: AgentSyncInfo, workspa
   const localFileMap = new Map(localFiles.map(f => [f.name.toLowerCase(), f]));
   const changes: Change[] = [];
   const botHandler = await getDataverseBotHandler(syncInfo);
-  const wsMeta = await botHandler.listWsComponentMetadata(syncInfo);
+  const isCli = isCliLayeredWorkspace(vscode.Uri.parse(workspaceUri).fsPath);
+  const wsMeta = await botHandler.listWsComponentMetadata(syncInfo, isCli);
   const remoteFiles = new Map<string, { fileName: string, schemaName: string }>();
   for (const { filename, schemaName } of wsMeta) {
     const decodedFile = decodeURIComponent(filename ?? '');
@@ -139,7 +165,7 @@ export async function getKnowledgeRemoteChanges(syncInfo: AgentSyncInfo, workspa
 
   for (const { fileName, schemaName } of remoteFiles.values()) {
     if (!localFileMap.has(fileName.toLowerCase())) {
-      const fullPath = path.join(vscode.Uri.parse(workspaceUri).fsPath, 'knowledge', 'files', fileName);
+      const fullPath = path.join(mainKnowledgeFilesDir(vscode.Uri.parse(workspaceUri).fsPath), fileName);
       const fileUri = vscode.Uri.file(fullPath).toString();
       changes.push({
         uri: fileUri,
@@ -155,7 +181,7 @@ export async function getKnowledgeRemoteChanges(syncInfo: AgentSyncInfo, workspa
     const { remoteChangeType, schema } = trackingData[fileName];
     if (remoteChangeType !== undefined) {
       const file = localFileMap.get(fileName.toLowerCase());
-      const fullPath = file ? file.fullPath : path.join(vscode.Uri.parse(workspaceUri).fsPath, 'knowledge', 'files', fileName);
+      const fullPath = file ? file.fullPath : path.join(mainKnowledgeFilesDir(vscode.Uri.parse(workspaceUri).fsPath), fileName);
       const fileUri = vscode.Uri.file(fullPath).toString();
       changes.push({
         uri: fileUri,
@@ -172,7 +198,7 @@ export async function getKnowledgeRemoteChanges(syncInfo: AgentSyncInfo, workspa
 
 export async function getAllKnowledgeFiles(workspaceUri: string): Promise<{ name: string; fullPath: string; agentSchemaSuffix?: string}[]> {
   const root = vscode.Uri.parse(workspaceUri).fsPath;
-  const mainDir = path.join(root, 'knowledge', 'files');
+  const mainDir = mainKnowledgeFilesDir(root);
   const agentsDir = path.join(root, 'agents');
   const files: { name: string; fullPath: string; agentSchemaSuffix?: string}[] = [];
 
@@ -188,7 +214,7 @@ export async function getAllKnowledgeFiles(workspaceUri: string): Promise<{ name
     const agentFolders = await fs.readdir(agentsDir);
 
     for (const agent of agentFolders) {
-      const dir = path.join(agentsDir, agent, 'knowledge', 'files');
+      const dir = subAgentKnowledgeFilesDir(root, agent);
       const agentFiles = await readKnowledgeFilesDir(dir);
 
       files.push(...agentFiles.map(f => ({

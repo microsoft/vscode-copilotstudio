@@ -1,0 +1,12 @@
+kind: AdaptiveDialog
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent:
+    displayName: Goodbye
+    triggerQueries:
+      - Bye
+  actions:
+    - kind: SendActivity
+      id: sendMessage_1
+      activity: Goodbye!

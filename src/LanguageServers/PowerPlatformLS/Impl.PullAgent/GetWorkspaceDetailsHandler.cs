@@ -50,16 +50,16 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 _logger.LogException(exception);
             }
 
-            if (syncInfo != null && (syncInfo.Format == null || syncInfo.Format == AgentFormat.Unknown))
+            if (syncInfo != null && (syncInfo.AuthoringShape == null || syncInfo.AuthoringShape == AuthoringShape.Unknown))
             {
-                var detected = ws.Format;
-                if (detected == AgentFormat.Unknown)
+                var detected = ws.AuthoringShape;
+                if (detected == AuthoringShape.Unknown)
                 {
-                    detected = AgentFormatDetector.DetectFromFolder(ws.FolderPath.ToString());
+                    detected = AgentClassifier.DetectAuthoringShapeFromFolder(ws.FolderPath.ToString());
                 }
-                if (detected != AgentFormat.Unknown)
+                if (detected != AuthoringShape.Unknown)
                 {
-                    syncInfo.Format = detected;
+                    syncInfo.AuthoringShape = detected;
                 }
             }
 

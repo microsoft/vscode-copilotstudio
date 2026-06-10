@@ -125,17 +125,34 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     };
                 }
 
+                // Fail-closed support gate (TDD D35): reattach creates/updates a cloud agent, so
+                // it requires a Supported authoring shape. Classify from the definition AND the
+                // workspace layout: a plain classic agent resolves to Supported via its layout, a
+                // component-collection root is a recognized format, but an explicitly unrecognized
+                // shape stays Provisional. Return an explicit 400 (this handler maps thrown
+                // exceptions to 500).
+                var classification = AgentClassifier.Classify(workspace.Definition, workspaceFolder.ToString());
+                if (!classification.Allows(SyncOperation.Reattach))
+                {
+                    return new ReattachAgentResponse()
+                    {
+                        Code = 400,
+                        Message = AuthoringSupportGate.DescribeBlocked(classification, SyncOperation.Reattach),
+                        AgentSyncInfo = defaultSyncInfo
+                    };
+                }
+
                 var agentId = await _dataverseClient.GetAgentIdBySchemaNameAsync(thisSchema, cancellationToken);
                 bool updateWorkspaceDirectory = false;
                 if (agentId == Guid.Empty)
                 {
-                    var agentFormat = workspace.Format;
-                    if (agentFormat == AgentFormat.Unknown)
+                    var authoringShape = workspace.AuthoringShape;
+                    if (authoringShape == AuthoringShape.Unknown)
                     {
-                        agentFormat = AgentFormatDetector.DetectFromFolder(workspaceFolder.ToString());
+                        authoringShape = AgentClassifier.DetectAuthoringShapeFromFolder(workspaceFolder.ToString());
                     }
 
-                    var newAgent = await _dataverseClient.CreateNewAgentAsync(agentDisplayName, thisSchema, agentFormat, cancellationToken);
+                    var newAgent = await _dataverseClient.CreateNewAgentAsync(agentDisplayName, thisSchema, authoringShape, cancellationToken);
                     agentId = newAgent.AgentId;
                     isNewAgent = true;
 
@@ -162,7 +179,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 var operationContext = await _operationContextProvider.GetAsync(syncInfo);
 
                 var connectorPushResult = await _workspaceSynchronizer.PushCustomConnectorsAsync(workspaceFolder, _dataverseClient, cancellationToken);
-                await _workspaceSynchronizer.ProvisionConnectionReferencesAsync(workspace.Definition, _dataverseClient, cancellationToken, connectorPushResult.PushedRowIds);
+                await _workspaceSynchronizer.ProvisionConnectionReferencesAsync(workspaceFolder, workspace.Definition, _dataverseClient, cancellationToken, connectorPushResult.PushedRowIds);
                 var (workflowResponse, cloudFlowMetadata) = await _workspaceSynchronizer.UpsertWorkflowForAgentAsync(workspaceFolder, _dataverseClient, agentId, cancellationToken);
                 var (aiPromptResponse, _) = await _workspaceSynchronizer.UpsertAIPromptsForAgentAsync(workspaceFolder, _dataverseClient, agentId, cancellationToken);
                 await _workspaceSynchronizer.SyncWorkspaceAsync(workspaceFolder, operationContext, changeToken: null, updateWorkspaceDirectory, _dataverseClient, syncInfo, cloudFlowMetadata, cancellationToken: cancellationToken);
