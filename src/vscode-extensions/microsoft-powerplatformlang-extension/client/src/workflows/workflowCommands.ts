@@ -33,7 +33,7 @@ async function focusNode(args: FocusNodeArgs): Promise<void> {
     await vscode.commands.executeCommand('editor.unfoldRecursively');
     editor.revealRange(new vscode.Range(startPos, endPos), vscode.TextEditorRevealType.AtTop);
   } catch (error) {
-    logger.logError(TelemetryEventsKeys.WorkflowFocusNodeError, `Failed to focus workflow node: ${error}`);
+    logger.logError(TelemetryEventsKeys.WorkflowFocusNodeError, `Failed to focus workflow node: <pii>${error}</pii>`);
   }
 }
 
@@ -168,7 +168,7 @@ async function editEmbeddedJson(args: EditEmbeddedJsonArgs): Promise<void> {
   } catch (error) {
     logger.logError(
       TelemetryEventsKeys.WorkflowEditEmbeddedJsonError,
-      `Failed to open embedded JSON editor: ${error}`,
+      `Failed to open embedded JSON editor: <pii>${error}</pii>`,
     );
     void vscode.window.showErrorMessage(`Could not open embedded JSON: ${error}`);
   }

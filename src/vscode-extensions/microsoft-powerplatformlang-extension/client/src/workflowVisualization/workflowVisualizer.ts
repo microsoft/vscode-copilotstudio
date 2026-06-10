@@ -111,7 +111,7 @@ export class WorkflowVisualizerController {
       const model = buildGraphModel(this.document.getText());
       void this.panel.webview.postMessage({ type: 'model', model });
     } catch (error) {
-      logger.logError(TelemetryEventsKeys.WorkflowVisualizeError, `Failed to build workflow graph model: ${error}`);
+      logger.logError(TelemetryEventsKeys.WorkflowVisualizeError, `Failed to build workflow graph model: <pii>${error}</pii>`);
     }
   }
 

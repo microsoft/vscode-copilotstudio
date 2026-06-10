@@ -18,7 +18,7 @@ export function initializeWorkflowVisualization(context: vscode.ExtensionContext
         const document = await vscode.workspace.openTextDocument(uri);
         WorkflowVisualizerController.show(context, document);
       } catch (error) {
-        logger.logError(TelemetryEventsKeys.WorkflowVisualizeError, `Failed to open workflow visualizer: ${error}`);
+        logger.logError(TelemetryEventsKeys.WorkflowVisualizeError, `Failed to open workflow visualizer: <pii>${error}</pii>`);
       }
     }),
   );

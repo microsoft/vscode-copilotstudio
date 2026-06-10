@@ -201,7 +201,7 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
         throw error;
       }
     } else if (suppressErrorNotification) {
-      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, { message: `Error ${displayText}: ${(error as Error).message}` });
+      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, { message: `Error ${displayText}: <pii>${(error as Error).message}</pii>` });
       throw error;
     } else {
       logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Error ${displayText}: ${(error as Error).message}`);
