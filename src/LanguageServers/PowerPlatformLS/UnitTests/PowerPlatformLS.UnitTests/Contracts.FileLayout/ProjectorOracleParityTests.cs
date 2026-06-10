@@ -486,6 +486,14 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
                 { "trigger/", new[] { "Microsoft.Agents.ObjectModel.ExternalTriggerConfiguration" } },
                 { "skills/", new[] { "Microsoft.Agents.ObjectModel.SkillDefinition" } },
                 { "translations/", new[] { "Microsoft.Agents.ObjectModel.AdaptiveDialog" } },
+
+                // CLI three-layer (D21). Knowledge/file attachments are shared types, so
+                // they appear in both the classic and CLI folders (the reverse map is
+                // multivalued for them, which McsLspDocument handles as "either ... or").
+                { "behaviors/", new[] { "Microsoft.Agents.ObjectModel.AgentSkillBase", "Microsoft.Agents.ObjectModel.InlineAgentSkill" } },
+                { "capabilities/tools/", new[] { "Microsoft.Agents.ObjectModel.AgentToolBase", "Microsoft.Agents.ObjectModel.ConnectorTool", "Microsoft.Agents.ObjectModel.WorkflowTool", "Microsoft.Agents.ObjectModel.McpTool", "Microsoft.Agents.ObjectModel.ConnectedAgentTool" } },
+                { "capabilities/knowledge/", new[] { "Microsoft.Agents.ObjectModel.KnowledgeSource" } },
+                { "capabilities/knowledge/files/", new[] { "Microsoft.Agents.ObjectModel.FileAttachmentComponent" } },
             };
 
         private static IReadOnlyDictionary<string, string[]>? GetFileStructureMapFromRuntime()

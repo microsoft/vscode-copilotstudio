@@ -61,7 +61,7 @@
             var context = CreateTestSetup();
             var failingClient = new Mock<ISyncDataverseClient>();
             failingClient.Setup(c => c.GetAgentIdBySchemaNameAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(Guid.Empty);
-            failingClient.Setup(c => c.CreateNewAgentAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ThrowsAsync(new InvalidOperationException("Dataverse failure!"));
+            failingClient.Setup(c => c.CreateNewAgentAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<AuthoringShape>(), It.IsAny<CancellationToken>())).ThrowsAsync(new InvalidOperationException("Dataverse failure!"));
             var handler = TestHandlerFactory.CreateHandler(failingClient.Object, new TestWorkspaceSynchronizer(), CreateOperationProvider());
 
             var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
@@ -240,6 +240,74 @@
             Assert.Empty(trackingClient.ProvisionedConnections);
         }
 
+        [Fact]
+        public async Task ReattachAgent_UnrecognizedTemplate_BlockedWith400_NoMutationTest()
+        {
+            // D35 (primary): an EXPLICITLY unrecognized authoring shape (unknown template) whose
+            // folder merely falls back to a classic layout must NOT be promoted to Supported.
+            // Reattach fails closed (400) before any cloud mutation.
+            var context = CreateTestSetup("Workspace/UnrecognizedTemplateWorkspace");
+            var dataverse = new Mock<ISyncDataverseClient>();
+            dataverse.Setup(c => c.GetAgentIdBySchemaNameAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(Guid.Empty);
+            var handler = TestHandlerFactory.CreateHandler(dataverse.Object, new TestWorkspaceSynchronizer(), CreateOperationProvider());
+
+            var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
+
+            Assert.Equal(400, response.Code);
+            Assert.False(response.IsNewAgent);
+            Assert.Equal(Guid.Empty, response.AgentSyncInfo?.AgentId);
+            Assert.Contains(SyncOperation.Reattach.ToString(), response.Message);
+            // No mutation: the gate blocks before any Dataverse interaction.
+            dataverse.Verify(c => c.GetAgentIdBySchemaNameAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+            dataverse.Verify(c => c.CreateNewAgentAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<AuthoringShape>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task ReattachAgent_ComponentCollectionRoot_NotBlockedByGateTest()
+        {
+            // D35 (secondary regression guard): a component-collection root (no BotEntity, no
+            // settings.mcs.yml) is a recognized format and must NOT be blocked by the gate -
+            // reattach proceeds and creates the new agent as before.
+            var dir = Path.GetFullPath(Path.Combine(TestDataPath, "WorkspaceWithCC"));
+            var world = new World(dir);
+            var ccDir = Path.Combine(dir, "MyCC333");
+            var workspace = world.GetWorkspace(ccDir);
+            var doc = workspace.GetDocumentOrThrow(new AgentFilePath("collection.mcs.yml"));
+            var requestContext = world.GetRequestContext(doc, 0);
+
+            var request = new ReattachAgentRequest
+            {
+                WorkspaceUri = new Uri(ccDir),
+                AccountInfo = new AccountInfo
+                {
+                    AccountId = AccountId,
+                    TenantId = Guid.NewGuid(),
+                    AccountEmail = AccountEmail
+                },
+                EnvironmentInfo = new EnvironmentInfo
+                {
+                    DataverseUrl = DataverseUrl,
+                    AgentManagementUrl = AgentManagementUrl,
+                    EnvironmentId = EnvironmentId,
+                    DisplayName = "Test Environment"
+                },
+                SolutionVersions = new SolutionInfo
+                {
+                    CopilotStudioSolutionVersion = new Version(1, 0, 0, 0)
+                },
+                CopilotStudioAccessToken = CopilotStudioToken,
+                DataverseAccessToken = DataverseToken
+            };
+
+            var handler = TestHandlerFactory.CreateHandler(new MockDataverseClient(), new TestWorkspaceSynchronizer(), CreateOperationProvider());
+
+            var response = await handler.HandleRequestAsync(request, requestContext, CancellationToken.None);
+
+            // Gate recognized the component-collection format as Supported, so reattach proceeded.
+            Assert.Equal(200, response.Code);
+            Assert.True(response.IsNewAgent);
+        }
+
         private ReattachAgentTestContext CreateTestSetup(string? customWorkspace = null)
         {
             var workspacePath = Path.GetFullPath(Path.Combine(TestDataPath, customWorkspace ?? WorkspacePath));
@@ -340,7 +408,7 @@
             _workflowsForAgent = workflows;
         }
 
-        public virtual Task<AgentInfo> CreateNewAgentAsync(string newAgentName, string schemaName, CancellationToken cancellationToken)
+        public virtual Task<AgentInfo> CreateNewAgentAsync(string newAgentName, string schemaName, AuthoringShape authoringShape, CancellationToken cancellationToken)
         {
             var fakeAgent = new AgentInfo
             {
@@ -553,6 +621,9 @@
         }
 
         public Task ProvisionConnectionReferencesAsync(DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken, IReadOnlyDictionary<string, Guid>? pushedConnectorIds = null)
+            => Task.CompletedTask;
+
+        public Task ProvisionConnectionReferencesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken, IReadOnlyDictionary<string, Guid>? pushedConnectorIds = null)
             => Task.CompletedTask;
 
         public virtual Task<CustomConnectorPushResult> PushCustomConnectorsAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)

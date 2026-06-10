@@ -25,6 +25,12 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models
         public (BotComponentBase? component, Exception? error) CompileFile(
             LspDocument<BotElement> document,
             ProjectionContext context)
+            => CompileFile(document, context, AuthoringShape.Classic);
+
+        public (BotComponentBase? component, Exception? error) CompileFile(
+            LspDocument<BotElement> document,
+            ProjectionContext context,
+            AuthoringShape shape)
         {
             BotElement? fileModel = document.FileModel;
             var relativePath = document.As<McsLspDocument>().RelativePath;
@@ -34,7 +40,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models
                 return (null, new InvalidDataException($"File model is null for {relativePath}"));
             }
 
-            var schemaName = McsFileParserCore.DeriveSchemaName(_projectorService, fileModel, relativePath, context);
+            var schemaName = McsFileParserCore.DeriveSchemaName(_projectorService, fileModel, relativePath, context, shape);
 
             if (schemaName == null)
             {

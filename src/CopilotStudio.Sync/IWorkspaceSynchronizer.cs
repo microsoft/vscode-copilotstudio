@@ -231,6 +231,28 @@ public interface IWorkspaceSynchronizer
         IReadOnlyDictionary<string, Guid>? pushedConnectorIds = null);
 
     /// <summary>
+    /// Folder-aware overload of <see cref="ProvisionConnectionReferencesAsync(DefinitionBase, ISyncDataverseClient, CancellationToken, IReadOnlyDictionary{string, Guid})"/>
+    /// that first overlays the on-disk CLI connection references
+    /// (<c>infrastructure/connections/*.sync.yaml</c>) onto <paramref name="definition"/>
+    /// before provisioning (TDD D38). The LSP push/reattach handlers pass
+    /// <c>workspace.Definition</c> (the MCS compiler output), which never sees the
+    /// generic-YAML <c>.sync.yaml</c> overlays, so disk-only CLI connection references would
+    /// otherwise be detected for push but never provisioned. No-op for classic agents.
+    /// </summary>
+    /// <param name="workspaceFolder">Workspace folder used to read the on-disk overlay.</param>
+    /// <param name="definition">The definition to provision (will be overlaid for CLI agents).</param>
+    /// <param name="dataverseClient">Dataverse client.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="pushedConnectorIds">Optional map of connector internal id.</param>
+    /// <returns>A task representing the asynchronous operation.</returns>
+    Task ProvisionConnectionReferencesAsync(
+        DirectoryPath workspaceFolder,
+        DefinitionBase definition,
+        ISyncDataverseClient dataverseClient,
+        CancellationToken cancellationToken,
+        IReadOnlyDictionary<string, Guid>? pushedConnectorIds = null);
+
+    /// <summary>
     /// Pushes local custom connector edits to Dataverse.
     /// Creates the connector remotely if it doesn't already exist.
     /// </summary>

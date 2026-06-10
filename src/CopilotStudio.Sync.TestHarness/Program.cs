@@ -531,7 +531,7 @@ static string GetRequiredEnvVar(string name)
 }
 
 // Prints a per-entity-type summary of workspace contents by scanning directories.
-// Maps workspace directories to SYNC-SEMANTICS.md entity type names.
+// Maps workspace directories to SYNC-SEMANTICS-CLASSIC.md entity type names.
 static void PrintWorkspaceEntitySummary(DirectoryPath workspaceFolder)
 {
     var root = workspaceFolder.ToString().TrimEnd('/');
@@ -540,7 +540,7 @@ static void PrintWorkspaceEntitySummary(DirectoryPath workspaceFolder)
         return;
     }
 
-    // Directory → SYNC-SEMANTICS entity type mapping
+    // Directory → SYNC-SEMANTICS-CLASSIC entity type mapping
     var entityDirectories = new (string Directory, string EntityType)[]
     {
         ("topics", "AdaptiveDialog (topics)"),

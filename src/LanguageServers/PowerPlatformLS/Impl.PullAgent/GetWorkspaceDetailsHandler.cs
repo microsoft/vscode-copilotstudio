@@ -50,6 +50,19 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 _logger.LogException(exception);
             }
 
+            if (syncInfo != null && (syncInfo.AuthoringShape == null || syncInfo.AuthoringShape == AuthoringShape.Unknown))
+            {
+                var detected = ws.AuthoringShape;
+                if (detected == AuthoringShape.Unknown)
+                {
+                    detected = AgentClassifier.DetectAuthoringShapeFromFolder(ws.FolderPath.ToString());
+                }
+                if (detected != AuthoringShape.Unknown)
+                {
+                    syncInfo.AuthoringShape = detected;
+                }
+            }
+
             return new CopilotStudioWorkspaceInfo
             {
                 WorkspaceUri = new Uri(wsFolderPathValue),

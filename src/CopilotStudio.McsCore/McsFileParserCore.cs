@@ -101,7 +101,7 @@ internal static class McsFileParserCore
     /// <summary>
     /// Derives schema name from file model using projector or element's SchemaName property.
     /// </summary>
-    internal static string? DeriveSchemaName(LspProjectorService projectorService, BotElement fileModel, AgentFilePath relativePath, ProjectionContext context)
+    internal static string? DeriveSchemaName(LspProjectorService projectorService, BotElement fileModel, AgentFilePath relativePath, ProjectionContext context, AuthoringShape shape = AuthoringShape.Classic)
     {
         // Handle elements that have their own SchemaName property
         if (fileModel is BotEntity entity)
@@ -123,7 +123,7 @@ internal static class McsFileParserCore
 
         // Use the projector service for schema name derivation (includes legacy special cases)
         var pathWithoutExtension = relativePath.RemoveExtension().ToString();
-        return projectorService.GetSchemaName(pathWithoutExtension, context.BotName, fileModel.GetType());
+        return projectorService.GetSchemaName(pathWithoutExtension, context.BotName, fileModel.GetType(), shape);
     }
 
     // If this is in a /agent/ folder, then we need a component Id
