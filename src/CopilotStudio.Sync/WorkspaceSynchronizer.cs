@@ -8,6 +8,7 @@ using Microsoft.Agents.ObjectModel.FileProjection;
 using Microsoft.Agents.ObjectModel.Merge;
 using Microsoft.Agents.ObjectModel.Yaml;
 using Microsoft.Agents.Platform.Content;
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Text;
 using System.Text.Json;
@@ -1992,9 +1993,25 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         var connectionReferences = ImmutableArray<ConnectionReference>.Empty;
         var workflowResponseBuilder = ImmutableArray.CreateBuilder<WorkflowResponse>();
 
+        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var cloudSnapshot = ReadCloudCacheSnapshot(fileAccessor, allowMissing: true);
+        var cachedWorkflowClientData = new Dictionary<Guid, string>();
+        var cachedWorkflowMetadata = new Dictionary<Guid, string>();
+        if (cloudSnapshot?.Flows != null)
+        {
+            foreach (var flow in cloudSnapshot.Flows)
+            {
+                cachedWorkflowClientData[flow.WorkflowId.Value] = GetClientData(flow);
+                cachedWorkflowMetadata[flow.WorkflowId.Value] = GetWorkflowMetadata(flow);
+            }
+        }
+
         var workflowsDir = Path.Combine(workspaceFolder.ToString(), WorkflowFolder);
         if (Directory.Exists(workflowsDir))
         {
+            var deserializer = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
+            var workflowsToUpload = new List<WorkflowMetadata>();
+
             foreach (var workflowFolder in Directory.EnumerateDirectories(workflowsDir))
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -2013,18 +2030,49 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                     continue;
                 }
 
-                    var clientDataJson = await FileShim.ReadAllTextAsync(jsonFile, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
-                    var yamlText = await FileShim.ReadAllTextAsync(metadataFile, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
-                    var deserializer = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
-                    var metadata = deserializer.Deserialize<WorkflowMetadata>(yamlText);
-                    metadata.ClientData = clientDataJson;
-                    workflows.Add(metadata);
-
-                var workflowResponse = await dataverseClient.UpdateWorkflowAsync(agentId.HasValue ? agentId.Value : (Guid?)null, metadata, cancellationToken).ConfigureAwait(false);
+                var clientDataJson = await FileShim.ReadAllTextAsync(jsonFile, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+                var yamlText = await FileShim.ReadAllTextAsync(metadataFile, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+                var metadata = deserializer.Deserialize<WorkflowMetadata>(yamlText);
+                metadata.ClientData = clientDataJson;
+                workflows.Add(metadata);
 
                 var (cloudFlowDefinition, _) = GetFlowDefinition(metadata);
                 cloudFlowDefinitions.Add(cloudFlowDefinition);
-                workflowResponseBuilder.Add(workflowResponse);
+
+                if (cachedWorkflowClientData.TryGetValue(workflowId.Value, out var cachedClientData)
+                    && string.Equals(cachedClientData, NormalizeWorkflowClientData(clientDataJson), StringComparison.Ordinal)
+                    && cachedWorkflowMetadata.TryGetValue(workflowId.Value, out var cachedMetadata)
+                    && string.Equals(cachedMetadata, NormalizeWorkflowMetadata(metadata), StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                workflowsToUpload.Add(metadata);
+            }
+
+            if (workflowsToUpload.Count > 0)
+            {
+#if NETSTANDARD2_0
+                foreach (var metadata in workflowsToUpload)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var workflowResponse = await dataverseClient.UpdateWorkflowAsync(agentId, metadata, cancellationToken).ConfigureAwait(false);
+                    workflowResponseBuilder.Add(workflowResponse);
+                }
+#else
+                var workflowResponses = new ConcurrentBag<WorkflowResponse>();
+                await Parallel.ForEachAsync(workflowsToUpload, new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = 5,
+                    CancellationToken = cancellationToken
+                },
+                async (metadata, ct) =>
+                {
+                    var workflowResponse = await dataverseClient.UpdateWorkflowAsync(agentId, metadata, ct).ConfigureAwait(false);
+                    workflowResponses.Add(workflowResponse);
+                }).ConfigureAwait(false);
+                workflowResponseBuilder.AddRange(workflowResponses);
+#endif
             }
 
             connectionReferences = await GetConnectionReferenceFromLogicalNamesAsync(GetConnectionReferenceLogicalNamesFromFlows(workflows), dataverseClient, cancellationToken).ConfigureAwait(false);
@@ -2121,52 +2169,58 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                     using var jsonDoc = JsonDocument.Parse(workflow.ClientData!);
                     var jsonString = JsonSerializer.Serialize(jsonDoc.RootElement, new JsonSerializerOptions { WriteIndented = true });
 
-                    // net10 uses async disposal so the StreamWriter and FileStream flush
-                    // asynchronously; netstandard2.0's Stream is not IAsyncDisposable, so
-                    // it falls back to sync using. The sync-flush cost on the ns2.0 path
-                    // is bounded (workflow JSON payloads are 1-50 KB on local disk).
+                    if (await WorkflowFileNeedsWriteAsync(fileAccessor, workflowJson, jsonString, cancellationToken).ConfigureAwait(false))
+                    {
+                        // net10 uses async disposal so the StreamWriter and FileStream flush
+                        // asynchronously; netstandard2.0's Stream is not IAsyncDisposable, so
+                        // it falls back to sync using. The sync-flush cost on the ns2.0 path
+                        // is bounded (workflow JSON payloads are 1-50 KB on local disk).
 #if NETSTANDARD2_0
-                    using (var jsonStream = fileAccessor.OpenWrite(workflowJsonTmp))
-                    using (var writer = new StreamWriter(jsonStream, Encoding.UTF8))
-                    {
-                        await writer.WriteAsync(jsonString).ConfigureAwait(false);
-                    }
-#else
-                    var jsonStream = fileAccessor.OpenWrite(workflowJsonTmp);
-                    await using (jsonStream.ConfigureAwait(false))
-                    {
-                        var writer = new StreamWriter(jsonStream, Encoding.UTF8);
-                        await using (writer.ConfigureAwait(false))
+                        using (var jsonStream = fileAccessor.OpenWrite(workflowJsonTmp))
+                        using (var writer = new StreamWriter(jsonStream, Encoding.UTF8))
                         {
                             await writer.WriteAsync(jsonString).ConfigureAwait(false);
                         }
-                    }
+#else
+                        var jsonStream = fileAccessor.OpenWrite(workflowJsonTmp);
+                        await using (jsonStream.ConfigureAwait(false))
+                        {
+                            var writer = new StreamWriter(jsonStream, Encoding.UTF8);
+                            await using (writer.ConfigureAwait(false))
+                            {
+                                await writer.WriteAsync(jsonString).ConfigureAwait(false);
+                            }
+                        }
 #endif
-                    fileAccessor.Replace(workflowJsonTmp, workflowJson);
+                        fileAccessor.Replace(workflowJsonTmp, workflowJson);
+                    }
 
                     var workflowMetadata = new AgentFilePath($"{workflowFolder}/metadata.yml");
                     var workflowMetadataTmp = new AgentFilePath($"{workflowFolder}/metadata.yml.tmp");
                     var serializer = new SerializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
+                    var metadataString = serializer.Serialize(workflow);
 
-                    // Same async-vs-sync disposal split as the workflow.json block above.
+                    if (await WorkflowFileNeedsWriteAsync(fileAccessor, workflowMetadata, metadataString, cancellationToken).ConfigureAwait(false))
+                    {
 #if NETSTANDARD2_0
-                    using (var metaStream = fileAccessor.OpenWrite(workflowMetadataTmp))
-                    using (var writer = new StreamWriter(metaStream, Encoding.UTF8))
-                    {
-                        serializer.Serialize(writer, workflow);
-                    }
-#else
-                    var metaStream = fileAccessor.OpenWrite(workflowMetadataTmp);
-                    await using (metaStream.ConfigureAwait(false))
-                    {
-                        var writer = new StreamWriter(metaStream, Encoding.UTF8);
-                        await using (writer.ConfigureAwait(false))
+                        using (var metaStream = fileAccessor.OpenWrite(workflowMetadataTmp))
+                        using (var writer = new StreamWriter(metaStream, Encoding.UTF8))
                         {
-                            serializer.Serialize(writer, workflow);
+                            writer.Write(metadataString);
                         }
-                    }
+#else
+                        var metaStream = fileAccessor.OpenWrite(workflowMetadataTmp);
+                        await using (metaStream.ConfigureAwait(false))
+                        {
+                            var writer = new StreamWriter(metaStream, Encoding.UTF8);
+                            await using (writer.ConfigureAwait(false))
+                            {
+                                await writer.WriteAsync(metadataString).ConfigureAwait(false);
+                            }
+                        }
 #endif
-                    fileAccessor.Replace(workflowMetadataTmp, workflowMetadata);
+                        fileAccessor.Replace(workflowMetadataTmp, workflowMetadata);
+                    }
                 }
             }
 
@@ -3500,35 +3554,52 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         {
             var workflowId = kvp.Key;
             var workflow = kvp.Value;
-            var (workflowJsonPath, _) = GetWorkflowPath(workflow.DisplayName, workflowId);
-            var remoteContent = !isLocal ? GetClientData(workflow) : null;
+            var (workflowJsonPath, workflowMetadataPath) = GetWorkflowPath(workflow.DisplayName, workflowId);
+            var name = workflow.DisplayName ?? workflowId.ToString();
+            var remoteClientData = !isLocal ? GetClientData(workflow) : null;
+            var remoteMetadata = !isLocal ? GetWorkflowMetadata(workflow) : null;
 
             if (!originalMap.ContainsKey(workflowId))
             {
                 changes.Add(new Change
                 {
-                    Name = workflow.DisplayName ?? workflowId.ToString(),
+                    Name = name,
                     Uri = workflowJsonPath.ToString(),
                     ChangeType = ChangeType.Create,
                     ChangeKind = BotElementKind.CloudFlowDefinition.ToString(),
                     SchemaName = $"Mcs.Workflow.{workflowId}",
-                    RemoteWorkflowContent = remoteContent
+                    RemoteWorkflowContent = remoteClientData
                 });
             }
             else
             {
                 var originalWorkflow = originalMap[workflowId];
+                var clientChanged = GetClientData(workflow) != GetClientData(originalWorkflow);
+                var metadataChanged = GetWorkflowMetadata(workflow) != GetWorkflowMetadata(originalWorkflow);
 
-                if (GetClientData(workflow) != GetClientData(originalWorkflow))
+                if (clientChanged)
                 {
                     changes.Add(new Change
                     {
-                        Name = workflow.DisplayName ?? workflowId.ToString(),
+                        Name = name,
                         Uri = workflowJsonPath.ToString(),
                         ChangeType = ChangeType.Update,
                         ChangeKind = BotElementKind.CloudFlowDefinition.ToString(),
                         SchemaName = $"Mcs.Workflow.{workflowId}",
-                        RemoteWorkflowContent = remoteContent
+                        RemoteWorkflowContent = remoteClientData
+                    });
+                }
+
+                if (metadataChanged)
+                {
+                    changes.Add(new Change
+                    {
+                        Name = name,
+                        Uri = workflowMetadataPath.ToString(),
+                        ChangeType = ChangeType.Update,
+                        ChangeKind = BotElementKind.CloudFlowDefinition.ToString(),
+                        SchemaName = $"Mcs.Workflow.{workflowId}.metadata",
+                        RemoteWorkflowContent = remoteMetadata
                     });
                 }
             }
@@ -3621,6 +3692,61 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         return string.Empty;
     }
 
+    private static string NormalizeWorkflowClientData(string? clientData)
+    {
+        if (string.IsNullOrWhiteSpace(clientData))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(clientData!);
+            return JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch (JsonException)
+        {
+            return clientData!;
+        }
+    }
+
+    private static string GetWorkflowMetadata(CloudFlowDefinition? flow)
+    {
+        if (flow?.ExtensionData?.Properties.TryGetValue("metadata", out var value) == true && value is StringDataValue s && !string.IsNullOrEmpty(s.Value))
+        {
+            return s.Value!;
+        }
+
+        return string.Empty;
+    }
+
+    private static string NormalizeWorkflowMetadata(WorkflowMetadata workflow)
+    {
+        var savedJsonFileName = workflow.JsonFileName;
+        try
+        {
+            var (workflowJsonPath, _) = GetWorkflowPath(workflow.Name, workflow.WorkflowId);
+            workflow.JsonFileName = workflowJsonPath.ToString();
+            var serializer = new SerializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
+            return serializer.Serialize(workflow);
+        }
+        finally
+        {
+            workflow.JsonFileName = savedJsonFileName;
+        }
+    }
+
+    private static async Task<bool> WorkflowFileNeedsWriteAsync(IFileAccessor fileAccessor, AgentFilePath path, string newContent, CancellationToken cancellationToken)
+    {
+        if (!fileAccessor.Exists(path))
+        {
+            return true;
+        }
+
+        var existingContent = await fileAccessor.ReadStringAsync(path, cancellationToken).ConfigureAwait(false);
+        return !string.Equals(existingContent, newContent, StringComparison.Ordinal);
+    }
+
     private static (CloudFlowDefinition, ImmutableArray<string>) GetFlowDefinition(WorkflowMetadata workflow)
     {
         RecordDataType? inputType = null;
@@ -3652,10 +3778,22 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             workflowId: new FlowId(workflow.WorkflowId),
             inputType: inputType,
             outputType: outputType,
-            extensionData: !string.IsNullOrWhiteSpace(workflow.ClientData) ? new RecordDataValue(ImmutableDictionary<string, DataValue>.Empty.Add("clientdata", DataValue.Create(workflow.ClientData))) : null
+            extensionData: new RecordDataValue(BuildFlowExtensionData(workflow))
         );
 
         return (cloudFlowDefinition, workflowConnectionNames);
+    }
+
+    private static ImmutableDictionary<string, DataValue> BuildFlowExtensionData(WorkflowMetadata workflow)
+    {
+        var properties = ImmutableDictionary<string, DataValue>.Empty.Add("metadata", DataValue.Create(NormalizeWorkflowMetadata(workflow)));
+
+        if (!string.IsNullOrWhiteSpace(workflow.ClientData))
+        {
+            properties = properties.Add("clientdata", DataValue.Create(workflow.ClientData!));
+        }
+
+        return properties;
     }
 
     private static ImmutableArray<string> ExtractConnectionReferenceLogicalNames(JsonElement root)

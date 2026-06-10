@@ -5,7 +5,6 @@
 using Microsoft.Agents.ObjectModel;
 using Microsoft.Agents.Platform.Content.Abstractions;
 using Microsoft.CopilotStudio.McsCore;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -432,28 +431,20 @@ public class SyncDataverseClient : ISyncDataverseClient
             while (!string.IsNullOrEmpty(nextBotComponentWorkflowUrl))
             {
                 // ns2.0 BCL's IsNullOrEmpty lacks NotNullWhen annotation; ! is compile-time only.
-                var response = await SendAsync<JsonElement>(HttpMethod.Get, nextBotComponentWorkflowUrl!, null, false, cancellationToken).ConfigureAwait(false);
+                var response = await SendAsync<ODataResponse<BotComponentWorkflowMetadata>>(HttpMethod.Get, nextBotComponentWorkflowUrl!, null, false, cancellationToken).ConfigureAwait(false);
 
-                if (response.TryGetProperty("value", out var valueArray) && valueArray.ValueKind == JsonValueKind.Array)
+                if (response?.Value != null)
                 {
-                    foreach (var element in valueArray.EnumerateArray())
+                    foreach (var link in response.Value)
                     {
-                        if (element.TryGetProperty("workflowid", out var workflowIdElement) && workflowIdElement.ValueKind == JsonValueKind.String && Guid.TryParse(workflowIdElement.GetString(), out var workflowIdentifier) && workflowIdentifier != Guid.Empty)
+                        if (link.WorkflowId != Guid.Empty && !workflowIdToBotComponentMap.ContainsKey(link.WorkflowId))
                         {
-                            var botComponentIdentifier = element.GetProperty("botcomponentid").GetGuid();
-                            if (!workflowIdToBotComponentMap.ContainsKey(workflowIdentifier))
-                            {
-                                workflowIdToBotComponentMap[workflowIdentifier] = new BotComponentWorkflowMetadata
-                                {
-                                    WorkflowId = workflowIdentifier,
-                                    BotComponentId = botComponentIdentifier
-                                };
-                            }
+                            workflowIdToBotComponentMap[link.WorkflowId] = link;
                         }
                     }
                 }
 
-                nextBotComponentWorkflowUrl = response.TryGetProperty("@odata.nextLink", out var nextLinkProp) ? nextLinkProp.GetString() : null;
+                nextBotComponentWorkflowUrl = response?.NextLink;
             }
         }
 
@@ -479,20 +470,13 @@ public class SyncDataverseClient : ISyncDataverseClient
             while (!string.IsNullOrEmpty(nextWorkflowUrl))
             {
                 // ns2.0 BCL's IsNullOrEmpty lacks NotNullWhen annotation; ! is compile-time only.
-                var response = await SendAsync<JsonElement>(HttpMethod.Get, nextWorkflowUrl!, null, false, cancellationToken).ConfigureAwait(false);
-                if (response.TryGetProperty("value", out var workflowArray) && workflowArray.ValueKind == JsonValueKind.Array)
+                var response = await SendAsync<ODataResponse<WorkflowMetadata>>(HttpMethod.Get, nextWorkflowUrl!, null, false, cancellationToken).ConfigureAwait(false);
+                if (response?.Value != null)
                 {
-                    foreach (var element in workflowArray.EnumerateArray())
-                    {
-                        var workflow = JsonSerializer.Deserialize<WorkflowMetadata>(element.GetRawText(), JsonSerializerOptions);
-                        if (workflow != null)
-                        {
-                            workflows.Add(workflow);
-                        }
-                    }
+                    workflows.AddRange(response.Value);
                 }
 
-                nextWorkflowUrl = response.TryGetProperty("@odata.nextLink", out var nextLinkProp) ? nextLinkProp.GetString() : null;
+                nextWorkflowUrl = response?.NextLink;
             }
         }
 
@@ -516,23 +500,36 @@ public class SyncDataverseClient : ISyncDataverseClient
 
         if (requestBody != null)
         {
-            requestMessage.Content = new StringContent(JsonSerializer.Serialize(requestBody, JsonSerializerOptions), Encoding.UTF8, "application/json");
+            var bodyStream = new MemoryStream();
+            await JsonSerializer.SerializeAsync(bodyStream, requestBody, JsonSerializerOptions, cancellationToken).ConfigureAwait(false);
+            bodyStream.Position = 0;
+            var bodyContent = new StreamContent(bodyStream);
+            bodyContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
+            requestMessage.Content = bodyContent;
         }
 
-        using var responseMessage = await httpClient.SendAsync(requestMessage, cancellationToken).ConfigureAwait(false);
-        var responseText = await responseMessage.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        using var responseMessage = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
 
         if (!responseMessage.IsSuccessStatusCode)
         {
+            var responseText = await responseMessage.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             throw new InvalidOperationException($"Dataverse request failed ({(int)responseMessage.StatusCode}): {responseText}");
         }
 
-        if (typeof(T) == typeof(object) || string.IsNullOrWhiteSpace(responseText))
+        if (typeof(T) == typeof(object)
+            || responseMessage.StatusCode == System.Net.HttpStatusCode.NoContent
+            || responseMessage.Content.Headers.ContentLength == 0)
         {
             return default;
         }
 
-        return JsonSerializer.Deserialize<T>(responseText, JsonSerializerOptions);
+        using var responseStream = await responseMessage.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        if (responseStream.CanSeek && responseStream.Length == 0)
+        {
+            return default;
+        }
+
+        return await JsonSerializer.DeserializeAsync<T>(responseStream, JsonSerializerOptions, cancellationToken).ConfigureAwait(false);
     }
 
     public virtual async Task<bool> ConnectionReferenceExistsAsync(
@@ -977,6 +974,15 @@ public class SyncDataverseClient : ISyncDataverseClient
     }
 
     #region DTO Types
+
+    internal sealed class ODataResponse<T>
+    {
+        [JsonPropertyName("value")]
+        public List<T>? Value { get; set; }
+
+        [JsonPropertyName("@odata.nextLink")]
+        public string? NextLink { get; set; }
+    }
 
     internal class ConnectionReferenceQueryResponse
     {

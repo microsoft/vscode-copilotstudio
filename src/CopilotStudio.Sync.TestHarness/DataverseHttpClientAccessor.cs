@@ -52,7 +52,7 @@ internal sealed class DataverseHttpClientAccessor : IDataverseHttpClientAccessor
         private readonly Uri _audience;
 
         public BearerTokenHandler(ISyncAuthProvider authProvider, Uri audience)
-            : base(new HttpClientHandler())
+            : base(new HttpClientHandler { AutomaticDecompression = System.Net.DecompressionMethods.GZip | System.Net.DecompressionMethods.Deflate })
         {
             _authProvider = authProvider;
             _audience = audience;
