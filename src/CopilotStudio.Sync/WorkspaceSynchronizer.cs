@@ -1940,7 +1940,48 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             var path = new AgentFilePath(PathResolver.GetComponentPath(groundedComponent, Definition));
             using var stream = FileAccessor.OpenWrite(path);
             using var textWriter = new StreamWriter(stream);
-            CodeSerializer.SerializeAsMcsYml(textWriter, groundedComponent);
+            CodeSerializer.SerializeAsMcsYml(textWriter, NormalizeForMcsYml(groundedComponent));
+        }
+
+        private static BotComponentBase NormalizeForMcsYml(BotComponentBase component)
+        {
+            if (component is not DialogComponent dialogComponent || dialogComponent.Dialog is not InlineAgentSkill)
+            {
+                return component;
+            }
+
+            if (string.IsNullOrWhiteSpace(component.DisplayName) && string.IsNullOrWhiteSpace(component.Description))
+            {
+                return component;
+            }
+
+            using var probe = new StringWriter();
+            CodeSerializer.SerializeAsMcsYml(probe, component);
+            if (probe.ToString().Contains("mcs.metadata:", StringComparison.Ordinal))
+            {
+                return component;
+            }
+
+            try
+            {
+                string json;
+                using (YamlSerializationContext.UseYamlPassThroughSerializationContext())
+                {
+                    json = JsonSerializer.Serialize<DefinitionBase>(new BotDefinition().WithComponents(ImmutableArray.Create((BotComponentBase)component)), ElementSerializer.CreateOptions());
+                }
+
+                DefinitionBase? roundTripped;
+                using (YamlSerializationContext.UseYamlPassThroughSerializationContext())
+                {
+                    roundTripped = JsonSerializer.Deserialize<DefinitionBase>(json, ElementSerializer.CreateOptions());
+                }
+
+                return roundTripped?.Components.SingleOrDefault() ?? component;
+            }
+            catch (JsonException)
+            {
+                return component;
+            }
         }
     }
 
