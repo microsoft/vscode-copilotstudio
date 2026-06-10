@@ -34,7 +34,7 @@ function findProp(objNode: Node | undefined, name: string): Node | undefined {
     return undefined;
   }
   for (const prop of objNode.children) {
-    if (prop.type === 'property' && prop.children && prop.children.length >= 1) {
+    if (prop.type === 'property' && prop.children && prop.children.length >= 2) {
       const keyNode = prop.children[0];
       if (keyNode.value === name) {
         return prop.children[1];
