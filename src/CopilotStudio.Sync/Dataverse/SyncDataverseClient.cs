@@ -341,7 +341,11 @@ public class SyncDataverseClient : ISyncDataverseClient
         {
             await SendAsync<object>(HttpMethod.Get, checkUrl, null, false, cancellationToken).ConfigureAwait(false);
         }
-        catch
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("(404)", StringComparison.Ordinal))
         {
             return false;
         }

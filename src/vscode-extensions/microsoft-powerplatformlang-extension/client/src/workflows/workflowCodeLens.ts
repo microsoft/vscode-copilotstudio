@@ -38,11 +38,15 @@ export class WorkflowCodeLensProvider implements vscode.CodeLensProvider {
               arguments: [args],
             }),
           );
-          for (const branch of node.children) {
-            const branchTrail = branch.kind === 'branch' && branch.label
-              ? [...trail, node.label, branch.label]
-              : [...trail, node.label];
-            addFocusLenses(branch.children, branchTrail);
+          for (const child of node.children) {
+            if (child.kind === 'branch') {
+              const branchTrail = child.label
+                ? [...trail, node.label, child.label]
+                : [...trail, node.label];
+              addFocusLenses(child.children, branchTrail);
+            } else {
+              addFocusLenses([child], [...trail, node.label]);
+            }
           }
         }
       }

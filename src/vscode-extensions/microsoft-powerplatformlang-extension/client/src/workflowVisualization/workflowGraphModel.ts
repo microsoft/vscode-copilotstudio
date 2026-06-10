@@ -680,11 +680,19 @@ export function buildGraphModel(text: string): WorkflowGraphModel {
 
 function resolveAbsolutePositions(rawNodes: Map<string, RawNode>): void {
   const resolved = new Set<string>();
+  const visiting = new Set<string>();
 
   const resolve = (node: RawNode): void => {
     if (resolved.has(node.id)) {
       return;
     }
+    if (visiting.has(node.id)) {
+      node.x = node.localX;
+      node.y = node.localY;
+      resolved.add(node.id);
+      return;
+    }
+    visiting.add(node.id);
     if (!node.parentId) {
       node.x = node.localX;
       node.y = node.localY;
@@ -699,6 +707,7 @@ function resolveAbsolutePositions(rawNodes: Map<string, RawNode>): void {
         node.y = parent.y + node.localY;
       }
     }
+    visiting.delete(node.id);
     resolved.add(node.id);
   };
 

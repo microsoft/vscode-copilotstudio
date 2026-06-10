@@ -2032,7 +2032,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
                 var clientDataJson = await FileShim.ReadAllTextAsync(jsonFile, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
                 var yamlText = await FileShim.ReadAllTextAsync(metadataFile, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
-                var metadata = deserializer.Deserialize<WorkflowMetadata>(yamlText);
+                var metadata = deserializer.Deserialize<WorkflowMetadata>(yamlText)
+                    ?? throw new InvalidOperationException($"Workflow metadata file is empty or invalid.");
                 metadata.ClientData = clientDataJson;
                 workflows.Add(metadata);
 
@@ -2238,6 +2239,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                     Directory.Delete(folderToDelete, true);
                 }
             }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -3465,7 +3470,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             var yaml = await FileShim.ReadAllTextAsync(metadataFile, cancellationToken).ConfigureAwait(false);
             var json = await FileShim.ReadAllTextAsync(jsonFile, cancellationToken).ConfigureAwait(false);
             var deserializer = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
-            var metadata = deserializer.Deserialize<WorkflowMetadata>(yaml);
+            var metadata = deserializer.Deserialize<WorkflowMetadata>(yaml)
+                ?? throw new InvalidOperationException($"Workflow metadata file is empty or invalid.");
             metadata.ClientData = json;
             workflows.Add(metadata);
             var (definition, _) = GetFlowDefinition(metadata);
