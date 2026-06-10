@@ -168,9 +168,9 @@ async function editEmbeddedJson(args: EditEmbeddedJsonArgs): Promise<void> {
   } catch (error) {
     logger.logError(
       TelemetryEventsKeys.WorkflowEditEmbeddedJsonError,
-      `Failed to open embedded JSON editor: <pii>${error}</pii>`,
+      `Failed to open embedded JSON editor: <pii>${error instanceof Error ? error.message : String(error)}</pii>`,
     );
-    void vscode.window.showErrorMessage(`Could not open embedded JSON: ${error}`);
+    void vscode.window.showErrorMessage(`Could not open embedded JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
