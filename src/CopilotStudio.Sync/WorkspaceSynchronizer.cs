@@ -34,6 +34,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
     // Folder where workflows are stored.
     private const string WorkflowFolder = "workflows";
 
+    // Maximum allowed size for a workflow upload 125 MB (workflow.json + metadata.yml).
+    private const long MaxWorkflowUploadSizeBytes = 125L * 1024 * 1024;
+
     // Folder where environment variables are projected.
     private const string EnvironmentVariablesFolder = "environmentvariables";
 
@@ -2027,6 +2030,13 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 var metadataFile = Path.Combine(workflowFolder, "metadata.yml");
                 if (!File.Exists(jsonFile) || !File.Exists(metadataFile))
                 {
+                    continue;
+                }
+
+                var workflowUploadSize = new FileInfo(jsonFile).Length + new FileInfo(metadataFile).Length;
+                if (workflowUploadSize > MaxWorkflowUploadSizeBytes)
+                {
+                    _syncProgress.Report($"Workflow '{workflowName}' exceeded the upload size limit of 125MB and will be skipped.");
                     continue;
                 }
 

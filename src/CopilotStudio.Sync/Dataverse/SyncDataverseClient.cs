@@ -528,12 +528,25 @@ public class SyncDataverseClient : ISyncDataverseClient
         }
 
         using var responseStream = await responseMessage.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        if (responseStream.CanSeek && responseStream.Length == 0)
+        if (responseStream.CanSeek)
+        {
+            if (responseStream.Length == 0)
+            {
+                return default;
+            }
+
+            return await JsonSerializer.DeserializeAsync<T>(responseStream, JsonSerializerOptions, cancellationToken).ConfigureAwait(false);
+        }
+
+        using var bufferStream = new MemoryStream();
+        await responseStream.CopyToAsync(bufferStream, 81920, cancellationToken).ConfigureAwait(false);
+        if (bufferStream.Length == 0)
         {
             return default;
         }
 
-        return await JsonSerializer.DeserializeAsync<T>(responseStream, JsonSerializerOptions, cancellationToken).ConfigureAwait(false);
+        bufferStream.Position = 0;
+        return await JsonSerializer.DeserializeAsync<T>(bufferStream, JsonSerializerOptions, cancellationToken).ConfigureAwait(false);
     }
 
     public virtual async Task<bool> ConnectionReferenceExistsAsync(
