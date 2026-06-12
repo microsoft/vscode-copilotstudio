@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
-import { ServerOptions, TransportKind, LanguageClient, LanguageClientOptions, Trace, State, LogMessageNotification } from "vscode-languageclient/node";
+import { ServerOptions, TransportKind, LanguageClient, LanguageClientOptions, State, LogMessageNotification, Trace } from "vscode-languageclient/node";
 import { TELEMETRY_CONNECTION_STRING, TelemetryEventsKeys } from '../constants';
 import { AccountInfo, AgentSyncInfo, EnvironmentInfo, RemoteApiRequest } from '../types';
 import { getAccessTokenByAccountId, getCopilotStudioAccessTokenByAccountId } from '../clients/account';
@@ -200,6 +200,9 @@ class LspClientService {
     // so this handler is wired first and takes precedence over vscode-languageclient's
     // built-in default, which would otherwise prepend a duplicate
     // "[Error|Warning|Info - h:mm:ss AM/PM]" prefix.
+    //
+    // Log level filtering is handled natively by VS Code's LogOutputChannel.
+    // The user controls visibility via the output panel dropdown (defaults to Info).
     const logChannel = outputChannel as Partial<vscode.LogOutputChannel>;
     const writeLog = (level: 'error' | 'warn' | 'info' | 'trace' | 'debug', message: string) => {
       const fn = logChannel[level];
@@ -209,6 +212,7 @@ class LspClientService {
         outputChannel.appendLine(message);
       }
     };
+
     this._client.onNotification(LogMessageNotification.type, (params: { type: number; message: string }) => {
       const message = params?.message ?? '';
       switch (params?.type) {

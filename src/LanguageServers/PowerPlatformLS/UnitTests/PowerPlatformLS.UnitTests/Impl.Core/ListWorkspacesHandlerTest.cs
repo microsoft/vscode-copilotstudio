@@ -250,6 +250,8 @@
 
             public void LogInfo(string message) { }
 
+            public void LogDebug(string message, params object[] @params) { }
+
             public void LogInformation(string message, params object[] @params) { }
 
             public void LogSensitiveInformation(string message, string? altSafeMessage = null) { }

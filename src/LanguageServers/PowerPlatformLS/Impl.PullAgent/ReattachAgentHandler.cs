@@ -137,33 +137,13 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     AIPromptResponse = aiPromptResponse,
                 };
             }
-            catch (DataverseBadRequestException ex)
-            {
-                _logger.LogException(ex);
-                return new ReattachAgentResponse()
-                {
-                    Code = ex.StatusCode,
-                    Message = ex.Message,
-                    AgentSyncInfo = defaultSyncInfo
-                };
-            }
-            catch (ConnectionBindingException ex)
-            {
-                _logger.LogException(ex);
-                return new ReattachAgentResponse()
-                {
-                    Code = 400,
-                    Message = ex.Message,
-                    AgentSyncInfo = defaultSyncInfo
-                };
-            }
             catch (Exception ex)
             {
-                _logger.LogException(ex);
+                var (code, message) = LspExceptionHandler.Handle(ex, _logger, cancellationToken);
                 return new ReattachAgentResponse()
                 {
-                    Code = 500,
-                    Message = ex.Message,
+                    Code = code,
+                    Message = message,
                     AgentSyncInfo = defaultSyncInfo
                 };
             }

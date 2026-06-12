@@ -107,16 +107,21 @@ export async function configureTreeView(context: ExtensionContext) {
 
     // Register the refresh command (full tree)
     const refreshCommand = commands.registerCommand('microsoft-copilot-studio.refreshAgentTreeView', async () => {
+        logger.info('AgentTree', 'Refresh agents requested');
         treeDataProvider.refresh();
         await resetTreeExpansion(treeView);
     });
 
     // Register the switch account command (same behavior as button in clone flow)
     const switchAccountCommand = commands.registerCommand('microsoft-copilot-studio.switchAccount', async () => {
+        logger.info('AgentTree', 'Switch account requested');
         const switched = await switchAccount(DefaultCoreServicesClusterCategory);
         if (switched) {
+            logger.info('AgentTree', 'Account switched successfully, reloading tree');
             treeDataProvider.invalidateCache();
             await resetTreeExpansion(treeView);
+        } else {
+            logger.debug('AgentTree', 'Switch account cancelled or failed');
         }
     });
 
@@ -210,6 +215,7 @@ export class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTree
             return this.envsBySku.get(sku) || [];
         }
 
+        logger.trace('AgentTree', `Loading ${sku} environments`);
         const preferred = getPreferredTreeAccount();
         const projectAccounts = getAllProjectAccounts();
 
@@ -259,6 +265,7 @@ export class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTree
                             sourceAccount: acct
                         }));
                     } catch (e: any) {
+                        logger.error('AgentTree', `Failed to load ${sku} environments for account ${acct?.accountId ?? 'default'}: ${e?.message || e}`);
                         logger.logError(TelemetryEventsKeys.LoadEnvironmentError, `[TreeView] Failed to load ${sku} environments for ${acct?.accountId ?? 'default'}: ${e?.message || e}`);
                         return [] as EnvironmentTreeItem[];
                     }
@@ -280,8 +287,10 @@ export class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTree
 
             this.envsBySku.set(sku, merged);
             this.loadedSkus.add(sku);
+            logger.trace('AgentTree', `Loaded ${merged.length} ${sku} environment(s)`);
             return merged;
         } catch (e: any) {
+            logger.error('AgentTree', `Failed to load ${sku} environments: ${e?.message || e}`);
             logger.logError(TelemetryEventsKeys.LoadEnvironmentError, `[TreeView] Failed to load ${sku} environments: ${e?.message || e}`);
             this.loadedSkus.add(sku); // Mark as loaded to avoid retry loops
             return [];
@@ -380,6 +389,7 @@ export class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTree
 						resolve(envItems);
 					}
 				} catch (e: any) {
+					logger.error('AgentTree', `Failed to load ${skuItem.sku} environments: ${e?.message || e}`);
 					logger.logError(TelemetryEventsKeys.LoadEnvironmentError, `[TreeView] Failed to load ${skuItem.sku} environments: ${e?.message || e}`);
 					resolve([{ kind: TreeItemKind.Error, message: "Failed to load environments" } as ErrorTreeItem]);
 				}
@@ -388,17 +398,20 @@ export class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTree
                 try {
                     // Load owned and shared agents in parallel, combine into single list
 					const storeAccount = envItem.sourceAccount ?? getActiveAgentAccount();
+					logger.trace('AgentTree', `Loading agents for environment: ${envItem.environment.displayName}`);
 					const [ownedAgents, sharedAgents] = await Promise.all([
                         listAgentsAsync(Uri.parse(envItem.environment.dataverseUrl), null, storeAccount?.accountId, storeAccount?.accountEmail),
                         listSharedAgentsAsync(Uri.parse(envItem.environment.dataverseUrl), null, storeAccount?.accountId, storeAccount?.accountEmail)
 					]);
 					
 					const allAgents = [...ownedAgents, ...sharedAgents];
+					logger.trace('AgentTree', `Loaded ${allAgents.length} agent(s) for environment: ${envItem.environment.displayName}`);
 					const agents: CopilotStudioTreeItem[] = allAgents.map((agent) => {
                         return { kind: TreeItemKind.Agent, environment: envItem.environment, agent: agent, sourceAccount: storeAccount } as AgentTreeItem;
 					});
 					resolve(agents);
 				} catch (e: any) {
+					logger.error('AgentTree', `Failed to load agents for environment: ${envItem.environment.displayName}: ${e?.message || e}`);
 					logger.logError(TelemetryEventsKeys.LoadEnvironmentError, `[TreeView] Failed to load agents for ${envItem.environment.displayName}: ${e?.message || e}`);
 					const errorMessage = e?.message?.includes('403') || e?.message?.includes('not a member')
 						? "Access denied - not a member of this organization"

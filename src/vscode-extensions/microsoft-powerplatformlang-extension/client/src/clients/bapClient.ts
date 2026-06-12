@@ -117,7 +117,8 @@ export async function listEnvironmentsBySkuAsync(
     accountHint?: string
 ): Promise<EnvironmentInfo[]> {
     const query = SKU_QUERIES[sku];
-    
+    logger.trace('BapClient', `Fetching ${sku} environments`);
+
     const response = await getAsync<EnvironmentResponse>(
         clusterCategory,
         'environments',
@@ -137,6 +138,7 @@ export async function listEnvironmentsBySkuAsync(
         .map(toEnvironmentInfo)
         .filter((env): env is EnvironmentInfo => env !== null);
     
+    logger.trace('BapClient', `Fetched ${permissionFilteredEnvs.length} ${sku} environment(s)`);
     return permissionFilteredEnvs;
 }
 

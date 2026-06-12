@@ -13,11 +13,13 @@
     {
         private readonly ILspServices _lspServices;
         private readonly ILspTransport _transport;
+        private readonly ILspLogger _logger;
 
-        public DiagnosticsPublisher(ILspServices lspServices, ILspTransport transport)
+        public DiagnosticsPublisher(ILspServices lspServices, ILspTransport transport, ILspLogger logger)
         {
             _lspServices = lspServices;
             _transport = transport;
+            _logger = logger;
         }
 
         async Task IDiagnosticsPublisher.ClearDiagnosticsAsync(Uri documentUri, CancellationToken cancellationToken)
@@ -73,6 +75,23 @@
             };
 
             await _transport.SendAsync(message, cancellationToken);
+
+            var fileName = Path.GetFileName(context.Document.Uri.LocalPath);
+            foreach (var diagnostic in diagnostics)
+            {
+                var line = (diagnostic.Range?.Start.Line ?? 0) + 1;
+                var col = (diagnostic.Range?.Start.Character ?? 0) + 1;
+
+                switch (diagnostic.Severity)
+                {
+                    case DiagnosticSeverity.Error:
+                        _logger.LogError($"textDocument/publishDiagnostics: {fileName}(ln {line}, col {col}): {diagnostic.Message}");
+                        break;
+                    case DiagnosticSeverity.Warning:
+                        _logger.LogWarning($"textDocument/publishDiagnostics: {fileName}(ln {line}, col {col}): {diagnostic.Message}");
+                        break;
+                }
+            }
         }
     }
 }

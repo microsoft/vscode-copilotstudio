@@ -2,6 +2,7 @@ import { Uri } from "vscode";
 import { FetchAccessToken, TokenInfo } from "./account";
 import { AgentInfo, SolutionInfo } from "../types";
 import { solutionList } from "../generated/schema";
+import logger from "../services/logger";
 
 const PowerVirtualAgentsSolutionName = "PowerVirtualAgents";
 const additionalSolutions: ReadonlyArray<string> = [
@@ -168,6 +169,7 @@ export async function listAgentsAsync(
   accountId?: string,
   accountHint?: string
 ): Promise<AgentInfo[]> {
+  logger.trace('Dataverse', `Listing owned agents from: ${baseEndpoint.authority}`);
   const systemUserId = await whoAmIAsync(baseEndpoint, cancellationToken, accountId, accountHint);
 
   const filter = `ismanaged eq false and _ownerid_value eq ${systemUserId}`;
@@ -179,6 +181,7 @@ export async function listAgentsAsync(
   });
 
   const response = await getAsync<ListResponse<AgentDetails>>(uri, cancellationToken, accountId, accountHint);
+  logger.trace('Dataverse', `Found ${response.result.value.length} owned agent(s)`);
   return response.result.value.map(getAgentInfo);
 }
 
@@ -201,6 +204,7 @@ export async function listSharedAgentsAsync(
   accountId?: string,
   accountHint?: string
 ): Promise<AgentInfo[]> {
+  logger.trace('Dataverse', `Listing shared agents from: ${baseEndpoint.authority}`);
   const systemUserId = await whoAmIAsync(baseEndpoint, cancellationToken, accountId, accountHint);
 
   // Get all unmanaged bots the user can see, excluding ones they own

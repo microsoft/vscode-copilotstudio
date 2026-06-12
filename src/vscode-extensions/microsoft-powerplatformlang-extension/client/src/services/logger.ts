@@ -31,6 +31,7 @@ class Logger {
   private static instance: Logger;
   private reporter!: TelemetryReporter;
   private sessionId!: string;
+  private outputChannel: vscode.LogOutputChannel | undefined;
 
   private constructor() { }
 
@@ -45,6 +46,58 @@ class Logger {
     this.reporter = new TelemetryReporter(TELEMETRY_CONNECTION_STRING);
     this.sessionId = sessionId;
     context.subscriptions.push(this.reporter);
+  }
+
+  /**
+   * Sets the output channel for writing diagnostic logs.
+   * Must be called after the output channel is created.
+   */
+  public setOutputChannel(channel: vscode.LogOutputChannel) {
+    this.outputChannel = channel;
+  }
+
+  // --- Output channel logging (diagnostics only, no telemetry) ---
+  // Log level filtering is handled natively by VS Code's LogOutputChannel.
+  // The user controls visibility via the output panel dropdown (defaults to Info).
+
+  /**
+   * Writes a trace-level message to the output channel.
+   * Use for detailed flow tracking (e.g., HTTP requests, intermediate steps).
+   */
+  public trace(category: string, message: string): void {
+    this.outputChannel?.trace(`[${category}] ${message}`);
+  }
+
+  /**
+   * Writes a debug-level message to the output channel.
+   * Use for debugging context that's slightly more important than trace.
+   */
+  public debug(category: string, message: string): void {
+    this.outputChannel?.debug(`[${category}] ${message}`);
+  }
+
+  /**
+   * Writes an info-level message to the output channel.
+   * Use for significant user-initiated actions and outcomes.
+   */
+  public info(category: string, message: string): void {
+    this.outputChannel?.info(`[${category}] ${message}`);
+  }
+
+  /**
+   * Writes a warning-level message to the output channel.
+   * Use for recoverable issues that don't block the user flow.
+   */
+  public warn(category: string, message: string): void {
+    this.outputChannel?.warn(`[${category}] ${message}`);
+  }
+
+  /**
+   * Writes an error-level message to the output channel.
+   * Use for failures that block the current operation.
+   */
+  public error(category: string, message: string): void {
+    this.outputChannel?.error(`[${category}] ${message}`);
   }
 
   public async dispose() {

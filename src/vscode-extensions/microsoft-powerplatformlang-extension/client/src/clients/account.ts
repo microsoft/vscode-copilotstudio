@@ -339,6 +339,7 @@ export async function getPreferredAccountId(clusterCategory: CoreServicesCluster
  * Uses coalescing to prevent multiple concurrent consent dialogs.
  */
 export async function switchAccount(clusterCategory: CoreServicesClusterCategory): Promise<boolean> {
+    logger.info('Auth', 'Switch account initiated');
     signInCancelled.clear();
     while (pendingInteractiveAuth) {
         await pendingInteractiveAuth;
@@ -367,6 +368,7 @@ export async function switchAccount(clusterCategory: CoreServicesClusterCategory
                     accountId: session.account.id,
                     accountEmail: session.account.label
                 };
+                logger.info('Auth', `Switched to account: ${session.account.label}`);
                 try {
                     const { clearWhoAmICache } = await import('./dataverseClient.js');
                     clearWhoAmICache();
@@ -377,9 +379,11 @@ export async function switchAccount(clusterCategory: CoreServicesClusterCategory
         } catch (error) {
             // User cancelled or auth failed
             if (isCancellationError(error)) {
+                logger.info('Auth', 'Switch account cancelled by user');
                 logger.logInfo(TelemetryEventsKeys.SwitchAccountError, 'Switch account cancelled by user.');
             } else {
                 const message = error instanceof Error ? error.message : String(error);
+                logger.error('Auth', `Switch account failed: ${message}`);
                 logger.logError(TelemetryEventsKeys.SwitchAccountError, `Failed to switch account: ${message}`);
             }
             return false; // Cancelled or failed

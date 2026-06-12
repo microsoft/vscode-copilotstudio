@@ -63,7 +63,6 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
             else
             {
                 agentDirectory = FindAgentDirectoryFolderAndCreate(directoryPath);
-                LogAgentResolvingInfoEvent($"Agent Directory initialized at: '{agentDirectory.FolderPath}'", "Agent Directory Initialized");
             }
 
             return agentDirectory;
@@ -76,14 +75,32 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
             // only log agent selected event when changing agent directory, which should be rare in most cases
             if (!agentDirectory.Equals(_lastAgentSelected))
             {
-                LogAgentResolvingInfoEvent($"Agent Directory selected: '{agentDirectory}'" + (candidatesCount > 1 ? $" (Out of {candidatesCount} parent directories)" : string.Empty), "Changed Active Agent Directory");
+                var agentName = GetAgentName(agentDirectory);
+                LogAgentResolvingInfoEvent($"Agent Directory selected: '{agentDirectory}'" + (candidatesCount > 1 ? $" (Out of {candidatesCount} parent directories)" : string.Empty), $"Active agent directory changed to: {agentName}");
                 _lastAgentSelected = agentDirectory;
             }
         }
 
         private void LogAgentResolvingInfoEvent(string sensitiveMsg, string altSafeMsg)
         {
-            _logger.LogSensitiveInformation("[AgentResolvingEvent] " + sensitiveMsg, "[AgentResolvingEvent] " + altSafeMsg);
+            _logger.LogSensitiveInformation("[AgentResolving] " + sensitiveMsg, "[AgentResolving] " + altSafeMsg);
+        }
+
+        private void LogAgentResolvingDebugEvent(string message)
+        {
+            _logger.LogDebug("[AgentResolving] " + message);
+        }
+
+        /// <summary>
+        /// Extracts the agent folder name from a directory path (last segment before trailing slash).
+        /// </summary>
+        private static string GetAgentName(DirectoryPath directoryPath)
+        {
+            var path = directoryPath.ToString();
+            if (path.Length < 2) return path;
+            var trimmed = path.TrimEnd('/');
+            var lastSlash = trimmed.LastIndexOf('/');
+            return lastSlash >= 0 ? trimmed.Substring(lastSlash + 1) : trimmed;
         }
 
         private McsWorkspace FindAgentDirectoryFolderAndCreate(DirectoryPath documentDirectory)
@@ -119,7 +136,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
                 {
                     if (selector(currentFolder))
                     {
-                        LogAgentResolvingInfoEvent($"Valid agent directory detected: '{currentFolder}'", "Valid Agent Directory detected");
+                        LogAgentResolvingDebugEvent($"Valid agent directory detected: '{currentFolder}'");
                         validDirectory = currentFolder;
                         return true;
                     }
@@ -136,23 +153,33 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
         {
             // currentFolder must be a valid directory path
             var agentDirectory = new McsWorkspace(currentFolderPath, _lspServices);
+            int documentCount = 0;
 
             if (isFolderOpened)
             {
-                AddLocalFilesToAgent(agentDirectory);
+                documentCount = AddLocalFilesToAgent(agentDirectory);
             }
+
+            var agentName = GetAgentName(currentFolderPath);
+            LogAgentResolvingInfoEvent(
+                $"Agent directory initialized with {documentCount} documents tracked: '{currentFolderPath}'",
+                $"Agent directory initialized with {documentCount} documents tracked for {agentName}");
 
             _agentDirectories.Add(currentFolderPath, agentDirectory);
             NotifyClientOfAgentDirectoryChange();
             return agentDirectory;
         }
 
-        private void AddLocalFilesToAgent(McsWorkspace agentDirectory)
+        private int AddLocalFilesToAgent(McsWorkspace agentDirectory)
         {
             var agentDirectoryPath = agentDirectory.FolderPath;
+            var agentName = GetAgentName(agentDirectoryPath);
+            int totalDocumentCount = 0;
+
             void AddDocumentToAgent(IFileInfo fileInfo, FilePath documentPath)
             {
                 agentDirectory.UpsertDocumentFromFile(documentPath, fileInfo, this, _clientInfo.CultureInfo);
+                ++totalDocumentCount;
             }
 
             // SubAgents are in /agents/{name}/*
@@ -178,7 +205,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
                         }
                         if (fileCount > 0)
                         {
-                            LogAgentResolvingInfoEvent($"{fileCount} files added under {relativePath} in MCS directory {folder}", "Document(s) added to parent agent directory");
+                            LogAgentResolvingDebugEvent($"{fileCount} files added under {relativePath} for {agentName}");
                         }
                     }
                     else
@@ -190,6 +217,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
                             if (fileInfo.Exists)
                             {
                                 AddDocumentToAgent(fileInfo, pathWithoutExt);
+                                LogAgentResolvingDebugEvent($"{fileInfo.Name} added to root directory for {agentName}");
                             }
                         }
 
@@ -198,13 +226,14 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
                             // per TryGetMcsFilePath, file must exist
                             var fileInfo = _fileProvider.GetFileInfo(path);
                             AddDocumentToAgent(fileInfo, path);
-                            LogAgentResolvingInfoEvent($"{relativePath} file added to MCS directory root {folder}", "Root document added to agent directory");
+                            LogAgentResolvingDebugEvent($"{path.FileName} added to root directory for {agentName}");
                         }
                     }
                 }
             }
 
             agentDirectory.BuildCompilationModel();
+            return totalDocumentCount;
         }
 
         private void RemoveDocumentFromPreviousAgent(FilePath file)
@@ -219,11 +248,11 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
                 var previousAgent = candidate.Value;
                 if (previousAgent.RemoveDocument(file))
                 {
-                    LogAgentResolvingInfoEvent($"Document '{file}' removed from previous MCS directory '{previousAgent.FolderPath}'", "Document transferring from existing agent directory.");
+                    LogAgentResolvingDebugEvent($"Document '{file}' removed from previous MCS directory '{previousAgent.FolderPath}'");
 
                     if (previousAgent.IsEmpty)
                     {
-                        LogAgentResolvingInfoEvent($"Deleting previous MCS directory '{previousAgent.FolderPath}'. All documents ownership have been transferred to a new valid agent directory.", "Obsolete agent directory is empty and will be removed");
+                        LogAgentResolvingDebugEvent($"Deleting previous MCS directory '{previousAgent.FolderPath}'. All documents ownership have been transferred to a new valid agent directory.");
                         emptyAgentDirectories.Add(candidate.Key);
                     }
                 }

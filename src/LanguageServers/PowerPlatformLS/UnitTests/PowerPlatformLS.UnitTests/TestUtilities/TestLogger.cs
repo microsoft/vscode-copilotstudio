@@ -9,6 +9,7 @@
     internal class TestLogger : ILogger
     {
         public IEnumerable<string> Info => _logs.TryGetValue(LogLevel.Information, out var logs) ? logs : [];
+        public IEnumerable<string> Debug => _logs.TryGetValue(LogLevel.Debug, out var logs) ? logs : [];
         public IEnumerable<string> Warning => _logs.TryGetValue(LogLevel.Warning, out var logs) ? logs : [];
         public IEnumerable<string> Error => _logs.TryGetValue(LogLevel.Error, out var logs) ? logs : [];
         public IEnumerable<string> Critical => _logs.TryGetValue(LogLevel.Critical, out var logs) ? logs : [];

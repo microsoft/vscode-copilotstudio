@@ -232,7 +232,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
                     _                    => 4,
                 };
 
-                _owner.Enqueue(new QueuedEntry(messageType, $"[{_category}] {message}"));
+                _owner.Enqueue(new QueuedEntry(messageType, message));
             }
 
             private sealed class NullScope : IDisposable

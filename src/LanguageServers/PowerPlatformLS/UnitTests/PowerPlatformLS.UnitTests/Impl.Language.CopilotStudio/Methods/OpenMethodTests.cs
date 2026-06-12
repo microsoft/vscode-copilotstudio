@@ -26,7 +26,7 @@
                 var documentUri = new Uri("file:///c:/ws/topics/test.mcs.yml");
                 var diagParams = await context.OpenDocumentWithTextAsync(documentUri, "kind: AdaptiveDialog");
                 Assert.Empty(diagParams.Diagnostics.Where(x => x.Severity < DiagnosticSeverity.Warning));
-                AssertAgentResolvingEvent(context, "Agent Directory initialized at: 'c:/ws/topics/'");
+                AssertAgentResolvingEvent(context, "Agent directory initialized with 1 documents tracked: 'c:/ws/topics/'");
                 AssertAgentDirectoryChangeNotification(context);
                 context.Logs.Clear();
             }
@@ -36,7 +36,7 @@
                 var documentUri = new Uri("file:///c:/ws/test.mcs.yml");
                 var diagParams = await context.OpenDocumentWithTextAsync(documentUri, "kind: AdaptiveDialog");
                 Assert.Empty(diagParams.Diagnostics.Where(x => x.Severity < DiagnosticSeverity.Warning));
-                AssertAgentResolvingEvent(context, "Agent Directory initialized at: 'c:/ws/'");
+                AssertAgentResolvingEvent(context, "Agent directory initialized with 1 documents tracked: 'c:/ws/'");
                 AssertAgentDirectoryChangeNotification(context);
                 context.Logs.Clear();
             }
@@ -116,7 +116,7 @@
             var diagParams2 = await context.OpenDocumentWithTextAsync(documentUri, "kind: AdaptiveDialog");
             Assert.Equal(diagParams.Uri, diagParams2.Uri);
             Assert.Equal(diagParams.Diagnostics.Select(x => x.Message), diagParams2.Diagnostics.Select(x => x.Message));
-            Assert.Equal(1, context.Logs.Info.Count(x => x.StartsWith("[AgentResolvingEvent]")));
+            Assert.Equal(1, context.Logs.Info.Count(x => x.StartsWith("[AgentResolving]")));
             AssertAgentResolvingEvent(context, "Agent Directory selected: 'c:/ws/topics/'");
             context.Logs.Clear();
 
@@ -474,9 +474,10 @@ beginDialog:
 
         private static void AssertAgentResolvingEvent(TestHost context, string expectedEventLog, int expectedCount = 1)
         {
-            var agentResolvingEvents = context.Logs.Info
-                .Where(x => x.StartsWith("[AgentResolvingEvent]"))
-                .Select(x => x.Substring("[AgentResolvingEvent] ".Length))
+            const string prefix = "[AgentResolving] ";
+            var agentResolvingEvents = context.Logs.Info.Concat(context.Logs.Debug)
+                .Where(x => x.StartsWith(prefix))
+                .Select(x => x.Substring(prefix.Length))
                 .ToArray();
             var actualCount = agentResolvingEvents.Count(x => x == expectedEventLog);
 
@@ -488,7 +489,7 @@ beginDialog:
                 if (agentResolvingEventsCount > 0)
                 {
                     var agentResolvingEventsString = string.Join("\n", agentResolvingEvents);
-                    additionalInformation += $"{agentResolvingEvents.Count()} Total [AgentResolvingEvent]s: \n" + agentResolvingEventsString;
+                    additionalInformation += $"{agentResolvingEvents.Count()} Total [AgentResolving] events: \n" + agentResolvingEventsString;
                 }
                 else
                 {

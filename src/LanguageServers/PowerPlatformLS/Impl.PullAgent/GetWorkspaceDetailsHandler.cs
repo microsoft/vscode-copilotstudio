@@ -47,7 +47,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             }
             catch (Exception exception)
             {
-                _logger.LogException(exception);
+                // Log appropriately but don't fail the request — return partial data.
+                var (_, _) = LspExceptionHandler.Handle(exception, _logger);
             }
 
             if (syncInfo != null && (syncInfo.AuthoringShape == null || syncInfo.AuthoringShape == AuthoringShape.Unknown))

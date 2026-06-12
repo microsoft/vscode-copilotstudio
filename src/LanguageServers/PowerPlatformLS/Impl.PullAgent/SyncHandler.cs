@@ -2,7 +2,6 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 {
     using Microsoft.Agents.ObjectModel;
     using Microsoft.Agents.Platform.Content;
-    using Microsoft.Agents.Platform.Content.Exceptions;
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.CopilotStudio.Sync.Dataverse;
@@ -72,31 +71,13 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     AIPromptResponse = aiPromptResponse,
                 };
             }
-            catch (InvalidOperationException ex)
-            {
-                // User errors
-                return new SyncAgentResponse
-                {
-                    Code = 400,
-                    Message = ex.Message,
-                };
-            }
-            catch (DataverseServiceUnavailableException ex)
-            {
-                _logger.LogException(ex);
-                return new SyncAgentResponse
-                {
-                    Code = 503,
-                    Message = "The Copilot Studio service is temporarily unavailable. Please try again in a moment.",
-                };
-            }
             catch (Exception ex)
             {
-                _logger.LogException(ex);
+                var (code, message) = LspExceptionHandler.Handle(ex, _logger, cancellationToken);
                 return new SyncAgentResponse
                 {
-                    Code = 500,
-                    Message = ex.Message,
+                    Code = code,
+                    Message = message,
                 };
             }
         }

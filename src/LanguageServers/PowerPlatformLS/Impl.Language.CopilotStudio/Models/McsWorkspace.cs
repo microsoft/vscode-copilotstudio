@@ -67,9 +67,6 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models
         public override void AddDocument(LspDocument document)
         {
             base.AddDocument(document);
-
-            int len = document.Text.Length;
-            _logger.LogInformation($"Document {document.Uri.AbsoluteUri}, len={len}, tracked in current workspace.");
         }
 
         public IExpressionCheckerOperationContext GetOperationContext()

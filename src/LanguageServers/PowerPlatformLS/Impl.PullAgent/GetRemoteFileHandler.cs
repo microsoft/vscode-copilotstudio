@@ -145,10 +145,11 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             }
             catch (Exception ex)
             {
+                var (code, message) = LspExceptionHandler.Handle(ex, _logger, cancellationToken);
                 return new GetFileResponse
                 {
-                    Code = 500,
-                    Message = ex.Message,
+                    Code = code,
+                    Message = message,
                 };
             }
         }
