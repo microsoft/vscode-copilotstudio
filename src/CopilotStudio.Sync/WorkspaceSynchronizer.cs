@@ -3238,7 +3238,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             if (fileAccessor.Exists(AgentSyncMarkerPath))
             {
                 throw new InvalidOperationException(
-                    "CLI settings.mcs.yml could not be read from a cacheless workspace.",
+                    $"CLI settings.mcs.yml could not be read from a cacheless workspace: {ex.Message}.",
                     ex);
             }
 
@@ -3255,7 +3255,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             if (fileAccessor.Exists(AgentSyncMarkerPath))
             {
                 throw new InvalidOperationException(
-                    "CLI settings.mcs.yml is malformed in a cacheless workspace.",
+                    $"CLI settings.mcs.yml is malformed in a cacheless workspace: {ex.Message}.",
                     ex);
             }
 

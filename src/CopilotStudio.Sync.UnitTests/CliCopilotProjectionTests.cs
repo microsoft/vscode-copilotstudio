@@ -64,6 +64,19 @@ public class CliCopilotProjectionTests
             projection.PayloadPath);
     }
 
+    [Fact]
+    public async Task ComponentProjection_FileAttachmentPayloadPath_UsesFileNameOnly()
+    {
+        var (_, definition, _, _, _) = await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
+        var fileAttachment = definition.Components.OfType<FileAttachmentComponent>().Single();
+        var unsafeFileAttachment = fileAttachment.WithDisplayName(@"..\nested/Unsafe.csv");
+
+        var projection = CliCopilotProjection.GetComponentProjection(unsafeFileAttachment, definition);
+
+        Assert.Equal("capabilities/knowledge/files", projection.PayloadFolder);
+        Assert.Equal("capabilities/knowledge/files/Unsafe.csv", projection.PayloadPath);
+    }
+
     private static CliCopilotComponentProjection AssertProjectionMatchesInternalResolver(
         BotComponentBase component,
         DefinitionBase definition,

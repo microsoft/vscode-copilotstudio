@@ -51,13 +51,13 @@ public static class CliCopilotProjection
 
         if (component is FileAttachmentComponent fileAttachment)
         {
-            var payloadFileName = fileAttachment.DisplayName;
+            var payloadFileName = GetFileNameOnly(fileAttachment.DisplayName);
             if (!string.IsNullOrEmpty(payloadFileName))
             {
                 projection = projection with
                 {
                     PayloadFolder = bodyFolder,
-                    PayloadPath = CombineRelativePath(bodyFolder, payloadFileName!),
+                    PayloadPath = CombineRelativePath(bodyFolder, payloadFileName),
                 };
             }
         }
@@ -77,4 +77,14 @@ public static class CliCopilotProjection
 
     private static string NormalizeFolder(string folder)
         => folder.TrimEnd('/', '\\');
+
+    private static string GetFileNameOnly(string? fileName)
+    {
+        if (string.IsNullOrEmpty(fileName))
+        {
+            return string.Empty;
+        }
+
+        return Path.GetFileName(fileName.Replace('\\', '/')) ?? string.Empty;
+    }
 }
