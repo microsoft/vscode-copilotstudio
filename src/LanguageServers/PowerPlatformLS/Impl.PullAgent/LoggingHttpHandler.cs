@@ -1,43 +1,41 @@
 ﻿namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 {
-    using Microsoft.CommonLanguageServerProtocol.Framework;
+    using Microsoft.Extensions.Logging;
     using System;
     using System.Diagnostics;
     using System.Threading.Tasks;
 
-    // Log Http requests to a ILspLogger.
-    // Useful to find long-running requests, network failures, etc. 
+    /// <summary>
+    /// Logs HTTP requests at Trace level for diagnostics.
+    /// Errors (network failures) are always logged at Error level.
+    /// </summary>
     internal class LoggingHttpHandler : DelegatingHandler
     {
-        private readonly ILspLogger _logger;
+        private readonly ILogger<LoggingHttpHandler> _logger;
 
-        public LoggingHttpHandler(ILspLogger logger)
+        public LoggingHttpHandler(ILogger<LoggingHttpHandler> logger)
         {
             _logger = logger;
         }
 
-        // Random Id to correlate start and end messages. 
-        private static int _randomId;
+        private static int _requestId;
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            int counter = Interlocked.Increment(ref _randomId);
+            int id = Interlocked.Increment(ref _requestId);
 
-            _logger.LogInformation($"HTTP: Start id={counter}, {request.Method} {request.RequestUri}");
+            _logger.LogTrace("#{Id} Starting {Method} {Uri}", id, request.Method, request.RequestUri);
             Stopwatch sw = Stopwatch.StartNew();
 
             try
             {
                 var response = await base.SendAsync(request, cancellationToken);
-
-                _logger.LogInformation($"HTTP: End id={counter}, result={response.StatusCode}, ms={sw.ElapsedMilliseconds},");
-
+                _logger.LogTrace("#{Id} Completed {Method} {Uri} ({Duration}ms): status={StatusCode}", id, request.Method, request.RequestUri, sw.ElapsedMilliseconds, (int)response.StatusCode);
                 return response;
             }
             catch (Exception e)
             {
-                // This would be a network failure. 
-                _logger.LogError($"HTTP: Exception, id={counter}, msg ={e.Message}, ms={sw.ElapsedMilliseconds},");
+                _logger.LogError("#{Id} Failed {Method} {Uri} ({Duration}ms) - {Message}", id, request.Method, request.RequestUri, sw.ElapsedMilliseconds, e.Message);
                 throw;
             }
         }

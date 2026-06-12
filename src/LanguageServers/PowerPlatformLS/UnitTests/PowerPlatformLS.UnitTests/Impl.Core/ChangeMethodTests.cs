@@ -226,7 +226,6 @@
 
             // both request completed without error
             Assert.Empty(logs.Error);
-            Assert.Equal(2, logs.Info.Count(x => x.Contains("EndContext: workspace/didChangeWatchedFiles")));
         }
 
         /// <summary>
@@ -261,7 +260,6 @@
 
             Assert.Empty(logs.Error);
             Assert.Contains(logs.Warning, x => x.EndsWith("The file does not exist."));
-            Assert.Single(logs.Info.Where(x => x.Contains("EndContext: workspace/didChangeWatchedFiles")));
         }
 
         /// <summary>
@@ -394,7 +392,6 @@
 
             // request completed without error
             Assert.Empty(logs.Error);
-            Assert.Single(logs.Info.Where(x => x.Contains("EndContext: workspace/didChangeWatchedFiles")));
         }
 
         private async Task AssertDiagnosticsAsync(TestHost context, (string uriEnd, int count)[] expected)

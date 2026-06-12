@@ -13,6 +13,7 @@
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.Extensions.DependencyInjection;
+    using Microsoft.Extensions.Logging;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common.DependencyInjection;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
@@ -26,16 +27,27 @@
     public class PullAgentLspModule : ILspModule
     {
         private readonly BuildVersionInfo _versionInfo;
+        private readonly ILoggerFactory? _loggerFactory;
 
-        public PullAgentLspModule(BuildVersionInfo versionInfo)
+        public PullAgentLspModule(BuildVersionInfo versionInfo, ILoggerFactory? loggerFactory = null)
         {
             _versionInfo = versionInfo;
+            _loggerFactory = loggerFactory;
         }
 
         public void ConfigureServices(IServiceCollection services)
         {
             string userAgent = $"MCSVSCode-{_versionInfo.VsixVersion ?? "unknown"}";
             ServiceRegistrations.AddServices(services, userAgent);
+
+            // Register only the specific ILogger<T> instances our code needs.
+            // Do NOT register ILoggerFactory or open ILogger<> — that would let framework
+            // internals (HttpClientFactory, SDK classes) resolve loggers and flood output.
+            if (_loggerFactory != null)
+            {
+                services.AddSingleton(_loggerFactory.CreateLogger<LspOperationLogger>());
+                services.AddSingleton(_loggerFactory.CreateLogger<LoggingHttpHandler>());
+            }
 
             // Bridge types: host-specific implementations required before AddSyncServices()
             services.AddSingleton<TokenManager>();
@@ -93,7 +105,7 @@
                     {
                         handlers.Add(sp.GetRequiredService<THandler>());
                         
-                        var logger = sp.GetRequiredService<ILspLogger>();
+                        var logger = sp.GetRequiredService<ILogger<LoggingHttpHandler>>();
                         handlers.Add(new LoggingHttpHandler(logger));
                     });
             }

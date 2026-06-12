@@ -1,6 +1,7 @@
 ﻿namespace Microsoft.PowerPlatformLS.LanguageServerHost
 {
     using Microsoft.ApplicationInsights.Channel;
+    using Microsoft.Extensions.Logging;
 
     internal static class AppInsightsConfiguration
     {
@@ -32,6 +33,11 @@
                         },
                         configureApplicationInsightsLoggerOptions: _ => { }
                     );
+
+                    // Only send Information and above to App Insights.
+                    // Trace/Debug logs are diagnostic-only and stay in the output channel.
+                    builder.AddFilter<Microsoft.Extensions.Logging.ApplicationInsights.ApplicationInsightsLoggerProvider>(
+                        null, LogLevel.Information);
                 });
             }
         }

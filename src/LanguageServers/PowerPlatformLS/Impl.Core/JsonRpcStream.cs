@@ -7,6 +7,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Core
     using Microsoft.PowerPlatformLS.Contracts.Internal;
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Exceptions;
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
+    using Microsoft.PowerPlatformLS.Impl.Core.Lsp;
     using System;
     using System.Reflection;
     using System.Text.Json;
@@ -55,7 +56,11 @@ namespace Microsoft.PowerPlatformLS.Impl.Core
                 }
                 else if (message is LspJsonRpcMessage lspMessage)
                 {
-                    _logger.LogInformation($"Received Message: method={lspMessage.Method}, id={lspMessage.Id}");
+                    if (!LspLogger.IsBuiltInLspMethod(lspMessage.Method))
+                    {
+                        int id = LspLogger.AllocateRequestId(lspMessage.Method);
+                        _logger.LogTrace("#{Id} Received {Method}", id, lspMessage.Method);
+                    }
 
                     // Release the LSP log-forwarding pump once the client is initialized.
                     if (string.Equals(lspMessage.Method, LspMethods.Initialized, StringComparison.Ordinal))
@@ -84,7 +89,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Core
             // Lookup the method by its RPC method name.
             if (!_rpcMethods.TryGetValue(request.Method, out var entry))
             {
-                _logger.LogWarning($"Method '{request.Method}' is not registered. Wont't process event with id '{request.Id}'");
+                _logger.LogWarning($"Method '{request.Method}' is not registered. Won't process event with id '{request.Id}'");
                 return;
             }
 
@@ -106,7 +111,11 @@ namespace Microsoft.PowerPlatformLS.Impl.Core
                     {
                         // Extract the result dynamically
                         object? result = returnType.GetProperty("Result")?.GetValue(task);
-                        _logger.LogTrace($"LSP Method Handler Task completed for {request.Method}({request.Id}) with result: {result ?? Constants.Null}");
+
+                        if (!LspLogger.IsBuiltInLspMethod(request.Method))
+                        {
+                            _logger.LogTrace("#{Id} Response {Method}: {Result}", LspLogger.PeekRequestId(request.Method), request.Method, result ?? Constants.Null);
+                        }
 
                         if (request.Id.HasValue)
                         {
@@ -128,14 +137,17 @@ namespace Microsoft.PowerPlatformLS.Impl.Core
                     else
                     {
                         // Non-generic Task — handler returned no value.
+                        if (!LspLogger.IsBuiltInLspMethod(request.Method))
+                        {
+                            _logger.LogTrace("#{Id} Response {Method}: no result", LspLogger.PeekRequestId(request.Method), request.Method);
+                        }
+
                         if (request.Id.HasValue)
                         {
-                            _logger.LogTrace($"LSP Method Handler Task completed for {request.Method}({request.Id}) with no result. Sending null response.");
                             response = new JsonRpcResponse { Id = request.Id, Result = JsonSerializer.SerializeToElement<object?>(null) };
                         }
                         else
                         {
-                            _logger.LogTrace($"LSP Notification Handler Task completed for {request.Method}.");
                             response = null;
                         }
                     }
