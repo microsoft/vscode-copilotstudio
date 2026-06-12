@@ -16,7 +16,7 @@ export interface AccessTokenResponse {
 
 let clearSession = false;
 const MICROSOFT_PROVIDER_ID = 'microsoft';
-const VSCODE_CLIENT_ID = "VSCODE_CLIENT_ID:51f81489-12ee-4a9e-aaae-a2591f45987d";
+const VSCODE_CLIENT_ID = "VSCODE_CLIENT_ID:41c3658f-468d-40c9-92cd-2af217093eaa";
 
 // Coalescing lock for interactive auth - prevents multiple concurrent consent dialogs
 let pendingInteractiveAuth: Promise<boolean> | null = null;

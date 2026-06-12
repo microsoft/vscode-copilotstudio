@@ -297,13 +297,20 @@ function getTokenScopeHostName(clusterCategory: CoreServicesClusterCategory): st
         case CoreServicesClusterCategory.Preprod:
         case CoreServicesClusterCategory.FirstRelease:
         case DefaultCoreServicesClusterCategory:
-            return "service.powerapps.com";
+            return "api.bap.microsoft.com";
         case CoreServicesClusterCategory.Gov:
+        case CoreServicesClusterCategory.GovFR:
             return "gov.service.powerapps.us";
         case CoreServicesClusterCategory.High:
             return "high.service.powerapps.us";
         case CoreServicesClusterCategory.DoD:
             return "service.apps.appsplatform.us";
+        case CoreServicesClusterCategory.Mooncake:
+            return "api.bap.partner.microsoftonline.cn";
+        case CoreServicesClusterCategory.Ex:
+            return "api.bap.eaglex.ic.gov";
+        case CoreServicesClusterCategory.Rx:
+            return "api.bap.microsoft.scloud";
         default:
             throw new Error("Not implemented");
     }
