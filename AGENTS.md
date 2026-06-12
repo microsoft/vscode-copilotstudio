@@ -308,6 +308,8 @@ Common Language Server Protocol Framework providing core abstractions:
 | `CopilotStudio.Sync` | Reusable sync implementation for clone, pull, push, diffing, Dataverse access, and workspace projection |
 | `CopilotStudio.Sync.UnitTests` / `CopilotStudio.Sync.E2ETests` / `CopilotStudio.Sync.TestHarness` | Tests and harnesses for the shared sync library |
 
+**Authoring projection ownership:** ObjectModel owns agent primitives and their default file projection. `CopilotStudio.Sync` / `CopilotStudio.McsCore` owns VS Code and agent-specific projection behavior, including CliCopilot authoring-layout paths. Public Sync seams should expose that existing projection narrowly for consumers such as PAC; do not redesign projection or move PAC-owned Dataverse solution package emission into Sync.
+
 **Language Routing:**
 ```
 Request → LspUriFactory.FromJsonElement() → FileLspUri

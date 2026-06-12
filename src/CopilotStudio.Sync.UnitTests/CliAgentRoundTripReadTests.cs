@@ -47,6 +47,44 @@ public class CliAgentRoundTripReadTests
     // --- Component-identity round-trip (no spurious deletes) ------------------------
 
     [Fact]
+    public async Task ReadWorkspaceDefinition_CachelessCliSettings_ReturnsBareDefinition()
+    {
+        var (synchronizer, factory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath($"c:/test/cacheless-cli-read-{Guid.NewGuid():N}/");
+        var accessor = (InMemoryFileAccessor)factory.Create(workspace);
+
+        await accessor.WriteAsync(new AgentFilePath(AgentClassifier.WorkspaceLayoutMarkerFileName),
+            "layoutVersion: 1\n",
+            CancellationToken.None);
+        await accessor.WriteAsync(new AgentFilePath("settings.mcs.yml"),
+            """
+            displayName: Cacheless CLI
+            schemaName: test_CachelessCli
+            configuration:
+              recognizer:
+                kind: CLICopilotRecognizer
+              agentSettings:
+                model:
+                  series: Sonnet46
+                instructions:
+                  segments:
+                    - kind: StaticSegment
+                      value: Cacheless instructions.
+            template: cliagent-1.0.0
+            language: 1033
+            """,
+            CancellationToken.None);
+
+        var read = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
+
+        var bot = Assert.IsType<BotDefinition>(read);
+        Assert.Equal("Cacheless CLI", bot.Entity!.DisplayName);
+        Assert.Equal("test_CachelessCli", bot.Entity.SchemaName.Value);
+        Assert.NotNull(bot.Entity.Configuration?.AgentSettings);
+        Assert.Empty(bot.Components);
+    }
+
+    [Fact]
     public async Task RoundTrip_CliAgent_FoodLogger_AllComponentsSurvivePull()
     {
         // The primary Node E "Done when" criterion: a CLI workspace pulled
