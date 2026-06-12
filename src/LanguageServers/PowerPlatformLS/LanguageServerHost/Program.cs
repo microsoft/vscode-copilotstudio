@@ -1,5 +1,6 @@
 using Microsoft.ApplicationInsights.Channel;
 using Microsoft.CommonLanguageServerProtocol.Framework;
+using Microsoft.Extensions.Logging;
 using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
 using Microsoft.PowerPlatformLS.Contracts.Internal.Common.DependencyInjection;
 using Microsoft.PowerPlatformLS.Impl.Core.DependencyInjection;
@@ -29,7 +30,9 @@ try
     builder.Services.AddSingleton<ILspModule, PowerFxLspModule>();
     builder.Services.AddSingleton<ILspModule, YamlLspModule>();
     builder.Services.AddSingleton<ILspModule, McsLspModule>();
-    builder.Services.AddSingleton<ILspModule>(sp => new PullAgentLspModule(sp.GetRequiredService<BuildVersionInfo>()));
+    builder.Services.AddSingleton<ILspModule>(sp => new PullAgentLspModule(
+        sp.GetRequiredService<BuildVersionInfo>(),
+        sp.GetRequiredService<ILoggerFactory>()));
 
     // Forward MEL entries to the LSP client via window/logMessage so the
     // extension renders them in its LogOutputChannel with [error]/[warning]/[info]
