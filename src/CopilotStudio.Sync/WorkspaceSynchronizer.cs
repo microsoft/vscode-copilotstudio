@@ -2980,10 +2980,14 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
     public async Task<DefinitionBase> ReadWorkspaceDefinitionAsync(DirectoryPath workspaceFolder, CancellationToken cancellationToken, bool checkKnowledgeFiles = false)
     {
         var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
-        var definition = ReadCloudCacheSnapshot(fileAccessor);
+        var definition = ReadCloudCacheSnapshot(fileAccessor, allowMissing: true);
         if (definition == null)
         {
-            throw new FileNotFoundException(".mcs/botdefinition.json was not found. Please resync.");
+            definition = ReadCachelessCliDefinitionOrNull(fileAccessor);
+            if (definition == null)
+            {
+                throw new FileNotFoundException(".mcs/botdefinition.json was not found. Please resync.");
+            }
         }
 
         // CliAgentSyncSupport / Node E: compute kind ONCE per read so every
@@ -3213,6 +3217,57 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             .WithComponents(updatedComponents)
             .WithEnvironmentVariables(updatedEnvVars)
             .WithConnectionReferences(updatedConnectionRefs);
+    }
+
+    private static DefinitionBase? ReadCachelessCliDefinitionOrNull(IFileAccessor fileAccessor)
+    {
+        if (!fileAccessor.Exists(SettingsPath))
+        {
+            return null;
+        }
+
+        string yaml;
+        try
+        {
+            using var stream = fileAccessor.OpenRead(SettingsPath);
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            yaml = reader.ReadToEnd();
+        }
+        catch (Exception ex)
+        {
+            if (fileAccessor.Exists(AgentSyncMarkerPath))
+            {
+                throw new InvalidOperationException(
+                    $"CLI settings.mcs.yml could not be read from a cacheless workspace: {ex.Message}.",
+                    ex);
+            }
+
+            return null;
+        }
+
+        BotEntity? entity;
+        try
+        {
+            entity = CodeSerializer.Deserialize<BotEntity>(yaml);
+        }
+        catch (Exception ex)
+        {
+            if (fileAccessor.Exists(AgentSyncMarkerPath))
+            {
+                throw new InvalidOperationException(
+                    $"CLI settings.mcs.yml is malformed in a cacheless workspace: {ex.Message}.",
+                    ex);
+            }
+
+            return null;
+        }
+
+        if (entity != null && AgentClassifier.DetectAuthoringShape(entity) == AuthoringShape.CliCopilot)
+        {
+            return new BotDefinition(entity: entity);
+        }
+
+        return null;
     }
 
     /// <summary>
