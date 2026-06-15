@@ -626,7 +626,8 @@
                     new
                     {
                         connectionreferenceid = connectionRefId,
-                        connectionreferencelogicalname = connectionRefName
+                        connectionreferencelogicalname = connectionRefName,
+                        connectorid = connectorId
                     }
                 }
             });
@@ -651,7 +652,6 @@
             // Act
             await client.EnsureConnectionReferenceExistsAsync(connectionRefName, connectorId, CancellationToken.None);
 
-            // Assert - only GET was called, not POST
             handlerMock.Protected().Verify(
                "SendAsync",
                Times.Once(),
@@ -662,6 +662,142 @@
                "SendAsync",
                Times.Never(),
                ItExpr.Is<HttpRequestMessage>(req => req.Method == HttpMethod.Post),
+               ItExpr.IsAny<CancellationToken>());
+
+            handlerMock.Protected().Verify(
+               "SendAsync",
+               Times.Never(),
+               ItExpr.Is<HttpRequestMessage>(req => req.Method == HttpMethod.Patch),
+               ItExpr.IsAny<CancellationToken>());
+        }
+
+        [Fact]
+        public async Task EnsureConnectionReferenceExistsAsync_RepairsConnectorId_WhenStale()
+        {
+            // Arrange
+            var connectionRefName = "cre6c_test.shared_connector.12345";
+            var desiredConnectorId = "/providers/Microsoft.PowerApps/apis/shared_connector-target";
+            var staleConnectorId = "/providers/Microsoft.PowerApps/apis/shared_connector-source";
+            var connectionRefId = Guid.NewGuid();
+            var responseBody = JsonSerializer.Serialize(new
+            {
+                value = new[]
+                {
+                    new
+                    {
+                        connectionreferenceid = connectionRefId,
+                        connectionreferencelogicalname = connectionRefName,
+                        connectorid = staleConnectorId
+                    }
+                }
+            });
+
+            HttpRequestMessage? patchRequest = null;
+            string? patchBody = null;
+            var handlerMock = new Mock<HttpMessageHandler>();
+            handlerMock
+               .Protected()
+               .Setup<Task<HttpResponseMessage>>(
+                   "SendAsync",
+                   ItExpr.Is<HttpRequestMessage>(req => req.Method == HttpMethod.Get),
+                   ItExpr.IsAny<CancellationToken>()
+               )
+               .ReturnsAsync(new HttpResponseMessage
+               {
+                   StatusCode = HttpStatusCode.OK,
+                   Content = new StringContent(responseBody, Encoding.UTF8, "application/json")
+               });
+
+            handlerMock
+               .Protected()
+               .Setup<Task<HttpResponseMessage>>(
+                   "SendAsync",
+                   ItExpr.Is<HttpRequestMessage>(req => req.Method == HttpMethod.Patch),
+                   ItExpr.IsAny<CancellationToken>()
+               )
+               .Callback<HttpRequestMessage, CancellationToken>((req, _) =>
+               {
+                   patchRequest = req;
+                   patchBody = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+               })
+               .ReturnsAsync(new HttpResponseMessage
+               {
+                   StatusCode = HttpStatusCode.NoContent
+               });
+
+            var httpClient = new HttpClient(handlerMock.Object);
+            var client = CreateClientFromHttpClient(httpClient);
+
+            // Act
+            await client.EnsureConnectionReferenceExistsAsync(connectionRefName, desiredConnectorId, CancellationToken.None);
+
+            handlerMock.Protected().Verify(
+               "SendAsync",
+               Times.Never(),
+               ItExpr.Is<HttpRequestMessage>(req => req.Method == HttpMethod.Post),
+               ItExpr.IsAny<CancellationToken>());
+
+            handlerMock.Protected().Verify(
+               "SendAsync",
+               Times.Once(),
+               ItExpr.Is<HttpRequestMessage>(req => req.Method == HttpMethod.Patch),
+               ItExpr.IsAny<CancellationToken>());
+
+            Assert.NotNull(patchRequest);
+            Assert.Contains(connectionRefId.ToString(), patchRequest!.RequestUri!.ToString(), StringComparison.OrdinalIgnoreCase);
+            Assert.NotNull(patchBody);
+            Assert.Contains(desiredConnectorId, patchBody!, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public async Task EnsureConnectionReferenceExistsAsync_DoesNotRepair_WhenInternalIdMatches()
+        {
+            var connectionRefName = "cre6c_test.shared_connector.12345";
+            var desiredConnectorId = "shared_commondataserviceforapps";
+            var existingConnectorId = "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps";
+            var connectionRefId = Guid.NewGuid();
+            var responseBody = JsonSerializer.Serialize(new
+            {
+                value = new[]
+                {
+                    new
+                    {
+                        connectionreferenceid = connectionRefId,
+                        connectionreferencelogicalname = connectionRefName,
+                        connectorid = existingConnectorId
+                    }
+                }
+            });
+
+            var handlerMock = new Mock<HttpMessageHandler>();
+            handlerMock
+               .Protected()
+               .Setup<Task<HttpResponseMessage>>(
+                   "SendAsync",
+                   ItExpr.Is<HttpRequestMessage>(req => req.Method == HttpMethod.Get),
+                   ItExpr.IsAny<CancellationToken>()
+               )
+               .ReturnsAsync(new HttpResponseMessage
+               {
+                   StatusCode = HttpStatusCode.OK,
+                   Content = new StringContent(responseBody, Encoding.UTF8, "application/json")
+               });
+
+            var httpClient = new HttpClient(handlerMock.Object);
+            var client = CreateClientFromHttpClient(httpClient);
+
+            await client.EnsureConnectionReferenceExistsAsync(connectionRefName, desiredConnectorId, CancellationToken.None);
+
+            handlerMock.Protected().Verify(
+               "SendAsync",
+               Times.Never(),
+               ItExpr.Is<HttpRequestMessage>(req => req.Method == HttpMethod.Post),
+               ItExpr.IsAny<CancellationToken>());
+
+            handlerMock.Protected().Verify(
+               "SendAsync",
+               Times.Never(),
+               ItExpr.Is<HttpRequestMessage>(req => req.Method == HttpMethod.Patch),
                ItExpr.IsAny<CancellationToken>());
         }
 

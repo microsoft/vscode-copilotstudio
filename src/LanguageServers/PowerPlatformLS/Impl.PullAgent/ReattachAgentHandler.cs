@@ -96,7 +96,17 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     };
                 }
 
-                if (request.AgentSyncInfo is null && !_workspaceSynchronizer.IsSyncInfoAvailable(workspaceFolder))
+                if (_workspaceSynchronizer.IsSyncInfoAvailable(workspaceFolder))
+                {
+                    return new ReattachAgentResponse()
+                    {
+                        Code = 400,
+                        Message = "This agent is already connected to a cloud instance.",
+                        AgentSyncInfo = defaultSyncInfo
+                    };
+                }
+
+                if (request.AgentSyncInfo is null)
                 {
                     return new ReattachAgentResponse()
                     {
@@ -106,7 +116,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     };
                 }
 
-                var syncInfo = request.AgentSyncInfo ?? await _workspaceSynchronizer.GetSyncInfoAsync(workspaceFolder);
+                var syncInfo = request.AgentSyncInfo;
                 var agentId = syncInfo.AgentId;
                 var operationContext = await _operationContextProvider.GetAsync(syncInfo);
 

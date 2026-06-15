@@ -736,11 +736,66 @@ public class SyncDataverseClient : ISyncDataverseClient
         CancellationToken cancellationToken,
         Guid? customConnectorRowId = null)
     {
-        var exists = await ConnectionReferenceExistsAsync(connectionReferenceLogicalName, cancellationToken).ConfigureAwait(false);
-        if (!exists)
+        var existing = await GetConnectionReferenceByLogicalNameAsync(connectionReferenceLogicalName, cancellationToken).ConfigureAwait(false);
+        if (existing is null)
         {
             await CreateConnectionReferenceAsync(connectionReferenceLogicalName, connectorId, cancellationToken, customConnectorRowId).ConfigureAwait(false);
+            return;
         }
+
+        var desiredInternalId = ExtractConnectorInternalId(connectorId);
+        var existingInternalId = ExtractConnectorInternalId(existing.ConnectorId);
+        if (!string.IsNullOrWhiteSpace(desiredInternalId) &&
+            !string.IsNullOrWhiteSpace(existingInternalId) &&
+            !string.Equals(existingInternalId, desiredInternalId, StringComparison.OrdinalIgnoreCase))
+        {
+            await UpdateConnectionReferenceConnectorAsync(existing.ConnectionReferenceId, connectorId, customConnectorRowId, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task<ConnectionReferenceInfo?> GetConnectionReferenceByLogicalNameAsync(string connectionReferenceLogicalName, CancellationToken cancellationToken)
+    {
+        if (connectionReferenceLogicalName is null)
+        {
+            throw new ArgumentNullException(nameof(connectionReferenceLogicalName));
+        }
+
+        var literal = connectionReferenceLogicalName.Replace("'", "''");
+        var filterExpr = $"connectionreferencelogicalname eq '{literal}'";
+        var baseUri = new Uri(new Uri(DataverseUrl), "/api/data/v9.2/connectionreferences");
+        var requestUri = new Uri($"{baseUri}?$select=connectionreferenceid,connectionreferencelogicalname,connectorid,connectionid&$top=1&$filter={Uri.EscapeDataString(filterExpr)}");
+
+        var queryResponse = await SendAsync<ConnectionReferenceQueryResponse>(
+            HttpMethod.Get,
+            requestUri.ToString(),
+            null,
+            false,
+            cancellationToken
+        ).ConfigureAwait(false);
+
+        var existing = queryResponse?.Value;
+        return existing != null && existing.Length > 0 ? existing[0] : null;
+    }
+
+    private async Task UpdateConnectionReferenceConnectorAsync(Guid connectionReferenceId, string connectorId, Guid? customConnectorRowId, CancellationToken cancellationToken)
+    {
+        var patchUri = new Uri(new Uri(DataverseUrl), $"/api/data/v9.2/connectionreferences({connectionReferenceId})");
+
+        var body = new Dictionary<string, object>
+        {
+            ["connectorid"] = connectorId
+        };
+
+        if (customConnectorRowId.HasValue)
+        {
+            var navName = await GetCustomConnectorNavigationPropertyNameAsync(cancellationToken).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(navName))
+            {
+                body[$"{navName}@odata.bind"] = $"/connectors({customConnectorRowId.Value})";
+            }
+        }
+
+        await SendAsync<object>(HttpMethodHelper.Patch, patchUri.ToString(), body, false, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

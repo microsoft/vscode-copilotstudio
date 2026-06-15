@@ -1,29 +1,11 @@
 import * as http from 'http';
 import * as crypto from 'crypto';
-import * as process from 'process';
 import { AddressInfo } from 'net';
 import * as vscode from 'vscode';
 import { CoreServicesClusterCategory } from '../constants';
 
 const PROTOCOL_VERSION = '1';
 const TIMEOUT_MS = 5 * 60 * 1000;
-
-const openInBrowser = async (targetUrl: string): Promise<boolean> => {
-  if (process.platform !== 'linux') {
-    try {
-      const { default: open } = await import('open');
-      await open(targetUrl);
-      return true;
-    } catch {
-    }
-  }
-
-  try {
-    return await vscode.env.openExternal(vscode.Uri.parse(targetUrl));
-  } catch {
-    return false;
-  }
-};
 
 export type ConnectionCreationResult =
   | { status: 'created'; connectionId?: string; connectionName?: string; displayName?: string }
@@ -177,12 +159,12 @@ export const awaitConnectionCreation = (options: ConnectionCreationOptions): Pro
     });
 
     server.listen(0, '127.0.0.1', async () => {
-      const { port } = server.address() as AddressInfo;
-      const callbackUrl = `http://127.0.0.1:${port}/callback`;
-      const playerUrl = buildPlayerUrl(clusterCategory, environmentId, connector, callbackUrl, nonce);
-
       try {
-        const opened = await openInBrowser(playerUrl);
+        const { port } = server.address() as AddressInfo;
+        const localCallbackUri = vscode.Uri.parse(`http://127.0.0.1:${port}/callback`);
+        const externalCallbackUri = await vscode.env.asExternalUri(localCallbackUri);
+        const playerUrl = buildPlayerUrl(clusterCategory, environmentId, connector, externalCallbackUri.toString(), nonce);
+        const opened = await vscode.env.openExternal(vscode.Uri.parse(playerUrl));
         if (!opened) {
           await vscode.window.showWarningMessage(
             `Could not open the browser automatically. Open this URL to create the connection:\n${playerUrl}`

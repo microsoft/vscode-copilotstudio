@@ -132,7 +132,7 @@ export interface ClonedAssets {
 
 export interface ReattachAgentRequest extends RemoteApiRequest {
   workspaceUri: string;
-  agentSyncInfo?: AgentSyncInfo;
+  agentSyncInfo: AgentSyncInfo;
   connectionBindings?: ConnectionBinding[];
   isNewAgent: boolean;
   updateWorkspaceDirectory: boolean;

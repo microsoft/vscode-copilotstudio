@@ -343,7 +343,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         // persist updated change set on directory
         var updatedDefinition = await UpdateWorkspaceDirectoryAsync(fileAccessor, updatedChangeSet, previousDefinition, deletedComponents.ToArray(), cancellationToken: cancellationToken).ConfigureAwait(false);
 
-        await WriteCustomConnectorsAsync(fileAccessor, workspaceFolder, updatedDefinition, dataverseClient, cancellationToken).ConfigureAwait(false);
+        var connectorResolvedDefinition = await ResolveConnectionReferenceConnectorIdsAsync(updatedDefinition, dataverseClient, cancellationToken).ConfigureAwait(false);
+        await WriteCustomConnectorsAsync(fileAccessor, workspaceFolder, connectorResolvedDefinition, dataverseClient, cancellationToken).ConfigureAwait(false);
 
         return updatedDefinition;
     }
@@ -799,6 +800,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             var cloudSnapshot = ReadCloudCacheSnapshot(fileAccessor) ?? throw new InvalidOperationException("Unable to read cloud cache from .mcs/botdefinition.json");
             var changeToken = await GetChangeTokenOrNullAsync(fileAccessor, cancellationToken).ConfigureAwait(false);
             var effectiveDefinition = OverlayCliConnectionReferences(workspaceDefinition, fileAccessor, cancellationToken);
+            effectiveDefinition = await ResolveConnectionReferenceConnectorIdsAsync(effectiveDefinition, dataverseClient, cancellationToken).ConfigureAwait(false);
 
             var (changeSet, changes) = GetLocalChanges(effectiveDefinition, cloudSnapshot, fileAccessor, changeToken, isRemoteChange: false, deferMissingParents: true, out var deferredMissingParent);
 

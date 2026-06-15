@@ -40,12 +40,27 @@
         public async Task ReattachAgentFinalizesWhenPreparedTest()
         {
             var context = CreateTestSetup();
-            var handler = TestHandlerFactory.CreateHandler(new MockDataverseClient(), new TestWorkspaceSynchronizerSyncInfoExists(), CreateOperationProvider());
+            context.Request.AgentSyncInfo = CreatePreparedSyncInfo();
+            var handler = TestHandlerFactory.CreateHandler(new MockDataverseClient(), new TestWorkspaceSynchronizer(), CreateOperationProvider());
 
             var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
 
             Assert.Equal(200, response.Code);
             Assert.NotNull(response.AgentSyncInfo);
+        }
+
+        [Fact]
+        public async Task ReattachAgentAlreadyConnectedReturns400Test()
+        {
+            var context = CreateTestSetup();
+            context.Request.AgentSyncInfo = CreatePreparedSyncInfo();
+            var handler = TestHandlerFactory.CreateHandler(new MockDataverseClient(), new TestWorkspaceSynchronizerSyncInfoExists(), CreateOperationProvider());
+
+            var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
+
+            Assert.Equal(400, response.Code);
+            Assert.Contains("already connected", response.Message);
+            Assert.Equal(Guid.Empty, response.AgentSyncInfo?.AgentId);
         }
 
         [Fact]
@@ -82,7 +97,8 @@
         {
             var context = CreateTestSetup();
             context.Request.IsNewAgent = true;
-            var handler = TestHandlerFactory.CreateHandler(new MockDataverseClient(), new TestWorkspaceSynchronizerSyncInfoExists(), CreateOperationProvider());
+            context.Request.AgentSyncInfo = CreatePreparedSyncInfo();
+            var handler = TestHandlerFactory.CreateHandler(new MockDataverseClient(), new TestWorkspaceSynchronizer(), CreateOperationProvider());
 
             var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
 
@@ -94,6 +110,7 @@
         public async Task ReattachAgentBindsConnectionBindingsTest()
         {
             var context = CreateTestSetup();
+            context.Request.AgentSyncInfo = CreatePreparedSyncInfo();
             context.Request.ConnectionBindings = ImmutableArray.Create(
                 new ConnectionBindingInput
                 {
@@ -108,7 +125,7 @@
                 });
 
             var dataverseClient = new MockDataverseClient();
-            var handler = TestHandlerFactory.CreateHandler(dataverseClient, new TestWorkspaceSynchronizerSyncInfoExists(), CreateOperationProvider());
+            var handler = TestHandlerFactory.CreateHandler(dataverseClient, new TestWorkspaceSynchronizer(), CreateOperationProvider());
 
             var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
 
@@ -123,6 +140,7 @@
         public async Task ReattachAgentBindsBeforeUpsertingWorkflowsTest()
         {
             var context = CreateTestSetup();
+            context.Request.AgentSyncInfo = CreatePreparedSyncInfo();
             context.Request.ConnectionBindings = ImmutableArray.Create(
                 new ConnectionBindingInput
                 {
@@ -131,7 +149,7 @@
                 });
 
             var dataverseClient = new MockDataverseClient();
-            var synchronizer = new TestWorkspaceSynchronizerRecordingOrderSyncInfoExists(dataverseClient);
+            var synchronizer = new TestWorkspaceSynchronizerRecordingOrder(dataverseClient);
             var handler = TestHandlerFactory.CreateHandler(dataverseClient, synchronizer, CreateOperationProvider());
 
             var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
@@ -168,8 +186,9 @@
         public async Task ReattachAgentDataverseBadRequestTest()
         {
             var context = CreateTestSetup();
+            context.Request.AgentSyncInfo = CreatePreparedSyncInfo();
             var mockLogger = new Mock<ILspLogger>();
-            var synchronizer = new TestWorkspaceSynchronizerThrowingWorkflowSyncInfoExists(
+            var synchronizer = new TestWorkspaceSynchronizerThrowingWorkflow(
                 new DataverseBadRequestException("BadRequest", "400", Guid.NewGuid().ToString(), "Invalid workflow", null));
             var handler = TestHandlerFactory.CreateHandler(new MockDataverseClient(), synchronizer, CreateOperationProvider(), mockLogger.Object);
 
@@ -184,7 +203,8 @@
         public async Task ReattachAgentWithExceptionTest()
         {
             var context = CreateTestSetup();
-            var synchronizer = new TestWorkspaceSynchronizerThrowingWorkflowSyncInfoExists(new InvalidOperationException("invalid operation exception"));
+            context.Request.AgentSyncInfo = CreatePreparedSyncInfo();
+            var synchronizer = new TestWorkspaceSynchronizerThrowingWorkflow(new InvalidOperationException("invalid operation exception"));
             var handler = TestHandlerFactory.CreateHandler(new MockDataverseClient(), synchronizer, CreateOperationProvider());
 
             var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
@@ -631,18 +651,16 @@
         public override bool IsSyncInfoAvailable(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder) => true;
     }
 
-    internal class TestWorkspaceSynchronizerRecordingOrderSyncInfoExists : TestWorkspaceSynchronizer
+    internal class TestWorkspaceSynchronizerRecordingOrder : TestWorkspaceSynchronizer
     {
         private readonly MockDataverseClient _dataverseClient;
 
         public bool UpsertWorkflowInvokedAfterBind { get; private set; }
 
-        public TestWorkspaceSynchronizerRecordingOrderSyncInfoExists(MockDataverseClient dataverseClient)
+        public TestWorkspaceSynchronizerRecordingOrder(MockDataverseClient dataverseClient)
         {
             _dataverseClient = dataverseClient;
         }
-
-        public override bool IsSyncInfoAvailable(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder) => true;
 
         public override Task<(ImmutableArray<WorkflowResponse>, CloudFlowMetadata)> UpsertWorkflowForAgentAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
         {
@@ -651,16 +669,14 @@
         }
     }
 
-    internal class TestWorkspaceSynchronizerThrowingWorkflowSyncInfoExists : TestWorkspaceSynchronizer
+    internal class TestWorkspaceSynchronizerThrowingWorkflow : TestWorkspaceSynchronizer
     {
         private readonly Exception _exception;
 
-        public TestWorkspaceSynchronizerThrowingWorkflowSyncInfoExists(Exception exception)
+        public TestWorkspaceSynchronizerThrowingWorkflow(Exception exception)
         {
             _exception = exception;
         }
-
-        public override bool IsSyncInfoAvailable(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder) => true;
 
         public override Task<(ImmutableArray<WorkflowResponse>, CloudFlowMetadata)> UpsertWorkflowForAgentAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
             => throw _exception;
