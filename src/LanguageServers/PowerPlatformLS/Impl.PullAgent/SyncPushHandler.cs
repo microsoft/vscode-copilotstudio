@@ -8,9 +8,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.CopilotStudio.Sync.Dataverse;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
-    using System;
     using System.Collections.Immutable;
-    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
 
@@ -23,7 +21,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         {
         }
 
-        protected override async Task<(DefinitionBase, ImmutableArray<WorkflowResponse>, ImmutableArray<SyncDataverseClient.AIPromptResponse>, ImmutableArray<string>)> ExecuteAsync(IMcsWorkspace workspace, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CancellationToken cancellationToken)
+        protected override async Task<(DefinitionBase, ImmutableArray<WorkflowResponse>, ImmutableArray<SyncDataverseClient.AIPromptResponse>)> ExecuteAsync(IMcsWorkspace workspace, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, ImmutableArray<ConnectionBindingInput> connectionBindings, CancellationToken cancellationToken)
         {
             // Fail-closed support gate (TDD D35): push is destructive to the cloud, so it
             // requires a Supported authoring shape. Classify from the definition AND the
@@ -34,21 +32,15 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             var classification = AgentClassifier.Classify(workspace.Definition, workspace.FolderPath.ToString());
             AuthoringSupportGate.EnsureAllowed(classification, SyncOperation.Push);
 
+            await _synchronizer.ProvisionConnectionReferencesAsync(workspace.FolderPath, workspace.Definition, dataverseClient, cancellationToken);
+            await ConnectionHelper.BindConnectionsAsync(dataverseClient, connectionBindings, _logger, cancellationToken);
+
             var (workflowResponse, cloudFlowMetadata) = await _synchronizer.UpsertWorkflowForAgentAsync(workspace.FolderPath, dataverseClient, syncInfo.AgentId, cancellationToken);
 
             var (aiPromptResponse, aiPromptMetadata) = await _synchronizer.UpsertAIPromptsForAgentAsync(workspace.FolderPath, dataverseClient, syncInfo.AgentId, cancellationToken);
 
-            await _synchronizer.ProvisionConnectionReferencesAsync(workspace.FolderPath, workspace.Definition, dataverseClient, cancellationToken);
-
-            // Execute the push
-            var (localChanges, changeList) = await _synchronizer.GetLocalChangesAsync(workspace.FolderPath, workspace.Definition, dataverseClient, syncInfo, cancellationToken);
-            if (!changeList.Any(c => c.SchemaName == "entity" || c.SchemaName == "icon"))
-            {
-                localChanges = localChanges.WithBot(null);
-            }
-
-            var pushResult = await _synchronizer.PushChangesetAsync(workspace.FolderPath, operationContext, localChanges, dataverseClient, syncInfo.AgentId, cloudFlowMetadata, aiPromptMetadata, cancellationToken);
-            return (workspace.Definition, workflowResponse, aiPromptResponse, pushResult.NewlyCreatedCustomConnectors.ToImmutableArray());
+            await _synchronizer.PushLocalChangesAsync(workspace.FolderPath, operationContext, workspace.Definition, dataverseClient, syncInfo, cloudFlowMetadata, aiPromptMetadata, cancellationToken);
+            return (workspace.Definition, workflowResponse, aiPromptResponse);
         }
     }
 }

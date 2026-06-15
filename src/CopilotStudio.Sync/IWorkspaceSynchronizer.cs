@@ -135,6 +135,28 @@ public interface IWorkspaceSynchronizer
         bool uploadAllKnowledgeFiles = false);
 
     /// <summary>
+    /// Pushes all local component changes to the cloud, creating newly added sub-agents if needed.
+    /// </summary>
+    /// <param name="workspaceFolder">The location of the root of the workspace.</param>
+    /// <param name="operationContext">Information about the authoring operation.</param>
+    /// <param name="workspaceDefinition">The current state of the workspace to push.</param>
+    /// <param name="dataverseClient">The dataverse client to use for communication with the dataverse service.</param>
+    /// <param name="syncInfo">Synchronization information for the agent.</param>
+    /// <param name="cloudFlowMetadata">Cloud flow metadata to project into the cloud cache.</param>
+    /// <param name="aiPrompts">AI Builder prompt metadata to project into the cloud cache.</param>
+    /// <param name="cancellationToken">Used to cancel the request.</param>
+    /// <returns>A task representing the asynchronous operation.</returns>
+    Task PushLocalChangesAsync(
+        DirectoryPath workspaceFolder,
+        AuthoringOperationContextBase operationContext,
+        DefinitionBase workspaceDefinition,
+        ISyncDataverseClient dataverseClient,
+        AgentSyncInfo syncInfo,
+        CloudFlowMetadata? cloudFlowMetadata,
+        ImmutableArray<AIPromptMetadata> aiPrompts,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Sync workspace to write bot definition, git ignore, change token files in .mcs.
     /// </summary>
     /// <param name="workspaceFolder">Workspace folder.</param>
@@ -251,6 +273,20 @@ public interface IWorkspaceSynchronizer
         ISyncDataverseClient dataverseClient,
         CancellationToken cancellationToken,
         IReadOnlyDictionary<string, Guid>? pushedConnectorIds = null);
+
+    /// <summary>
+    /// Returns connection reference the agent declares, annotated with the connection it is currently bound to in Dataverse.
+    /// </summary>
+    /// <param name="workspaceFolder">Workspace folder used to read the on-disk overlay.</param>
+    /// <param name="definition">The bot definition declaring connection references.</param>
+    /// <param name="dataverseClient">Dataverse client.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The declared connection references with their current binding state.</returns>
+    Task<IReadOnlyList<ConnectionNeeded>> GetAgentConnectionReferencesAsync(
+        DirectoryPath workspaceFolder,
+        DefinitionBase definition,
+        ISyncDataverseClient dataverseClient,
+        CancellationToken cancellationToken);
 
     /// <summary>
     /// Pushes local custom connector edits to Dataverse.

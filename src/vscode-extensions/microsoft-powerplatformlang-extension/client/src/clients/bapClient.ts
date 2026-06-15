@@ -289,7 +289,7 @@ function getHostName(clusterCategory: CoreServicesClusterCategory): string {
     }
 }
 
-function getTokenScopeHostName(clusterCategory: CoreServicesClusterCategory): string {
+export function getTokenScopeHostName(clusterCategory: CoreServicesClusterCategory): string {
     switch (clusterCategory) {
         case CoreServicesClusterCategory.Exp:
         case CoreServicesClusterCategory.Dev:

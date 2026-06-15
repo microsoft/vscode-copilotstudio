@@ -1,7 +1,7 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 
 using Microsoft.CopilotStudio.McsCore;
-    using Microsoft.CopilotStudio.Sync;
+using Microsoft.CopilotStudio.Sync;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Microsoft.CopilotStudio.Sync.TestHarness;
 using Microsoft.Extensions.DependencyInjection;
@@ -179,13 +179,6 @@ pushCommand.SetHandler(async (string workspace) =>
             syncInfo, cloudFlowMetadata, CancellationToken.None);
 
         Console.WriteLine($"Push complete. {localChanges.Length} change(s) pushed, {uploadedFiles.UploadedKnowledgeFileCount} file(s) uploaded.");
-        if (uploadedFiles.NewlyCreatedCustomConnectors.Count > 0)
-        {
-            foreach (var connectorName in uploadedFiles.NewlyCreatedCustomConnectors)
-            {
-                Console.WriteLine($"New custom connector created in Dataverse: {connectorName}");
-            }
-        }
 
         Console.WriteLine("Verifying push...");
         var verification = await synchronizer.VerifyPushAsync(

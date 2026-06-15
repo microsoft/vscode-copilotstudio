@@ -219,6 +219,21 @@ public class SolutionInfo
 
 #endregion
 
+#region ConnectionNeeded
+
+public class ConnectionNeeded
+{
+    public string ConnectionReferenceLogicalName { get; init; } = string.Empty;
+
+    public string ConnectorId { get; init; } = string.Empty;
+
+    public string ConnectorName { get; init; } = string.Empty;
+
+    public string BoundConnectionId { get; init; } = string.Empty;
+}
+
+#endregion
+
 #region CloudFlowMetadata
 
 public class CloudFlowMetadata
@@ -305,11 +320,6 @@ public class CustomConnectorPushResult
     /// Map of connector internal id to the connector's Dataverse row GUID for every connector that was upserted.
     /// </summary>
     public IReadOnlyDictionary<string, Guid> PushedRowIds { get; init; } = new Dictionary<string, Guid>();
-
-    /// <summary>
-    /// Display names of custom connectors that were newly created in Dataverse
-    /// </summary>
-    public IReadOnlyList<string> NewlyCreatedConnectorNames { get; init; } = Array.Empty<string>();
 }
 
 #endregion
@@ -325,11 +335,6 @@ public class PushChangesetResult
     /// Number of knowledge files that were uploaded to the cloud.
     /// </summary>
     public int UploadedKnowledgeFileCount { get; init; }
-
-    /// <summary>
-    /// Display names of custom connectors that were newly created in Dataverse.
-    /// </summary>
-    public IReadOnlyList<string> NewlyCreatedCustomConnectors { get; init; } = Array.Empty<string>();
 }
 
 #endregion

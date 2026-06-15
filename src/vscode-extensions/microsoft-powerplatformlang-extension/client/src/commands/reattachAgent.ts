@@ -1,13 +1,14 @@
 import * as vscode from 'vscode';
-import { AccountInfo, EnvironmentInfo, ReattachAgentRequest, ReattachAgentResponse} from '../types';
+import { AccountInfo, ConnectionBinding, EnvironmentInfo, PrepareReattachRequest, PrepareReattachResponse, ReattachAgentRequest, ReattachAgentResponse } from '../types';
 import { DefaultCoreServicesClusterCategory, LspMethods, TelemetryEventsKeys } from '../constants';
 import { listEnvironmentsAsync } from '../clients/bapClient';
 import { hasStoredAccount, switchAccount, getPreferredTreeAccount, listStoredAccounts } from '../clients/account';
 import { pushNewWorkspace } from '../sync/workspaceScm';
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import logger from '../services/logger';
-import { logWorkflowIssues, logAIPromptIssues, logNewCustomConnectorsRaw, withSyncCommandBusy } from '../sync/workspaceSynchronizer';
+import { logWorkflowIssues, logAIPromptIssues, withSyncCommandBusy } from '../sync/workspaceSynchronizer';
 import { getActiveAgentAccount, getAllProjectAccounts } from '../sync/localWorkspaces';
+import { createAgentConnections } from '../connections/connectionRepair';
 
 type ReattachEnvironmentPickItem = vscode.QuickPickItem & {
   environment: EnvironmentInfo;
@@ -125,15 +126,58 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
           cancellable: false
         },
         async () => {
-          // For sync buttons to be disabled and loading indicators to be visible during the REATTACH_AGENT call.
           await withSyncCommandBusy(workspaceUri, async () => {
             try {
               const selectedAccount = pickedEnvironment.sourceAccount ?? getPreferredTreeAccount();
-              const reattachRequest: ReattachAgentRequest = {
-                ...await buildLspRequestPayload(undefined, environmentInfo, selectedAccount),
+              const basePayload = await buildLspRequestPayload(undefined, environmentInfo, selectedAccount);
+
+              const prepareRequest: PrepareReattachRequest = {
+                ...basePayload,
                 workspaceUri
               };
-              const reattachResult = await lspClient.sendRequest<ReattachAgentResponse>(LspMethods.REATTACH_AGENT, reattachRequest);
+              const prepareResult = await lspClient.sendRequest<PrepareReattachResponse>(LspMethods.PREPARE_REATTACH, prepareRequest);
+              if (prepareResult.code !== 200) {
+                logger.logError(TelemetryEventsKeys.ReattachAgentError, `Reattach prepare failed: ${prepareResult.message ?? 'Unknown error'}`);
+                return;
+              }
+
+              let connectionBindings: ConnectionBinding[] = [];
+              let unfinishedConnections: string[] = [];
+              try {
+                if (prepareResult.agentConnections && prepareResult.agentConnections.length > 0) {
+                  const repair = await createAgentConnections(
+                    prepareResult.agentConnections,
+                    environmentInfo,
+                    basePayload.accountInfo.clusterCategory ?? DefaultCoreServicesClusterCategory,
+                    selectedAccount ?? undefined
+                  );
+                  connectionBindings = repair.bindings;
+                  unfinishedConnections = repair.unfinished;
+                }
+              } catch (error) {
+                logger.logError(TelemetryEventsKeys.ConnectionCreationError, `Error creating agent connections: ${(error as Error).message}`);
+                unfinishedConnections = prepareResult.agentConnections?.map(c => c.connectionReferenceLogicalName) ?? [];
+              }
+
+              const finalizeRequest: ReattachAgentRequest = {
+                ...basePayload,
+                workspaceUri,
+                agentSyncInfo: prepareResult.agentSyncInfo,
+                connectionBindings,
+                isNewAgent: prepareResult.isNewAgent,
+                updateWorkspaceDirectory: prepareResult.updateWorkspaceDirectory
+              };
+              const reattachResult = await lspClient.sendRequest<ReattachAgentResponse>(LspMethods.REATTACH_AGENT, finalizeRequest);
+              if (reattachResult.code !== 200) {
+                logger.logError(TelemetryEventsKeys.ReattachAgentError, `Reattach finalize failed: ${reattachResult.message ?? 'Unknown error'}`);
+                return;
+              }
+
+              if (unfinishedConnections.length > 0) {
+                void vscode.window.showWarningMessage(
+                  `The agent was reattached, but these connections still need to be set up before it can run: ${unfinishedConnections.join(', ')}.`
+                );
+              }
 
               if (reattachResult.isNewAgent) {
                 const newWorkspace = {
@@ -152,7 +196,6 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
 
               logWorkflowIssues(reattachResult.workflowResponse);
               logAIPromptIssues(reattachResult.aiPromptResponse);
-              logNewCustomConnectorsRaw(reattachResult.newlyCreatedCustomConnectors, workspaceUri);
             } catch (error) {
               logger.logError(TelemetryEventsKeys.ReattachAgentError, `Error reattaching agent: ${(error as Error).message}`);
             }

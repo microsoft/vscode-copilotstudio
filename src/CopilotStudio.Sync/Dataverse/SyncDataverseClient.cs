@@ -65,7 +65,7 @@ public class SyncDataverseClient : ISyncDataverseClient
 
     public virtual async Task<Guid> GetAgentIdBySchemaNameAsync(string schemaName, CancellationToken cancellationToken)
     {
-        var requestUri = $"{DataverseUrl}/api/data/v9.2/bots?$select=botid&$filter=schemaname eq '{schemaName}'";
+        var requestUri = $"{DataverseUrl}/api/data/v9.2/bots?$select=botid&$filter=schemaname eq '{schemaName?.Replace("'", "''")}'";
         var result = await SendAsync<AgentInfoDetail>(HttpMethod.Get, requestUri, null, false, cancellationToken).ConfigureAwait(false);
         return result?.Value?.FirstOrDefault()?.AgentId ?? Guid.Empty;
     }
@@ -245,6 +245,42 @@ public class SyncDataverseClient : ISyncDataverseClient
 
                 next = page.TryGetProperty("@odata.nextLink", out var nextLinkProp) ? nextLinkProp.GetString() : null;
             }
+        }
+
+        return results.ToArray();
+    }
+
+    public virtual async Task<CustomConnectorMetadata[]> GetConnectorsByInternalIdPrefixAsync(string connectorInternalIdPrefix, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(connectorInternalIdPrefix))
+        {
+            return Array.Empty<CustomConnectorMetadata>();
+        }
+
+        const string select = "connectorid,name,displayname,connectorinternalid,connectortype,ismanaged,modifiedon";
+        var filter = $"startswith(connectorinternalid,'{connectorInternalIdPrefix.Replace("'", "''")}')";
+        string? next = $"{DataverseUrl}/api/data/v9.2/connectors?$select={select}&$filter={Uri.EscapeDataString(filter)}";
+
+        var results = new List<CustomConnectorMetadata>();
+        var seenConnectorIds = new HashSet<Guid>();
+
+        while (!string.IsNullOrEmpty(next))
+        {
+            var page = await SendAsync<JsonElement>(HttpMethod.Get, next!, null, false, cancellationToken).ConfigureAwait(false);
+
+            if (page.TryGetProperty("value", out var arr) && arr.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var el in arr.EnumerateArray())
+                {
+                    var meta = JsonSerializer.Deserialize<CustomConnectorMetadata>(el.GetRawText(), JsonSerializerOptions);
+                    if (meta != null && meta.ConnectorId != Guid.Empty && seenConnectorIds.Add(meta.ConnectorId))
+                    {
+                        results.Add(meta);
+                    }
+                }
+            }
+
+            next = page.TryGetProperty("@odata.nextLink", out var nextLinkProp) ? nextLinkProp.GetString() : null;
         }
 
         return results.ToArray();
@@ -700,11 +736,114 @@ public class SyncDataverseClient : ISyncDataverseClient
         CancellationToken cancellationToken,
         Guid? customConnectorRowId = null)
     {
-        var exists = await ConnectionReferenceExistsAsync(connectionReferenceLogicalName, cancellationToken).ConfigureAwait(false);
-        if (!exists)
+        var existing = await GetConnectionReferenceByLogicalNameAsync(connectionReferenceLogicalName, cancellationToken).ConfigureAwait(false);
+        if (existing is null)
         {
             await CreateConnectionReferenceAsync(connectionReferenceLogicalName, connectorId, cancellationToken, customConnectorRowId).ConfigureAwait(false);
+            return;
         }
+
+        var desiredInternalId = ExtractConnectorInternalId(connectorId);
+        var existingInternalId = ExtractConnectorInternalId(existing.ConnectorId);
+        if (!string.IsNullOrWhiteSpace(desiredInternalId) &&
+            !string.IsNullOrWhiteSpace(existingInternalId) &&
+            !string.Equals(existingInternalId, desiredInternalId, StringComparison.OrdinalIgnoreCase))
+        {
+            await UpdateConnectionReferenceConnectorAsync(existing.ConnectionReferenceId, connectorId, customConnectorRowId, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task<ConnectionReferenceInfo?> GetConnectionReferenceByLogicalNameAsync(string connectionReferenceLogicalName, CancellationToken cancellationToken)
+    {
+        if (connectionReferenceLogicalName is null)
+        {
+            throw new ArgumentNullException(nameof(connectionReferenceLogicalName));
+        }
+
+        var literal = connectionReferenceLogicalName.Replace("'", "''");
+        var filterExpr = $"connectionreferencelogicalname eq '{literal}'";
+        var baseUri = new Uri(new Uri(DataverseUrl), "/api/data/v9.2/connectionreferences");
+        var requestUri = new Uri($"{baseUri}?$select=connectionreferenceid,connectionreferencelogicalname,connectorid,connectionid&$top=1&$filter={Uri.EscapeDataString(filterExpr)}");
+
+        var queryResponse = await SendAsync<ConnectionReferenceQueryResponse>(
+            HttpMethod.Get,
+            requestUri.ToString(),
+            null,
+            false,
+            cancellationToken
+        ).ConfigureAwait(false);
+
+        var existing = queryResponse?.Value;
+        return existing != null && existing.Length > 0 ? existing[0] : null;
+    }
+
+    private async Task UpdateConnectionReferenceConnectorAsync(Guid connectionReferenceId, string connectorId, Guid? customConnectorRowId, CancellationToken cancellationToken)
+    {
+        var patchUri = new Uri(new Uri(DataverseUrl), $"/api/data/v9.2/connectionreferences({connectionReferenceId})");
+
+        var body = new Dictionary<string, object>
+        {
+            ["connectorid"] = connectorId
+        };
+
+        if (customConnectorRowId.HasValue)
+        {
+            var navName = await GetCustomConnectorNavigationPropertyNameAsync(cancellationToken).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(navName))
+            {
+                body[$"{navName}@odata.bind"] = $"/connectors({customConnectorRowId.Value})";
+            }
+        }
+
+        await SendAsync<object>(HttpMethodHelper.Patch, patchUri.ToString(), body, false, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Binds a connection reference to a connection by setting its connectionid.
+    /// </summary>
+    /// <param name="connectionReferenceLogicalName">Logical name of the connection reference to bind.</param>
+    /// <param name="connectionLogicalName">The bound connection's logical name.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="connectionReferenceDisplayName">Optional display name to set on the reference.</param>
+    public virtual async Task BindConnectionReferenceAsync(string connectionReferenceLogicalName, string connectionLogicalName, CancellationToken cancellationToken, string? connectionReferenceDisplayName = null)
+    {
+        if (connectionReferenceLogicalName is null)
+        {
+            throw new ArgumentNullException(nameof(connectionReferenceLogicalName));
+        }
+
+        if (string.IsNullOrWhiteSpace(connectionLogicalName))
+        {
+            throw new ArgumentException("Connection logical name is required.", nameof(connectionLogicalName));
+        }
+
+        var literal = connectionReferenceLogicalName.Replace("'", "''");
+        var filterExpr = $"connectionreferencelogicalname eq '{literal}'";
+        var baseUri = new Uri(new Uri(DataverseUrl), "/api/data/v9.2/connectionreferences");
+        var queryUri = new Uri($"{baseUri}?$select=connectionreferenceid&$top=1&$filter={Uri.EscapeDataString(filterExpr)}");
+
+        var queryResponse = await SendAsync<ConnectionReferenceQueryResponse>(HttpMethod.Get, queryUri.ToString(), null, false, cancellationToken).ConfigureAwait(false);
+
+        var existing = queryResponse?.Value;
+        if (existing == null || existing.Length == 0)
+        {
+            throw new InvalidOperationException($"Connection reference '{connectionReferenceLogicalName}' was not found in Dataverse.");
+        }
+
+        var connectionReferenceId = existing[0].ConnectionReferenceId;
+        var patchUri = new Uri(new Uri(DataverseUrl), $"/api/data/v9.2/connectionreferences({connectionReferenceId})");
+
+        var body = new Dictionary<string, object>
+        {
+            ["connectionid"] = connectionLogicalName
+        };
+
+        if (!string.IsNullOrWhiteSpace(connectionReferenceDisplayName))
+        {
+            body["connectionreferencedisplayname"] = connectionReferenceDisplayName!;
+        }
+
+        await SendAsync<object>(HttpMethodHelper.Patch, patchUri.ToString(), body, false, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task DownloadKnowledgeFileAsync(string knowledgeFileFolder, BotComponentId botComponentId, string fileName, CancellationToken cancellationToken = default)

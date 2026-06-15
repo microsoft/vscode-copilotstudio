@@ -1,7 +1,5 @@
 namespace Microsoft.CopilotStudio.Sync.UnitTests
 {
-    using Microsoft.Agents.ObjectModel;
-    using Microsoft.Agents.Platform.Content;
     using Microsoft.CopilotStudio.McsCore;
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.CopilotStudio.Sync.Dataverse;
@@ -50,7 +48,6 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
             var result = await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None);
 
             Assert.Empty(result.PushedRowIds);
-            Assert.Empty(result.NewlyCreatedConnectorNames);
             dataverse.Verify(d => d.UpsertConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<CancellationToken>()), Times.Never);
         }
 
@@ -65,85 +62,7 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
             var result = await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None);
 
             Assert.Empty(result.PushedRowIds);
-            Assert.Empty(result.NewlyCreatedConnectorNames);
             dataverse.Verify(d => d.UpsertConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<CancellationToken>()), Times.Never);
-        }
-
-        [Fact]
-        public async Task PushCustomConnectorsAsync_NewlyCreatedConnector_IsReportedByDisplayName()
-        {
-            var (synchronizer, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
-            var workspace = NewWorkspace();
-            var connectorId = Guid.NewGuid();
-            WriteConnectorMetadata(workspace, "MyConn", connectorId, displayName: "My Display", name: "myconn", internalId: "myconn-internal");
-
-            var dataverse = new Mock<ISyncDataverseClient>();
-            dataverse
-                .Setup(d => d.UpsertConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(true);
-
-            var result = await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None);
-
-            Assert.Single(result.NewlyCreatedConnectorNames);
-            Assert.Equal("My Display", result.NewlyCreatedConnectorNames.Single());
-            Assert.Single(result.PushedRowIds);
-            Assert.Equal(connectorId, result.PushedRowIds["myconn-internal"]);
-        }
-
-        [Fact]
-        public async Task PushCustomConnectorsAsync_UpdatedConnector_IsNotInNewlyCreatedNames()
-        {
-            var (synchronizer, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
-            var workspace = NewWorkspace();
-            var connectorId = Guid.NewGuid();
-            WriteConnectorMetadata(workspace, "Existing", connectorId, displayName: "Existing Display", name: "existing", internalId: "existing-internal");
-
-            var dataverse = new Mock<ISyncDataverseClient>();
-            dataverse
-                .Setup(d => d.UpsertConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(false);
-
-            var result = await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None);
-
-            Assert.Empty(result.NewlyCreatedConnectorNames);
-            Assert.Single(result.PushedRowIds);
-            Assert.Equal(connectorId, result.PushedRowIds["existing-internal"]);
-        }
-
-        [Fact]
-        public async Task PushCustomConnectorsAsync_FallsBackToName_WhenDisplayNameMissing()
-        {
-            var (synchronizer, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
-            var workspace = NewWorkspace();
-            var connectorId = Guid.NewGuid();
-            WriteConnectorMetadata(workspace, "OnlyName", connectorId, displayName: null, name: "fallback-name", internalId: "fallback-internal");
-
-            var dataverse = new Mock<ISyncDataverseClient>();
-            dataverse
-                .Setup(d => d.UpsertConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(true);
-
-            var result = await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None);
-
-            Assert.Equal("fallback-name", result.NewlyCreatedConnectorNames.Single());
-        }
-
-        [Fact]
-        public async Task PushCustomConnectorsAsync_FallsBackToConnectorId_WhenNameAndDisplayNameMissing()
-        {
-            var (synchronizer, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
-            var workspace = NewWorkspace();
-            var connectorId = Guid.NewGuid();
-            WriteConnectorMetadata(workspace, "NoName", connectorId, displayName: null, name: null, internalId: "no-name-internal");
-
-            var dataverse = new Mock<ISyncDataverseClient>();
-            dataverse
-                .Setup(d => d.UpsertConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(true);
-
-            var result = await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None);
-
-            Assert.Equal(connectorId.ToString(), result.NewlyCreatedConnectorNames.Single());
         }
 
         [Fact]
@@ -190,53 +109,9 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
 
             var result = await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None);
 
-            Assert.Equal(new[] { "New One" }, result.NewlyCreatedConnectorNames);
             Assert.Equal(2, result.PushedRowIds.Count);
             Assert.Equal(newId, result.PushedRowIds["new-one-internal"]);
             Assert.Equal(existingId, result.PushedRowIds["old-one-internal"]);
-        }
-
-        [Fact]
-        public async Task PushChangesetAsync_PropagatesNewlyCreatedConnectors_ToResult()
-        {
-            var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
-            var workspace = NewWorkspace();
-
-            var fileAccessor = fileAccessorFactory.Create(workspace);
-            WorkspaceSynchronizer.WriteCloudCache(fileAccessor, new BotDefinition());
-            await fileAccessor.WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "token-0", CancellationToken.None);
-
-            var emptyChangeset = new PvaComponentChangeSet(null, null, "token-1");
-            mockIsland
-                .Setup(x => x.SaveChangesAsync(
-                    It.IsAny<AuthoringOperationContextBase>(),
-                    It.IsAny<PvaComponentChangeSet>(),
-                    It.IsAny<CancellationToken>()))
-                .ReturnsAsync(emptyChangeset);
-
-            var connectorId = Guid.NewGuid();
-            WriteConnectorMetadata(workspace, "Pushed", connectorId, displayName: "Pushed Display", name: "pushed", internalId: "pushed-internal");
-
-            var dataverse = new Mock<ISyncDataverseClient>();
-            dataverse
-                .Setup(d => d.UpsertConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(true);
-            dataverse
-                .Setup(d => d.DownloadConnectorsByInternalIdsAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(Array.Empty<CustomConnectorMetadata>());
-
-            var result = await synchronizer.PushChangesetAsync(
-                workspace,
-                ComponentWriterDefensiveTests.CreateMockOperationContext(),
-                emptyChangeset,
-                dataverse.Object,
-                agentId: Guid.NewGuid(),
-                cloudFlowMetadata: null,
-                aiPrompts: default,
-                CancellationToken.None);
-
-            Assert.Equal(0, result.UploadedKnowledgeFileCount);
-            Assert.Equal(new[] { "Pushed Display" }, result.NewlyCreatedCustomConnectors);
         }
 
         [Fact]
