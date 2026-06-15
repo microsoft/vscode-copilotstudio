@@ -12,7 +12,9 @@ export const LspMethods = {
   LIST_AGENTS: "powerplatformls/listAgents",
   LIST_ENVIRONMENTS: "powerplatformls/listEnvironments",
   LIST_WORKSPACES: "workspace/listWorkspaces",
+  PREPARE_REATTACH: "powerplatformls/prepareReattach",
   REATTACH_AGENT: "powerplatformls/reattachAgent",
+  PREPARE_PUSH: "powerplatformls/preparePush",
   SYNC_PULL: "powerplatformls/syncPull",
   SYNC_PUSH: "powerplatformls/syncPush",
 } as const;
@@ -74,6 +76,8 @@ export const TelemetryEventsKeys = {
   ReadKnowledgeFileError: "ReadKnowledgeFileError",
   ReattachAgentError: "ReattachAgentError",
   ReattachAgentInfo: "ReattachAgentInfo",
+  ConnectionCreationInfo: "ConnectionCreationInfo",
+  ConnectionCreationError: "ConnectionCreationError",
   PostOpenInstruction: "PostOpenInstruction",
   PostOpenError: "PostOpenError",
   WorkspaceRefreshLoopCap: "WorkspaceRefreshLoopCap",

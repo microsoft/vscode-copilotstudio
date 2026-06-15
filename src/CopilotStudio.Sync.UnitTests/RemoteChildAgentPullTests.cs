@@ -44,6 +44,25 @@ public class RemoteChildAgentPullTests
         Assert.Contains("ParentId does not exist on cloud: cre98_AgentC1.agent.Agent", exception.Message);
     }
 
+    [Fact]
+    public void GetLocalChanges_LocalPush_DeferMissingParents_CreatesNewAgentAndDefersChild()
+    {
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath("c:/test/workspace/");
+        var fileAccessor = fileAccessorFactory.Create(workspace);
+
+        var cloudSnapshot = CreateDefinition(Array.Empty<BotComponentBase>());
+        var agentComponent = CreateDialogComponent("cre98_AgentC1.agent.Agent", Guid.NewGuid(), default, new AgentDialog());
+        var childTopic = CreateDialogComponent("cre98_AgentC1.topic.ChildTopic", Guid.NewGuid(), agentComponent.Id, new AdaptiveDialog());
+        var localDefinition = CreateDefinition(new[] { agentComponent, childTopic });
+
+        var (_, changes) = synchronizer.GetLocalChanges(localDefinition, cloudSnapshot, fileAccessor, "token-1", isRemoteChange: false, deferMissingParents: true, out var deferredMissingParent);
+
+        Assert.True(deferredMissingParent);
+        Assert.Contains(changes, change => change.SchemaName == agentComponent.SchemaNameString && change.ChangeType == ChangeType.Create);
+        Assert.DoesNotContain(changes, change => change.SchemaName == childTopic.SchemaNameString);
+    }
+
     private static BotDefinition CreateDefinition(IEnumerable<BotComponentBase> components)
     {
         var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!;

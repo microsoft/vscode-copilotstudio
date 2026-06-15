@@ -15,6 +15,12 @@ async function main() {
     mainFields: ['module', 'main'],
     outfile: 'dist/extension.js',
     external: ['vscode'],
+    define: {
+      'import.meta.url': 'importMetaUrl'
+    },
+    banner: {
+      js: "const importMetaUrl = require('url').pathToFileURL(__filename).href;"
+    },
     logLevel: 'warning',
     plugins: [
       /* add to the end of plugins array */

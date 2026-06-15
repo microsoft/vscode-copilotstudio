@@ -22,7 +22,6 @@ export interface AgentSyncInfo {
   environmentId: string;
 
   // TODO: This will break with component collections.
-  // This will break with component collections.
   agentId: string;
 
   accountInfo: AccountInfo;
@@ -32,13 +31,13 @@ export interface AgentSyncInfo {
 export interface SyncRequest extends RemoteApiRequest {
   // Workspace URI: get from vscode.WorkspaceFolder;
   workspaceUri: string;
+  connectionBindings?: ConnectionBinding[];
 }
 
 export interface SyncResponse extends RemoteApiResponse {
   localChanges: Change[];
   workflowResponse: WorkflowResponse[];
   aiPromptResponse?: AIPromptResponse[];
-  newlyCreatedCustomConnectors?: string[];
 }
 
 export interface GetFileRequest {
@@ -133,6 +132,10 @@ export interface ClonedAssets {
 
 export interface ReattachAgentRequest extends RemoteApiRequest {
   workspaceUri: string;
+  agentSyncInfo?: AgentSyncInfo;
+  connectionBindings?: ConnectionBinding[];
+  isNewAgent: boolean;
+  updateWorkspaceDirectory: boolean;
 }
 
 export interface ReattachAgentResponse extends RemoteApiResponse {
@@ -140,7 +143,38 @@ export interface ReattachAgentResponse extends RemoteApiResponse {
   isNewAgent: boolean;
   workflowResponse: WorkflowResponse[];
   aiPromptResponse?: AIPromptResponse[];
-  newlyCreatedCustomConnectors?: string[];
+}
+
+export interface PrepareReattachRequest extends RemoteApiRequest {
+  workspaceUri: string;
+}
+
+export interface PrepareReattachResponse extends RemoteApiResponse {
+  agentSyncInfo: AgentSyncInfo;
+  isNewAgent: boolean;
+  updateWorkspaceDirectory: boolean;
+  agentConnections?: ConnectionNeeded[];
+}
+
+export interface PreparePushRequest extends RemoteApiRequest {
+  workspaceUri: string;
+}
+
+export interface PreparePushResponse extends RemoteApiResponse {
+  agentConnections?: ConnectionNeeded[];
+}
+
+export interface ConnectionNeeded {
+  connectionReferenceLogicalName: string;
+  connectorId: string;
+  connectorName: string;
+  boundConnectionId: string;
+}
+
+export interface ConnectionBinding {
+  connectionReferenceLogicalName: string;
+  connectionLogicalName: string;
+  connectionDisplayName?: string;
 }
 
 export interface WorkflowResponse {

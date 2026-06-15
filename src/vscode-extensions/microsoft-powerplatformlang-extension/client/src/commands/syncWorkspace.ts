@@ -1,7 +1,7 @@
 import { commands, DiagnosticSeverity, ExtensionContext, languages, ProgressLocation, RelativePattern, TextDocument, Uri, window, workspace as VSworkspace } from "vscode";
 import { CopilotStudioWorkspace, getAllWorkspaces, hasConnectionFileInWorkspace } from "../sync/localWorkspaces";
 import { selectWorkspace } from "../sync/workspacePicker";
-import { getOrAddSynchronizer, withSyncCommandBusy, WorkspaceSynchronizer } from "../sync/workspaceSynchronizer";
+import { getOrAddSynchronizer, preparePushConnections, withSyncCommandBusy, WorkspaceSynchronizer } from "../sync/workspaceSynchronizer";
 import { registerVirtualKnowledgeProvider } from "../knowledgeFiles/virtualKnowledgeFile";
 import { getWorkspaceChanges, refreshAgentChangesAfterFetch } from "../sync/workspaceScm";
 import { TelemetryEventsKeys } from "../constants";
@@ -196,7 +196,26 @@ const registerSyncCommand = (
           }
           if (errors.count === 0) {
             const synchronizer = getOrAddSynchronizer(selectedWorkspace);
-            await action(synchronizer);
+            if (id === 'microsoft-copilot-studio.applyChanges') {
+              const prepared = await preparePushConnections(selectedWorkspace);
+              if (prepared.status === 'failed') {
+                await window.showErrorMessage(`Cannot perform ${displayName.toLowerCase()} operation: preparing connections failed.`);
+                return;
+              }
+              if (prepared.status === 'incomplete') {
+                const proceed = await window.showWarningMessage(
+                  `These connections still need to be set up before the agent can run: ${prepared.unfinished.join(', ')}. Apply changes anyway?`,
+                  { modal: true },
+                  'Apply Anyway'
+                );
+                if (proceed !== 'Apply Anyway') {
+                  return;
+                }
+              }
+              await synchronizer.push(false, prepared.bindings);
+            } else {
+              await action(synchronizer);
+            }
           }
         });
       });

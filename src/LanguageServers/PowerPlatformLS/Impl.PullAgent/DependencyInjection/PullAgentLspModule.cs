@@ -78,6 +78,8 @@
             services.AddSingleton<IMethodHandler, GetRemoteFileHandler>();
             services.AddSingleton<IMethodHandler, GetWorkspaceDetailsHandler>();
             services.AddSingleton<IMethodHandler, ReattachAgentHandler>();
+            services.AddSingleton<IMethodHandler, PrepareReattachHandler>();
+            services.AddSingleton<IMethodHandler, PreparePushHandler>();
 
             void AddHttpClient<THandler>(string name) where THandler : DelegatingHandler
             {

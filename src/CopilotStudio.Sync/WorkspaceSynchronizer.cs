@@ -282,7 +282,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         var originalSnapshot = ReadCloudCacheSnapshot(fileAccessor);
 
         // Apply raw changeSet on cloud cache
-        var (newSnapshot, _) = UpdateCloudCache(fileAccessor, remoteChangeset, workflows, agentId: syncInfo.AgentId);
+        var (newSnapshot, _) = UpdateCloudCache(fileAccessor, remoteChangeset, workflows, aiPrompts, agentId: syncInfo.AgentId);
 
         // Persist new delta token
         await WriteChangeTokenAsync(fileAccessor, remoteChangeset, cancellationToken).ConfigureAwait(false);
@@ -668,7 +668,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             pushChangeset,
             cancellationToken).ConfigureAwait(false);
 
-        var connectorPushResult = await PushCustomConnectorsAsync(workspaceFolder, dataverseClient, cancellationToken).ConfigureAwait(false);
+        await PushCustomConnectorsAsync(workspaceFolder, dataverseClient, cancellationToken).ConfigureAwait(false);
 
         await WriteChangeSetAsync(workspaceFolder, changeset, cloudFlowMetadata, aiPrompts, agentId, cancellationToken).ConfigureAwait(false);
 
@@ -684,7 +684,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             return new PushChangesetResult
             {
                 UploadedKnowledgeFileCount = 0,
-                NewlyCreatedCustomConnectors = connectorPushResult.NewlyCreatedConnectorNames,
             };
         }
 
@@ -701,7 +700,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 return new PushChangesetResult
                 {
                     UploadedKnowledgeFileCount = 0,
-                    NewlyCreatedCustomConnectors = connectorPushResult.NewlyCreatedConnectorNames,
                 };
             }
 
@@ -768,8 +766,79 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         return new PushChangesetResult
         {
             UploadedKnowledgeFileCount = numberOfUploadedFiles,
-            NewlyCreatedCustomConnectors = connectorPushResult.NewlyCreatedConnectorNames,
         };
+    }
+
+    /// <summary>
+    /// Pushes all local component changes to the cloud, creating newly added sub-agents if needed.
+    /// </summary>
+    /// <param name="workspaceFolder">The location of the root of the workspace.</param>
+    /// <param name="operationContext">Information about the authoring operation.</param>
+    /// <param name="workspaceDefinition">The current state of the workspace to push.</param>
+    /// <param name="dataverseClient">The dataverse client used for communication with the service.</param>
+    /// <param name="syncInfo">Synchronization information for the agent.</param>
+    /// <param name="cloudFlowMetadata">Cloud flow metadata to project into the cloud cache.</param>
+    /// <param name="aiPrompts">AI Builder prompt metadata to project into the cloud cache.</param>
+    /// <param name="cancellationToken">Used to cancel the request.</param>
+    public async Task PushLocalChangesAsync(
+        DirectoryPath workspaceFolder,
+        AuthoringOperationContextBase operationContext,
+        DefinitionBase workspaceDefinition,
+        ISyncDataverseClient dataverseClient,
+        AgentSyncInfo syncInfo,
+        CloudFlowMetadata? cloudFlowMetadata,
+        ImmutableArray<AIPromptMetadata> aiPrompts,
+        CancellationToken cancellationToken)
+    {
+        const int maxPasses = 32;
+        for (var pass = 0; pass < maxPasses; pass++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+            var cloudSnapshot = ReadCloudCacheSnapshot(fileAccessor) ?? throw new InvalidOperationException("Unable to read cloud cache from .mcs/botdefinition.json");
+            var changeToken = await GetChangeTokenOrNullAsync(fileAccessor, cancellationToken).ConfigureAwait(false);
+            var effectiveDefinition = OverlayCliConnectionReferences(workspaceDefinition, fileAccessor, cancellationToken);
+
+            var (changeSet, changes) = GetLocalChanges(effectiveDefinition, cloudSnapshot, fileAccessor, changeToken, isRemoteChange: false, deferMissingParents: true, out var deferredMissingParent);
+
+            if (changes.IsEmpty)
+            {
+                if (deferredMissingParent)
+                {
+                    throw new InvalidOperationException("Unsupported sync operation. A component references a parent agent that could not be created on the cloud.");
+                }
+
+                break;
+            }
+
+            if (!changes.Any(c => c.SchemaName == "entity" || c.SchemaName == "icon"))
+            {
+                changeSet = changeSet.WithBot(null);
+            }
+            else if (changeSet.Bot != null)
+            {
+                var cloudEntity = (cloudSnapshot as BotDefinition)?.Entity;
+                if (cloudEntity != null && changeSet.Bot.Version != cloudEntity.Version)
+                {
+                    var entityBuilder = changeSet.Bot.ToBuilder();
+                    entityBuilder.Version = cloudEntity.Version;
+                    changeSet = changeSet.WithBot(entityBuilder.Build());
+                }
+            }
+
+            await PushChangesetAsync(workspaceFolder, operationContext, changeSet, dataverseClient, syncInfo.AgentId, cloudFlowMetadata, aiPrompts, cancellationToken).ConfigureAwait(false);
+
+            if (!deferredMissingParent)
+            {
+                break;
+            }
+
+            if (pass == maxPasses - 1)
+            {
+                throw new InvalidOperationException("Unsupported sync operation. A component references a parent agent that could not be created on the cloud.");
+            }
+        }
     }
 
     public virtual async Task ProvisionConnectionReferencesAsync(
@@ -792,20 +861,26 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
     {
         var connectionRefs = definition.ConnectionReferences;
 
+        var prefixCache = new Dictionary<string, CustomConnectorMetadata[]>(StringComparer.OrdinalIgnoreCase);
+
         foreach (var connRef in connectionRefs)
         {
             try
             {
+                var originalConnectorId = connRef.ConnectorId.ToString();
+                var originalInternalId = SyncDataverseClient.ExtractConnectorInternalId(originalConnectorId);
+
                 Guid? customConnectorRowId = null;
-                var internalId = SyncDataverseClient.ExtractConnectorInternalId(connRef.ConnectorId.ToString());
-                if (pushedConnectorIds != null && !string.IsNullOrWhiteSpace(internalId) && pushedConnectorIds.TryGetValue(internalId!, out var mapped))
+                if (pushedConnectorIds != null && !string.IsNullOrWhiteSpace(originalInternalId) && pushedConnectorIds.TryGetValue(originalInternalId!, out var mapped))
                 {
                     customConnectorRowId = mapped;
                 }
 
+                var connectorId = await ResolveTargetConnectorIdAsync(originalConnectorId, dataverseClient, cancellationToken, prefixCache).ConfigureAwait(false);
+
                 await dataverseClient.EnsureConnectionReferenceExistsAsync(
                     connRef.ConnectionReferenceLogicalName.ToString(),
-                    connRef.ConnectorId.ToString(),
+                    connectorId,
                     cancellationToken,
                     customConnectorRowId).ConfigureAwait(false);
             }
@@ -819,6 +894,202 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 // Continue with other connections
             }
         }
+    }
+
+    /// <summary>
+    /// Returns connection reference the agent declares, annotated with the connection it is currently bound to in Dataverse (if any).
+    /// </summary>
+    public virtual async Task<IReadOnlyList<ConnectionNeeded>> GetAgentConnectionReferencesAsync(DirectoryPath workspaceFolder, DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+    {
+        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var effectiveDefinition = OverlayCliConnectionReferences(definition, fileAccessor, cancellationToken);
+        return await GetAgentConnectionReferencesAsync(effectiveDefinition, dataverseClient, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Returns connection reference declared by the bot definition, annotated with its current Dataverse binding state.
+    /// </summary>
+    public virtual async Task<IReadOnlyList<ConnectionNeeded>> GetAgentConnectionReferencesAsync(DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+    {
+        var connectionRefs = definition.ConnectionReferences;
+        if (connectionRefs.IsDefaultOrEmpty)
+        {
+            return Array.Empty<ConnectionNeeded>();
+        }
+
+        var logicalNames = connectionRefs
+            .Select(cr => cr.ConnectionReferenceLogicalName.ToString())
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (logicalNames.Count == 0)
+        {
+            return Array.Empty<ConnectionNeeded>();
+        }
+
+        var cloudRefs = await dataverseClient.GetConnectionReferencesByLogicalNamesAsync(logicalNames, cancellationToken).ConfigureAwait(false);
+        var boundIdByName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var info in cloudRefs)
+        {
+            if (string.IsNullOrWhiteSpace(info.ConnectionReferenceLogicalName))
+            {
+                continue;
+            }
+
+            boundIdByName[info.ConnectionReferenceLogicalName] = info.ConnectionId ?? string.Empty;
+        }
+
+        var result = new List<ConnectionNeeded>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var prefixCache = new Dictionary<string, CustomConnectorMetadata[]>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var connRef in connectionRefs)
+        {
+            var logicalName = connRef.ConnectionReferenceLogicalName.ToString();
+            if (string.IsNullOrWhiteSpace(logicalName) || !seen.Add(logicalName))
+            {
+                continue;
+            }
+
+            boundIdByName.TryGetValue(logicalName, out var boundConnectionId);
+            var connectorId = await ResolveTargetConnectorIdAsync(connRef.ConnectorId.ToString(), dataverseClient, cancellationToken, prefixCache).ConfigureAwait(false);
+            var connectorName = SyncDataverseClient.ExtractConnectorInternalId(connectorId) ?? string.Empty;
+
+            result.Add(new ConnectionNeeded
+            {
+                ConnectionReferenceLogicalName = logicalName,
+                ConnectorId = connectorId,
+                ConnectorName = connectorName,
+                BoundConnectionId = boundConnectionId ?? string.Empty,
+            });
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Resolves each connection reference's connector id to the target environment.
+    /// </summary>
+    private static async Task<DefinitionBase> ResolveConnectionReferenceConnectorIdsAsync(DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+    {
+        if (definition.ConnectionReferences.IsDefaultOrEmpty)
+        {
+            return definition;
+        }
+
+        var resolved = ImmutableArray.CreateBuilder<ConnectionReference>(definition.ConnectionReferences.Length);
+        var changed = false;
+        var prefixCache = new Dictionary<string, CustomConnectorMetadata[]>(StringComparer.OrdinalIgnoreCase);
+        foreach (var connRef in definition.ConnectionReferences)
+        {
+            var originalConnectorId = connRef.ConnectorId.ToString();
+            var targetConnectorId = await ResolveTargetConnectorIdAsync(originalConnectorId, dataverseClient, cancellationToken, prefixCache).ConfigureAwait(false);
+            if (string.Equals(originalConnectorId, targetConnectorId, StringComparison.Ordinal))
+            {
+                resolved.Add(connRef);
+                continue;
+            }
+
+            var builder = connRef.ToBuilder();
+            builder.ConnectorId = targetConnectorId;
+            resolved.Add(builder.Build());
+            changed = true;
+        }
+
+        return changed ? definition.WithConnectionReferences(resolved.ToImmutable()) : definition;
+    }
+
+    /// <summary>
+    /// Rewrites a full connector id so its internal-id segment points at the target environment's connector when the connector is environment-specific.
+    /// </summary>
+    private static async Task<string> ResolveTargetConnectorIdAsync(string connectorId, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken, Dictionary<string, CustomConnectorMetadata[]>? prefixCache = null)
+    {
+        var connectorName = SyncDataverseClient.ExtractConnectorInternalId(connectorId) ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(connectorName))
+        {
+            return connectorId;
+        }
+
+        var resolvedConnectorName = await ResolveTargetConnectorNameAsync(connectorName, dataverseClient, cancellationToken, prefixCache).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(resolvedConnectorName) || string.Equals(resolvedConnectorName, connectorName, StringComparison.OrdinalIgnoreCase))
+        {
+            return connectorId;
+        }
+
+        var slash = connectorId.LastIndexOf('/');
+        return slash >= 0 ? connectorId.Substring(0, slash + 1) + resolvedConnectorName! : resolvedConnectorName!;
+    }
+
+    /// <summary>
+    /// Resolves the environment-specific connector internal id for a connector whose trailing hash differs between environments.
+    /// </summary>
+    private static async Task<string?> ResolveTargetConnectorNameAsync(string connectorInternalId, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken, Dictionary<string, CustomConnectorMetadata[]>? prefixCache = null)
+    {
+        var prefix = GetStableConnectorPrefix(connectorInternalId);
+        if (prefix == null)
+        {
+            return connectorInternalId;
+        }
+
+        CustomConnectorMetadata[] matches;
+        if (prefixCache != null && prefixCache.TryGetValue(prefix, out var cached))
+        {
+            matches = cached;
+        }
+        else
+        {
+            matches = await dataverseClient.GetConnectorsByInternalIdPrefixAsync(prefix, cancellationToken).ConfigureAwait(false);
+            if (prefixCache != null)
+            {
+                prefixCache[prefix] = matches;
+            }
+        }
+
+        if (matches.Length == 0)
+        {
+            return connectorInternalId;
+        }
+
+        var exact = matches.FirstOrDefault(m => string.Equals(m.ConnectorInternalId, connectorInternalId, StringComparison.OrdinalIgnoreCase));
+        if (exact != null)
+        {
+            return exact.ConnectorInternalId;
+        }
+
+        var newest = matches
+            .Where(m => !string.IsNullOrWhiteSpace(m.ConnectorInternalId))
+            .OrderByDescending(m => m.ModifiedOn)
+            .FirstOrDefault();
+
+        return newest?.ConnectorInternalId ?? connectorInternalId;
+    }
+
+    /// <summary>
+    /// Returns the stable connector internal id prefix for an environment-specific connector whose trailing segment is a 16-character hex hash; otherwise returns null.
+    /// </summary>
+    private static string? GetStableConnectorPrefix(string? connectorInternalId)
+    {
+        if (string.IsNullOrWhiteSpace(connectorInternalId))
+        {
+            return null;
+        }
+
+        const string separator = "-5f";
+        var idx = connectorInternalId!.LastIndexOf(separator, StringComparison.Ordinal);
+        if (idx <= 0)
+        {
+            return null;
+        }
+
+        var tail = connectorInternalId.Substring(idx + separator.Length);
+        if (tail.Length != 16 || !tail.All(Uri.IsHexDigit))
+        {
+            return null;
+        }
+
+        return connectorInternalId.Substring(0, idx + separator.Length);
     }
 
     /// <summary>
@@ -861,6 +1132,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         }
 
         definition = EnsureEntityCdsBotId(definition, syncInfo.AgentId);
+        definition = await ResolveConnectionReferenceConnectorIdsAsync(definition, dataverseClient, cancellationToken).ConfigureAwait(false);
 
         await fileAccessor.WriteAsync(GitIgnorePath, "*", cancellationToken).ConfigureAwait(false);
         WriteCloudCache(fileAccessor, definition);
@@ -1378,7 +1650,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
         var changeToken = await GetChangeTokenOrNullAsync(fileAccessor, cancellationToken).ConfigureAwait(false);
         var effectiveDefinition = OverlayCliConnectionReferences(workspaceDefinition, fileAccessor, cancellationToken);
-        var (changeSet, changes) = GetLocalChanges(effectiveDefinition, cloudSnapshot, fileAccessor, changeToken);
+        var (changeSet, changes) = GetLocalChanges(effectiveDefinition, cloudSnapshot, fileAccessor, changeToken, isRemoteChange: false, deferMissingParents: true, out _);
 
         var workflowChanges = GetLocalWorkflowChangesAsync(workspaceFolder, dataverseClient, syncInfo, fileAccessor, cloudSnapshot, cancellationToken);
         changes = changes.AddRange(await workflowChanges.ConfigureAwait(false));
@@ -1435,7 +1707,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
     }
 
     public (PvaComponentChangeSet, ImmutableArray<Change>) GetLocalChanges(DefinitionBase localDefinition, DefinitionBase cloudSnapshot, IFileAccessor fileAccessor, string? changeToken, bool isRemoteChange = false)
+        => GetLocalChanges(localDefinition, cloudSnapshot, fileAccessor, changeToken, isRemoteChange, deferMissingParents: false, out _);
+
+    public (PvaComponentChangeSet, ImmutableArray<Change>) GetLocalChanges(DefinitionBase localDefinition, DefinitionBase cloudSnapshot, IFileAccessor fileAccessor, string? changeToken, bool isRemoteChange, bool deferMissingParents, out bool deferredMissingParent)
     {
+        deferredMissingParent = false;
         var changes = ImmutableArray.CreateBuilder<Change>();
         var botComponentBuilderList = new List<BotComponentChange>();
 
@@ -1522,6 +1798,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 else if (isRemoteChange)
                 {
                     parentBotComponentId = localParentComponent.Id;
+                }
+                else if (deferMissingParents)
+                {
+                    deferredMissingParent = true;
+                    continue;
                 }
                 else
                 {
@@ -4360,11 +4641,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
     public async Task<CustomConnectorPushResult> PushCustomConnectorsAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
     {
         var pushedRowIds = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
-        var newlyCreated = new List<string>();
         var connectorsRoot = Path.Combine(workspaceFolder.ToString(), ConnectorsFolder);
         if (!Directory.Exists(connectorsRoot))
         {
-            return new CustomConnectorPushResult { PushedRowIds = pushedRowIds, NewlyCreatedConnectorNames = newlyCreated };
+            return new CustomConnectorPushResult { PushedRowIds = pushedRowIds };
         }
 
         var localConnectors = new List<CustomConnectorMetadata>();
@@ -4397,7 +4677,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
         if (localConnectors.Count == 0)
         {
-            return new CustomConnectorPushResult { PushedRowIds = pushedRowIds, NewlyCreatedConnectorNames = newlyCreated };
+            return new CustomConnectorPushResult { PushedRowIds = pushedRowIds };
         }
 
         foreach (var local in localConnectors)
@@ -4406,18 +4686,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
             try
             {
-                var created = await dataverseClient.UpsertConnectorAsync(local, cancellationToken).ConfigureAwait(false);
+                await dataverseClient.UpsertConnectorAsync(local, cancellationToken).ConfigureAwait(false);
                 if (!string.IsNullOrWhiteSpace(local.ConnectorInternalId))
                 {
                     pushedRowIds[local.ConnectorInternalId!] = local.ConnectorId;
-                }
-
-                if (created)
-                {
-                    var connectorDisplayName = !string.IsNullOrWhiteSpace(local.DisplayName)
-                        ? local.DisplayName!
-                        : (local.Name ?? local.ConnectorId.ToString());
-                    newlyCreated.Add(connectorDisplayName);
                 }
             }
             catch (OperationCanceledException)
@@ -4431,7 +4703,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             }
         }
 
-        return new CustomConnectorPushResult { PushedRowIds = pushedRowIds, NewlyCreatedConnectorNames = newlyCreated };
+        return new CustomConnectorPushResult { PushedRowIds = pushedRowIds };
     }
 
     private static async Task<CustomConnectorMetadata?> TryLoadLocalConnectorAsync(string folder, CancellationToken cancellationToken)

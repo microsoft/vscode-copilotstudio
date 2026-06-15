@@ -60,7 +60,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
                 var operationContext = await _operationContextProvider.GetAsync(syncInfo);
 
-                var (updatedDefinition, workflowResponse, aiPromptResponse, newlyCreatedCustomConnectors) = await ExecuteAsync(workspace, operationContext, _dataverseClient, syncInfo, cancellationToken);
+                var (updatedDefinition, workflowResponse, aiPromptResponse) = await ExecuteAsync(workspace, operationContext, _dataverseClient, syncInfo, request.ConnectionBindings, cancellationToken);
                 var (_, localChanges) = await _synchronizer.GetLocalChangesAsync(workspace.FolderPath, updatedDefinition, _dataverseClient, syncInfo, cancellationToken);
 
                 return new SyncAgentResponse
@@ -70,7 +70,6 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     LocalChanges = localChanges,
                     WorkflowResponse = workflowResponse,
                     AIPromptResponse = aiPromptResponse,
-                    NewlyCreatedCustomConnectors = newlyCreatedCustomConnectors,
                 };
             }
             catch (InvalidOperationException ex)
@@ -102,11 +101,12 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             }
         }
 
-        protected abstract Task<(DefinitionBase, ImmutableArray<WorkflowResponse>, ImmutableArray<SyncDataverseClient.AIPromptResponse>, ImmutableArray<string>)> ExecuteAsync(
+        protected abstract Task<(DefinitionBase, ImmutableArray<WorkflowResponse>, ImmutableArray<SyncDataverseClient.AIPromptResponse>)> ExecuteAsync(
             IMcsWorkspace workspace,
             AuthoringOperationContextBase operationContext,
             ISyncDataverseClient dataverseClient,
             AgentSyncInfo syncInfo,
+            ImmutableArray<ConnectionBindingInput> connectionBindings,
             CancellationToken cancellationToken);
     }
 }

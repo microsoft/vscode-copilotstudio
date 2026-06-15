@@ -60,6 +60,11 @@ public interface ISyncDataverseClient
     Task EnsureConnectionReferenceExistsAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken, Guid? customConnectorRowId = null);
 
     /// <summary>
+    /// Binds a connection reference to a connection by setting its connectionid.
+    /// </summary>
+    Task BindConnectionReferenceAsync(string connectionReferenceLogicalName, string connectionLogicalName, CancellationToken cancellationToken, string? connectionReferenceDisplayName = null);
+
+    /// <summary>
     /// Get connection references by logical names.
     /// </summary>
     Task<ConnectionReferenceInfo[]> GetConnectionReferencesByLogicalNamesAsync(IEnumerable<string> logicalNames, CancellationToken cancellationToken);
@@ -71,6 +76,13 @@ public interface ISyncDataverseClient
     /// <param name="isManaged">connector is managed or not.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     Task<CustomConnectorMetadata[]> DownloadConnectorsByInternalIdsAsync(IEnumerable<string> connectorInternalIds, bool isManaged, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Find connectors whose connectorinternalid starts with the given prefix.
+    /// </summary>
+    /// <param name="connectorInternalIdPrefix">The stable connectorinternalid prefix to match.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task<CustomConnectorMetadata[]> GetConnectorsByInternalIdPrefixAsync(string connectorInternalIdPrefix, CancellationToken cancellationToken);
 
     /// <summary>
     /// Upsert a custom connector in Dataverse.

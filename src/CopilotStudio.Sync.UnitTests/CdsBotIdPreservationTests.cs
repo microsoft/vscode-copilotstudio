@@ -61,6 +61,68 @@ public class CdsBotIdPreservationTests
     }
 
     [Fact]
+    public async Task Pull_WhenAgentHasAIPrompt_PreservesAIModelDefinitionInSnapshot()
+    {
+        var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspaceRoot = Path.Combine(Path.GetTempPath(), "aibpull-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(workspaceRoot);
+        var workspace = new DirectoryPath(workspaceRoot.Replace('\\', '/') + "/");
+        var agentId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        var modelId = Guid.Parse("3b5436b4-d7b4-4389-96e8-107446c9094a");
+
+        try
+        {
+            var aiPrompts = Array.Empty<AIPromptMetadata>();
+            var mockDataverse = new Mock<ISyncDataverseClient>();
+            mockDataverse
+                .Setup(x => x.DownloadAllWorkflowsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(Array.Empty<WorkflowMetadata>());
+            mockDataverse
+                .Setup(x => x.DownloadAllAIPromptsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(() => aiPrompts);
+
+            var opContext = ComponentWriterDefensiveTests.CreateMockOperationContext();
+            var syncInfo = new AgentSyncInfo { AgentId = agentId };
+
+            var clonedBot = new BotEntity.Builder
+            {
+                SchemaName = new BotEntitySchemaName("cr123"),
+                CdsBotId = agentId,
+            }.Build();
+
+            mockIsland
+                .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new PvaComponentChangeSet(null, clonedBot, "token-1"));
+
+            await synchronizer.CloneChangesAsync(workspace, new ReferenceTracker(), opContext, mockDataverse.Object, syncInfo, CancellationToken.None);
+
+            var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
+
+            Assert.DoesNotContain(modelId.ToString(), ReadText(fileAccessor, ".mcs/botdefinition.json"));
+
+            var previousDefinition = ReadDefinition(fileAccessor);
+
+            aiPrompts = new[] { new AIPromptMetadata { AIModelId = modelId, Name = "MyPrompt" } };
+
+            var remoteBot = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr123")!;
+            mockIsland
+                .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new PvaComponentChangeSet(null, remoteBot, "token-2"));
+
+            await synchronizer.PullExistingChangesAsync(workspace, opContext, previousDefinition, mockDataverse.Object, syncInfo, CancellationToken.None);
+
+            Assert.Contains(modelId.ToString(), ReadText(fileAccessor, ".mcs/botdefinition.json"));
+        }
+        finally
+        {
+            if (Directory.Exists(workspaceRoot))
+            {
+                Directory.Delete(workspaceRoot, true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task Clone_WhenRemoteBotEntityNeverHasCdsBotId_PopulatesCdsBotIdFromAgentId()
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
