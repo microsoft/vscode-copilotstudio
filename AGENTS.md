@@ -385,7 +385,7 @@ agent-name/
 | `Directory.Build.props` | C# 12.0, nullable enable, implicit usings, docs generation |
 | `Directory.Build.targets` | Central package management, assembly signing, Nullable.Extended.Analyzer |
 | `src/Packages.props` | Centralized NuGet package versions |
-| `version.json` | Nerdbank.GitVersioning: version 1.5, release branches `release/*` |
+| `version.json` | Nerdbank.GitVersioning: version 1.6, release branches `release/*` |
 | `nuget.config` | NuGet package sources; currently lists nuget.org while some `Microsoft.Agents.*` dependencies still require internal restore access |
 | `tsconfig.json` | TypeScript strict mode, ES2022 target, Node16 modules |
 | `eslint.config.mjs` | Flat config: curly required, eqeqeq, no-throw-literal, semicolons |
