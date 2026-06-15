@@ -165,12 +165,14 @@ export interface WaitForConnectorAvailableOptions extends ConnectorAvailabilityO
 
 const delay = (ms: number, cancellationToken?: CancellationToken): Promise<void> =>
   new Promise((resolve) => {
+    let listener: { dispose(): void } | undefined;
     const timer = setTimeout(() => {
       listener?.dispose();
       resolve();
     }, ms);
-    const listener = cancellationToken?.onCancellationRequested(() => {
+    listener = cancellationToken?.onCancellationRequested(() => {
       clearTimeout(timer);
+      listener?.dispose();
       resolve();
     });
   });
