@@ -2,7 +2,7 @@ import * as assert from 'node:assert';
 import { describe, test } from 'node:test';
 
 // Import the module to test
-import { clearWhoAmICache, parseBatchAccessResults } from '../../clients/dataverseClient';
+import { clearWhoAmICache, projectSharedAgents } from '../../clients/dataverseClient';
 
 describe('clearWhoAmICache', () => {
 	/**
@@ -21,159 +21,38 @@ describe('clearWhoAmICache', () => {
 	});
 });
 
-describe('parseBatchAccessResults', () => {
-	/**
-	 * Helper to create a multipart batch response part
-	 */
-	function createBatchPart(contentId: number, httpStatus: number, accessRights: string | null): string {
-		const statusText = httpStatus === 200 ? 'OK' : httpStatus === 403 ? 'Forbidden' : 'Not Found';
-		const body = accessRights !== null
-			? `{"@odata.context":"...","AccessRights":"${accessRights}"}`
-			: `{"error":{"code":"0x80040220","message":"Access denied"}}`;
-		
-		return [
-			`Content-Type: application/http`,
-			`Content-Transfer-Encoding: binary`,
-			``,
-			`HTTP/1.1 ${httpStatus} ${statusText}`,
-			`Content-ID: ${contentId}`,
-			`Content-Type: application/json; odata.metadata=minimal`,
-			``,
-			body
-		].join('\r\n');
-	}
+describe('projectSharedAgents', () => {
+	// This fixture is grounded in a real captured trace, not merely hand-constructed.
+	// Against a live Sandbox environment, an Environment Admin who had full read+write
+	// access to three agents owned by ANOTHER user saw none of them in the extension:
+	// the old write-access gate issued an invalid (unbound) RetrievePrincipalAccess call
+	// that returned HTTP 404 for every agent (and no per-part Content-ID), so all three
+	// were filtered out. The three entries below stand in for those captured non-owned
+	// agents; the ids are anonymized placeholders (no real records or secrets are stored).
+	const nonOwnedBots = [
+		{ botid: '00000000-0000-0000-0000-000000000001', name: 'Shared Agent A', iconbase64: '', bot_botcomponentcollection: [] },
+		{ botid: '00000000-0000-0000-0000-000000000002', name: 'Shared Agent B', iconbase64: '', bot_botcomponentcollection: [] },
+		{ botid: '00000000-0000-0000-0000-000000000003', name: 'Shared Agent C', iconbase64: '', bot_botcomponentcollection: [] },
+	];
 
-	/**
-	 * Helper to wrap parts in a batch response with boundary markers
-	 */
-	function createBatchResponse(parts: string[]): string {
-		const boundary = 'batchresponse_abc123';
-		return parts.map(part => `--${boundary}\r\n${part}`).join('\r\n') + `\r\n--${boundary}--`;
-	}
+	test('returns every non-owned agent (no access-based filtering)', () => {
+		// Regression guard: a broken RetrievePrincipalAccess "write access" gate used to drop
+		// every non-owned agent, so environment admins saw only the agents they personally
+		// owned. Shared listing must surface ALL non-owned agents the query returns.
+		const result = projectSharedAgents(nonOwnedBots);
 
-	test('parses normal multipart response with multiple AccessRights', () => {
-		const response = createBatchResponse([
-			createBatchPart(0, 200, 'ReadAccess, WriteAccess, AppendAccess'),
-			createBatchPart(1, 200, 'ReadAccess'),
-			createBatchPart(2, 200, 'ReadAccess, WriteAccess'),
-		]);
-
-		const results = parseBatchAccessResults(response, 3);
-
-		assert.deepStrictEqual(results, [true, false, true]);
+		assert.strictEqual(result.length, nonOwnedBots.length);
+		assert.deepStrictEqual(result.map(a => a.agentId), nonOwnedBots.map(b => b.botid));
+		assert.deepStrictEqual(result.map(a => a.displayName), nonOwnedBots.map(b => b.name));
 	});
 
-	test('handles response with one 403 error and others succeeding', () => {
-		const response = createBatchResponse([
-			createBatchPart(0, 200, 'ReadAccess, WriteAccess'),
-			createBatchPart(1, 403, null),
-			createBatchPart(2, 200, 'ReadAccess, WriteAccess'),
-		]);
+	test('marks projected agents as shared', () => {
+		const result = projectSharedAgents(nonOwnedBots);
 
-		const results = parseBatchAccessResults(response, 3);
-
-		// Bot 1 should be false due to 403, others should be true
-		assert.deepStrictEqual(results, [true, false, true]);
+		assert.ok(result.every(a => a.displayComplement === ' (shared)'));
 	});
 
-	test('handles response with out-of-order Content-IDs', () => {
-		// Response arrives in different order than request
-		const response = createBatchResponse([
-			createBatchPart(2, 200, 'ReadAccess, WriteAccess'),
-			createBatchPart(0, 200, 'ReadAccess'),
-			createBatchPart(1, 200, 'ReadAccess, WriteAccess'),
-		]);
-
-		const results = parseBatchAccessResults(response, 3);
-
-		// Should correctly correlate by Content-ID, not by position
-		assert.deepStrictEqual(results, [false, true, true]);
-	});
-
-	test('handles empty response', () => {
-		const results = parseBatchAccessResults('', 3);
-
-		// All should default to false
-		assert.deepStrictEqual(results, [false, false, false]);
-	});
-
-	test('handles malformed response with no Content-ID', () => {
-		const malformedResponse = [
-			`--batchresponse_abc123`,
-			`Content-Type: application/http`,
-			``,
-			`HTTP/1.1 200 OK`,
-			``, // Missing Content-ID header
-			`{"AccessRights":"ReadAccess, WriteAccess"}`,
-			`--batchresponse_abc123--`
-		].join('\r\n');
-
-		const results = parseBatchAccessResults(malformedResponse, 2);
-
-		// Should default to false since Content-ID is missing
-		assert.deepStrictEqual(results, [false, false]);
-	});
-
-	test('handles response with 404 errors', () => {
-		const response = createBatchResponse([
-			createBatchPart(0, 200, 'ReadAccess, WriteAccess'),
-			createBatchPart(1, 404, null),
-		]);
-
-		const results = parseBatchAccessResults(response, 2);
-
-		assert.deepStrictEqual(results, [true, false]);
-	});
-
-	test('handles Content-ID with angle brackets', () => {
-		// Some servers return Content-ID: <0> instead of Content-ID: 0
-		const response = [
-			`--batchresponse_abc123`,
-			`Content-Type: application/http`,
-			`Content-Transfer-Encoding: binary`,
-			``,
-			`HTTP/1.1 200 OK`,
-			`Content-ID: <0>`,
-			`Content-Type: application/json`,
-			``,
-			`{"AccessRights":"ReadAccess, WriteAccess"}`,
-			`--batchresponse_abc123--`
-		].join('\r\n');
-
-		const results = parseBatchAccessResults(response, 1);
-
-		assert.deepStrictEqual(results, [true]);
-	});
-
-	test('returns all false for expectedCount of 0', () => {
-		const results = parseBatchAccessResults('any content', 0);
-
-		assert.deepStrictEqual(results, []);
-	});
-
-	test('ignores Content-IDs outside expected range', () => {
-		const response = createBatchResponse([
-			createBatchPart(0, 200, 'ReadAccess, WriteAccess'),
-			createBatchPart(5, 200, 'ReadAccess, WriteAccess'), // Out of range for expectedCount=2
-		]);
-
-		const results = parseBatchAccessResults(response, 2);
-
-		// Only Content-ID 0 should be processed; index 1 remains false
-		assert.deepStrictEqual(results, [true, false]);
-	});
-
-	test('handles mixed success and various error codes', () => {
-		const response = createBatchResponse([
-			createBatchPart(0, 200, 'ReadAccess'),
-			createBatchPart(1, 200, 'WriteAccess'),
-			createBatchPart(2, 403, null),
-			createBatchPart(3, 404, null),
-			createBatchPart(4, 200, 'ReadAccess, WriteAccess, DeleteAccess'),
-		]);
-
-		const results = parseBatchAccessResults(response, 5);
-
-		assert.deepStrictEqual(results, [false, true, false, false, true]);
+	test('returns an empty list when there are no non-owned agents', () => {
+		assert.deepStrictEqual(projectSharedAgents([]), []);
 	});
 });
