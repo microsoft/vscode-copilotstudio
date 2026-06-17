@@ -8,9 +8,8 @@ using Xunit;
 namespace Microsoft.CopilotStudio.Sync.UnitTests;
 
 /// <summary>
-/// Classification-contract validation for the structured <see cref="AgentClassification"/>
-/// (PRD R1, R2, R3, R8; TDD D1, D4, D9, D15, D19). Exercises only released
-/// dependencies, proving the bridge classifier needs no unreleased declared signal.
+/// Classification-contract validation for the structured <see cref="AgentClassification"/>.
+/// Exercises only released dependencies.
 /// </summary>
 public class AgentClassifierTests
 {
@@ -100,15 +99,22 @@ language: 1033
         Assert.Equal(AuthoringShape.Classic, AgentClassifier.DetectAuthoringShape(Definition(yaml)));
     }
 
-    // R3/R8/D19: an unrecognized but well-formed shape is Provisional and preserves its raw value.
-    [Fact]
-    public void UnrecognizedTemplate_IsUnknown_Provisional_PreservesRawValue()
+    // Issue #292: a well-formed classic agent created from any gallery template (websiteqna-,
+    // sdkagent-, empty-, default-, ...) has no native CLI evidence, so it is Classic and
+    // Supported. The template name is a template, not an authoring shape, and must not fail the
+    // agent closed.
+    [Theory]
+    [InlineData("websiteqna-1.0.0")]
+    [InlineData("sdkagent-1.0.0")]
+    [InlineData("empty-1.0.0")]
+    [InlineData("default-2.1.0")]
+    public void NonCliTemplate_IsClassic_Supported(string template)
     {
-        var yaml = "kind: Bot\ndisplayName: x\nschemaName: x\ntemplate: sdkagent-1.0.0\n";
+        var yaml = $"kind: Bot\ndisplayName: x\nschemaName: x\ntemplate: {template}\n";
         var c = AgentClassifier.ClassifyCloud(Definition(yaml));
-        Assert.Equal(AuthoringShape.Unknown, c.AuthoringShape);
-        Assert.Equal(SupportLevel.Provisional, c.Support);
-        Assert.Equal("sdkagent-1.0.0", c.RawShapeValue);
+        Assert.Equal(AuthoringShape.Classic, c.AuthoringShape);
+        Assert.Equal(SupportLevel.Supported, c.Support);
+        Assert.Null(c.RawShapeValue);
     }
 
     // ---- Per-operation gate (the flexible fail-closed, D19) ----
@@ -133,8 +139,12 @@ language: 1033
     [InlineData(SyncOperation.Reattach, false)]
     public void Provisional_AllowsCloneAndPull_BlocksDestructive(SyncOperation op, bool expected)
     {
-        var yaml = "kind: Bot\ndisplayName: x\nschemaName: x\ntemplate: sdkagent-1.0.0\n";
-        var c = AgentClassifier.ClassifyCloud(Definition(yaml));
+        // ClassifyCloud no longer produces a Provisional verdict (every well-formed entity
+        // resolves to Classic/CliCopilot), but the graded gate still governs the SupportLevel,
+        // so construct the verdict directly to lock the matrix.
+        var c = new AgentClassification(
+            AuthoringShape.Unknown, WorkspaceLayout.Unknown, SupportLevel.Provisional,
+            "raw-shape", "test-provisional");
         Assert.Equal(SupportLevel.Provisional, c.Support);
         Assert.Equal(expected, c.Allows(op));
     }
@@ -207,33 +217,30 @@ language: 1033
         });
     }
 
-    // ---- D35 fail-closed: layout must NOT promote an explicitly unrecognized shape ----
-
-    private const string UnrecognizedTemplateYaml =
-        "kind: Bot\ndisplayName: x\nschemaName: x\ntemplate: sdkagent-1.0.0\n";
+    // ---- Issue #292: a non-default classic template must resolve to Classic, not Unknown ----
 
     private const string NoShapeEvidenceClassicYaml =
         "kind: Bot\ndisplayName: x\nschemaName: x\n";
 
-    // An EXPLICITLY unrecognized shape (unknown template) stays Provisional even when the
-    // local folder content falls back to a classic layout, so push/reattach fail closed (D35).
-    // This is the integrated path the gate-matrix tests bypass.
+    // A classic agent created from a non-default gallery template (here the Website Q&A template,
+    // template: websiteqna-1.0.0) with a matching classic folder resolves to Classic/Supported, so
+    // push and reattach are allowed. The narrow default- allowlist previously mis-resolved this to
+    // Unknown/Provisional and blocked the push (issue #292).
     [Fact]
-    public void Classify_UnrecognizedTemplate_WithClassicLookingFolder_StaysProvisional_BlocksDestructive()
+    public void Classify_NonDefaultClassicTemplate_WithClassicFolder_IsClassicSupported()
     {
-        WithFolder(("settings.mcs.yml", UnrecognizedTemplateYaml), dir =>
+        var yaml = "kind: Bot\ndisplayName: x\nschemaName: x\ntemplate: websiteqna-1.0.0\n";
+        WithFolder(("settings.mcs.yml", yaml), dir =>
         {
-            var bot = CodeSerializer.Deserialize<BotEntity>(UnrecognizedTemplateYaml);
+            var bot = CodeSerializer.Deserialize<BotEntity>(yaml);
             var c = AgentClassifier.Classify(bot, dir);
 
             Assert.Equal(WorkspaceLayout.ClassicMcs, c.WorkspaceLayout);
-            Assert.Equal(AuthoringShape.Unknown, c.AuthoringShape);
-            Assert.Equal(SupportLevel.Provisional, c.Support);
-            Assert.Equal("sdkagent-1.0.0", c.RawShapeValue);
-            Assert.True(c.Allows(SyncOperation.Clone));
-            Assert.True(c.Allows(SyncOperation.Pull));
-            Assert.False(c.Allows(SyncOperation.Push));
-            Assert.False(c.Allows(SyncOperation.Reattach));
+            Assert.Equal(AuthoringShape.Classic, c.AuthoringShape);
+            Assert.Equal(SupportLevel.Supported, c.Support);
+            Assert.Null(c.RawShapeValue);
+            Assert.True(c.Allows(SyncOperation.Push));
+            Assert.True(c.Allows(SyncOperation.Reattach));
         });
     }
 

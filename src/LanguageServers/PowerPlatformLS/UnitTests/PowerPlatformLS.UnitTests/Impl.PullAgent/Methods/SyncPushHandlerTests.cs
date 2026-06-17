@@ -32,21 +32,20 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
         private const string TopicsPath = "topics/Goodbye.mcs.yml";
 
         [Fact]
-        public async Task SyncPush_UnrecognizedTemplate_BlockedWith400_NoPushTest()
+        public async Task SyncPush_NonCliTemplate_ProceedsAsClassic()
         {
-            // D35 (primary): an EXPLICITLY unrecognized authoring shape (unknown template) whose
-            // folder merely falls back to a classic layout must NOT be promoted to Supported.
-            // Push fails closed (400) before any synchronizer work runs.
+            // Issue #292: a classic agent created from a non-default gallery template (the
+            // fixture's template: sdkagent-1.0.0) has no native CLI evidence, so it is
+            // Classic/Supported. The push gate allows it and the synchronizer push runs - the
+            // template is a template, not an authoring shape, and must not fail the agent closed.
             var (requestContext, request) = CreateSetup("Workspace/UnrecognizedTemplateWorkspace");
             var synchronizer = new PushTrackingSynchronizer();
             var handler = CreateHandler(new MockDataverseClient(), synchronizer);
 
             var response = await handler.HandleRequestAsync(request, requestContext, CancellationToken.None);
 
-            Assert.Equal(400, response.Code);
-            Assert.Contains(SyncOperation.Push.ToString(), response.Message);
-            // No mutation: the gate throws before the first synchronizer push call.
-            Assert.False(synchronizer.PushAttempted);
+            Assert.Equal(200, response.Code);
+            Assert.True(synchronizer.PushAttempted);
         }
 
         private (RequestContext, SyncAgentRequest) CreateSetup(string workspaceRelativePath)

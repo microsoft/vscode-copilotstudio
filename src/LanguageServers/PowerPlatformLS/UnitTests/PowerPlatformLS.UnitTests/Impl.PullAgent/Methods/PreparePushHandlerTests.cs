@@ -64,17 +64,20 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
         }
 
         [Fact]
-        public async Task PreparePushUnrecognizedTemplateBlockedWith400NoProvisioningTest()
+        public async Task PreparePush_NonCliTemplate_ProceedsAsClassic()
         {
+            // Issue #292: a classic agent created from a non-default gallery template (the
+            // fixture's template: sdkagent-1.0.0) has no native CLI evidence, so it is
+            // Classic/Supported. The push gate allows it and prepare proceeds to provisioning -
+            // the template is a template, not an authoring shape, and must not fail closed.
             var (requestContext, request) = CreateSetup("Workspace/UnrecognizedTemplateWorkspace");
             var synchronizer = new PreparePushProvisionTrackingSynchronizer();
             var handler = CreateHandler(new MockDataverseClient(), synchronizer);
 
             var response = await handler.HandleRequestAsync(request, requestContext, CancellationToken.None);
 
-            Assert.Equal(400, response.Code);
-            Assert.Contains(SyncOperation.Push.ToString(), response.Message);
-            Assert.False(synchronizer.ProvisionAttempted);
+            Assert.Equal(200, response.Code);
+            Assert.True(synchronizer.ProvisionAttempted);
         }
 
         [Fact]
