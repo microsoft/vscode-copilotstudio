@@ -19,17 +19,20 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         private readonly ISyncDataverseClient _dataverseClient;
         private readonly LspDataverseHttpClientAccessor _dataverseHttpClientAccessor;
         private readonly ITokenManager _dataverseTokenManager;
+        private readonly ILspLogger _logger;
 
         public GetLocalChangeHandler(
             CopilotStudio.Sync.IWorkspaceSynchronizer workspaceSynchronizer,
             ISyncDataverseClient dataverseClient,
             LspDataverseHttpClientAccessor dataverseHttpClientAccessor,
-            ITokenManager dataverseTokenManager)
+            ITokenManager dataverseTokenManager,
+            ILspLogger logger)
         {
             _workspaceSynchronizer = workspaceSynchronizer;
             _dataverseClient = dataverseClient ?? throw new ArgumentNullException(nameof(dataverseClient));
             _dataverseHttpClientAccessor = dataverseHttpClientAccessor ?? throw new ArgumentNullException(nameof(dataverseHttpClientAccessor));
             _dataverseTokenManager = dataverseTokenManager ?? throw new ArgumentNullException(nameof(dataverseTokenManager));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
         public bool MutatesSolutionState => false;
@@ -55,10 +58,11 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             }
             catch (Exception ex)
             {
+                var (code, message) = LspExceptionHandler.Handle(ex, _logger, cancellationToken);
                 return new SyncAgentResponse
                 {
-                    Code = 500,
-                    Message = ex.Message,
+                    Code = code,
+                    Message = message,
                 };
             }
         }

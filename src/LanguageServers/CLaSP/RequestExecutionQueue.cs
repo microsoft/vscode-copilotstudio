@@ -59,6 +59,12 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
         private readonly AbstractLanguageServer<TRequestContext> _languageServer;
 
         /// <summary>
+        /// Optional callback to capture the current request correlation ID at enqueue time.
+        /// The captured value is stored on the QueueItem and restored before handler execution.
+        /// </summary>
+        public Func<int>? RequestIdAccessor { get; set; }
+
+        /// <summary>
         /// The queue containing the ordered LSP requests along with the trace activityId (to associate logs with a request) and
         ///  a combined cancellation token representing the queue's cancellation token and the individual request cancellation token.
         /// </summary>
@@ -168,6 +174,10 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
                 lspServices,
                 _logger,
                 combinedCancellationToken);
+
+            // Capture the request correlation ID while still in the caller's async context.
+            // This value will be restored onto the handler's context in StartRequestAsync.
+            item.RequestId = RequestIdAccessor?.Invoke() ?? 0;
 
             // Run a continuation to ensure the cts is disposed of.
             // We pass CancellationToken.None as we always want to dispose of the source

@@ -8,6 +8,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.CommonLanguageServerProtocol.Framework.JsonRpc;
     using Microsoft.CommonLanguageServerProtocol.Framework.Handlers;
+    using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common.DependencyInjection;
     using System.Diagnostics.CodeAnalysis;
     using Microsoft.PowerPlatformLS.Contracts.Internal.CodeAnalysis;
@@ -26,13 +27,14 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
             Initialize();
         }
 
+        protected override int GetCurrentRequestId() => LspRequestContext.CurrentRequestId;
+
         /// <inheritdoc/>
         /// <remarks>Largely inspired from https://github.com/dotnet/roslyn/blob/main/src/LanguageServer/Protocol/RoslynLanguageServer.cs</remarks>
         public override bool TryGetLanguageForRequest(string methodName, object? serializedParameters, [NotNullWhen(true)] out string? language)
         {
             if (serializedParameters == null)
             {
-                Logger.LogInformation("No request parameters given, using default language handler");
                 language = LanguageServerConstants.DefaultLanguageName;
                 return true;
             }
@@ -52,14 +54,10 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
 
             // Phase 1b: Use LspUriFactory for typed URI handling
             var typedLspUri = LspUriFactory.FromJsonElement(parameters, Logger);
-            
-            // Log with scheme preserved
-            Logger.LogInformation($"Processing request for URI: {typedLspUri.Raw}");
 
             // Handle unsupported URIs with default language
             if (!typedLspUri.IsSupported)
             {
-                Logger.LogInformation($"Using default language handler for unsupported URI: {typedLspUri.Raw}");
                 language = LanguageServerConstants.DefaultLanguageName;
                 return true;
             }

@@ -46,6 +46,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // Using `createLogOutputChannel` gives each line a timestamp and a color-coded
   // [error]/[warning]/[info] prefix.
   const outputChannel = vscode.window.createOutputChannel("Copilot Studio Language Server", { log: true });
+  logger.setOutputChannel(outputChannel);
   if (isDebugging) {
     outputChannel.show();
   }

@@ -37,7 +37,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
         }
 
         [Fact]
-        public async Task Log_Forwards_WindowLogMessage_With_Category_Prefix_After_ClientReady()
+        public async Task Log_Forwards_WindowLogMessage_After_ClientReady()
         {
             _transport.Activate();
             LspWindowLogMessageLoggerProvider.SignalClientReady();
@@ -50,7 +50,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
             Assert.Equal(LspMethods.WindowLogMessage, sent.Method);
             var payload = sent.Params!.Value.Deserialize<LogMessageParams>(Constants.DefaultSerializationOptions)!;
             Assert.Equal(3, payload.Type); // Information => 3
-            Assert.Equal("[Foo] hello world", payload.Message);
+            Assert.Equal("hello world", payload.Message);
         }
 
         [Fact]
@@ -70,7 +70,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
             _transport.Activate();
 
             var sent = await _transport.WaitForOneAsync();
-            Assert.Equal("[Cat] before transport", DeserializeMessage(sent));
+            Assert.Equal("before transport", DeserializeMessage(sent));
         }
 
         [Fact]
@@ -88,7 +88,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
             LspWindowLogMessageLoggerProvider.SignalClientReady();
 
             var sent = await _transport.WaitForOneAsync();
-            Assert.Equal("[Cat] before initialized", DeserializeMessage(sent));
+            Assert.Equal("before initialized", DeserializeMessage(sent));
         }
 
         [Theory]
@@ -123,7 +123,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
             logger.LogInformation("real");
 
             var sent = await _transport.WaitForOneAsync();
-            Assert.Equal("[Cat] real", DeserializeMessage(sent));
+            Assert.Equal("real", DeserializeMessage(sent));
             await Task.Delay(100);
             Assert.Empty(_transport.Sent);
         }
@@ -140,7 +140,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
 
             var sent = await _transport.WaitForOneAsync();
             var message = DeserializeMessage(sent);
-            Assert.StartsWith("[Cat] failed", message);
+            Assert.StartsWith("failed", message);
             Assert.Contains("InvalidOperationException", message);
             Assert.Contains("boom", message);
         }
@@ -162,11 +162,11 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
         }
 
         [Theory]
-        [InlineData("A.B.C", "[C] msg")]
-        [InlineData("OnlyOne", "[OnlyOne] msg")]
-        [InlineData("Generic`1[[X]]", "[Generic] msg")]
-        [InlineData("Ns.Generic`2[[X],[Y]]", "[Generic] msg")]
-        public async Task CreateLogger_Shortens_Category(string fullName, string expectedPrefixedMessage)
+        [InlineData("A.B.C", "msg")]
+        [InlineData("OnlyOne", "msg")]
+        [InlineData("Generic`1[[X]]", "msg")]
+        [InlineData("Ns.Generic`2[[X],[Y]]", "msg")]
+        public async Task CreateLogger_Forwards_Message_Without_Category_Prefix(string fullName, string expectedMessage)
         {
             _transport.Activate();
             LspWindowLogMessageLoggerProvider.SignalClientReady();
@@ -175,7 +175,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
             logger.LogInformation("msg");
 
             var sent = await _transport.WaitForOneAsync();
-            Assert.Equal(expectedPrefixedMessage, DeserializeMessage(sent));
+            Assert.Equal(expectedMessage, DeserializeMessage(sent));
         }
 
         [Fact]
@@ -198,7 +198,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
             logger.LogInformation("second"); // must still go through
 
             var sent = await _transport.WaitForOneAsync();
-            Assert.Equal("[Cat] second", DeserializeMessage(sent));
+            Assert.Equal("second", DeserializeMessage(sent));
         }
 
         [Fact]

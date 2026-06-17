@@ -51,6 +51,12 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
         /// </summary>
         string MethodName { get; }
 
+        /// <summary>
+        /// The request correlation ID assigned at receive time.
+        /// Carried through the queue so handlers can restore ambient context.
+        /// </summary>
+        int RequestId { get; set; }
+
         object? SerializedRequest { get; }
     }
 }

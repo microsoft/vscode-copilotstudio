@@ -42,6 +42,7 @@
             services.AddHandler<CodeActionHandler>();
             services.AddHandler<DidRenameHandler>();
             services.AddHandler<ListWorkspacesHandler>();
+            services.AddHandler<SetTraceHandler>();
         }
     }
 }

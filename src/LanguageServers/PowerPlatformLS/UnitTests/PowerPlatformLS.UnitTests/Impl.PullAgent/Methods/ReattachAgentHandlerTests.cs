@@ -196,7 +196,7 @@
 
             Assert.Equal(400, response.Code);
             Assert.Contains("BadRequest", response.Message);
-            mockLogger.Verify(l => l.LogException(It.IsAny<DataverseBadRequestException>(), It.IsAny<string>(), It.IsAny<object[]>()), Times.Once);
+            mockLogger.Verify(l => l.LogError(It.IsAny<string>(), It.IsAny<object[]>()), Times.Once);
         }
 
         [Fact]
@@ -209,7 +209,7 @@
 
             var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
 
-            Assert.Equal(500, response.Code);
+            Assert.Equal(400, response.Code);
             Assert.Contains("exception", response.Message);
         }
 

@@ -39,6 +39,18 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.DependencyInjection
         {
             builder.Logging.ClearProviders();
             builder.Logging.Services.AddSingleton<ILoggerProvider, LspWindowLogMessageLoggerProvider>();
+
+            // Allow all levels for our code. The VS Code output channel dropdown
+            // controls which levels are displayed (user sets it to Info for normal use,
+            // switches to Trace/Debug when troubleshooting).
+            builder.Logging.AddFilter("Microsoft.PowerPlatformLS", LogLevel.Trace);
+
+            // Prevent recursive logging: BaseIpcTransport logs every send at Trace level,
+            // which would trigger another window/logMessage send, creating an infinite loop.
+            builder.Logging.AddFilter<LspWindowLogMessageLoggerProvider>(
+                "Microsoft.PowerPlatformLS.Impl.Core.IpcTransport.BaseIpcTransport",
+                LogLevel.Information);
+
             return builder;
         }
 

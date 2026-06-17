@@ -1,7 +1,6 @@
 namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 {
     using Microsoft.Agents.Platform.Content;
-    using Microsoft.Agents.Platform.Content.Exceptions;
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.CopilotStudio.Sync.Dataverse;
@@ -173,7 +172,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogException(ex);
+                            LspExceptionHandler.Handle(ex, _logger);
                         }
                     }
                 }
@@ -186,22 +185,13 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     AuthoringShape = detectedShape,
                 };
             }
-            catch (DataverseBadRequestException ex)
-            {
-                _logger.LogException(ex);
-                return new CloneAgentResponse()
-                {
-                    Code = ex.StatusCode,
-                    Message = ex.Message
-                };
-            }
             catch (Exception ex)
             {
-                _logger.LogException(ex);
+                var (code, message) = LspExceptionHandler.Handle(ex, _logger, cancellationToken);
                 return new CloneAgentResponse()
                 {
-                    Code = -1,
-                    Message = ex.Message
+                    Code = code,
+                    Message = message
                 };
             }
         }
