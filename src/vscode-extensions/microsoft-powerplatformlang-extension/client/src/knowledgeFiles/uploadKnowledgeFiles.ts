@@ -14,13 +14,13 @@ export async function uploadKnowledgeFiles(ws: CopilotStudioWorkspace): Promise<
   await vscode.window.withProgress({
     location: vscode.ProgressLocation.Notification,
     title: 'Uploading knowledge files…',
-    cancellable: false
-  }, async () => {
+    cancellable: true
+  }, async (_progress, cancellationToken) => {
     const request: UploadKnowledgeFilesRequest = {
       ...(await buildLspRequestPayload(syncInfo)),
       workspaceUri
     };
-    const result = await lspClient.sendRequest<UploadKnowledgeFilesResponse>(LspMethods.UPLOAD_KNOWLEDGE_FILES, request);
+    const result = await lspClient.sendRequest<UploadKnowledgeFilesResponse>(LspMethods.UPLOAD_KNOWLEDGE_FILES, request, cancellationToken);
     if (result.uploaded.length) {
       logger.info('KnowledgeFiles', `Uploaded ${result.uploaded.length} knowledge file(s)`);
       logger.logInfo(TelemetryEventsKeys.UploadKnowledgeFileSuccess, `Uploaded (${result.uploaded.length}): <pii>${result.uploaded.join(', ')}</pii>`);
