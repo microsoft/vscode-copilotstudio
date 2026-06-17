@@ -12,24 +12,20 @@ namespace Microsoft.CopilotStudio.McsCore
     /// Classification lives in one place so surfaces do not each re-implement detection.
     /// </summary>
     /// <remarks>
-    /// Authoring-shape evidence precedence (TDD D1-D4, D9, D15):
-    /// <list type="number">
-    /// <item>Declared authoring-model signal - deferred until consumable from a released
-    /// dependency (PRD R2, R3); the bridge evidence below is used meanwhile.</item>
-    /// <item>Native CLI configuration-shape evidence: a typed <c>AgentSettings</c> block
-    /// (preferred over template; D15). A legacy <c>CLIAgentRecognizer</c> without
-    /// <c>AgentSettings</c> is not CliCopilot (D9). This deliberately avoids
-    /// <c>BotEntity.IsCliAgent()</c>, which also returns true for that legacy recognizer.</item>
-    /// <item>Template-prefix evidence.</item>
-    /// </list>
-    /// An unrecognized but well-formed agent resolves to <see cref="AuthoringShape.Unknown"/>
-    /// with <see cref="SupportLevel.Provisional"/> (clone/pull best-effort to allow
-    /// bootstrapping; push/reattach fail closed) and preserves its raw value (PRD R3, R8).
+    /// Interim inference, pending a first-class authoring-shape signal on the entity: the shape
+    /// is inferred here from the entity's own configuration. A well-formed <see cref="BotEntity"/>
+    /// is <see cref="AuthoringShape.CliCopilot"/> when it carries a typed <c>AgentSettings</c>
+    /// block or a <c>cliagent-</c> template prefix; any other well-formed entity is
+    /// <see cref="AuthoringShape.Classic"/>. The <c>template</c> field is a gallery template name
+    /// (e.g. <c>default-</c>, <c>websiteqna-</c>, <c>empty-</c>), not an authoring shape, so it is
+    /// never used to fail an agent closed (issue #292). <see cref="AuthoringShape.Unknown"/> is
+    /// reserved for the cases with no usable shape evidence: no <see cref="BotEntity"/>
+    /// (<see cref="AgentClassification.None"/>) or an unreadable local workspace on the layout-only
+    /// path.
     /// </remarks>
     public static class AgentClassifier
     {
         private const string CliTemplatePrefix = "cliagent-";
-        private const string ClassicTemplatePrefix = "default-";
         private const string ClassicSettingsFileName = "settings.mcs.yml";
 
         /// <summary>
@@ -125,10 +121,10 @@ namespace Microsoft.CopilotStudio.McsCore
                 return AgentClassification.None;
             }
 
-            // Native CLI configuration-shape evidence: a typed AgentSettings block is the
-            // K2 discriminator (CliAgentExplore D8) and the authoring-shape signal D15
-            // prefers. This is NOT bot.IsCliAgent(), which also returns true for a legacy
-            // CLIAgentRecognizer and would violate D9.
+            // Interim shape inference from the entity's own configuration (no first-class
+            // authoring-shape signal yet). Native CLI evidence: a typed AgentSettings block marks
+            // the CliCopilot shape. This deliberately avoids bot.IsCliAgent(), which also returns
+            // true for a legacy CLIAgentRecognizer.
             if (bot.Configuration?.AgentSettings != null)
             {
                 return AgentClassification.Recognized(
@@ -136,29 +132,22 @@ namespace Microsoft.CopilotStudio.McsCore
             }
 
             var template = bot.Template;
-            if (!string.IsNullOrEmpty(template))
+            if (!string.IsNullOrEmpty(template) &&
+                template!.StartsWith(CliTemplatePrefix, StringComparison.OrdinalIgnoreCase))
             {
-                if (template!.StartsWith(CliTemplatePrefix, StringComparison.OrdinalIgnoreCase))
-                {
-                    return AgentClassification.Recognized(
-                        AuthoringShape.CliCopilot, WorkspaceLayout.Unknown, "template-prefix:" + template);
-                }
-
-                if (template.StartsWith(ClassicTemplatePrefix, StringComparison.OrdinalIgnoreCase))
-                {
-                    return AgentClassification.Recognized(
-                        AuthoringShape.Classic, WorkspaceLayout.Unknown, "template-prefix:" + template);
-                }
-
-                // Well-formed agent, unrecognized template -> provisional, preserve raw value.
-                return AgentClassification.Provisional(
-                    rawShapeValue: template, WorkspaceLayout.Unknown, "unrecognized-template:" + template);
+                // CLI agent whose AgentSettings block is not (yet) materialized: the cliagent-
+                // template is an explicit CLI marker, so it still resolves to CliCopilot.
+                return AgentClassification.Recognized(
+                    AuthoringShape.CliCopilot, WorkspaceLayout.Unknown, "template-prefix:" + template);
             }
 
-            // A bot entity with no recognizable shape evidence is still a well-formed
-            // agent envelope; treat it as provisional rather than fully unsupported.
-            return AgentClassification.Provisional(
-                rawShapeValue: null, WorkspaceLayout.Unknown, "no-shape-evidence");
+            // No native CLI evidence. A well-formed BotEntity is a classic (Dataverse-authored)
+            // agent. The template is a gallery template name (default-, websiteqna-, empty-, ...),
+            // not an authoring shape, so a non-CLI template is never used to fail the agent closed
+            // (issue #292): classic is the correct shape and keeps push/reattach available.
+            return AgentClassification.Recognized(
+                AuthoringShape.Classic, WorkspaceLayout.Unknown,
+                string.IsNullOrEmpty(template) ? "classic-no-template" : "classic-template:" + template);
         }
 
         /// <summary>
@@ -302,13 +291,10 @@ namespace Microsoft.CopilotStudio.McsCore
                 return cloud.WithLayout(layout);
             }
 
-            // No recognized cloud shape. Fall back to the layout-inferred shape ONLY when the
-            // cloud carried no explicit shape evidence (RawShapeValue == null): a plain classic
-            // agent with no template / AgentSettings ("no-shape-evidence") is legitimately
-            // Supported via its ClassicMcs layout. An EXPLICITLY unrecognized shape
-            // (RawShapeValue != null, e.g. an unknown template) must NOT be promoted to
-            // Supported just because the folder content falls back to ClassicMcs - push and
-            // reattach must fail closed for it (D35). Preserve its Provisional verdict.
+            // The only Unknown cloud verdict is "no cloud entity" (None, no raw shape value): the
+            // create/reattach path for an agent that does not yet exist in the cloud. Infer the
+            // shape from the local workspace layout so a classic/CLI folder is Supported; an
+            // unreadable workspace (Unknown layout) stays Unknown/Unsupported.
             if (cloud.RawShapeValue == null)
             {
                 var inferred = InferAuthoringShape(layout);
@@ -318,8 +304,8 @@ namespace Microsoft.CopilotStudio.McsCore
                 }
             }
 
-            // Preserve any raw cloud evidence; remain provisional/unsupported per the cloud
-            // verdict (fail closed for an explicitly unrecognized shape).
+            // No cloud entity and no readable local workspace: remain Unknown/Unsupported per the
+            // cloud verdict.
             return cloud.WithLayout(layout);
         }
     }

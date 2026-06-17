@@ -179,21 +179,19 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
         }
 
         [Fact]
-        public async Task PrepareReattach_UnrecognizedTemplate_BlockedWith400_NoMutationTest()
+        public async Task PrepareReattach_NonCliTemplate_ProceedsAsClassic()
         {
+            // Issue #292: a classic agent created from a non-default gallery template (the
+            // fixture's template: sdkagent-1.0.0) has no native CLI evidence, so it is
+            // Classic/Supported. Prepare-reattach proceeds and creates the new agent instead of
+            // failing closed - the template is a template, not an authoring shape.
             var context = CreatePrepareTestSetup("Workspace/UnrecognizedTemplateWorkspace");
-            var dataverse = new Mock<ISyncDataverseClient>();
-            dataverse.Setup(c => c.GetAgentIdBySchemaNameAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(Guid.Empty);
-            var handler = TestHandlerFactory.CreatePrepareHandler(dataverse.Object, new TestWorkspaceSynchronizer());
+            var handler = TestHandlerFactory.CreatePrepareHandler(new MockDataverseClient(), new TestWorkspaceSynchronizer());
 
             var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
 
-            Assert.Equal(400, response.Code);
-            Assert.False(response.IsNewAgent);
-            Assert.Equal(Guid.Empty, response.AgentSyncInfo?.AgentId);
-            Assert.Contains(SyncOperation.Reattach.ToString(), response.Message);
-            dataverse.Verify(c => c.GetAgentIdBySchemaNameAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
-            dataverse.Verify(c => c.CreateNewAgentAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<AuthoringShape>(), It.IsAny<CancellationToken>()), Times.Never);
+            Assert.Equal(200, response.Code);
+            Assert.True(response.IsNewAgent);
         }
 
         [Fact]
