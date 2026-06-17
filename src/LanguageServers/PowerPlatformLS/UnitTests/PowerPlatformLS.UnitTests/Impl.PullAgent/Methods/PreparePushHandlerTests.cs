@@ -172,7 +172,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             _connection = connection;
         }
 
-        public override Task<IReadOnlyList<ConnectionNeeded>> GetAgentConnectionReferencesAsync(DirectoryPath workspaceFolder, DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+        public override Task<IReadOnlyList<ConnectionNeeded>> GetNewAgentConnectionReferencesAsync(DirectoryPath workspaceFolder, DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
             => Task.FromResult<IReadOnlyList<ConnectionNeeded>>(new[] { _connection });
     }
 

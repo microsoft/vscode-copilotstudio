@@ -63,10 +63,37 @@ public class RemoteChildAgentPullTests
         Assert.DoesNotContain(changes, change => change.SchemaName == childTopic.SchemaNameString);
     }
 
+    [Fact]
+    public void GetLocalChanges_RemotePreview_FileComponentWithUnresolvedParent_DoesNotThrow()
+    {
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath("c:/test/workspace/");
+        var fileAccessor = fileAccessorFactory.Create(workspace);
+
+        var cloudSnapshot = CreateDefinition(Array.Empty<BotComponentBase>());
+        var orphanedFile = CreateFileComponent("cre98_AgentC1.file.ChildFile", "ChildFile.txt", "desc", new BotComponentId(Guid.NewGuid()));
+        var appliedRemoteDefinition = CreateDefinition(new[] { orphanedFile });
+
+        var (_, changes) = synchronizer.GetLocalChanges(appliedRemoteDefinition, cloudSnapshot, fileAccessor, "token-1", isRemoteChange: true);
+
+        Assert.Contains(changes, change => change.SchemaName == orphanedFile.SchemaNameString && change.ChangeType == ChangeType.Create);
+    }
+
     private static BotDefinition CreateDefinition(IEnumerable<BotComponentBase> components)
     {
         var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!;
         return new BotDefinition().WithEntity(botEntity).WithComponents(components);
+    }
+
+    private static BotComponentBase CreateFileComponent(string schemaName, string displayName, string description, BotComponentId parentId)
+    {
+        var builder = new FileAttachmentComponent()
+            .WithSchemaName(schemaName)
+            .WithDisplayName(displayName)
+            .WithDescription(description)
+            .ToBuilder();
+        builder.ParentBotComponentId = parentId;
+        return builder.Build();
     }
 
     private static DialogComponent CreateDialogComponent(string schemaName, Guid id, BotComponentId parentId, DialogBase dialog)

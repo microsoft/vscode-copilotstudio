@@ -29,13 +29,9 @@ export class knowledgeTreeDataProvider implements vscode.TreeDataProvider<knowle
   }
 
   async getChildren(): Promise<knowledgeTreeItem[]> {
-  const files: [string, vscode.FileType][] = await this.provider.readDirectory(vscode.Uri.parse('virtualKnowledge:/'));
-  return files.map(([name, type]: [string, vscode.FileType]) => {
-    const uri = vscode.Uri.parse(`virtualKnowledge:/${name}`);
-    const collapsibleState = type === vscode.FileType.Directory ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None;
-    return new knowledgeTreeItem(name, uri, collapsibleState);
-  });
-}
+    const entries = this.provider.getEntries();
+    return entries.map(({ uri, label }) => new knowledgeTreeItem(label, uri, vscode.TreeItemCollapsibleState.None));
+  }
 
 
   getTreeItem(element: knowledgeTreeItem): vscode.TreeItem {

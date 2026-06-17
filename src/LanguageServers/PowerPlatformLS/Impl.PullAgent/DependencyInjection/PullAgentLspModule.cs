@@ -92,6 +92,9 @@
             services.AddSingleton<IMethodHandler, ReattachAgentHandler>();
             services.AddSingleton<IMethodHandler, PrepareReattachHandler>();
             services.AddSingleton<IMethodHandler, PreparePushHandler>();
+            services.AddSingleton<IMethodHandler, ListKnowledgeFilesHandler>();
+            services.AddSingleton<IMethodHandler, DownloadKnowledgeFilesHandler>();
+            services.AddSingleton<IMethodHandler, UploadKnowledgeFilesHandler>();
 
             void AddHttpClient<THandler>(string name) where THandler : DelegatingHandler
             {

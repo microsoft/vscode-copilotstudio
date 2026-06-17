@@ -4,7 +4,7 @@ import { selectWorkspace } from "../sync/workspacePicker";
 import { getOrAddSynchronizer, preparePushConnections, withSyncCommandBusy, WorkspaceSynchronizer } from "../sync/workspaceSynchronizer";
 import { registerVirtualKnowledgeProvider } from "../knowledgeFiles/virtualKnowledgeFile";
 import { getWorkspaceChanges, refreshAgentChangesAfterFetch } from "../sync/workspaceScm";
-import { TelemetryEventsKeys } from "../constants";
+import { isKnowledgeFileChangeKind, TelemetryEventsKeys } from "../constants";
 import logger from "../services/logger";
 
 type Workspace = { ws: CopilotStudioWorkspace } | CopilotStudioWorkspace | null;
@@ -156,7 +156,7 @@ const registerSyncCommand = (
           // Filter out knowledge file changes - Knowledge file change is optional and do not block ApplyChanges.
           const changesWithoutKnowledgeFiles =
             changes?.remoteChanges.filter(
-              r => r.changeKind !== 'knowledge'
+              r => !isKnowledgeFileChangeKind(r.changeKind)
             ) ?? [];
 
           if (changesWithoutKnowledgeFiles.length > 0) {

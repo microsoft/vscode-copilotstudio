@@ -165,4 +165,22 @@ public class CliAgentNodeS2RemotePreviewTests
         Assert.Equal(CrUri(newName), create.Uri);
         Assert.EndsWith(".sync.yaml", create.Uri);
     }
+
+    [Fact]
+    public async Task RemotePreview_KnowledgeFileAbsentFromAppliedCloud_NotShownAsDelete()
+    {
+        var (_, _, accessor, synchronizer, _) =
+            await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
+        var cloud = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+
+        var fileComponent = cloud.Components.OfType<FileAttachmentComponent>().Single();
+        var applied = ((BotDefinition)cloud).WithComponents(
+            cloud.Components.Where(c => c.Id != fileComponent.Id).ToArray());
+
+        var (changeset, _) = synchronizer.GetLocalChanges(applied, cloud, accessor, "token-1", isRemoteChange: true);
+
+        Assert.DoesNotContain(
+            changeset.BotComponentChanges!.OfType<BotComponentDelete>(),
+            d => d.BotComponentId == fileComponent.Id);
+    }
 }

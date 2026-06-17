@@ -6,25 +6,31 @@ import * as path from 'path';
 import * as os from 'os';
 import { virtualKnowledgeFileSystemProvider } from '../../knowledgeFiles/virtualKnowledgeFile';
 import { CopilotStudioWorkspace } from '../../sync/localWorkspaces';
-import { getDataverseBotHandler, getTrackPath, getFilesDir, safeSaveFile } from '../../knowledgeFiles/syncUtils';
-import { ConflictResolution } from '../../constants';
+import { LspMethods } from '../../constants';
 import logger from '../../services/logger';
 
 describe('virtualKnowledgeFileSystemProvider', () => {
     let provider: virtualKnowledgeFileSystemProvider;
     let workspace: CopilotStudioWorkspace;
+    let originalOpenTextDocument: typeof vscode.workspace.openTextDocument;
+    let originalShowTextDocument: typeof vscode.window.showTextDocument;
 
     const workspaceDir = path.join(os.tmpdir(), 'vscode-copilotstudio', 'knowledge', 'files');
-    const trackPath = path.join(workspaceDir, '.mcs', 'filechangetrack.json');
 
     const syncInfo = {
         agentId: 'agent-123',
         dataverseEndpoint: 'https://my-copilotstudio-endpoint'
     };
 
+    const remoteFiles = [
+        { schemaName: 'bot.file.test1', fileName: 'file1.txt', relativePath: 'knowledge/files/file1.txt' },
+        { schemaName: 'bot.knowledge.test2', fileName: 'file2.txt', relativePath: 'agents/child/knowledge/files/file2.txt' }
+    ];
+
     beforeEach(async () => {
         workspace = {
-            workspaceUri: vscode.Uri.file(workspaceDir),
+            workspaceUri: vscode.Uri.file(workspaceDir).toString(),
+            displayName: 'Root Agent',
             syncInfo
         } as any;
 
@@ -33,72 +39,83 @@ describe('virtualKnowledgeFileSystemProvider', () => {
         provider = new virtualKnowledgeFileSystemProvider();
         provider.addWorkspace(workspace);
 
-        (getTrackPath as any) = (_ws: vscode.Uri) => trackPath;
-        (getFilesDir as any) = (_ws: vscode.Uri) => workspaceDir;
-        (getDataverseBotHandler as any) = async () => ({
-            listWsComponentMetadata: async () => [
-                { id: '1', schemaName: 'bot.file.test1s', modifiedOn: Date.now(), filename: 'file1.txt', agentSchemaName: 'bot.file.test1'  },
-                { id: '2', schemaName: 'bot.knowledge.test2s', modifiedOn: Date.now(), filename: 'file2.txt', agentSchemaName: 'bot.knowledge.test2' }
-            ],
-            downloadKnowledgeFile: async (id: string) => Buffer.from(`content-${id}`)
-        });
-
-        const track: Record<string, any> = {};
-        (require('../../knowledgeFiles/fileHelper').loadChangeTrack as any) = async () => track;
-        (require('../../knowledgeFiles/fileHelper').saveChangeTrack as any) = async (_path: string, _track: any) => {};
-        (require('../../knowledgeFiles/fileHelper').isTextFile as any) = async (_file: string) => true;
-        (require('../../knowledgeFiles/fileHelper').resolveConflict as any) = async (_f: any, _lp: any, _remote: any, _isText: any) => ConflictResolution.UseRemote;
-        (safeSaveFile as any) = async (dest: string, tmp: string, buf: Buffer) => {
-            await fs.mkdir(path.dirname(dest), { recursive: true });
-            await fs.writeFile(dest, buf);
+        const lspMod = require('../../services/lspClient');
+        lspMod.buildLspRequestPayload = async () => ({});
+        lspMod.lspClient = {
+            sendRequest: async (method: string, request: any) => {
+                if (method === LspMethods.LIST_KNOWLEDGE_FILES) {
+                    return { code: 200, files: remoteFiles };
+                }
+                if (method === LspMethods.DOWNLOAD_KNOWLEDGE_FILES) {
+                    const wanted: string[] | undefined = request.schemaNames;
+                    const root = vscode.Uri.parse(request.workspaceUri).fsPath;
+                    const downloaded = [];
+                    for (const file of remoteFiles) {
+                        if (wanted && !wanted.includes(file.schemaName)) {
+                            continue;
+                        }
+                        const target = path.join(root, file.relativePath);
+                        await fs.mkdir(path.dirname(target), { recursive: true });
+                        await fs.writeFile(target, `content-${file.fileName}`);
+                        downloaded.push(file);
+                    }
+                    return { code: 200, downloaded };
+                }
+                throw new Error(`unexpected method ${method}`);
+            }
         };
 
-        (logger as any).sendTelemetryErrorEvent = () => {};
         (logger.logInfo as any) = (_event: any, _message: string) => {};
         (logger.logError as any) = (_event: any, _message: string, _props?: any) => {};
         (logger.logWarning as any) = (_event: any, _message: string, _props?: any) => {};
+
+        originalOpenTextDocument = vscode.workspace.openTextDocument;
+        originalShowTextDocument = vscode.window.showTextDocument;
+        (vscode.workspace as any).openTextDocument = async (_target: any) => ({} as any);
+        (vscode.window as any).showTextDocument = async (_doc: any, _options?: any) => ({} as any);
     });
 
     afterEach(async () => {
+        (vscode.workspace as any).openTextDocument = originalOpenTextDocument;
+        (vscode.window as any).showTextDocument = originalShowTextDocument;
         await fs.rm(path.join(os.tmpdir(), 'vscode-copilotstudio'), { recursive: true, force: true });
     });
 
     test('refresh populates components map', async () => {
         await provider.refresh();
-        const keys = Array.from(provider['components'].keys());
-        assert.ok(keys.includes('file1.txt (bot.file.test1)'));
-        assert.ok(keys.includes('file2.txt (bot.knowledge.test2)'));
+        const labels = provider.getEntries().map(e => e.label);
+        assert.ok(labels.includes('file1.txt (Root Agent)'));
+        assert.ok(labels.includes('file2.txt (Root Agent/child)'));
     });
 
     test('stat returns FileStat for known file', async () => {
         await provider.refresh();
-        const key = 'file1.txt (bot.file.test1)';
-        const stat = await provider.stat(vscode.Uri.parse(`virtualKnowledge:/${key}`));
+        const entry = provider.getEntries().find(e => e.label === 'file1.txt (Root Agent)');
+        assert.ok(entry, 'Entry for file1.txt should exist');
+        const stat = await provider.stat(entry!.uri);
         assert.strictEqual(stat.type, vscode.FileType.File);
     });
 
-    test('readDirectory returns all file names', async () => {
+    test('getEntries returns all file names', async () => {
         await provider.refresh();
-        const files = await provider.readDirectory(vscode.Uri.parse('virtualKnowledge:/'));
-        const names = files.map(f => f[0]);
-        assert.ok(names.includes('file1.txt (bot.file.test1)'));
-        assert.ok(names.includes('file2.txt (bot.knowledge.test2)'));
+        const entries = provider.getEntries();
+        assert.strictEqual(entries.length, 2);
+        const labels = entries.map(e => e.label);
+        assert.ok(labels.includes('file1.txt (Root Agent)'));
+        assert.ok(labels.includes('file2.txt (Root Agent/child)'));
     });
 
-    test('readFile downloads and saves remote content', async () => {(
-        require('../../knowledgeFiles/fileHelper').isTextFile as any) = async (_file: string) => false;
+    test('readFile downloads and returns remote content', async () => {
         await provider.refresh();
-        const uri = vscode.Uri.parse('virtualKnowledge:/file1.txt (bot.file.test1)');
-        const content = await provider.readFile(uri);
+        const entry = provider.getEntries().find(e => e.label === 'file1.txt (Root Agent)');
+        assert.ok(entry, 'Entry for file1.txt should exist');
+        const content = await provider.readFile(entry!.uri);
 
-        assert.strictEqual(content.toString(), 'content-1');
+        assert.strictEqual(content.toString(), 'content-file1.txt');
 
-        const localPath = path.join(workspaceDir, 'file1.txt');
+        const localPath = path.join(workspaceDir, 'knowledge', 'files', 'file1.txt');
         const exists = await fs.stat(localPath).then(() => true).catch(() => false);
         assert.ok(exists, 'Local file should exist after readFile');
-
-        const localContent = await fs.readFile(localPath, 'utf8');
-        assert.strictEqual(localContent, 'content-1');
     });
 
     test('writeFile throws no-permissions', async () => {

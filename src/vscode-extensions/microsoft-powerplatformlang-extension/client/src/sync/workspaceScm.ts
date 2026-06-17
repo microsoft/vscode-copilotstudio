@@ -5,7 +5,6 @@ import { LocalChangeResourceCommandResolver, RemoteChangeResourceCommandResolver
 import { SyncResponse, Change, SyncRequest, DiffRequest } from "../types";
 import { LOCAL_STATE_SCHEME } from "./originalState";
 import { getOrAddSynchronizer, SyncState } from "./workspaceSynchronizer";
-import { getKnowledgeLocalChanges, getKnowledgeRemoteChanges } from "../knowledgeFiles/syncUtils";
 import { registerVirtualKnowledgeProvider } from "../knowledgeFiles/virtualKnowledgeFile";
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import { isChildUri, isSameUri } from "../utils/genericUtils";
@@ -285,8 +284,7 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
           workspaceUri
         };
         const generalChanges = await fetchChanges<DiffRequest>(LspMethods.GET_LOCAL_CHANGES, diffRequest);
-        const knowledgeChanges = await getKnowledgeLocalChanges(syncInfo, workspaceUri);
-        const allChanges = [...generalChanges, ...knowledgeChanges];
+        const allChanges = [...generalChanges];
         const resources = mapResources(allChanges, localCommandController);
         
         // Store changes in SCM resource group or internal store
@@ -325,8 +323,7 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
           workspaceUri
         };
         const remoteChanges = await fetchChanges<SyncRequest>(LspMethods.GET_REMOTE_CHANGES, request);
-        const knowledgeChanges = await getKnowledgeRemoteChanges(syncInfo, workspaceUri);
-        const allRemoteChanges = [...remoteChanges, ...knowledgeChanges];
+        const allRemoteChanges = [...remoteChanges];
         const resources = mapResources(allRemoteChanges, remoteCommandController);
         
         // Store changes in SCM resource group or internal store

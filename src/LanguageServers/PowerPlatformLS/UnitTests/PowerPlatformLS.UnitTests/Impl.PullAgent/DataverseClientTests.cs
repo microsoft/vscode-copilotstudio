@@ -1,5 +1,6 @@
 ﻿namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
 {
+    using Microsoft.Agents.ObjectModel;
     using Microsoft.Agents.Platform.Content.Abstractions;
     using Microsoft.CopilotStudio.McsCore;
     using Microsoft.CopilotStudio.Sync;
@@ -8,6 +9,7 @@
     using Moq.Protected;
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Linq;
     using System.Net;
     using System.Net.Http;
@@ -408,6 +410,74 @@
 
             await client.InsertWorkflowAsync(agentId, workflow, CancellationToken.None);
             Assert.Equal(2, callIndex);
+        }
+
+        [Fact]
+        public async Task DownloadKnowledgeFileAsync_DestinationOpenedForReadWrite_OverwritesWithoutSharingViolation()
+        {
+            var folder = Path.Combine(Path.GetTempPath(), "mcs-knowledge-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            const string fileName = "knowledge.txt";
+            var filePath = Path.Combine(folder, fileName);
+            const string expectedContent = "downloaded-content";
+
+            try
+            {
+                File.WriteAllText(filePath, "stale-content");
+
+                var client = CreateClientWithHandler((req, index) => Task.FromResult(new HttpResponseMessage
+                {
+                    StatusCode = HttpStatusCode.OK,
+                    Content = new StringContent(expectedContent, Encoding.UTF8, "application/octet-stream")
+                }));
+
+                using (new FileStream(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
+                {
+                    await client.DownloadKnowledgeFileAsync(folder, new BotComponentId(Guid.NewGuid()), fileName, CancellationToken.None);
+                }
+
+                Assert.Equal(expectedContent, File.ReadAllText(filePath));
+            }
+            finally
+            {
+                Directory.Delete(folder, recursive: true);
+            }
+        }
+
+        [Fact]
+        public async Task DownloadKnowledgeFileAsync_DestinationTemporarilyLockedExclusively_RetriesUntilSucceeds()
+        {
+            var folder = Path.Combine(Path.GetTempPath(), "mcs-knowledge-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            const string fileName = "knowledge.txt";
+            var filePath = Path.Combine(folder, fileName);
+            const string expectedContent = "downloaded-content";
+
+            var exclusiveLock = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
+            var releaseLock = Task.Run(async () =>
+            {
+                await Task.Delay(50);
+                exclusiveLock.Dispose();
+            });
+
+            try
+            {
+                var client = CreateClientWithHandler((req, index) => Task.FromResult(new HttpResponseMessage
+                {
+                    StatusCode = HttpStatusCode.OK,
+                    Content = new StringContent(expectedContent, Encoding.UTF8, "application/octet-stream")
+                }));
+
+                await client.DownloadKnowledgeFileAsync(folder, new BotComponentId(Guid.NewGuid()), fileName, CancellationToken.None);
+                await releaseLock;
+
+                Assert.Equal(expectedContent, File.ReadAllText(filePath));
+            }
+            finally
+            {
+                exclusiveLock.Dispose();
+                Directory.Delete(folder, recursive: true);
+            }
         }
 
         private static SyncDataverseClient CreateClientFromHttpClient(HttpClient httpClient)

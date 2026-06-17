@@ -875,12 +875,38 @@ public class SyncDataverseClient : ISyncDataverseClient
 
         using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
 
-        using var fileStream = new FileStream(localPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
+        using var fileStream = await CreateWritableFileStreamWithRetryAsync(localPath, cancellationToken).ConfigureAwait(false);
 
         // No #if: passing 81920 explicitly is identical to net10's default buffer size
         // on Stream.CopyToAsync(Stream, CT), and the 3-arg form is what netstandard2.0
         // exposes -- so the same expression compiles and behaves the same on both TFMs.
         await stream.CopyToAsync(fileStream, 81920, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<FileStream> CreateWritableFileStreamWithRetryAsync(string localPath, CancellationToken cancellationToken)
+    {
+        const int maxAttempts = 3;
+        const int baseDelayMilliseconds = 100;
+
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return new FileStream(localPath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite, 81920, useAsync: true);
+            }
+            catch (IOException ex) when (attempt < maxAttempts && IsSharingViolation(ex))
+            {
+                await Task.Delay(baseDelayMilliseconds * attempt, cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private static bool IsSharingViolation(IOException ex)
+    {
+        const int errorSharingViolation = 32;
+        const int errorLockViolation = 33;
+        var errorCode = ex.HResult & 0xFFFF;
+        return errorCode == errorSharingViolation || errorCode == errorLockViolation;
     }
 
     public async Task UploadKnowledgeFileAsync(string knowledgeFileFolder, Guid botComponentId, string fileName, CancellationToken cancellationToken = default)

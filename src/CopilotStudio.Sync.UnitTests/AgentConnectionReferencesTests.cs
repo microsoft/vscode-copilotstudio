@@ -1,4 +1,5 @@
 using Microsoft.Agents.ObjectModel;
+using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Moq;
 using Xunit;
@@ -176,5 +177,60 @@ public class AgentConnectionReferencesTests
         var single = Assert.Single(result);
         Assert.Equal(originalConnectorId, single.ConnectorId);
         Assert.Equal("cr1a2_myconnector-5f1234567890abcdef", single.ConnectorName);
+    }
+
+    [Fact]
+    public async Task GetNewAgentConnectionReferencesAsync_OnlyReturnsReferencesAbsentFromCloudCache()
+    {
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath("c:/test/new-connections/");
+        var fileAccessor = fileAccessorFactory.Create(workspace);
+
+        var cloudDefinition = new BotDefinition().WithConnectionReferences(new List<ConnectionReference>
+        {
+            MakeConnectionRef("cr_existing", "/providers/Microsoft.PowerApps/apis/shared_office365"),
+        });
+        WorkspaceSynchronizer.WriteCloudCache(fileAccessor, cloudDefinition);
+
+        var localDefinition = new BotDefinition().WithConnectionReferences(new List<ConnectionReference>
+        {
+            MakeConnectionRef("cr_existing", "/providers/Microsoft.PowerApps/apis/shared_office365"),
+            MakeConnectionRef("cr_new", "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"),
+        });
+
+        var dataverse = new Mock<ISyncDataverseClient>();
+        dataverse
+            .Setup(c => c.GetConnectionReferencesByLogicalNamesAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<SyncDataverseClient.ConnectionReferenceInfo>());
+
+        var result = await synchronizer.GetNewAgentConnectionReferencesAsync(
+            workspace, localDefinition, dataverse.Object, CancellationToken.None);
+
+        var single = Assert.Single(result);
+        Assert.Equal("cr_new", single.ConnectionReferenceLogicalName);
+    }
+
+    [Fact]
+    public async Task GetNewAgentConnectionReferencesAsync_NoNewReferences_ReturnsEmpty()
+    {
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath("c:/test/no-new-connections/");
+        var fileAccessor = fileAccessorFactory.Create(workspace);
+
+        var refs = new List<ConnectionReference>
+        {
+            MakeConnectionRef("cr_existing", "/providers/Microsoft.PowerApps/apis/shared_office365"),
+        };
+        WorkspaceSynchronizer.WriteCloudCache(fileAccessor, new BotDefinition().WithConnectionReferences(refs));
+
+        var dataverse = new Mock<ISyncDataverseClient>();
+
+        var result = await synchronizer.GetNewAgentConnectionReferencesAsync(
+            workspace, new BotDefinition().WithConnectionReferences(refs), dataverse.Object, CancellationToken.None);
+
+        Assert.Empty(result);
+        dataverse.Verify(
+            c => c.GetConnectionReferencesByLogicalNamesAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 }

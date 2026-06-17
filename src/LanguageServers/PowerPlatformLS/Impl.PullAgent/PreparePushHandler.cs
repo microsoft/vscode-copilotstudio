@@ -61,7 +61,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     };
                 }
 
-                var agentConnections = await ConnectionHelper.ProvisionAndGetConnectionsAsync(_workspaceSynchronizer, workspace.FolderPath, workspace.Definition, _dataverseClient, cancellationToken);
+                var agentConnections = await ConnectionHelper.ProvisionAndGetNewConnectionsAsync(_workspaceSynchronizer, workspace.FolderPath, workspace.Definition, _dataverseClient, cancellationToken);
 
                 return new PreparePushResponse()
                 {
