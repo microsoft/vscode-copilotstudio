@@ -7,8 +7,7 @@
     using System.Threading.Tasks;
 
     /// <summary>
-    /// Logs HTTP requests at Info level for diagnostics.
-    /// Errors (network failures) are always logged at Error level.
+    /// Logs HTTP requests at Info level and network failures at Error level.
     /// </summary>
     internal class LoggingHttpHandler : DelegatingHandler
     {

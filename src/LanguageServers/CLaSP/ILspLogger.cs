@@ -8,8 +8,8 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
 
     public interface ILspLogger
     {
-        void LogStartContext(string message, params object[] @params);
-        void LogEndContext(string message, params object[] @params);
+        void LogStartContext(string methodName);
+        void LogEndContext(string methodName, long durationMs = -1);
         void LogDebug(string message, params object[] @params);
         void LogInformation(string message, params object[] @params);
 
@@ -21,5 +21,12 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
         void LogWarning(string message, params object[] @params);
         void LogError(string message, params object[] @params);
         void LogException(Exception exception, string? message = null, params object[] @params);
+
+        /// <summary>
+        /// Sets the ambient request ID for the current execution context.
+        /// Called by the queue before handler execution to restore correlation context
+        /// that cannot flow via AsyncLocal across queue boundaries.
+        /// </summary>
+        void SetCurrentRequestId(int requestId) { }
     }
 }

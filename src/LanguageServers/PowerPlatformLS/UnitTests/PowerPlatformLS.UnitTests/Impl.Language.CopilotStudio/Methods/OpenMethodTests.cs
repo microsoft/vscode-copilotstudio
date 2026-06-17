@@ -116,7 +116,7 @@
             var diagParams2 = await context.OpenDocumentWithTextAsync(documentUri, "kind: AdaptiveDialog");
             Assert.Equal(diagParams.Uri, diagParams2.Uri);
             Assert.Equal(diagParams.Diagnostics.Select(x => x.Message), diagParams2.Diagnostics.Select(x => x.Message));
-            Assert.Equal(1, context.Logs.Info.Count(x => x.StartsWith("[AgentResolving]")));
+            Assert.Equal(1, context.Logs.Info.Count(x => x.StartsWith("[AgentInit]")));
             AssertAgentResolvingEvent(context, "Agent Directory selected: 'c:/ws/topics/'");
             context.Logs.Clear();
 
@@ -474,7 +474,7 @@ beginDialog:
 
         private static void AssertAgentResolvingEvent(TestHost context, string expectedEventLog, int expectedCount = 1)
         {
-            const string prefix = "[AgentResolving] ";
+            const string prefix = "[AgentInit] ";
             var agentResolvingEvents = context.Logs.Info.Concat(context.Logs.Debug)
                 .Where(x => x.StartsWith(prefix))
                 .Select(x => x.Substring(prefix.Length))
@@ -489,7 +489,7 @@ beginDialog:
                 if (agentResolvingEventsCount > 0)
                 {
                     var agentResolvingEventsString = string.Join("\n", agentResolvingEvents);
-                    additionalInformation += $"{agentResolvingEvents.Count()} Total [AgentResolving] events: \n" + agentResolvingEventsString;
+                    additionalInformation += $"{agentResolvingEvents.Count()} Total [AgentInit] events: \n" + agentResolvingEventsString;
                 }
                 else
                 {

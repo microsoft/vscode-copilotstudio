@@ -62,7 +62,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
 
         public ILogger CreateLogger(string categoryName)
         {
-            return _loggers.GetOrAdd(categoryName, name => new ForwardingLogger(ShortenCategory(name), this));
+            return _loggers.GetOrAdd(categoryName, name => new ForwardingLogger(this));
         }
 
         public void Dispose()
@@ -142,26 +142,6 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
             }
         }
 
-        private static string ShortenCategory(string categoryName)
-        {
-            if (string.IsNullOrEmpty(categoryName))
-            {
-                return categoryName;
-            }
-
-            // Strip generic arity / generic args so e.g. "Foo`1[[Bar]]" → "Foo".
-            int tick = categoryName.IndexOf('`');
-            if (tick >= 0)
-            {
-                categoryName = categoryName.Substring(0, tick);
-            }
-
-            int lastDot = categoryName.LastIndexOf('.');
-            return lastDot >= 0 && lastDot < categoryName.Length - 1
-                ? categoryName.Substring(lastDot + 1)
-                : categoryName;
-        }
-
         private readonly struct QueuedEntry
         {
             public QueuedEntry(int messageType, string message)
@@ -177,12 +157,10 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
 
         private sealed class ForwardingLogger : ILogger
         {
-            private readonly string _category;
             private readonly LspWindowLogMessageLoggerProvider _owner;
 
-            public ForwardingLogger(string category, LspWindowLogMessageLoggerProvider owner)
+            public ForwardingLogger(LspWindowLogMessageLoggerProvider owner)
             {
-                _category = category;
                 _owner = owner;
             }
 

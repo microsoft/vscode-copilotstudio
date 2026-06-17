@@ -10,7 +10,7 @@
     using System.Threading.Tasks;
 
     /// <summary>
-    /// Logs SDK operation timings at Trace level with consistent format.
+    /// Logs SDK operation timings at Information level with consistent format.
     /// Failures are always logged at Error level.
     /// </summary>
     internal class LspOperationLogger : IOperationLogger

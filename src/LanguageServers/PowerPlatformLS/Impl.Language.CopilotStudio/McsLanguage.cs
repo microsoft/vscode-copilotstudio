@@ -83,12 +83,12 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
 
         private void LogAgentResolvingInfoEvent(string sensitiveMsg, string altSafeMsg)
         {
-            _logger.LogSensitiveInformation("[AgentResolving] " + sensitiveMsg, "[AgentResolving] " + altSafeMsg);
+            _logger.LogSensitiveInformation("[AgentInit] " + sensitiveMsg, "[AgentInit] " + altSafeMsg);
         }
 
         private void LogAgentResolvingDebugEvent(string message)
         {
-            _logger.LogDebug("[AgentResolving] " + message);
+            _logger.LogDebug("[AgentInit] " + message);
         }
 
         /// <summary>
@@ -189,6 +189,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
             // Read all expected files in the workspace, create a document for each of them.
             // Expected files are the ones following predefined structure.
             // All documents have a semantic model and a single semantic model is created to merge each of the file semantic through the workspace
+            var rootFiles = new List<string>();
             foreach (var folder in folders)
             {
                 foreach (var relativePath in LspProjectionLayout.FileStructureMap.Keys)
@@ -217,7 +218,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
                             if (fileInfo.Exists)
                             {
                                 AddDocumentToAgent(fileInfo, pathWithoutExt);
-                                LogAgentResolvingDebugEvent($"{fileInfo.Name} added to root directory for {agentName}");
+                                rootFiles.Add(fileInfo.Name);
                             }
                         }
 
@@ -226,10 +227,15 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
                             // per TryGetMcsFilePath, file must exist
                             var fileInfo = _fileProvider.GetFileInfo(path);
                             AddDocumentToAgent(fileInfo, path);
-                            LogAgentResolvingDebugEvent($"{path.FileName} added to root directory for {agentName}");
+                            rootFiles.Add(path.FileName);
                         }
                     }
                 }
+            }
+
+            if (rootFiles.Count > 0)
+            {
+                LogAgentResolvingDebugEvent($"{rootFiles.Count} files ({string.Join(", ", rootFiles)}) added to root directory for {agentName}");
             }
 
             agentDirectory.BuildCompilationModel();

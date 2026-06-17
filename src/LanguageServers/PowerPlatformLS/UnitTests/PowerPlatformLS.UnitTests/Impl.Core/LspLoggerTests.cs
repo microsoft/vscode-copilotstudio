@@ -4,7 +4,6 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
     using Microsoft.PowerPlatformLS.Impl.Core.Lsp;
     using Microsoft.PowerPlatformLS.UnitTests.TestUtilities;
     using System;
-    using System.Collections.Concurrent;
     using System.Linq;
     using System.Reflection;
     using Xunit;
@@ -60,7 +59,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
         [Fact]
         public void LogStartContext_Logs_Custom_Methods_At_Information()
         {
-            var requestId = LspLogger.AllocateRequestId("powerplatformls/syncPull");
+            var requestId = LspLogger.AllocateRequestId();
+            _logger.SetCurrentRequestId(requestId);
 
             _logger.LogStartContext("powerplatformls/syncPull");
 
@@ -75,12 +75,12 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
 
             foreach (var method in new[]
             {
-                "textDocument/completion, duration=2ms",
-                "$/progress, duration=3ms",
-                "initialize, duration=4ms",
+                "textDocument/completion",
+                "$/progress",
+                "initialize",
             })
             {
-                _logger.LogEndContext(method);
+                _logger.LogEndContext(method, 5);
             }
 
             Assert.Empty(_testLogger.Info);
@@ -91,7 +91,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
         {
             LspRequestContext.CurrentRequestId = 19;
 
-            _logger.LogEndContext("powerplatformls/syncPull, duration=17ms");
+            _logger.LogEndContext("powerplatformls/syncPull", 17);
 
             var infoLog = Assert.Single(_testLogger.Info);
             Assert.Contains("[Req: 19] Completed handler for: powerplatformls/syncPull, duration=17ms", infoLog);
@@ -122,20 +122,32 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
         [Fact]
         public void AllocateRequestId_Increments_Sequentially()
         {
-            var first = LspLogger.AllocateRequestId("powerplatformls/one");
-            var second = LspLogger.AllocateRequestId("powerplatformls/two");
+            var first = LspLogger.AllocateRequestId();
+            var second = LspLogger.AllocateRequestId();
 
             Assert.Equal(first + 1, second);
         }
 
         [Fact]
-        public void LogStartContext_Sets_LspRequestContext_CurrentRequestId()
+        public void LogStartContext_Reads_RequestId_From_AsyncLocal()
         {
-            var requestId = LspLogger.AllocateRequestId("powerplatformls/syncPush");
+            var requestId = LspLogger.AllocateRequestId();
+            // Simulate the queue calling SetCurrentRequestId (which sets the AsyncLocal)
+            // as QueueItem.StartRequestAsync does before LogStartContext.
+            _logger.SetCurrentRequestId(requestId);
 
             _logger.LogStartContext("powerplatformls/syncPush");
 
-            Assert.Equal(requestId, LspRequestContext.CurrentRequestId);
+            var infoLog = Assert.Single(_testLogger.Info);
+            Assert.Contains($"[Req: {requestId}]", infoLog);
+        }
+
+        [Fact]
+        public void SetCurrentRequestId_Sets_AsyncLocal()
+        {
+            _logger.SetCurrentRequestId(42);
+
+            Assert.Equal(42, LspRequestContext.CurrentRequestId);
         }
 
         private static void ResetLspLoggerState()
@@ -143,11 +155,6 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
             var counterField = typeof(LspLogger).GetField("_lspRequestCounter", BindingFlags.NonPublic | BindingFlags.Static);
             Assert.NotNull(counterField);
             counterField!.SetValue(null, 0);
-
-            var pendingIdsField = typeof(LspLogger).GetField("_pendingIds", BindingFlags.NonPublic | BindingFlags.Static);
-            Assert.NotNull(pendingIdsField);
-            var pendingIds = (ConcurrentDictionary<string, ConcurrentStack<int>>)pendingIdsField!.GetValue(null)!;
-            pendingIds.Clear();
         }
     }
 }

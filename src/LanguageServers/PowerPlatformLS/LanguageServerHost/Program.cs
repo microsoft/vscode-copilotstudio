@@ -52,7 +52,6 @@ try
     ConsoleLog("Building host...");
     var host = builder.Build();
 
-    ConsoleLog("Host is starting!");
     var lspLogger = host.Services.GetRequiredService<ILspLogger>();
     LogStartup(lspLogger, isDebuggerRequested, sessionId, isTelemetryEnabled);
 
@@ -77,8 +76,10 @@ void LogStartup(ILspLogger logger, bool isDev, string? sessionId, bool isTelemet
     string osArch = System.Runtime.InteropServices.RuntimeInformation.OSArchitecture.ToString(); // "X64", etc 
     string processArch = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString();
     string os = System.Runtime.InteropServices.RuntimeInformation.OSDescription; // "Windows 10 Pro", etc
+    string sid = sessionId ?? string.Empty;
+    string telemetry = isTelemetryEnabled ? "enabled" : "disabled";
 
-    logger.LogInformation("MCS-LSP Startup: pid={id}, sessionId={sessionId}, telemetryStatus={telemetry}, dev={isDev}, os={os}, osVersion={osver}, dotnet={dotnetver}, arch={osArch}/{processArch}", id, sessionId, isTelemetryEnabled ? "enabled" : "disabled", isDev, os, osver, dotnetver, osArch, processArch);
+    logger.LogInformation("MCS-LSP Startup: pid={id}, sessionId={sid}, telemetry={telemetry}, dev={isDev}, os={os}, osVersion={osver}, dotnet={dotnetver}, arch={osArch}/{processArch}", id, sid, telemetry, isDev, os, osver, dotnetver, osArch, processArch);
 }
 
 // Helper method to parse sessionId from command line arguments

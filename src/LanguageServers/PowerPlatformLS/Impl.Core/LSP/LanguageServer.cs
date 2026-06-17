@@ -8,6 +8,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.CommonLanguageServerProtocol.Framework.JsonRpc;
     using Microsoft.CommonLanguageServerProtocol.Framework.Handlers;
+    using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common.DependencyInjection;
     using System.Diagnostics.CodeAnalysis;
     using Microsoft.PowerPlatformLS.Contracts.Internal.CodeAnalysis;
@@ -25,6 +26,8 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
             // This spins up the queue and ensure the LSP is ready to start receiving requests
             Initialize();
         }
+
+        protected override int GetCurrentRequestId() => LspRequestContext.CurrentRequestId;
 
         /// <inheritdoc/>
         /// <remarks>Largely inspired from https://github.com/dotnet/roslyn/blob/main/src/LanguageServer/Protocol/RoslynLanguageServer.cs</remarks>

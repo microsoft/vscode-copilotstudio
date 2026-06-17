@@ -40,6 +40,8 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
 
         public string MethodName { get; }
 
+        public int RequestId { get; set; }
+
         public object? SerializedRequest { get; }
 
         private QueueItem(
@@ -136,7 +138,7 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
 
                 // End the request - the caller will return immediately if it cannot deserialize.
                 _requestTelemetryScope?.Dispose();
-                _logger.LogEndContext($"{MethodName}");
+                _logger.LogEndContext(MethodName);
 
                 // If the request is mutating, bubble the exception out so the queue shuts down.
                 if (isMutating)
@@ -159,7 +161,10 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
         public async Task StartRequestAsync<TRequest, TResponse>(TRequest request, TRequestContext? context, IMethodHandler handler, string language, CancellationToken cancellationToken)
         {
             _requestHandlingStarted = true;
-            _logger.LogStartContext($"{MethodName}");
+            // Restore the request ID into ambient context — it was captured at enqueue time
+            // but doesn't flow across the queue boundary via AsyncLocal.
+            _logger.SetCurrentRequestId(RequestId);
+            _logger.LogStartContext(MethodName);
             Stopwatch stopwatch = Stopwatch.StartNew();
 
             try
@@ -235,8 +240,7 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
             finally
             {
                 _requestTelemetryScope?.Dispose();
-                var time1 = stopwatch.ElapsedMilliseconds;
-                _logger.LogEndContext($"{MethodName}, duration={time1}ms");
+                _logger.LogEndContext(MethodName, stopwatch.ElapsedMilliseconds);
             }
 
             // Return the result of this completion source to the caller

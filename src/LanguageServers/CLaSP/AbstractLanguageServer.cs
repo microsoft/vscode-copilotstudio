@@ -192,11 +192,18 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
         {
             var handlerProvider = HandlerProvider;
             var queue = new RequestExecutionQueue<TRequestContext>(this, Logger, handlerProvider);
-
+            queue.RequestIdAccessor = GetCurrentRequestId;
             queue.Start();
 
             return queue;
         }
+
+        /// <summary>
+        /// Returns the current request correlation ID from the caller's ambient context.
+        /// Override to provide application-specific request ID propagation (e.g., AsyncLocal).
+        /// The default returns 0 (no correlation).
+        /// </summary>
+        protected virtual int GetCurrentRequestId() => 0;
 
         protected IRequestExecutionQueue<TRequestContext> GetRequestExecutionQueue()
         {

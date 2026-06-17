@@ -85,10 +85,10 @@
                 switch (diagnostic.Severity)
                 {
                     case DiagnosticSeverity.Error:
-                        _logger.LogError($"textDocument/publishDiagnostics: {fileName}(ln {line}, col {col}): {diagnostic.Message}");
+                        _logger.LogDebug($"textDocument/publishDiagnostics: {fileName}(ln {line}, col {col}): {diagnostic.Message}");
                         break;
                     case DiagnosticSeverity.Warning:
-                        _logger.LogWarning($"textDocument/publishDiagnostics: {fileName}(ln {line}, col {col}): {diagnostic.Message}");
+                        _logger.LogDebug($"textDocument/publishDiagnostics: {fileName}(ln {line}, col {col}): {diagnostic.Message}");
                         break;
                 }
             }

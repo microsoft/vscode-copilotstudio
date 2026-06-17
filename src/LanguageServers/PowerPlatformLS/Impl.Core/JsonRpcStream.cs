@@ -27,7 +27,6 @@ namespace Microsoft.PowerPlatformLS.Impl.Core
 
         public Func<object?, Task>? DisconnectServerAction { get; set; }
 
-        
         public void AddLocalRpcMethod(MethodInfo handler, object? target, string methodName)
         {
             _rpcMethods[methodName] = (handler, target);
@@ -60,7 +59,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Core
                     int reqId = 0;
                     if (!LspLogger.IsBuiltInLspMethod(lspMessage.Method))
                     {
-                        reqId = LspLogger.AllocateRequestId(lspMessage.Method);
+                        reqId = LspLogger.AllocateRequestId();
                         _logger.LogTrace("[Req: {ReqId}] LSP request received: {Method}", reqId, lspMessage.Method);
                     }
 
@@ -88,7 +87,9 @@ namespace Microsoft.PowerPlatformLS.Impl.Core
 
         private async Task ProcessJsonRpcMessageAsync(LspJsonRpcMessage request, int reqId, CancellationToken stoppingToken)
         {
-            // Set the AsyncLocal so response logs in this task context use the correct ID.
+            // Set the AsyncLocal so the request ID flows to ExecuteAsync (same async context).
+            // The queue's RequestIdAccessor reads it there and stores it on the QueueItem,
+            // which then restores it in StartRequestAsync before handler execution.
             LspRequestContext.CurrentRequestId = reqId;
 
             // Lookup the method by its RPC method name.

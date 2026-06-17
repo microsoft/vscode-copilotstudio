@@ -5,7 +5,6 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
     using Microsoft.Extensions.Logging;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using System;
-    using System.Collections.Concurrent;
     using System.Threading;
 
     internal class LspLogger : ILspLogger
@@ -13,12 +12,8 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
         private readonly ILogger<LspLogger> _logger;
         private readonly bool _isTestLogger;
 
-        // Sequential counter for custom LSP methods only — no gaps in output.
+        // Sequential counter for custom LSP request correlation.
         private static int _lspRequestCounter;
-
-        // Stores allocated IDs keyed by method name. LogStartContext picks them up
-        // and sets the AsyncLocal so downstream services (HTTP, Sync) can read it.
-        private static readonly ConcurrentDictionary<string, ConcurrentStack<int>> _pendingIds = new();
 
         public LspLogger(ILogger<LspLogger> logger, BuildVersionInfo? gitInfo = null, SessionInformation? sessionInformation = null)
         {
@@ -39,64 +34,43 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
         }
 
         /// <summary>
-        /// Allocates the next sequential ID for a custom LSP method and stores it
-        /// for LogStartContext to pick up. Called by JsonRpcStream on receive.
+        /// Allocates the next sequential ID for a custom LSP method.
+        /// Called by JsonRpcStream on receive; the ID flows through the
+        /// AsyncLocal → ExecuteAsync → QueueItem.RequestId → SetCurrentRequestId.
         /// </summary>
-        internal static int AllocateRequestId(string method)
+        internal static int AllocateRequestId()
         {
-            int id = Interlocked.Increment(ref _lspRequestCounter);
-            var stack = _pendingIds.GetOrAdd(method, _ => new ConcurrentStack<int>());
-            stack.Push(id);
-            return id;
+            return Interlocked.Increment(ref _lspRequestCounter);
         }
 
-        public void LogStartContext(string message, params object[] @params)
+        public void LogStartContext(string methodName)
         {
-            if (IsBuiltInLspMethod(message))
-            {
-                return;
-            }
-
-            // Pop the ID allocated by JsonRpcStream and set it on the AsyncLocal
-            // so downstream services (HTTP, Sync) in this handler's async flow can read it.
-            int reqId = 0;
-            if (_pendingIds.TryGetValue(message, out var stack))
-            {
-                stack.TryPop(out reqId);
-            }
-            LspRequestContext.CurrentRequestId = reqId;
-
-            _logger.LogInformation("[Req: {ReqId}] Started handler for: {Method}", reqId, message);
-        }
-
-        public void LogEndContext(string message, params object[] @params)
-        {
-            // message format from QueueItem: "methodName, duration=Xms"
-            var methodName = ExtractMethodName(message);
             if (IsBuiltInLspMethod(methodName))
             {
                 return;
             }
 
             int reqId = LspRequestContext.CurrentRequestId;
-            var durationMs = ExtractDurationMs(message);
-            _logger.LogInformation("[Req: {ReqId}] Completed handler for: {Method}, duration={Duration}ms", reqId, methodName, durationMs);
+
+            _logger.LogInformation("[Req: {ReqId}] Started handler for: {Method}", reqId, methodName);
         }
 
-        private static string ExtractMethodName(string message)
+        public void LogEndContext(string methodName, long durationMs = -1)
         {
-            var commaIndex = message.IndexOf(',');
-            return commaIndex > 0 ? message[..commaIndex] : message;
-        }
+            if (IsBuiltInLspMethod(methodName))
+            {
+                return;
+            }
 
-        private static string ExtractDurationMs(string message)
-        {
-            // Extract just the numeric value from "duration=Xms"
-            var durationIndex = message.IndexOf("duration=", StringComparison.Ordinal);
-            if (durationIndex < 0) return "?";
-            var start = durationIndex + "duration=".Length;
-            var end = message.IndexOf("ms", start, StringComparison.Ordinal);
-            return end > start ? message[start..end] : "?";
+            int reqId = LspRequestContext.CurrentRequestId;
+            if (durationMs >= 0)
+            {
+                _logger.LogInformation("[Req: {ReqId}] Completed handler for: {Method}, duration={Duration}ms", reqId, methodName, durationMs);
+            }
+            else
+            {
+                _logger.LogInformation("[Req: {ReqId}] Completed handler for: {Method}", reqId, methodName);
+            }
         }
 
         internal static bool IsBuiltInLspMethod(string message)
@@ -115,7 +89,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
             int reqId = LspRequestContext.CurrentRequestId;
             if (reqId > 0)
             {
-                _logger.LogError($"[Req: {{ReqId}}] {message}", reqId);
+                _logger.LogError("[Req: {ReqId}] {Message}", reqId, message);
             }
             else
             {
@@ -128,7 +102,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
             int reqId = LspRequestContext.CurrentRequestId;
             if (reqId > 0)
             {
-                _logger.LogError(exception, $"[Req: {{ReqId}}] {message ?? exception.Message}", reqId);
+                _logger.LogError(exception, "[Req: {ReqId}] {Message}", reqId, message ?? exception.Message);
             }
             else
             {
@@ -139,6 +113,11 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
         public void LogDebug(string message, params object[] @params)
         {
             _logger.LogDebug(message, @params);
+        }
+
+        public void SetCurrentRequestId(int requestId)
+        {
+            LspRequestContext.CurrentRequestId = requestId;
         }
 
         public void LogInformation(string message, params object[] @params)
@@ -167,7 +146,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
             int reqId = LspRequestContext.CurrentRequestId;
             if (reqId > 0)
             {
-                _logger.LogWarning($"[Req: {{ReqId}}] {message}", reqId);
+                _logger.LogWarning("[Req: {ReqId}] {Message}", reqId, message);
             }
             else
             {

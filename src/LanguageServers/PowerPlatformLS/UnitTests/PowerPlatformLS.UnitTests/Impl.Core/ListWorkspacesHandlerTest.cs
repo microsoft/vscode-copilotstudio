@@ -240,7 +240,7 @@
 
         private class FakeLogger : ILspLogger
         {
-            public void LogEndContext(string message, params object[] @params) { }
+            public void LogEndContext(string methodName, long durationMs = -1) { }
 
             public void LogError(string message) { }
 
@@ -256,7 +256,7 @@
 
             public void LogSensitiveInformation(string message, string? altSafeMessage = null) { }
 
-            public void LogStartContext(string message, params object[] @params) { }
+            public void LogStartContext(string methodName) { }
 
             public void LogWarning(string message) { }
 

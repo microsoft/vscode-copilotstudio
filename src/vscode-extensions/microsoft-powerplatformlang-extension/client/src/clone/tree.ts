@@ -215,7 +215,7 @@ export class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTree
             return this.envsBySku.get(sku) || [];
         }
 
-        logger.trace('AgentTree', `Loading ${sku} environments`);
+        logger.info('AgentTree', `Loading ${sku} environments`);
         const preferred = getPreferredTreeAccount();
         const projectAccounts = getAllProjectAccounts();
 
@@ -287,7 +287,7 @@ export class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTree
 
             this.envsBySku.set(sku, merged);
             this.loadedSkus.add(sku);
-            logger.trace('AgentTree', `Loaded ${merged.length} ${sku} environment(s)`);
+            logger.info('AgentTree', `Loaded ${merged.length} ${sku} environment(s)`);
             return merged;
         } catch (e: any) {
             logger.error('AgentTree', `Failed to load ${sku} environments: ${e?.message || e}`);
@@ -398,14 +398,14 @@ export class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTree
                 try {
                     // Load owned and shared agents in parallel, combine into single list
 					const storeAccount = envItem.sourceAccount ?? getActiveAgentAccount();
-					logger.trace('AgentTree', `Loading agents for environment: ${envItem.environment.displayName}`);
+					logger.info('AgentTree', `Loading agents for environment: ${envItem.environment.displayName}`);
 					const [ownedAgents, sharedAgents] = await Promise.all([
                         listAgentsAsync(Uri.parse(envItem.environment.dataverseUrl), null, storeAccount?.accountId, storeAccount?.accountEmail),
                         listSharedAgentsAsync(Uri.parse(envItem.environment.dataverseUrl), null, storeAccount?.accountId, storeAccount?.accountEmail)
 					]);
 					
 					const allAgents = [...ownedAgents, ...sharedAgents];
-					logger.trace('AgentTree', `Loaded ${allAgents.length} agent(s) for environment: ${envItem.environment.displayName}`);
+					logger.info('AgentTree', `Loaded ${allAgents.length} agent(s) for environment: ${envItem.environment.displayName}`);
 					const agents: CopilotStudioTreeItem[] = allAgents.map((agent) => {
                         return { kind: TreeItemKind.Agent, environment: envItem.environment, agent: agent, sourceAccount: storeAccount } as AgentTreeItem;
 					});
