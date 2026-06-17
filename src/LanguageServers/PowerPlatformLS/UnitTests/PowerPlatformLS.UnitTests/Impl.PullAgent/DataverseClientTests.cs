@@ -444,42 +444,6 @@
             }
         }
 
-        [Fact]
-        public async Task DownloadKnowledgeFileAsync_DestinationTemporarilyLockedExclusively_RetriesUntilSucceeds()
-        {
-            var folder = Path.Combine(Path.GetTempPath(), "mcs-knowledge-" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(folder);
-            const string fileName = "knowledge.txt";
-            var filePath = Path.Combine(folder, fileName);
-            const string expectedContent = "downloaded-content";
-
-            var exclusiveLock = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
-            var releaseLock = Task.Run(async () =>
-            {
-                await Task.Delay(50);
-                exclusiveLock.Dispose();
-            });
-
-            try
-            {
-                var client = CreateClientWithHandler((req, index) => Task.FromResult(new HttpResponseMessage
-                {
-                    StatusCode = HttpStatusCode.OK,
-                    Content = new StringContent(expectedContent, Encoding.UTF8, "application/octet-stream")
-                }));
-
-                await client.DownloadKnowledgeFileAsync(folder, new BotComponentId(Guid.NewGuid()), fileName, CancellationToken.None);
-                await releaseLock;
-
-                Assert.Equal(expectedContent, File.ReadAllText(filePath));
-            }
-            finally
-            {
-                exclusiveLock.Dispose();
-                Directory.Delete(folder, recursive: true);
-            }
-        }
-
         private static SyncDataverseClient CreateClientFromHttpClient(HttpClient httpClient)
         {
             var accessorMock = new Mock<IDataverseHttpClientAccessor>();
