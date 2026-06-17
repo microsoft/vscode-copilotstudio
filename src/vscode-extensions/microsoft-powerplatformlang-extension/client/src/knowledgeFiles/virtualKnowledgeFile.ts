@@ -220,8 +220,13 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
     return { type: vscode.FileType.File, ctime: 0, mtime: 0, size: 0 };
   }
 
-  readDirectory(): Promise<[string, vscode.FileType][]> {
-    throw new Error("Not implemented");
+  async readDirectory(uri: vscode.Uri): Promise<[string, vscode.FileType][]> {
+    if (uri.path !== '/') {
+      throw vscode.FileSystemError.FileNotFound();
+    }
+
+    // Return encoded names so stat/readFile can reliably decode back to the internal key.
+    return Array.from(this.components.keys()).map(key => [encodeURIComponent(key), vscode.FileType.File]);
   }
 
   getEntries(): VirtualKnowledgeEntry[] {
