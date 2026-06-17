@@ -183,8 +183,17 @@ export async function listAgentsAsync(
 }
 
 /**
- * Lists agents that are shared with the current user (not owned, but user has write access).
- * Uses batched RetrievePrincipalAccess to check access rights in a single HTTP call.
+ * Lists agents that are visible to the current user but owned by someone else.
+ *
+ * Returns every non-owned unmanaged bot the Dataverse query returns. Dataverse already
+ * security-trims this query to records the caller can read, so no extra per-agent access
+ * check is performed here.
+ *
+ * Note: a previous version gated this list behind a batched RetrievePrincipalAccess
+ * "write access" check. That check called an invalid (unbound) function form that always
+ * returned HTTP 404, so every non-owned agent was filtered out — environment admins saw
+ * only the agents they personally owned. The gate has been removed; cloning only requires
+ * read access, which the query above already enforces.
  */
 export async function listSharedAgentsAsync(
   baseEndpoint: Uri,
@@ -201,216 +210,7 @@ export async function listSharedAgentsAsync(
     query: `$select=botid,name,iconbase64&$filter=${filter}&$expand=bot_botcomponentcollection($select=schemaname,botcomponentcollectionid,name)`
   });
   const response = await getAsync<ListResponse<AgentDetails>>(uri, cancellationToken, accountId, accountHint);
-  const writeAccess = await batchCheckWriteAccessAsync(
-    baseEndpoint,
-    response.result.value,
-    systemUserId,
-    cancellationToken,
-    accountId,
-    accountHint
-  );
-
-  return response.result.value
-    .filter((_, index) => writeAccess[index])
-    .map(getSharedAgentInfo);
-}
-
-/** Maximum number of requests per batch (Microsoft limit is 1000, using 500 for safety margin) */
-const BATCH_CHUNK_SIZE = 500;
-
-/**
- * Batches multiple RetrievePrincipalAccess calls into $batch requests.
- * Returns an array of booleans indicating write access for each bot (same order as input).
- * Automatically chunks into multiple batch requests if there are more than BATCH_CHUNK_SIZE bots.
- */
-async function batchCheckWriteAccessAsync(
-  baseEndpoint: Uri,
-  bots: AgentDetails[],
-  systemUserId: string,
-  cancellationToken: AbortSignal | null,
-  accountId?: string,
-  accountHint?: string
-): Promise<boolean[]> {
-  if (bots.length === 0) {
-    return [];
-  }
-
-  // Chunk bots into batches to stay under the 1000 request limit
-  const results: boolean[] = new Array(bots.length).fill(false);
-
-  for (let chunkStart = 0; chunkStart < bots.length; chunkStart += BATCH_CHUNK_SIZE) {
-    const chunkEnd = Math.min(chunkStart + BATCH_CHUNK_SIZE, bots.length);
-    const chunk = bots.slice(chunkStart, chunkEnd);
-
-    try {
-      const chunkResults = await executeSingleBatchAsync(
-        baseEndpoint,
-        chunk,
-        systemUserId,
-        cancellationToken,
-        accountId,
-        accountHint
-      );
-
-      // Copy chunk results to the correct positions in the main results array
-      for (let i = 0; i < chunkResults.length; i++) {
-        results[chunkStart + i] = chunkResults[i];
-      }
-    } catch {
-      // If this chunk fails, leave those results as false (no write access)
-      // Other chunks can still succeed
-    }
-  }
-
-  return results;
-}
-
-/**
- * Executes a single batch request for a chunk of bots.
- * Content-ID values are 0-indexed within this chunk.
- */
-async function executeSingleBatchAsync(
-  baseEndpoint: Uri,
-  bots: AgentDetails[],
-  systemUserId: string,
-  cancellationToken: AbortSignal | null,
-  accountId?: string,
-  accountHint?: string
-): Promise<boolean[]> {
-  const batchUri = baseEndpoint.with({ path: `api/data/v9.2/$batch` });
-  const boundary = `batch_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-
-  // Build multipart batch request body
-  // Each part is a GET request for RetrievePrincipalAccess
-  // Content-ID is used to correlate responses (0-indexed within this chunk)
-  const parts = bots.map((bot, index) => {
-    const accessPath = `/api/data/v9.2/RetrievePrincipalAccess(Target=@target,Principal=@principal)?` +
-      `@target={'@odata.id':'bots(${bot.botid})'}&@principal={'@odata.id':'systemusers(${systemUserId})'}`;
-
-    return [
-      `--${boundary}`,
-      `Content-Type: application/http`,
-      `Content-Transfer-Encoding: binary`,
-      ``,
-      `GET ${accessPath} HTTP/1.1`,
-      `Content-ID: ${index}`,
-      `Accept: application/json`,
-      ``,
-    ].join('\r\n');
-  });
-
-  const batchBody = parts.join('\r\n') + `\r\n--${boundary}--\r\n`;
-
-  const { result } = await postBatchAsync<string>(
-    batchUri,
-    boundary,
-    batchBody,
-    cancellationToken,
-    accountId,
-    accountHint
-  );
-
-  // Parse multipart response to extract AccessRights for each bot
-  return parseBatchAccessResults(result, bots.length);
-}
-
-/**
- * Parses a multipart batch response and extracts WriteAccess for each part.
- * Uses Content-ID from each part to correlate responses with the original request order.
- * Handles out-of-order responses and partial failures gracefully.
- */
-export function parseBatchAccessResults(batchResponse: string, expectedCount: number): boolean[] {
-  const results: boolean[] = new Array(expectedCount).fill(false);
-
-  // Split response by boundary markers (lines starting with --batch_ or --batchresponse_)
-  // Each part contains headers (including Content-ID) followed by the HTTP response
-  const boundaryRegex = /--(?:batch|batchresponse)_[^\r\n]+/;
-  const parts = batchResponse.split(boundaryRegex).filter(part => part.trim().length > 0);
-
-  for (const part of parts) {
-    // Skip the closing boundary marker
-    if (part.trim() === '--' || part.trim().length === 0) {
-      continue;
-    }
-
-    // Extract Content-ID from headers - it appears in format "Content-ID: <number>" or "Content-ID: number"
-    const contentIdMatch = part.match(/Content-ID\s*:\s*<?([0-9]+)>?/i);
-    if (!contentIdMatch) {
-      // Part without Content-ID - might be an error response without correlation
-      continue;
-    }
-
-    const contentId = parseInt(contentIdMatch[1], 10);
-    if (isNaN(contentId) || contentId < 0 || contentId >= expectedCount) {
-      // Invalid Content-ID - skip this part
-      continue;
-    }
-
-    // Check if this part contains a successful response (HTTP 200)
-    // The response format is: HTTP/1.1 200 OK followed by headers and JSON body
-    const httpStatusMatch = part.match(/HTTP\/1\.1\s+(\d+)/i);
-    if (!httpStatusMatch || httpStatusMatch[1] !== '200') {
-      // Non-200 response (403, 404, etc.) - leave as false (no write access)
-      continue;
-    }
-
-    // Extract AccessRights from the JSON response
-    const accessRightsMatch = part.match(/"AccessRights"\s*:\s*"([^"]+)"/i);
-    if (accessRightsMatch) {
-      const accessRights = accessRightsMatch[1];
-      results[contentId] = accessRights.includes('WriteAccess');
-    }
-  }
-
-  return results;
-}
-
-/**
- * Makes a POST request to the $batch endpoint with multipart content.
- */
-async function postBatchAsync<TResult>(
-  batchUri: Uri,
-  boundary: string,
-  body: string,
-  cancellationToken: AbortSignal | null,
-  accountId?: string,
-  accountHint?: string
-): Promise<{ result: TResult }> {
-  const { accessToken } = await getAccessTokenForUri(batchUri, accountId, accountHint);
-
-  const response = await fetch(batchUri.toString(true), {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': `multipart/mixed; boundary=${boundary}`,
-      'Accept': 'application/json',
-      'OData-MaxVersion': '4.0',
-      'OData-Version': '4.0',
-      // Continue processing remaining requests even if one fails (e.g., 403, 404)
-      // This ensures partial failures don't cause all subsequent bots to be marked as no-access
-      'Prefer': 'odata.continue-on-error',
-    },
-    body: body,
-    signal: cancellationToken
-  });
-
-  if (!response.ok) {
-    throw new Error(`Batch request failed with status ${response.status}`);
-  }
-
-  // Return raw text for multipart parsing
-  const result = await response.text() as TResult;
-  return { result };
-}
-
-/**
- * Gets an access token for a URI without making a request.
- * Used by postBatchAsync which needs to make its own request.
- */
-async function getAccessTokenForUri(uri: Uri, accountId?: string, accountHint?: string): Promise<{ accessToken: string }> {
-  const { getAccessTokenByAccountId } = await import('./account.js');
-  const tokenInfo = await getAccessTokenByAccountId(uri, accountId, accountHint);
-  return { accessToken: tokenInfo.accessToken };
+  return projectSharedAgents(response.result.value);
 }
 
 async function getAsync<TResult>(
@@ -448,6 +248,18 @@ function getSharedAgentInfo(agentDetails: AgentDetails): AgentInfo {
   let details = getAgentInfo(agentDetails);
   details.displayComplement = " (shared)";
   return details;
+}
+
+/**
+ * Projects the non-owned bots returned by Dataverse into the shared-agent list.
+ *
+ * This is intentionally a 1:1 mapping with no filtering: every bot the (already
+ * security-trimmed) Dataverse query returns is surfaced to the user. It must not drop
+ * agents based on any secondary access check — doing so is what hid other users' agents
+ * from environment admins.
+ */
+export function projectSharedAgents(bots: AgentDetails[]): AgentInfo[] {
+  return bots.map(getSharedAgentInfo);
 }
 
 interface ListResponse<T> {
