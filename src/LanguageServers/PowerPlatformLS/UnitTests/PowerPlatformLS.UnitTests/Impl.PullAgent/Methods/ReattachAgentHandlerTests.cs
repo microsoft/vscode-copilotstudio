@@ -241,25 +241,20 @@
         }
 
         [Fact]
-        public async Task ReattachAgent_UnrecognizedTemplate_BlockedWith400_NoMutationTest()
+        public async Task ReattachAgent_NonCliTemplate_ProceedsAsClassic()
         {
-            // D35 (primary): an EXPLICITLY unrecognized authoring shape (unknown template) whose
-            // folder merely falls back to a classic layout must NOT be promoted to Supported.
-            // Reattach fails closed (400) before any cloud mutation.
+            // Issue #292: a classic agent created from a non-default gallery template (the
+            // fixture's template: sdkagent-1.0.0) has no native CLI evidence, so it is
+            // Classic/Supported. Reattach proceeds and creates the new agent instead of failing
+            // closed - the template is a template, not an authoring shape.
             var context = CreateTestSetup("Workspace/UnrecognizedTemplateWorkspace");
-            var dataverse = new Mock<ISyncDataverseClient>();
-            dataverse.Setup(c => c.GetAgentIdBySchemaNameAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(Guid.Empty);
-            var handler = TestHandlerFactory.CreateHandler(dataverse.Object, new TestWorkspaceSynchronizer(), CreateOperationProvider());
+            var dataverse = new MockDataverseClient();
+            var handler = TestHandlerFactory.CreateHandler(dataverse, new TestWorkspaceSynchronizer(), CreateOperationProvider());
 
             var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
 
-            Assert.Equal(400, response.Code);
-            Assert.False(response.IsNewAgent);
-            Assert.Equal(Guid.Empty, response.AgentSyncInfo?.AgentId);
-            Assert.Contains(SyncOperation.Reattach.ToString(), response.Message);
-            // No mutation: the gate blocks before any Dataverse interaction.
-            dataverse.Verify(c => c.GetAgentIdBySchemaNameAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
-            dataverse.Verify(c => c.CreateNewAgentAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<AuthoringShape>(), It.IsAny<CancellationToken>()), Times.Never);
+            Assert.Equal(200, response.Code);
+            Assert.True(response.IsNewAgent);
         }
 
         [Fact]
