@@ -6,52 +6,42 @@ import * as path from 'path';
 import * as os from 'os';
 import { uploadKnowledgeFiles } from '../../knowledgeFiles/uploadKnowledgeFiles';
 import { CopilotStudioWorkspace } from '../../sync/localWorkspaces';
-import { getDataverseBotHandler, getFilesDir, getTrackPath } from '../../knowledgeFiles/syncUtils';
-import { loadChangeTrack, saveChangeTrack, isTextFile, resolveConflict } from '../../knowledgeFiles/fileHelper';
+import { LspMethods } from '../../constants';
 import logger from '../../services/logger';
-import { ConflictResolution } from '../../constants';
 
 describe('uploadKnowledgeFiles', () => {
     let workspaceDir: string;
-    let trackPath: string;
     let workspace: CopilotStudioWorkspace;
+    let sentMethods: string[];
+    let repairCalls: number;
+    let originalRepair: any;
 
     beforeEach(async () => {
         workspaceDir = path.join(os.tmpdir(), 'vscode-copilotstudio', 'knowledge', 'files-upload');
-        trackPath = path.join(workspaceDir, '.mcs', 'filechangetrack.json');
         workspace = {
-            workspaceUri: vscode.Uri.file(workspaceDir),
+            workspaceUri: vscode.Uri.file(workspaceDir).toString(),
             syncInfo: { agentId: 'agent-123', dataverseEndpoint: 'dataverse-endpoint' }
         } as any;
 
         await fs.mkdir(workspaceDir, { recursive: true });
-        await fs.mkdir(path.dirname(trackPath), { recursive: true });
 
-        await fs.writeFile(path.join(workspaceDir, 'file1.txt'), 'local-1');
-        await fs.writeFile(path.join(workspaceDir, 'file2.txt'), 'local-2');
+        sentMethods = [];
+        const lspMod = require('../../services/lspClient');
+        lspMod.buildLspRequestPayload = async () => ({});
+        lspMod.lspClient = {
+            sendRequest: async (method: string, _request: any) => {
+                sentMethods.push(method);
+                return { code: 200, uploaded: ['file1.txt'] };
+            }
+        };
 
-        (loadChangeTrack as any) = async () => ({
-            'file1.txt': { localModifiedOn: 0 },
-            'file2.txt': { localModifiedOn: 0 }
-        });
-        (saveChangeTrack as any) = async (_path: string, _track: any) => {};
-        (isTextFile as any) = async (_file: string) => true;
-        (resolveConflict as any) = async (_file: string, _local: string, _remote: Buffer, _isText: boolean) => ConflictResolution.UseLocal;
-        (getTrackPath as any) = (_ws: vscode.Uri) => trackPath;
-        (getFilesDir as any) = (_ws: vscode.Uri) => workspaceDir;    
-        
-        (getDataverseBotHandler as any) = async () => ({
-            listWsComponentMetadata: async () => [
-                { id: '1', schemaName: 'bot.file.file1s', modifiedOn: Date.now(), filename: 'file1.txt', sizeInBytes: 7, agentSchemaName: 'bot.file.file1' },
-                { id: '2', schemaName: 'bot.file.file2s', modifiedOn: Date.now(), filename: 'file2.txt', sizeInBytes: 7, agentSchemaName: 'bot.file.file2' }
-            ],
-            downloadKnowledgeFile: async (id: string) => Buffer.from(`remote-${id}`),
-            getChildAgents: async (_syncInfo: any, _prefix: string) => [],
-            getBotPrefix: async () => 'bot',
-            getBotComponentId: async (_file: string, _schema: string, _agentId: string) => `id`,
-            dataverseHttpRequest: async () => ({ statusCode: 200, headers: {}, body: Buffer.from('') }),
-            deleteBotComponent: async (_id: string) => {}
-        });
+        repairCalls = 0;
+        const wsMod = require('../../sync/localWorkspaces');
+        originalRepair = wsMod.tryRepairAgentManagementEndpoint;
+        wsMod.tryRepairAgentManagementEndpoint = async () => {
+            repairCalls++;
+            return false;
+        };
 
         (logger.logInfo as any) = (_event: any, _message: string) => {};
         (logger.logError as any) = (_event: any, _message: string, _props?: any) => {};
@@ -59,33 +49,43 @@ describe('uploadKnowledgeFiles', () => {
     });
 
     afterEach(async () => {
+        const wsMod = require('../../sync/localWorkspaces');
+        wsMod.tryRepairAgentManagementEndpoint = originalRepair;
         await fs.rm(workspaceDir, { recursive: true, force: true });
     });
 
-    test('uploads files and updates change track', async () => {
+    test('upload knowledge files', async () => {
         await uploadKnowledgeFiles(workspace);
-
-        const file1 = await fs.readFile(path.join(workspaceDir, 'file1.txt'), 'utf8');
-        const file2 = await fs.readFile(path.join(workspaceDir, 'file2.txt'), 'utf8');
-
-        assert.strictEqual(file1, 'local-1');
-        assert.strictEqual(file2, 'local-2');
+        assert.ok(sentMethods.includes(LspMethods.UPLOAD_KNOWLEDGE_FILES));
     });
 
     test('returns early when syncInfo.agentId is missing (component collection workspace)', async () => {
-        let botHandlerCalled = false;
-        (getDataverseBotHandler as any) = async () => {
-            botHandlerCalled = true;
-            return {} as any;
-        };
-
         const collectionWorkspace = {
-            workspaceUri: vscode.Uri.file(workspaceDir),
+            workspaceUri: vscode.Uri.file(workspaceDir).toString(),
             syncInfo: { agentId: undefined, dataverseEndpoint: 'dataverse-endpoint' }
         } as any;
 
         await uploadKnowledgeFiles(collectionWorkspace);
 
-        assert.strictEqual(botHandlerCalled, false);
+        assert.strictEqual(sentMethods.length, 0);
+    });
+
+    test('repairs missing agentManagementEndpoint before uploading', async () => {
+        await uploadKnowledgeFiles(workspace);
+
+        assert.strictEqual(repairCalls, 1);
+        assert.ok(sentMethods.includes(LspMethods.UPLOAD_KNOWLEDGE_FILES));
+    });
+
+    test('skips repair when agentManagementEndpoint is already present', async () => {
+        const repairedWorkspace = {
+            workspaceUri: vscode.Uri.file(workspaceDir).toString(),
+            syncInfo: { agentId: 'agent-123', dataverseEndpoint: 'dataverse-endpoint', agentManagementEndpoint: 'mgmt-endpoint' }
+        } as any;
+
+        await uploadKnowledgeFiles(repairedWorkspace);
+
+        assert.strictEqual(repairCalls, 0);
+        assert.ok(sentMethods.includes(LspMethods.UPLOAD_KNOWLEDGE_FILES));
     });
 });

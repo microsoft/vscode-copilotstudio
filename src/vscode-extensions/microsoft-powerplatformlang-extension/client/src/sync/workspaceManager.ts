@@ -1,6 +1,6 @@
 import { EventEmitter, ExtensionContext, TreeDataProvider, TreeItem, TreeItemCollapsibleState, Uri, window } from "vscode";
 import { addWorkspaceChangeSubscription, CopilotStudioWorkspace, getAllWorkspaces, initializeLocalWorkspaces } from "./localWorkspaces";
-import { isCliLayeredWorkspace } from "../knowledgeFiles/syncUtils";
+import { isCliLayeredWorkspace } from "./syncUtils";
 
 export function initializeWorkspaceManager(context: ExtensionContext) {
   initializeLocalWorkspaces(context);

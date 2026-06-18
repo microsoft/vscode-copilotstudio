@@ -14,7 +14,7 @@ import { DefaultCoreServicesClusterCategory, LspMethods, TelemetryEventsKeys } f
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import logger from '../services/logger';
 import { writePostOpenInstruction } from '../startup/postOpen';
-import { isCliLayeredWorkspace } from '../knowledgeFiles/syncUtils';
+import { isCliLayeredWorkspace } from '../sync/syncUtils';
 import { getActiveAgentAccount, getAllProjectAccounts } from '../sync/localWorkspaces';
 
 type EnvironmentPickItem = QuickPickItem & { environment: EnvironmentInfo; sourceAccount?: { accountId?: string; accountEmail?: string } };

@@ -586,6 +586,15 @@
         public Task PushLocalChangesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, DefinitionBase workspaceDefinition, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CloudFlowMetadata? cloudFlowMetadata, ImmutableArray<AIPromptMetadata> aiPrompts, CancellationToken cancellationToken)
             => Task.CompletedTask;
 
+        public Task<ImmutableArray<KnowledgeFileInfo>> ListKnowledgeFilesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, CancellationToken cancellationToken)
+            => Task.FromResult(ImmutableArray<KnowledgeFileInfo>.Empty);
+
+        public Task<ImmutableArray<KnowledgeFileInfo>> DownloadKnowledgeFilesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, IReadOnlyCollection<string>? schemaNames, CancellationToken cancellationToken)
+            => Task.FromResult(ImmutableArray<KnowledgeFileInfo>.Empty);
+
+        public Task<ImmutableArray<string>> UploadKnowledgeFilesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+            => Task.FromResult(ImmutableArray<string>.Empty);
+
         public Task<WorkspaceSyncInfo> SyncWorkspaceAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, string? changeToken, bool updateWorkspaceDirectory, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken)
         {
             ReattachCalled = true;
@@ -625,6 +634,9 @@
             => Task.CompletedTask;
 
         public virtual Task<IReadOnlyList<ConnectionNeeded>> GetAgentConnectionReferencesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+            => Task.FromResult<IReadOnlyList<ConnectionNeeded>>(Array.Empty<ConnectionNeeded>());
+
+        public virtual Task<IReadOnlyList<ConnectionNeeded>> GetNewAgentConnectionReferencesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
             => Task.FromResult<IReadOnlyList<ConnectionNeeded>>(Array.Empty<ConnectionNeeded>());
 
         public virtual Task<CustomConnectorPushResult> PushCustomConnectorsAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
@@ -713,6 +725,8 @@
 
     internal class MockDataverseClientWithConnectionTracking : MockDataverseClient
     {
+        private readonly object _provisionLock = new();
+
         public List<(string name, string connectorId)> ProvisionedConnections { get; } = new();
 
         public override Task<bool> ConnectionReferenceExistsAsync(string connectionReferenceLogicalName, CancellationToken cancellationToken)
@@ -722,13 +736,19 @@
 
         public override Task CreateConnectionReferenceAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken, Guid? customConnectorRowId = null)
         {
-            ProvisionedConnections.Add((connectionReferenceLogicalName, connectorId));
+            lock (_provisionLock)
+            {
+                ProvisionedConnections.Add((connectionReferenceLogicalName, connectorId));
+            }
             return Task.CompletedTask;
         }
 
         public override Task EnsureConnectionReferenceExistsAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken, Guid? customConnectorRowId = null)
         {
-            ProvisionedConnections.Add((connectionReferenceLogicalName, connectorId));
+            lock (_provisionLock)
+            {
+                ProvisionedConnections.Add((connectionReferenceLogicalName, connectorId));
+            }
             return Task.CompletedTask;
         }
     }

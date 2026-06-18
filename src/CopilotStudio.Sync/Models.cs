@@ -424,3 +424,16 @@ public record EntityTypeVerification
 }
 
 #endregion
+
+#region KnowledgeFiles
+
+public class KnowledgeFileInfo
+{
+    public string SchemaName { get; init; } = string.Empty;
+
+    public string FileName { get; init; } = string.Empty;
+
+    public string RelativePath { get; init; } = string.Empty;
+}
+
+#endregion

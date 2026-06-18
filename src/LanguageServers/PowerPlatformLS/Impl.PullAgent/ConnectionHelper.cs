@@ -39,6 +39,14 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             return agentConnections.ToImmutableArray();
         }
 
+        public static async Task<ImmutableArray<ConnectionNeeded>> ProvisionAndGetNewConnectionsAsync(IWorkspaceSynchronizer synchronizer, DirectoryPath workspaceFolder, DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+        {
+            var connectorPushResult = await synchronizer.PushCustomConnectorsAsync(workspaceFolder, dataverseClient, cancellationToken);
+            await synchronizer.ProvisionConnectionReferencesAsync(workspaceFolder, definition, dataverseClient, cancellationToken, connectorPushResult.PushedRowIds);
+            var agentConnections = await synchronizer.GetNewAgentConnectionReferencesAsync(workspaceFolder, definition, dataverseClient, cancellationToken);
+            return agentConnections.ToImmutableArray();
+        }
+
         public static async Task BindConnectionsAsync(ISyncDataverseClient dataverseClient, ImmutableArray<ConnectionBindingInput> bindings, ILspLogger logger, CancellationToken cancellationToken)
         {
             if (bindings.IsDefaultOrEmpty)

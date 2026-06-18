@@ -354,6 +354,33 @@ public class CliAgentNodeFPushTests
         Assert.NotNull(delete);
     }
 
+    [Fact]
+    public async Task GetLocalChanges_CliAgent_DeletedKnowledgeFile_EmitsBotComponentDelete()
+    {
+        var (entity, definition, accessor, synchronizer, workspace) =
+            await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
+
+        var fileComponent = definition.Components.OfType<FileAttachmentComponent>().Single();
+        var metadataPath = CliAgentRoundTripReadTests.CliComponentPath(fileComponent, definition);
+        var contentPath = new AgentFilePath($"capabilities/knowledge/files/{fileComponent.DisplayName}");
+
+        accessor.Delete(metadataPath);
+        if (accessor.Exists(contentPath))
+        {
+            accessor.Delete(contentPath);
+        }
+
+        var cloud = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        var local = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None);
+
+        var (changeset, _) = synchronizer.GetLocalChanges(local, cloud, accessor, "token-1");
+
+        var delete = Assert.Single(
+            changeset.BotComponentChanges!.OfType<BotComponentDelete>(),
+            d => d.BotComponentId == fileComponent.Id);
+        Assert.NotNull(delete);
+    }
+
     // --- Classic regression on the same flow --------------------------------
 
     [Fact]

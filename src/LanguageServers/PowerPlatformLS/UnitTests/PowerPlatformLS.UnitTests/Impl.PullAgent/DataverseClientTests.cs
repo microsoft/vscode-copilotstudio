@@ -1,5 +1,6 @@
 ﻿namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
 {
+    using Microsoft.Agents.ObjectModel;
     using Microsoft.Agents.Platform.Content.Abstractions;
     using Microsoft.CopilotStudio.McsCore;
     using Microsoft.CopilotStudio.Sync;
@@ -8,6 +9,7 @@
     using Moq.Protected;
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Linq;
     using System.Net;
     using System.Net.Http;
@@ -61,7 +63,7 @@
         public async Task CreateNewAgentAsyncWithFailedResponse()
         {
             var client = CreateClientWithHandler((req, index) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest)));
-            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => client.CreateNewAgentAsync(DisplayName, SchemaName, AuthoringShape.Classic, CancellationToken.None));
+            var ex = await Assert.ThrowsAsync<DataverseRequestException>(() => client.CreateNewAgentAsync(DisplayName, SchemaName, AuthoringShape.Classic, CancellationToken.None));
             Assert.Contains("400", ex.Message);
         }
 
@@ -122,7 +124,7 @@
         public async Task GetAgentIdBySchemaNameAsyncWithFailure()
         {
             var client = CreateClientWithHandler((req, index) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError)));
-            await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetAgentIdBySchemaNameAsync(SchemaName, CancellationToken.None));
+            await Assert.ThrowsAsync<DataverseRequestException>(() => client.GetAgentIdBySchemaNameAsync(SchemaName, CancellationToken.None));
         }
 
         [Fact]
@@ -410,6 +412,38 @@
             Assert.Equal(2, callIndex);
         }
 
+        [Fact]
+        public async Task DownloadKnowledgeFileAsync_DestinationOpenedForReadWrite_OverwritesWithoutSharingViolation()
+        {
+            var folder = Path.Combine(Path.GetTempPath(), "mcs-knowledge-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            const string fileName = "knowledge.txt";
+            var filePath = Path.Combine(folder, fileName);
+            const string expectedContent = "downloaded-content";
+
+            try
+            {
+                File.WriteAllText(filePath, "stale-content");
+
+                var client = CreateClientWithHandler((req, index) => Task.FromResult(new HttpResponseMessage
+                {
+                    StatusCode = HttpStatusCode.OK,
+                    Content = new StringContent(expectedContent, Encoding.UTF8, "application/octet-stream")
+                }));
+
+                using (new FileStream(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
+                {
+                    await client.DownloadKnowledgeFileAsync(folder, new BotComponentId(Guid.NewGuid()), fileName, CancellationToken.None);
+                }
+
+                Assert.Equal(expectedContent, File.ReadAllText(filePath));
+            }
+            finally
+            {
+                Directory.Delete(folder, recursive: true);
+            }
+        }
+
         private static SyncDataverseClient CreateClientFromHttpClient(HttpClient httpClient)
         {
             var accessorMock = new Mock<IDataverseHttpClientAccessor>();
@@ -534,7 +568,7 @@
             var client = CreateClientFromHttpClient(httpClient);
 
             // Act & Assert
-            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            var ex = await Assert.ThrowsAsync<DataverseRequestException>(() =>
                 client.ConnectionReferenceExistsAsync("test", CancellationToken.None));
             Assert.Contains("Dataverse request failed", ex.Message);
         }
@@ -607,7 +641,7 @@
             var client = CreateClientFromHttpClient(httpClient);
 
             // Act & Assert
-            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            var ex = await Assert.ThrowsAsync<DataverseRequestException>(() =>
                 client.CreateConnectionReferenceAsync("test", "connector", CancellationToken.None));
             Assert.Contains("Dataverse request failed", ex.Message);
         }

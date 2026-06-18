@@ -134,6 +134,11 @@
           "group": "navigation"
         },
         {
+          "command": "microsoft-copilot-studio.downloadAllKnowledgeFiles",
+          "when": "view == virtual-knowledge-files",
+          "group": "navigation"
+        },
+        {
           "command": "microsoft-copilot-studio.switchAccount",
           "when": "view == remote-agents",
           "group": "navigation"
@@ -299,6 +304,11 @@
         "command": "microsoft-copilot-studio.refreshKnowledgeFilesTreeView",
         "title": "Copilot Studio: Refresh Remote Knowledge Files",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "microsoft-copilot-studio.downloadAllKnowledgeFiles",
+        "title": "Copilot Studio: Download All Remote Knowledge Files",
+        "icon": "$(cloud-download)"
       },
       {
         "command": "microsoft-copilot-studio.switchAccount",

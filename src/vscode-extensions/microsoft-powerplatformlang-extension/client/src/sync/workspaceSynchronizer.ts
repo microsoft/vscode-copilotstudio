@@ -120,13 +120,15 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
     get syncState() { return currentState; },
     push: async (suppressErrorNotification = false, connectionBindings: ConnectionBinding[] = []): Promise<SyncResponse> => {
       return await executeSyncOperation(async () => {
+        const response = await sync(ws, 'applying changes', LspMethods.SYNC_PUSH, false, suppressErrorNotification, connectionBindings);
         await uploadKnowledgeFiles(ws);
-        return await sync(ws, 'applying changes', LspMethods.SYNC_PUSH, false, suppressErrorNotification, connectionBindings);
+        return response;
       }, SyncState.Pushing);
     },
     pull: async (virtualProvider: virtualKnowledgeFileSystemProvider): Promise<SyncResponse> => {
       return await executeSyncOperation(async () => {
-        // Get virtual knowledge files
+        const response = await sync(ws, "getting changes", LspMethods.SYNC_PULL, false);
+
         if (virtualProvider) {
           await virtualProvider.refresh();
           if (!treeDataProvider) {
@@ -135,7 +137,7 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
           }
           treeDataProvider.refresh();
         }
-        return await sync(ws, "getting changes", LspMethods.SYNC_PULL, false);
+        return response;
       }, SyncState.Pulling);
     },
     fetch: async () => {

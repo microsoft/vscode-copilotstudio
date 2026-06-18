@@ -157,6 +157,43 @@ public interface IWorkspaceSynchronizer
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Lists the agent's knowledge files from the local cloud-cache snapshot.
+    /// </summary>
+    /// <param name="workspaceFolder">The location of the root of the workspace.</param>
+    /// <param name="cancellationToken">Used to cancel the request.</param>
+    /// <returns>The resolved knowledge files.</returns>
+    Task<ImmutableArray<KnowledgeFileInfo>> ListKnowledgeFilesAsync(
+        DirectoryPath workspaceFolder,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Downloads knowledge-file content from the cloud, overwriting local files.
+    /// </summary>
+    /// <param name="workspaceFolder">The location of the root of the workspace.</param>
+    /// <param name="dataverseClient">The dataverse client to use for communication with the dataverse service.</param>
+    /// <param name="schemaNames">When non-empty, only the listed component schema names are downloaded; otherwise all are downloaded.</param>
+    /// <param name="cancellationToken">Used to cancel the request.</param>
+    /// <returns>The knowledge files that were downloaded.</returns>
+    Task<ImmutableArray<KnowledgeFileInfo>> DownloadKnowledgeFilesAsync(
+        DirectoryPath workspaceFolder,
+        ISyncDataverseClient dataverseClient,
+        IReadOnlyCollection<string>? schemaNames,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Uploads every local knowledge file that has a cloud component in the local cloud-cache
+    /// snapshot, overwriting cloud content.
+    /// </summary>
+    /// <param name="workspaceFolder">The location of the root of the workspace.</param>
+    /// <param name="dataverseClient">The dataverse client to use for communication with the dataverse service.</param>
+    /// <param name="cancellationToken">Used to cancel the request.</param>
+    /// <returns>The display names (file names) of the knowledge files that were uploaded.</returns>
+    Task<ImmutableArray<string>> UploadKnowledgeFilesAsync(
+        DirectoryPath workspaceFolder,
+        ISyncDataverseClient dataverseClient,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Sync workspace to write bot definition, git ignore, change token files in .mcs.
     /// </summary>
     /// <param name="workspaceFolder">Workspace folder.</param>
@@ -283,6 +320,20 @@ public interface IWorkspaceSynchronizer
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The declared connection references with their current binding state.</returns>
     Task<IReadOnlyList<ConnectionNeeded>> GetAgentConnectionReferencesAsync(
+        DirectoryPath workspaceFolder,
+        DefinitionBase definition,
+        ISyncDataverseClient dataverseClient,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Returns only the connection references that are new relative to the cloud cache, annotated with their current Dataverse binding state.
+    /// </summary>
+    /// <param name="workspaceFolder">Workspace folder used to read the on-disk overlay and cloud cache.</param>
+    /// <param name="definition">The bot definition declaring connection references.</param>
+    /// <param name="dataverseClient">Dataverse client.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The newly added connection references with their current binding state.</returns>
+    Task<IReadOnlyList<ConnectionNeeded>> GetNewAgentConnectionReferencesAsync(
         DirectoryPath workspaceFolder,
         DefinitionBase definition,
         ISyncDataverseClient dataverseClient,

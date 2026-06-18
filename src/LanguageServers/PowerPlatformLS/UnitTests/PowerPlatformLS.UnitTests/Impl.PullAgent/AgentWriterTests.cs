@@ -488,8 +488,17 @@ kind: AdaptiveDialog
                 new InMemoryFileWriter(),
                 null);
 
-            Assert.Empty(changes);
-            Assert.Empty(changeSet.BotComponentChanges);
+            if (hasKnowledgeFileInLocal)
+            {
+                Assert.Empty(changes);
+                Assert.Empty(changeSet.BotComponentChanges);
+            }
+            else
+            {
+                Assert.Single(changes);
+                Assert.Equal(ChangeType.Delete, changes[0].ChangeType);
+                Assert.Single(changeSet.BotComponentChanges.OfType<BotComponentDelete>());
+            }
         }
 
         [Theory]
@@ -1843,8 +1852,9 @@ beginDialog:
             }.Build();
 
             WorkspaceSynchronizer.WriteCloudCache(filesystem, botDefinition);
-            var filePath = new AgentFilePath(pathResolver.GetComponentPath(fileComponent, botDefinition));
-            await filesystem.WriteAsync(filePath, "payload", cancel);
+            var componentPath = new AgentFilePath(pathResolver.GetComponentPath(fileComponent, botDefinition));
+            var contentPath = new AgentFilePath($"{componentPath.ParentDirectoryName.Replace('\\', '/').TrimEnd('/')}/{fileComponent.DisplayName}");
+            await filesystem.WriteAsync(contentPath, "payload", cancel);
 
             var pushChangeset = new PvaComponentChangeSet(
                 Array.Empty<BotComponentChange>(),

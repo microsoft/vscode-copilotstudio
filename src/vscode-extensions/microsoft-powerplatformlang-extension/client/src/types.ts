@@ -52,6 +52,37 @@ export interface GetFileResponse extends RemoteApiResponse {
 
 export interface RemoteFileRequest extends RemoteApiRequest, GetFileRequest {}
 
+export interface KnowledgeFileInfo {
+  schemaName: string;
+  fileName: string;
+  relativePath: string;
+}
+
+export interface ListKnowledgeFilesRequest extends RemoteApiRequest {
+  workspaceUri: string;
+}
+
+export interface ListKnowledgeFilesResponse extends RemoteApiResponse {
+  files: KnowledgeFileInfo[];
+}
+
+export interface DownloadKnowledgeFilesRequest extends RemoteApiRequest {
+  workspaceUri: string;
+  schemaNames?: string[];
+}
+
+export interface DownloadKnowledgeFilesResponse extends RemoteApiResponse {
+  downloaded: KnowledgeFileInfo[];
+}
+
+export interface UploadKnowledgeFilesRequest extends RemoteApiRequest {
+  workspaceUri: string;
+}
+
+export interface UploadKnowledgeFilesResponse extends RemoteApiResponse {
+  uploaded: string[];
+}
+
 export interface DiffRequest extends RemoteApiRequest {
   // Workspace URI: get from vscode.WorkspaceFolder;
   workspaceUri: string;

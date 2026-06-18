@@ -1,34 +1,55 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import * as os from 'os';
-import { addWorkspaceChangeSubscription, CopilotStudioWorkspace, getAllWorkspaces } from '../sync/localWorkspaces';
-import { getDataverseBotHandler, getFilesDir, getTrackPath, safeSaveFile } from './syncUtils';
-import { ChangeTrack, isTextFile, loadChangeTrack, resolveConflict, saveChangeTrack } from './fileHelper';
+import { addWorkspaceChangeSubscription, CopilotStudioWorkspace, getAllWorkspaces, tryRepairAgentManagementEndpoint } from '../sync/localWorkspaces';
 import { knowledgeTreeDataProvider } from './knowledgeFileTree';
-import { randId } from '../botComponents/schemaName';
+import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import logger from '../services/logger';
-import { ConflictResolution, TelemetryEventsKeys } from '../constants';
-import { ChangeType } from '../types';
-import { isCliLayeredWorkspace } from './syncUtils';
+import { LspMethods, TelemetryEventsKeys } from '../constants';
+import {
+  DownloadKnowledgeFilesRequest,
+  DownloadKnowledgeFilesResponse,
+  ListKnowledgeFilesRequest,
+  ListKnowledgeFilesResponse
+} from '../types';
 
 let virtualKnowledgeProvider: virtualKnowledgeFileSystemProvider | undefined;
 let virtualTreeProvider: knowledgeTreeDataProvider | undefined;
-let refreshCommandRegistered = false;
+let commandsRegistered = false;
+
+function isTextFile(filename: string): boolean {
+  const textExt = new Set(['.txt', '.json', '.yaml', '.yml', '.js', '.ts', '.md']);
+  return textExt.has(path.extname(filename).toLowerCase());
+}
+
+function displayLabel(ws: CopilotStudioWorkspace, relativePath: string, fileName: string): string {
+  const parts = relativePath.split('/');
+  const agentName = ws.displayName || path.basename(vscode.Uri.parse(ws.workspaceUri).fsPath);
+  const agentIndex = parts.indexOf('agents');
+  if (agentIndex >= 0 && parts.length > agentIndex + 1) {
+    return `${fileName} (${agentName}/${parts[agentIndex + 1]})`;
+  }
+  return `${fileName} (${agentName})`;
+}
+
+function componentKey(ws: CopilotStudioWorkspace, relativePath: string, schema: string): string {
+  const workspaceFsPath = vscode.Uri.parse(ws.workspaceUri).fsPath;
+  return `${workspaceFsPath}|${relativePath}|${schema}`;
+}
 
 export async function registerVirtualKnowledgeProvider(context: vscode.ExtensionContext, workspace: CopilotStudioWorkspace): Promise<virtualKnowledgeFileSystemProvider> {
   if (!virtualKnowledgeProvider) {
     virtualKnowledgeProvider = new virtualKnowledgeFileSystemProvider();
     const disposable = vscode.workspace.registerFileSystemProvider('virtualKnowledge', virtualKnowledgeProvider, { isReadonly: true, isCaseSensitive: true });
-    context.subscriptions.push(disposable);
+    context.subscriptions.push(disposable, virtualKnowledgeProvider);
   }
   virtualKnowledgeProvider.addWorkspace(workspace);
   return virtualKnowledgeProvider;
 }
 
 export async function initializeVirtualKnowledgeTree(context: vscode.ExtensionContext) {
-  if (!refreshCommandRegistered) {
-    refreshCommandRegistered = true;
+  if (!commandsRegistered) {
+    commandsRegistered = true;
     context.subscriptions.push(
       vscode.commands.registerCommand('microsoft-copilot-studio.refreshKnowledgeFilesTreeView', async () => {
         await vscode.window.withProgress({
@@ -39,6 +60,16 @@ export async function initializeVirtualKnowledgeTree(context: vscode.ExtensionCo
             await virtualKnowledgeProvider.refresh();
           }
           virtualTreeProvider?.refresh();
+        });
+      }),
+      vscode.commands.registerCommand('microsoft-copilot-studio.downloadAllKnowledgeFiles', async () => {
+        await vscode.window.withProgress({
+          location: { viewId: 'virtual-knowledge-files' },
+          title: 'Downloading all remote knowledge files...',
+        }, async () => {
+          if (virtualKnowledgeProvider) {
+            await virtualKnowledgeProvider.downloadAll();
+          }
         });
       })
     );
@@ -74,10 +105,24 @@ export async function initializeVirtualKnowledgeTree(context: vscode.ExtensionCo
   });
 }
 
+interface VirtualKnowledgeComponent {
+  schema: string;
+  fileName: string;
+  relativePath: string;
+  ws: CopilotStudioWorkspace;
+  label: string;
+}
+
+interface VirtualKnowledgeEntry {
+  uri: vscode.Uri;
+  label: string;
+}
+
 export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProvider {
   private workspaces: CopilotStudioWorkspace[] = [];
-  private components = new Map<string, { id: string; mtime: number; filename: string; schema: string; agentId: string; agentSchemaName: string; ws: CopilotStudioWorkspace }>();
+  private components = new Map<string, VirtualKnowledgeComponent>();
   private _onDidChangeFile = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
+  private _shutdownCts = new vscode.CancellationTokenSource();
   readonly onDidChangeFile = this._onDidChangeFile.event;
 
   addWorkspace(ws: CopilotStudioWorkspace): void {
@@ -99,6 +144,7 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
       try {
         await this.refreshWorkspace(ws);
       } catch (err) {
+        logger.error('KnowledgeFiles', `Failed to refresh workspace ${ws.workspaceUri.toString()}: ${err}`);
         logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `Failed to refresh workspace <pii>${ws.workspaceUri.toString()}</pii>: ${err}`);
       }
     }
@@ -111,82 +157,86 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
     ]);
   }
 
+  async downloadAll(): Promise<void> {
+    logger.info('KnowledgeFiles', `Downloading knowledge files for ${this.workspaces.length} workspace(s)`);
+    for (const ws of this.workspaces) {
+      try {
+        await this.downloadWorkspaceFiles(ws);
+      } catch (err) {
+        logger.error('KnowledgeFiles', `Failed to download knowledge files for ${ws.workspaceUri.toString()}: ${err}`);
+        logger.logError(TelemetryEventsKeys.DownloadKnowledgeFileError, `Failed to download knowledge files for <pii>${ws.workspaceUri.toString()}</pii>: ${err}`);
+      }
+    }
+  }
+
   private async refreshWorkspace(ws: CopilotStudioWorkspace): Promise<void> {
     const { syncInfo, workspaceUri } = ws;
     if (!syncInfo || !syncInfo.dataverseEndpoint || !syncInfo.agentId) {
       return;
     }
 
-    const trackPath = getTrackPath(workspaceUri);
-    const track = await loadChangeTrack(trackPath);
-    const botHandler = await getDataverseBotHandler(syncInfo);
-    const isCli = isCliLayeredWorkspace(vscode.Uri.parse(workspaceUri).fsPath);
-    const metadata = await botHandler.listWsComponentMetadata(syncInfo, isCli);
-    const remoteFilenames = new Set<string>();
-    for (const componentMetadata of metadata) {
-      const isKnowledgeFile = isCli
-        ? !componentMetadata.schemaName.includes('.files.') && !!componentMetadata.filename
-        : (componentMetadata.schemaName.includes('.file.') || componentMetadata.schemaName.includes('.knowledge.')) &&
-          !componentMetadata.schemaName.includes('.files.') &&
-          !!componentMetadata.filename;
-
-      if (isKnowledgeFile) {
-        const filename = decodeURIComponent(componentMetadata.filename!);
-        const displayName = `${filename} (${componentMetadata.agentSchemaName})`;
-        this.components.set(displayName, {
-          id: componentMetadata.id,
-          mtime: componentMetadata.modifiedOn,
-          filename,
-          schema: componentMetadata.schemaName,
-          agentId: componentMetadata.agentId,
-          agentSchemaName: componentMetadata.agentSchemaName,
-          ws
-        });
-        remoteFilenames.add(filename);
-      }
+    if (!syncInfo.agentManagementEndpoint) {
+      await tryRepairAgentManagementEndpoint(syncInfo, workspaceUri);
     }
 
-    const deletedLocallyDueToRemote: string[] = [];
+    const request: ListKnowledgeFilesRequest = {
+      ...(await buildLspRequestPayload(syncInfo)),
+      workspaceUri
+    };
+    const result = await lspClient.sendRequest<ListKnowledgeFilesResponse>(LspMethods.LIST_KNOWLEDGE_FILES, request);
 
-    for (const file in track) {
-      const localPath = path.join(getFilesDir(workspaceUri, track[file].agentSchemaName), file);
-      const existsLocally = await fs.stat(localPath).then(() => true).catch(() => false);
-      const existsRemotely = remoteFilenames.has(file);
-
-      if (!existsRemotely) {
-        if (existsLocally) {
-          try {
-            await fs.unlink(localPath);
-            deletedLocallyDueToRemote.push(file);
-          } catch {}
-        }
-
-        if (track[file].localChangeType !== ChangeType.Delete) {
-          track[file].remoteChangeType = ChangeType.Delete;
-        }
-      } else {
-        if (track[file].remoteChangeType === ChangeType.Delete) {
-          delete track[file].remoteChangeType;
-        }
-        if (track[file].localChangeType === ChangeType.Delete) {
-          delete track[file].localChangeType;
-        }
-      }
+    for (const file of result.files) {
+      const key = componentKey(ws, file.relativePath, file.schemaName);
+      this.components.set(key, {
+        schema: file.schemaName,
+        fileName: file.fileName,
+        relativePath: file.relativePath,
+        ws,
+        label: displayLabel(ws, file.relativePath, file.fileName)
+      });
     }
-    
-    if (deletedLocallyDueToRemote.length > 0) {
-      logger.logInfo(TelemetryEventsKeys.VirtualKnowledgeFileProgress, `Files deleted locally due to remote changes: <pii>${deletedLocallyDueToRemote.join(', ')}</pii>`);
+  }
+
+  private async downloadWorkspaceFiles(ws: CopilotStudioWorkspace, schemaNames?: string[], token?: vscode.CancellationToken): Promise<void> {
+    const { syncInfo, workspaceUri } = ws;
+    if (!syncInfo || !syncInfo.dataverseEndpoint) {
+      return;
     }
 
-    for (const file of Object.keys(track)) {
-      const localPath = path.join(getFilesDir(workspaceUri, track[file].agentSchemaName), file);
-      const existsLocally = await fs.stat(localPath).then(() => true).catch(() => false);
-      if (!existsLocally) {
-        delete track[file];
-      }
+    if (!syncInfo.agentManagementEndpoint) {
+      await tryRepairAgentManagementEndpoint(syncInfo, workspaceUri);
     }
 
-    await saveChangeTrack(trackPath, track);
+    const request: DownloadKnowledgeFilesRequest = {
+      ...(await buildLspRequestPayload(syncInfo)),
+      workspaceUri,
+      schemaNames
+    };
+    await lspClient.sendRequest<DownloadKnowledgeFilesResponse>(LspMethods.DOWNLOAD_KNOWLEDGE_FILES, request, token);
+  }
+
+  dispose(): void {
+    this._shutdownCts.cancel();
+    this._shutdownCts.dispose();
+    this._onDidChangeFile.dispose();
+  }
+
+  private resolveComponent(uri: vscode.Uri): { key: string; component: VirtualKnowledgeComponent } | undefined {
+    const raw = uri.path.slice(1);
+    const rawComponent = this.components.get(raw);
+    if (rawComponent) {
+      return { key: raw, component: rawComponent };
+    }
+
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(raw);
+    } catch {
+      return undefined;
+    }
+
+    const decodedComponent = this.components.get(decoded);
+    return decodedComponent ? { key: decoded, component: decodedComponent } : undefined;
   }
 
   async stat(uri: vscode.Uri): Promise<vscode.FileStat> {
@@ -194,117 +244,57 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
       return { type: vscode.FileType.Directory, ctime: 0, mtime: 0, size: 0 };
     }
 
-    const key = uri.path.slice(1);
-    const component = this.components.get(key);
-    if (!component) {
-      logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `File not found in components map: <pii>${key}</pii>`);
+    const resolved = this.resolveComponent(uri);
+    if (!resolved) {
+      logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `File not found in components map: <pii>${uri.path.slice(1)}</pii>`);
       throw vscode.FileSystemError.FileNotFound();
     }
-    return { type: vscode.FileType.File, ctime: 0, mtime: component.mtime, size: 0 };
+    return { type: vscode.FileType.File, ctime: 0, mtime: 0, size: 0 };
   }
 
   async readDirectory(uri: vscode.Uri): Promise<[string, vscode.FileType][]> {
     if (uri.path !== '/') {
-      logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `Invalid directory access: <pii>${uri.path}</pii>`);
       throw vscode.FileSystemError.FileNotFound();
     }
-    return Array.from(this.components.keys()).map(name => [name, vscode.FileType.File]);
+
+    // Return encoded names so stat/readFile can reliably decode back to the internal key.
+    return Array.from(this.components.keys()).map(key => [encodeURIComponent(key), vscode.FileType.File]);
+  }
+
+  getEntries(): VirtualKnowledgeEntry[] {
+    return Array.from(this.components.entries()).map(([key, component]) => ({
+      uri: vscode.Uri.parse(`virtualKnowledge:/${encodeURIComponent(key)}`),
+      label: component.label
+    }));
   }
 
   async readFile(uri: vscode.Uri): Promise<Uint8Array> {
-    const key = decodeURIComponent(uri.path.slice(1));
-    const component = this.components.get(key);
-    if (!component) {
-      logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `File not found: <pii>${key}</pii>`);
+    const resolved = this.resolveComponent(uri);
+    if (!resolved) {
+      logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `File not found: <pii>${uri.path.slice(1)}</pii>`);
       throw vscode.FileSystemError.FileNotFound();
     }
 
-    const { syncInfo, workspaceUri } = component.ws;
-    if (!syncInfo || !syncInfo.dataverseEndpoint) {
-      return new Uint8Array();
-    }
+    const { component } = resolved;
+    const { workspaceUri } = component.ws;
+    const localPath = path.join(vscode.Uri.parse(workspaceUri).fsPath, component.relativePath);
 
-    const filename = component.filename;
-    const trackPath = getTrackPath(workspaceUri);
-    const localPath = path.join(getFilesDir(workspaceUri, component.agentSchemaName), filename);
-    const track: ChangeTrack = await loadChangeTrack(trackPath) || {};
-    const existsLocally = await fs.stat(localPath).then(() => true).catch(() => false);
-    const isText = await isTextFile(filename);
-
-    let remoteContent: Buffer;
     try {
-      const botHandler = await getDataverseBotHandler(syncInfo);
-      remoteContent = await botHandler.downloadKnowledgeFile(component.id);
+      await this.downloadWorkspaceFiles(component.ws, [component.schema], this._shutdownCts.token);
     } catch (err) {
-      logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `Failed to download <pii>${filename}</pii>: ${err}`);
+      logger.error('KnowledgeFiles', `Failed to download ${component.fileName}: ${err}`);
+      logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `Failed to download <pii>${component.fileName}</pii>: ${err}`);
       throw vscode.FileSystemError.Unavailable();
     }
 
-    let shouldSave = false;
-    
-    track[filename] = {
-      ...(track[filename] ?? {}),
-      remoteModifiedOn: component.mtime,
-      size: remoteContent.length,
-      schema: component.schema,
-      agentId: component.agentId,
-      agentSchemaName: component.agentSchemaName
-    };
+    const content = await fs.readFile(localPath);
 
-    if (!existsLocally) {
-      shouldSave = true;
-      track[filename].remoteChangeType = ChangeType.Create;
-    } else if (isText) {
-      const localContent = await fs.readFile(localPath, 'utf8');
-      const remoteText = remoteContent.toString('utf8');
-      if (localContent !== remoteText) {
-        const resolution = await resolveConflict(filename, localPath, remoteText, isText);
-        if (resolution === ConflictResolution.UseLocal) {
-          track[filename].localChangeType = ChangeType.Update;
-          await saveChangeTrack(trackPath, track);
-          const doc = await vscode.workspace.openTextDocument(localPath);
-          await vscode.window.showTextDocument(doc, { preview: false });
-          return await fs.readFile(localPath);
-        } else if (resolution === ConflictResolution.UseRemote) {
-          shouldSave = true;
-        } else {          
-          return await fs.readFile(localPath);
-        }
-      }
-    } else {
-      shouldSave = true;
-    }
-
-    // After saving remote content locally:
-    if (shouldSave) {
-      await vscode.window.withProgress({
-        location: vscode.ProgressLocation.Notification,
-        title: `Saving ${filename} to local...`,
-        cancellable: false
-      }, async () => {
-        const tempPath = path.join(os.tmpdir(), `mcs-save-${filename}-${Date.now()}-${randId(3)}`);
-        await safeSaveFile(localPath, tempPath, remoteContent);        
-        delete track[filename].remoteChangeType;
-        delete track[filename].localChangeType;
-
-        // Shape-keyed display: report the actual on-disk location (classic knowledge/files vs CLI
-        // capabilities/knowledge/files) instead of a hardcoded classic path (TDD D34/D36).
-        const savedRelPath = path.relative(vscode.Uri.parse(workspaceUri).fsPath, localPath);
-        logger.logInfo(TelemetryEventsKeys.VirtualKnowledgeFileProgress, `File downloaded and saved to <pii>${savedRelPath}</pii>`);
-      });
-    }
-
-    const stat = await fs.stat(localPath);
-    track[filename].localModifiedOn = stat.mtimeMs;
-
-    await saveChangeTrack(trackPath, track);    
-
-    if (isText) {
+    if (isTextFile(component.fileName)) {
       const doc = await vscode.workspace.openTextDocument(localPath);
       await vscode.window.showTextDocument(doc, { preview: false });
     }
 
-    return remoteContent;
+    return content;
   }
 
   writeFile() {

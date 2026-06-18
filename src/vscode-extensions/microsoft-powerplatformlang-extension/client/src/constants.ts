@@ -10,6 +10,9 @@ export const LspMethods = {
   GET_WORKSPACE_DETAILS: "powerplatformls/getWorkspaceDetails",
   IDENTIFY_AGENT: "powerplatformls/identifyAgent",
   LIST_AGENTS: "powerplatformls/listAgents",
+  LIST_KNOWLEDGE_FILES: "powerplatformls/listKnowledgeFiles",
+  DOWNLOAD_KNOWLEDGE_FILES: "powerplatformls/downloadKnowledgeFiles",
+  UPLOAD_KNOWLEDGE_FILES: "powerplatformls/uploadKnowledgeFiles",
   LIST_ENVIRONMENTS: "powerplatformls/listEnvironments",
   LIST_WORKSPACES: "workspace/listWorkspaces",
   PREPARE_REATTACH: "powerplatformls/prepareReattach",
@@ -56,16 +59,11 @@ export const TelemetryEventsKeys = {
   ResetAccountError: "ResetAccountError",
   SwitchAccountError: "SwitchAccountError",
   SignInError: "SignInError",
-  DeleteBotComponentError: "DeleteBotComponentError",
-  GetBotPrefixError: "GetBotPrefixError",
   DownloadKnowledgeFileError: "DownloadKnowledgeFileError",
-  VirtualKnowledgeFileProgress: "VirtualKnowledgeFileProgress",
   VirtualKnowledgeFileError: "VirtualKnowledgeFileError",
   UploadKnowledgeFileSuccess: "UploadKnowledgeFileSuccess",
-  UploadKnowledgeFileWarning: "UploadKnowledgeFileWarning",
   UploadKnowledgeFileError: "UploadKnowledgeFileError",
   OpenKnowledgeFileError: "OpenKnowledgeFileError",
-  SaveKnowledgeFileError: "SaveKnowledgeFileError",
   GetAccessTokenError: "GetAccessTokenError",
   SyncWorkspaceClick: "SyncWorkspaceClick",
   SyncWorkspaceCancel: "SyncWorkspaceCancel",
@@ -73,7 +71,6 @@ export const TelemetryEventsKeys = {
   SyncWorkspaceError: "SyncWorkspaceError",
   GetRemoteFileError: "GetRemoteFileError",
   GetLocalFileError: "GetLocalFileError",
-  ReadKnowledgeFileError: "ReadKnowledgeFileError",
   ReattachAgentError: "ReattachAgentError",
   ReattachAgentInfo: "ReattachAgentInfo",
   ConnectionCreationInfo: "ConnectionCreationInfo",
@@ -90,14 +87,14 @@ export const TelemetryEventsKeys = {
 
 export type TelemetryEventType = typeof TelemetryEventsKeys[keyof typeof TelemetryEventsKeys];
 
+export const KnowledgeFileChangeKind = 'FileAttachmentComponent';
+
+export function isKnowledgeFileChangeKind(changeKind: string): boolean {
+  return changeKind === KnowledgeFileChangeKind;
+}
+
 export enum LogLevel {
   Info = 'Info',
   Warning = 'Warning',
   Error = 'Error'
 }
-
-export const ConflictResolution = {
-  UseRemote: 'Use Remote',
-  UseLocal: 'Use Local',
-  Merge: 'Merge',
-} as const;
