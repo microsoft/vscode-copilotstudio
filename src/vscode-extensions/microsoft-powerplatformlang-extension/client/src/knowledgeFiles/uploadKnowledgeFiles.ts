@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CopilotStudioWorkspace } from '../sync/localWorkspaces';
+import { CopilotStudioWorkspace, tryRepairAgentManagementEndpoint } from '../sync/localWorkspaces';
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import { LspMethods, TelemetryEventsKeys } from '../constants';
 import logger from '../services/logger';
@@ -9,6 +9,10 @@ export async function uploadKnowledgeFiles(ws: CopilotStudioWorkspace): Promise<
   const { syncInfo, workspaceUri } = ws;
   if (!syncInfo || !syncInfo.dataverseEndpoint || !syncInfo.agentId) {
     return;
+  }
+
+  if (!syncInfo.agentManagementEndpoint) {
+    await tryRepairAgentManagementEndpoint(syncInfo, workspaceUri);
   }
 
   await vscode.window.withProgress({

@@ -13,6 +13,8 @@ describe('uploadKnowledgeFiles', () => {
     let workspaceDir: string;
     let workspace: CopilotStudioWorkspace;
     let sentMethods: string[];
+    let repairCalls: number;
+    let originalRepair: any;
 
     beforeEach(async () => {
         workspaceDir = path.join(os.tmpdir(), 'vscode-copilotstudio', 'knowledge', 'files-upload');
@@ -33,12 +35,22 @@ describe('uploadKnowledgeFiles', () => {
             }
         };
 
+        repairCalls = 0;
+        const wsMod = require('../../sync/localWorkspaces');
+        originalRepair = wsMod.tryRepairAgentManagementEndpoint;
+        wsMod.tryRepairAgentManagementEndpoint = async () => {
+            repairCalls++;
+            return false;
+        };
+
         (logger.logInfo as any) = (_event: any, _message: string) => {};
         (logger.logError as any) = (_event: any, _message: string, _props?: any) => {};
         (logger.logWarning as any) = (_event: any, _message: string, _props?: any) => {};
     });
 
     afterEach(async () => {
+        const wsMod = require('../../sync/localWorkspaces');
+        wsMod.tryRepairAgentManagementEndpoint = originalRepair;
         await fs.rm(workspaceDir, { recursive: true, force: true });
     });
 
@@ -56,5 +68,24 @@ describe('uploadKnowledgeFiles', () => {
         await uploadKnowledgeFiles(collectionWorkspace);
 
         assert.strictEqual(sentMethods.length, 0);
+    });
+
+    test('repairs missing agentManagementEndpoint before uploading', async () => {
+        await uploadKnowledgeFiles(workspace);
+
+        assert.strictEqual(repairCalls, 1);
+        assert.ok(sentMethods.includes(LspMethods.UPLOAD_KNOWLEDGE_FILES));
+    });
+
+    test('skips repair when agentManagementEndpoint is already present', async () => {
+        const repairedWorkspace = {
+            workspaceUri: vscode.Uri.file(workspaceDir).toString(),
+            syncInfo: { agentId: 'agent-123', dataverseEndpoint: 'dataverse-endpoint', agentManagementEndpoint: 'mgmt-endpoint' }
+        } as any;
+
+        await uploadKnowledgeFiles(repairedWorkspace);
+
+        assert.strictEqual(repairCalls, 0);
+        assert.ok(sentMethods.includes(LspMethods.UPLOAD_KNOWLEDGE_FILES));
     });
 });

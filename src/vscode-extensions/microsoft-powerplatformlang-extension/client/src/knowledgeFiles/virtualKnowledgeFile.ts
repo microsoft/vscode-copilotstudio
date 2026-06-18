@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { addWorkspaceChangeSubscription, CopilotStudioWorkspace, getAllWorkspaces } from '../sync/localWorkspaces';
+import { addWorkspaceChangeSubscription, CopilotStudioWorkspace, getAllWorkspaces, tryRepairAgentManagementEndpoint } from '../sync/localWorkspaces';
 import { knowledgeTreeDataProvider } from './knowledgeFileTree';
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import logger from '../services/logger';
@@ -174,6 +174,10 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
       return;
     }
 
+    if (!syncInfo.agentManagementEndpoint) {
+      await tryRepairAgentManagementEndpoint(syncInfo, workspaceUri);
+    }
+
     const request: ListKnowledgeFilesRequest = {
       ...(await buildLspRequestPayload(syncInfo)),
       workspaceUri
@@ -196,6 +200,10 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
     const { syncInfo, workspaceUri } = ws;
     if (!syncInfo || !syncInfo.dataverseEndpoint) {
       return;
+    }
+
+    if (!syncInfo.agentManagementEndpoint) {
+      await tryRepairAgentManagementEndpoint(syncInfo, workspaceUri);
     }
 
     const request: DownloadKnowledgeFilesRequest = {
