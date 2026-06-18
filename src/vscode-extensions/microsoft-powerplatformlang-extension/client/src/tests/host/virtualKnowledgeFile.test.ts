@@ -118,6 +118,23 @@ describe('virtualKnowledgeFileSystemProvider', () => {
         assert.ok(exists, 'Local file should exist after readFile');
     });
 
+    test('readDirectory names round-trip through stat and readFile', async () => {
+        await provider.refresh();
+        const root = vscode.Uri.parse('virtualKnowledge:/');
+        const dir = await provider.readDirectory(root);
+        assert.strictEqual(dir.length, 2);
+
+        for (const [name, type] of dir) {
+            assert.strictEqual(type, vscode.FileType.File);
+            // VS Code builds child URIs by appending the readDirectory name as a path segment.
+            const childUri = root.with({ path: `${root.path}${name}` });
+            const stat = await provider.stat(childUri);
+            assert.strictEqual(stat.type, vscode.FileType.File);
+            const content = await provider.readFile(childUri);
+            assert.ok(content.toString().startsWith('content-'));
+        }
+    });
+
     test('writeFile throws no-permissions', async () => {
         assert.throws(() => provider.writeFile(), vscode.FileSystemError);
     });

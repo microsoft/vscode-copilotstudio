@@ -63,7 +63,7 @@
         public async Task CreateNewAgentAsyncWithFailedResponse()
         {
             var client = CreateClientWithHandler((req, index) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest)));
-            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => client.CreateNewAgentAsync(DisplayName, SchemaName, AuthoringShape.Classic, CancellationToken.None));
+            var ex = await Assert.ThrowsAsync<DataverseRequestException>(() => client.CreateNewAgentAsync(DisplayName, SchemaName, AuthoringShape.Classic, CancellationToken.None));
             Assert.Contains("400", ex.Message);
         }
 
@@ -124,7 +124,7 @@
         public async Task GetAgentIdBySchemaNameAsyncWithFailure()
         {
             var client = CreateClientWithHandler((req, index) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError)));
-            await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetAgentIdBySchemaNameAsync(SchemaName, CancellationToken.None));
+            await Assert.ThrowsAsync<DataverseRequestException>(() => client.GetAgentIdBySchemaNameAsync(SchemaName, CancellationToken.None));
         }
 
         [Fact]
@@ -568,7 +568,7 @@
             var client = CreateClientFromHttpClient(httpClient);
 
             // Act & Assert
-            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            var ex = await Assert.ThrowsAsync<DataverseRequestException>(() =>
                 client.ConnectionReferenceExistsAsync("test", CancellationToken.None));
             Assert.Contains("Dataverse request failed", ex.Message);
         }
@@ -641,7 +641,7 @@
             var client = CreateClientFromHttpClient(httpClient);
 
             // Act & Assert
-            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            var ex = await Assert.ThrowsAsync<DataverseRequestException>(() =>
                 client.CreateConnectionReferenceAsync("test", "connector", CancellationToken.None));
             Assert.Contains("Dataverse request failed", ex.Message);
         }

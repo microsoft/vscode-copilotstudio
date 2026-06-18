@@ -553,7 +553,7 @@ public class SyncDataverseClient : ISyncDataverseClient
         if (!responseMessage.IsSuccessStatusCode)
         {
             var responseText = await responseMessage.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            throw new InvalidOperationException($"Dataverse request failed ({(int)responseMessage.StatusCode}): {responseText}");
+            throw new DataverseRequestException(responseMessage.StatusCode, responseText);
         }
 
         if (typeof(T) == typeof(object)
@@ -870,16 +870,13 @@ public class SyncDataverseClient : ISyncDataverseClient
         if (!response.IsSuccessStatusCode)
         {
             var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            throw new InvalidOperationException($"Dataverse request failed ({(int)response.StatusCode}): {text}");
+            throw new DataverseRequestException(response.StatusCode, text);
         }
 
         using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
 
         using var fileStream = await CreateWritableFileStreamWithRetryAsync(localPath, cancellationToken).ConfigureAwait(false);
 
-        // No #if: passing 81920 explicitly is identical to net10's default buffer size
-        // on Stream.CopyToAsync(Stream, CT), and the 3-arg form is what netstandard2.0
-        // exposes -- so the same expression compiles and behaves the same on both TFMs.
         await stream.CopyToAsync(fileStream, 81920, cancellationToken).ConfigureAwait(false);
     }
 

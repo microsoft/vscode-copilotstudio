@@ -834,7 +834,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 var info = await DownloadSingleKnowledgeFileAsync(workspaceFolder, dataverseClient, component, snapshot, cancellationToken).ConfigureAwait(false);
                 downloaded.Add(info);
             }
-            catch (InvalidOperationException ex) when (skipMissingAttachments && IsMissingFileAttachment(ex))
+            catch (DataverseRequestException ex) when (skipMissingAttachments && IsMissingFileAttachment(ex))
             {
                 continue;
             }
@@ -851,7 +851,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 var info = await DownloadSingleKnowledgeFileAsync(workspaceFolder, dataverseClient, component, snapshot, ct).ConfigureAwait(false);
                 downloaded.Add(info);
             }
-            catch (InvalidOperationException ex) when (skipMissingAttachments && IsMissingFileAttachment(ex))
+            catch (DataverseRequestException ex) when (skipMissingAttachments && IsMissingFileAttachment(ex))
             {
                 return;
             }
@@ -945,10 +945,38 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         };
     }
 
-    private static bool IsMissingFileAttachment(InvalidOperationException ex)
+    private static bool IsMissingFileAttachment(DataverseRequestException ex)
     {
-        return ex.Message.IndexOf("Dataverse request failed (404)", StringComparison.OrdinalIgnoreCase) >= 0
-            && ex.Message.IndexOf("No file attachment found", StringComparison.OrdinalIgnoreCase) >= 0;
+        if (ex.StatusCode != System.Net.HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+
+        return GetDataverseErrorMessage(ex.ResponseBody)
+            .IndexOf("No file attachment found", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static string GetDataverseErrorMessage(string responseBody)
+    {
+        if (string.IsNullOrEmpty(responseBody))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            var node = JsonNode.Parse(responseBody);
+            var message = node?["error"]?["message"]?.GetValue<string>();
+            if (!string.IsNullOrEmpty(message))
+            {
+                return message!;
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        return responseBody;
     }
 
     /// <summary>
@@ -1094,7 +1122,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
     private async Task ProvisionSingleConnectionReferenceAsync(
         ConnectionReference connRef,
         ISyncDataverseClient dataverseClient,
-        IDictionary<string, CustomConnectorMetadata[]> prefixCache,
+        ConcurrentDictionary<string, CustomConnectorMetadata[]> prefixCache,
         IReadOnlyDictionary<string, Guid>? pushedConnectorIds,
         CancellationToken cancellationToken)
     {

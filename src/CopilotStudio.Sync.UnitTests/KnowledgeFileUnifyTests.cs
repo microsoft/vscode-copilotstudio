@@ -101,7 +101,7 @@ public class KnowledgeFileUnifyTests
 
         var dataverse = new Mock<ISyncDataverseClient>();
         dataverse.Setup(d => d.DownloadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<BotComponentId>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new InvalidOperationException("Dataverse request failed (404): {\"error\":{\"message\":\"No file attachment found for attribute: filedata\"}}"));
+            .ThrowsAsync(new DataverseRequestException(System.Net.HttpStatusCode.NotFound, "{\"error\":{\"message\":\"No file attachment found for attribute: filedata\"}}"));
 
         var downloaded = await synchronizer.DownloadKnowledgeFilesAsync(workspace, dataverse.Object, schemaNames: null, CancellationToken.None);
 
@@ -118,9 +118,9 @@ public class KnowledgeFileUnifyTests
 
         var dataverse = new Mock<ISyncDataverseClient>();
         dataverse.Setup(d => d.DownloadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<BotComponentId>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new InvalidOperationException("Dataverse request failed (404): {\"error\":{\"message\":\"No file attachment found for attribute: filedata\"}}"));
+            .ThrowsAsync(new DataverseRequestException(System.Net.HttpStatusCode.NotFound, "{\"error\":{\"message\":\"No file attachment found for attribute: filedata\"}}"));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => synchronizer.DownloadKnowledgeFilesAsync(
+        await Assert.ThrowsAsync<DataverseRequestException>(() => synchronizer.DownloadKnowledgeFilesAsync(
             workspace, dataverse.Object, schemaNames: new[] { fileComponent.SchemaNameString }, CancellationToken.None));
     }
 

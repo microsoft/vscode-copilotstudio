@@ -41,7 +41,7 @@ export async function registerVirtualKnowledgeProvider(context: vscode.Extension
   if (!virtualKnowledgeProvider) {
     virtualKnowledgeProvider = new virtualKnowledgeFileSystemProvider();
     const disposable = vscode.workspace.registerFileSystemProvider('virtualKnowledge', virtualKnowledgeProvider, { isReadonly: true, isCaseSensitive: true });
-    context.subscriptions.push(disposable);
+    context.subscriptions.push(disposable, virtualKnowledgeProvider);
   }
   virtualKnowledgeProvider.addWorkspace(workspace);
   return virtualKnowledgeProvider;
@@ -122,6 +122,7 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
   private workspaces: CopilotStudioWorkspace[] = [];
   private components = new Map<string, VirtualKnowledgeComponent>();
   private _onDidChangeFile = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
+  private _shutdownCts = new vscode.CancellationTokenSource();
   readonly onDidChangeFile = this._onDidChangeFile.event;
 
   addWorkspace(ws: CopilotStudioWorkspace): void {
@@ -196,7 +197,7 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
     }
   }
 
-  private async downloadWorkspaceFiles(ws: CopilotStudioWorkspace, schemaNames?: string[]): Promise<void> {
+  private async downloadWorkspaceFiles(ws: CopilotStudioWorkspace, schemaNames?: string[], token?: vscode.CancellationToken): Promise<void> {
     const { syncInfo, workspaceUri } = ws;
     if (!syncInfo || !syncInfo.dataverseEndpoint) {
       return;
@@ -211,7 +212,31 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
       workspaceUri,
       schemaNames
     };
-    await lspClient.sendRequest<DownloadKnowledgeFilesResponse>(LspMethods.DOWNLOAD_KNOWLEDGE_FILES, request);
+    await lspClient.sendRequest<DownloadKnowledgeFilesResponse>(LspMethods.DOWNLOAD_KNOWLEDGE_FILES, request, token);
+  }
+
+  dispose(): void {
+    this._shutdownCts.cancel();
+    this._shutdownCts.dispose();
+    this._onDidChangeFile.dispose();
+  }
+
+  private resolveComponent(uri: vscode.Uri): { key: string; component: VirtualKnowledgeComponent } | undefined {
+    const raw = uri.path.slice(1);
+    const rawComponent = this.components.get(raw);
+    if (rawComponent) {
+      return { key: raw, component: rawComponent };
+    }
+
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(raw);
+    } catch {
+      return undefined;
+    }
+
+    const decodedComponent = this.components.get(decoded);
+    return decodedComponent ? { key: decoded, component: decodedComponent } : undefined;
   }
 
   async stat(uri: vscode.Uri): Promise<vscode.FileStat> {
@@ -219,10 +244,9 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
       return { type: vscode.FileType.Directory, ctime: 0, mtime: 0, size: 0 };
     }
 
-    const key = uri.path.slice(1);
-    const component = this.components.get(key);
-    if (!component) {
-      logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `File not found in components map: <pii>${key}</pii>`);
+    const resolved = this.resolveComponent(uri);
+    if (!resolved) {
+      logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `File not found in components map: <pii>${uri.path.slice(1)}</pii>`);
       throw vscode.FileSystemError.FileNotFound();
     }
     return { type: vscode.FileType.File, ctime: 0, mtime: 0, size: 0 };
@@ -245,18 +269,18 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
   }
 
   async readFile(uri: vscode.Uri): Promise<Uint8Array> {
-    const key = uri.path.slice(1);
-    const component = this.components.get(key);
-    if (!component) {
-      logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `File not found: <pii>${key}</pii>`);
+    const resolved = this.resolveComponent(uri);
+    if (!resolved) {
+      logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `File not found: <pii>${uri.path.slice(1)}</pii>`);
       throw vscode.FileSystemError.FileNotFound();
     }
 
+    const { component } = resolved;
     const { workspaceUri } = component.ws;
     const localPath = path.join(vscode.Uri.parse(workspaceUri).fsPath, component.relativePath);
 
     try {
-      await this.downloadWorkspaceFiles(component.ws, [component.schema]);
+      await this.downloadWorkspaceFiles(component.ws, [component.schema], this._shutdownCts.token);
     } catch (err) {
       logger.error('KnowledgeFiles', `Failed to download ${component.fileName}: ${err}`);
       logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `Failed to download <pii>${component.fileName}</pii>: ${err}`);
