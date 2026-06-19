@@ -1635,7 +1635,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         CancellationToken cancellationToken)
     {
         var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
-        var (definition, deletedComponents) = UpdateCloudCache(fileAccessor, changeset, cloudFlowMetadata, aiPrompts, agentId);
+        var (definition, deletedComponents) = UpdateCloudCache(fileAccessor, changeset, cloudFlowMetadata, aiPrompts, agentId, preserveExistingAIModelDefinitions: true);
         await UpdateWorkspaceDirectoryAsync(fileAccessor, changeset, definition, deletedComponents, cancellationToken).ConfigureAwait(false);
         await WriteChangeTokenAsync(fileAccessor, changeset, cancellationToken).ConfigureAwait(false);
     }
@@ -1989,7 +1989,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
     // This will ensure our cloud cache reflects the actual cloud. This is simple because:
     // - the cloud cache has BotIds, so it's easy to apply the changeset.
     // - the user can't edit the cloud cache, so there's never any conflict resolution. 
-    private (DefinitionBase newCache, ImmutableArray<BotComponentBase> deletedComponents) UpdateCloudCache(IFileAccessor fileAccessor, PvaComponentChangeSet changeset, CloudFlowMetadata? cloudFlowMetadata = null, ImmutableArray<AIPromptMetadata> aiPrompts = default, Guid? agentId = null)
+    private (DefinitionBase newCache, ImmutableArray<BotComponentBase> deletedComponents) UpdateCloudCache(IFileAccessor fileAccessor, PvaComponentChangeSet changeset, CloudFlowMetadata? cloudFlowMetadata = null, ImmutableArray<AIPromptMetadata> aiPrompts = default, Guid? agentId = null, bool preserveExistingAIModelDefinitions = false)
     {
         var snapshot = ReadCloudCacheSnapshot(fileAccessor);
         if (snapshot == null)
@@ -2025,7 +2025,15 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             newSnapshot = newSnapshot.WithFlows(cloudFlowMetadata.Workflows).WithConnectionReferences(mergedConnectionReferences);
         }
 
-        if (!aiPrompts.IsDefaultOrEmpty)
+        if (preserveExistingAIModelDefinitions)
+        {
+            var mergedAIModelDefinitions = MergeAIModelDefinitionsPreservingExisting(snapshot, BuildAIModelDefinitions(aiPrompts));
+            if (!mergedAIModelDefinitions.IsDefaultOrEmpty)
+            {
+                newSnapshot = newSnapshot.WithAIModelDefinitions(mergedAIModelDefinitions);
+            }
+        }
+        else if (!aiPrompts.IsDefaultOrEmpty)
         {
             newSnapshot = newSnapshot.WithAIModelDefinitions(BuildAIModelDefinitions(aiPrompts));
         }
@@ -3093,12 +3101,20 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 return ImmutableArray<AIPromptMetadata>.Empty;
             }
 
-            Directory.CreateDirectory(promptsRoot);
+            if (remotePrompts.Any(prompt => !prompt.IsUnreadableReferencePlaceholder))
+            {
+                Directory.CreateDirectory(promptsRoot);
+            }
 
             foreach (var prompt in remotePrompts)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 prompts.Add(prompt);
+
+                if (prompt.IsUnreadableReferencePlaceholder)
+                {
+                    continue;
+                }
 
                 var folderName = $"{SanitizeFolderSegment(prompt.Name ?? string.Empty)}-{prompt.AIModelId}";
                 var folderPath = Path.Combine(promptsRoot, folderName);
@@ -3178,7 +3194,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 fileAccessor.Replace(promptMetadataTempPath, promptMetadataPath);
             }
 
-            var remoteIds = remotePrompts.Select(prompt => prompt.AIModelId).ToHashSet();
+            var remoteIds = remotePrompts
+                .Where(prompt => !prompt.IsUnreadableReferencePlaceholder)
+                .Select(prompt => prompt.AIModelId)
+                .ToHashSet();
             foreach (var existingFolder in existingFolders)
             {
                 if (!remoteIds.Contains(existingFolder.Key) && Directory.Exists(existingFolder.Value))
@@ -3289,6 +3308,37 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 outputType: outputType));
         }
         return builder.ToImmutable();
+    }
+
+    private static ImmutableArray<AIModelDefinition> MergeAIModelDefinitionsPreservingExisting(
+        DefinitionBase existingSnapshot,
+        ImmutableArray<AIModelDefinition> rebuilt)
+    {
+        var existing = existingSnapshot.AIModelDefinitions;
+        if (existing.IsDefaultOrEmpty)
+        {
+            return rebuilt;
+        }
+
+        var rebuiltIds = new HashSet<Guid>();
+        foreach (var definition in rebuilt)
+        {
+            if (definition.Id.HasValue)
+            {
+                rebuiltIds.Add(definition.Id.Value);
+            }
+        }
+
+        var merged = rebuilt.ToBuilder();
+        foreach (var definition in existing)
+        {
+            if (definition.Id.HasValue && !rebuiltIds.Contains(definition.Id.Value))
+            {
+                merged.Add(definition);
+            }
+        }
+
+        return merged.ToImmutable();
     }
 
     internal static (RecordDataType? inputType, RecordDataType? outputType) ExtractAIPromptIO(string? customConfiguration)
