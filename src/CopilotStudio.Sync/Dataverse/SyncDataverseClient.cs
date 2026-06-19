@@ -941,11 +941,11 @@ public class SyncDataverseClient : ISyncDataverseClient
         string? scopeFilter = null;
         if (syncInfo.AgentId.HasValue && syncInfo.AgentId != Guid.Empty)
         {
-            scopeFilter = $"_parentbotid_value eq {syncInfo.AgentId}";
+            scopeFilter = $"_parentbotid_value eq {syncInfo.AgentId} and componenttype ne 19";
         }
         else if (syncInfo.ComponentCollectionId.HasValue && syncInfo.ComponentCollectionId != Guid.Empty)
         {
-            scopeFilter = $"_parentbotcomponentcollectionid_value eq {syncInfo.ComponentCollectionId}";
+            scopeFilter = $"_parentbotcomponentcollectionid_value eq {syncInfo.ComponentCollectionId} and componenttype ne 19";
         }
 
         if (scopeFilter == null)
