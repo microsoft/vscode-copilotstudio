@@ -1084,6 +1084,41 @@
         }
 
         [Fact]
+        public async Task DownloadAllAIPromptsForAgentExcludesTestCaseComponentType()
+        {
+            HttpRequestMessage? capturedRequest = null;
+
+            var handlerMock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+
+            handlerMock
+                .Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.IsAny<HttpRequestMessage>(),
+                    ItExpr.IsAny<CancellationToken>())
+                .ReturnsAsync(new HttpResponseMessage
+                {
+                    StatusCode = HttpStatusCode.OK,
+                    Content = new StringContent("{\"value\":[]}", Encoding.UTF8, "application/json")
+                })
+                .Callback<HttpRequestMessage, CancellationToken>((req, _) =>
+                {
+                    capturedRequest = req;
+                });
+
+            var httpClient = new HttpClient(handlerMock.Object);
+            var client = CreateClientFromHttpClient(httpClient);
+
+            await client.DownloadAllAIPromptsForAgentAsync(new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
+
+            Assert.NotNull(capturedRequest);
+
+            var uri = Uri.UnescapeDataString(capturedRequest!.RequestUri!.ToString());
+
+            Assert.Contains("componenttype ne 19", uri);
+        }
+
+        [Fact]
         public async Task DownloadAllWorkflowsForAgentLargeComponentList()
         {
             int callCount = 0;
