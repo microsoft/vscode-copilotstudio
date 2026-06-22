@@ -16,7 +16,7 @@ using var channel = new InMemoryChannel();
 
 try
 {
-    ConsoleLog("Configuring services...");
+    Console.Write("Configuring services and building host...");
     var builder = Host.CreateApplicationBuilder(args);
     builder.AddLsp(args);
 
@@ -49,7 +49,6 @@ try
     };
     builder.Services.AddSingleton(sessionInfo);
 
-    ConsoleLog("Building host...");
     var host = builder.Build();
 
     var lspLogger = host.Services.GetRequiredService<ILspLogger>();
@@ -108,12 +107,4 @@ bool ParseTelemetryEnabledFromArgs(string[] args)
         }
     }
     return false;
-}
-
-// Writes a message to stdout for early bootstrap diagnostics
-// (before the MEL/LSP logging pipeline is available).
-// VS Code's LogOutputChannel adds its own timestamp and level prefix.
-void ConsoleLog(string message)
-{
-    Console.WriteLine(message);
 }

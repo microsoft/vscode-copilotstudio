@@ -473,6 +473,7 @@ export async function cloneAgentToLocalFolder(agent: IdentifyAgentResponse | und
     await window.withProgress({ location: ProgressLocation.Notification, cancellable: true, title }, async (progress, cancellationToken) => {
       cancellationToken.onCancellationRequested(() => {
         logger.logInfo(TelemetryEventsKeys.CloneAgentCancel, undefined, {
+          message: "Clone agent cancelled by user",
           agentId: agentInfo.agentId,
           environmentId: environmentInfo.environmentId,
         });
@@ -510,10 +511,9 @@ export async function cloneAgentToLocalFolder(agent: IdentifyAgentResponse | und
           await writePostOpenInstruction(context, workspaceUri, candidateAgentFile);
         } catch {
           logger.logInfo(TelemetryEventsKeys.PostOpenInstruction, undefined, {
+            message: 'Post-open instruction skipped: entry file not found',
             agentId: agentInfo.agentId,
-            environmentId: environmentInfo.environmentId,
-            phase: 'skipNoAgentFile',
-            detail: `A concrete ${entryFileName} was not recorded as a postOpen instruction`
+            environmentId: environmentInfo.environmentId
           });
         }
       }

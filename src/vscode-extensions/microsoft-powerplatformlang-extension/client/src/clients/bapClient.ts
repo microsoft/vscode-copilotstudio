@@ -118,7 +118,6 @@ export async function listEnvironmentsBySkuAsync(
     interactive: boolean = false
 ): Promise<EnvironmentInfo[]> {
     const query = SKU_QUERIES[sku];
-    logger.debug('BapClient', `Fetching ${sku} environments`);
 
     const response = await getAsync<EnvironmentResponse>(
         clusterCategory,
@@ -140,7 +139,7 @@ export async function listEnvironmentsBySkuAsync(
         .map(toEnvironmentInfo)
         .filter((env): env is EnvironmentInfo => env !== null);
     
-    logger.debug('BapClient', `Fetched ${permissionFilteredEnvs.length} ${sku} environment(s)`);
+    logger.logDebug('BapClient', `Found ${permissionFilteredEnvs.length} ${sku} environment(s)`);
     return permissionFilteredEnvs;
 }
 

@@ -86,6 +86,9 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            // Set request ID early so logs during context creation (e.g., agent resolution) include [Req: N].
+            _logger.SetCurrentRequestId(RequestId);
+
             _requestTelemetryScope?.RecordExecutionStart();
 
             // Report to telemetry which handler language we're using for this request.
@@ -138,7 +141,6 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
 
                 // End the request - the caller will return immediately if it cannot deserialize.
                 _requestTelemetryScope?.Dispose();
-                _logger.LogEndContext(MethodName);
 
                 // If the request is mutating, bubble the exception out so the queue shuts down.
                 if (isMutating)
@@ -164,8 +166,10 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
             // Restore the request ID into ambient context — it was captured at enqueue time
             // but doesn't flow across the queue boundary via AsyncLocal.
             _logger.SetCurrentRequestId(RequestId);
-            _logger.LogStartContext(MethodName);
+            string? agentName = context is IHasAgentName hasAgent ? hasAgent.AgentName : null;
+            _logger.LogStartContext(MethodName, agentName);
             Stopwatch stopwatch = Stopwatch.StartNew();
+            HandlerOutcome outcome = HandlerOutcome.Success;
 
             try
             {
@@ -223,8 +227,8 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
             catch (OperationCanceledException ex)
             {
                 // Record logs + metrics on cancellation.
+                outcome = HandlerOutcome.Canceled;
                 _requestTelemetryScope?.RecordCancellation();
-                _logger.LogInformation($"{MethodName} - Canceled");
 
                 _completionSource.TrySetCanceled(ex.CancellationToken);
             }
@@ -232,6 +236,7 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
             {
                 // Record logs and metrics on the exception.
                 // It's important that this can NEVER throw, or the queue will hang.
+                outcome = HandlerOutcome.Failure;
                 _requestTelemetryScope?.RecordException(ex);
                 _logger.LogException(ex);
 
@@ -240,7 +245,7 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
             finally
             {
                 _requestTelemetryScope?.Dispose();
-                _logger.LogEndContext(MethodName, stopwatch.ElapsedMilliseconds);
+                _logger.LogEndContext(MethodName, stopwatch.ElapsedMilliseconds, outcome, agentName);
             }
 
             // Return the result of this completion source to the caller

@@ -32,7 +32,7 @@ namespace Microsoft.PowerPlatformLS.Contracts.Internal.Common.Handlers
 
             if (_diagnosticsPublisher != null && isSyntaxChange)
             {
-                await _diagnosticsPublisher.PublishDiagnosticsForCurrentDocumentAsync<DocType>(context, cancellationToken);
+                await _diagnosticsPublisher.PublishDiagnosticsForCurrentDocumentAsync<DocType>(context, cancellationToken, logDiagnostics: false);
             }
         }
     }

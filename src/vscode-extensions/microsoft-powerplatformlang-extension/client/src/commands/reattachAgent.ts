@@ -96,7 +96,7 @@ const runReattachForWorkspace = async (context: vscode.ExtensionContext, workspa
     }
   }
 
-  logger.logInfo(TelemetryEventsKeys.ReattachAgentInfo, undefined, { message: `${getWorkspaceKindLabel(workspace)} <pii>${getWorkspaceIdentity(reattachedWorkspace)}</pii> ${wasRetarget ? 'retargeted' : 'reattached'} successfully.` });
+  logger.logInfo(TelemetryEventsKeys.ReattachAgentSuccess, undefined, { message: `${getWorkspaceKindLabel(workspace)} <pii>${getWorkspaceIdentity(reattachedWorkspace)}</pii> ${wasRetarget ? 'retargeted' : 'reattached'} successfully.` });
   return { workspace: reattachedWorkspace, response: reattachResult, wasRetarget };
 };
 
@@ -110,6 +110,8 @@ const finalizeRetargets = async (results: ReattachWorkspaceResult[], pushSucceed
 
 export const registerReattachAgentCommand = (context: vscode.ExtensionContext) => {
   const reattachAgentCommand = vscode.commands.registerCommand('microsoft-copilot-studio.reattachAgent', async (treeItem?: { workspace?: CopilotStudioWorkspace }) => {
+    logger.logInfo(TelemetryEventsKeys.ReattachAgentClick, undefined, { message: 'Reattach agent initiated' });
+
     if (getActiveSyncUri() !== undefined) {
       void vscode.window.showWarningMessage('A sync is already in progress. Please wait for it to finish before retargeting an agent.');
       return;
@@ -310,7 +312,7 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
                 anyConnectionsBound = anyConnectionsBound || autoBindResult.boundCount > 0;
                 workflowsEnabledTotal += autoBindResult.enabledWorkflowCount;
                 if (autoBindResult.disabledWorkflowNames.length > 0) {
-                  logger.logWarning(TelemetryEventsKeys.ReattachAgentInfo, `These workflows are disabled. Bind their connections, then enable them from the connection manager: <pii>${autoBindResult.disabledWorkflowNames.join(', ')}</pii>`);
+                  logger.logWarning(TelemetryEventsKeys.ReattachAgentError, `These workflows are disabled. Bind their connections, then enable them from the connection manager: <pii>${autoBindResult.disabledWorkflowNames.join(', ')}</pii>`);
                 }
               }
 

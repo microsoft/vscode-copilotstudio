@@ -43,7 +43,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
             return Interlocked.Increment(ref _lspRequestCounter);
         }
 
-        public void LogStartContext(string methodName)
+        public void LogStartContext(string methodName, string? agentName = null)
         {
             if (IsBuiltInLspMethod(methodName))
             {
@@ -51,25 +51,51 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
             }
 
             int reqId = LspRequestContext.CurrentRequestId;
-
-            _logger.LogInformation("[Req: {ReqId}] Started handler for: {Method}", reqId, methodName);
-        }
-
-        public void LogEndContext(string methodName, long durationMs = -1)
-        {
-            if (IsBuiltInLspMethod(methodName))
+            if (agentName != null)
             {
-                return;
-            }
-
-            int reqId = LspRequestContext.CurrentRequestId;
-            if (durationMs >= 0)
-            {
-                _logger.LogInformation("[Req: {ReqId}] Completed handler for: {Method}, duration={Duration}ms", reqId, methodName, durationMs);
+                _logger.LogInformation("[Req: {ReqId}] Started handler for: {Method}, agent='{Agent}'", reqId, methodName, agentName);
             }
             else
             {
-                _logger.LogInformation("[Req: {ReqId}] Completed handler for: {Method}", reqId, methodName);
+                _logger.LogInformation("[Req: {ReqId}] Started handler for: {Method}", reqId, methodName);
+            }
+        }
+
+        public void LogEndContext(string methodName, long durationMs = -1, HandlerOutcome outcome = HandlerOutcome.Success, string? agentName = null)
+        {
+            if (IsBuiltInLspMethod(methodName))
+            {
+                return;
+            }
+
+            int reqId = LspRequestContext.CurrentRequestId;
+            string outcomeText = outcome switch
+            {
+                HandlerOutcome.Canceled => "Canceled",
+                HandlerOutcome.Failure => "Failed",
+                _ => "Completed",
+            };
+            if (agentName != null)
+            {
+                if (durationMs >= 0)
+                {
+                    _logger.LogInformation("[Req: {ReqId}] {Outcome} handler for: {Method}, agent='{Agent}', duration={Duration}ms", reqId, outcomeText, methodName, agentName, durationMs);
+                }
+                else
+                {
+                    _logger.LogInformation("[Req: {ReqId}] {Outcome} handler for: {Method}, agent='{Agent}'", reqId, outcomeText, methodName, agentName);
+                }
+            }
+            else
+            {
+                if (durationMs >= 0)
+                {
+                    _logger.LogInformation("[Req: {ReqId}] {Outcome} handler for: {Method}, duration={Duration}ms", reqId, outcomeText, methodName, durationMs);
+                }
+                else
+                {
+                    _logger.LogInformation("[Req: {ReqId}] {Outcome} handler for: {Method}", reqId, outcomeText, methodName);
+                }
             }
         }
 
@@ -115,6 +141,11 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
             _logger.LogDebug(message, @params);
         }
 
+        public void LogTrace(string message, params object[] @params)
+        {
+            _logger.LogTrace(message, @params);
+        }
+
         public void SetCurrentRequestId(int requestId)
         {
             LspRequestContext.CurrentRequestId = requestId;
@@ -137,6 +168,44 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
             else if (altSafeMsg != null)
             {
                 _logger.LogInformation(altSafeMsg);
+            }
+#endif
+        }
+
+        public void LogSensitiveWarning(string message, string safeMessage)
+        {
+            int reqId = LspRequestContext.CurrentRequestId;
+            string prefix = reqId > 0 ? $"[Req: {reqId}] " : "";
+#if DEBUG
+            _logger.LogWarning("{Prefix}{Message}", prefix, message);
+#else
+            if (_isTestLogger)
+            {
+                _logger.LogWarning("{Prefix}{Message}", prefix, message);
+            }
+            else
+            {
+                // Safe message to telemetry (Warning level — reaches App Insights).
+                _logger.LogWarning("{Prefix}{Message}", prefix, safeMessage);
+            }
+#endif
+        }
+
+        public void LogSensitiveError(string message, string safeMessage)
+        {
+            int reqId = LspRequestContext.CurrentRequestId;
+            string prefix = reqId > 0 ? $"[Req: {reqId}] " : "";
+#if DEBUG
+            _logger.LogError("{Prefix}{Message}", prefix, message);
+#else
+            if (_isTestLogger)
+            {
+                _logger.LogError("{Prefix}{Message}", prefix, message);
+            }
+            else
+            {
+                // Safe message to telemetry (Error level — reaches App Insights).
+                _logger.LogError("{Prefix}{Message}", prefix, safeMessage);
             }
 #endif
         }

@@ -45,7 +45,7 @@ export async function maybeOpenFileFromPostOpen(context: vscode.ExtensionContext
 
         if (data.expiresAt && Date.now() > data.expiresAt) {
             await clear();
-            logger.logInfo(TelemetryEventsKeys.PostOpenInstruction, undefined, { phase: 'expire', detail: 'postOpenInstruction expired' });
+            logger.logInfo(TelemetryEventsKeys.PostOpenInstruction, undefined, { message: 'Post-open instruction expired' });
             return;
         }
 
@@ -53,7 +53,7 @@ export async function maybeOpenFileFromPostOpen(context: vscode.ExtensionContext
         const currentWorkspaces = new Set((vscode.workspace.workspaceFolders ?? []).map(f => f.uri.toString(true)));
         if (!currentWorkspaces.has(intendedWs)) {
             await clear();
-            logger.logInfo(TelemetryEventsKeys.PostOpenInstruction, undefined, { phase: 'workspaceMismatch', detail: 'postOpenInstruction workspace mismatch' });
+            logger.logInfo(TelemetryEventsKeys.PostOpenInstruction, undefined, { message: 'Post-open instruction skipped: workspace mismatch' });
             return;
         }
 
@@ -64,9 +64,8 @@ export async function maybeOpenFileFromPostOpen(context: vscode.ExtensionContext
             await vscode.window.showTextDocument(doc, { preview: false });
         } catch (err) {
             // While postOpen is best-effort, we do want to log failures to open the identified file.
-            logger.logInfo(TelemetryEventsKeys.PostOpenError, undefined, {
-                phase: 'openFailed',
-                detail: 'Failed to auto-open identified agent file after clone',
+            logger.logError(TelemetryEventsKeys.PostOpenError, undefined, {
+                message: 'Failed to auto-open agent file after clone',
                 error: err instanceof Error ? err.message : String(err)
             });
         }

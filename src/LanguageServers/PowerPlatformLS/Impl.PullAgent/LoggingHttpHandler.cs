@@ -7,7 +7,9 @@
     using System.Threading.Tasks;
 
     /// <summary>
-    /// Logs HTTP requests at Info level and network failures at Error level.
+    /// Logs HTTP request lifecycle. Successful responses at Info, failures at Error.
+    /// For non-2xx responses and network errors, this is the single authoritative error line —
+    /// LspExceptionHandler will not duplicate it for HttpRequestException.
     /// </summary>
     internal class LoggingHttpHandler : DelegatingHandler
     {
@@ -32,7 +34,14 @@
             try
             {
                 var response = await base.SendAsync(request, cancellationToken);
-                _logger.LogInformation("[Req: {ReqId}] HTTP response #{HttpId} completed: {Method} {Uri}, duration={Duration}ms, status={StatusCode}", reqId, httpId, request.Method, shortUri, sw.ElapsedMilliseconds, (int)response.StatusCode);
+                if (response.IsSuccessStatusCode)
+                {
+                    _logger.LogInformation("[Req: {ReqId}] HTTP request #{HttpId} completed: {Method} {Uri}, duration={Duration}ms, status={StatusCode}", reqId, httpId, request.Method, shortUri, sw.ElapsedMilliseconds, (int)response.StatusCode);
+                }
+                else
+                {
+                    _logger.LogError("[Req: {ReqId}] HTTP request #{HttpId} failed: {Method} {Uri}, duration={Duration}ms, status={StatusCode}", reqId, httpId, request.Method, shortUri, sw.ElapsedMilliseconds, (int)response.StatusCode);
+                }
                 return response;
             }
             catch (Exception e)

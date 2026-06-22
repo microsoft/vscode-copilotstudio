@@ -142,7 +142,6 @@ export async function listAgentsAsync(
   accountHint?: string,
   interactive: boolean = false
 ): Promise<AgentInfo[]> {
-  logger.debug('Dataverse', `Listing owned agents from: ${baseEndpoint.authority}`);
   const systemUserId = await whoAmIAsync(baseEndpoint, cancellationToken, accountId, accountHint, interactive);
 
   const filter = `ismanaged eq false and _ownerid_value eq ${systemUserId}`;
@@ -154,7 +153,7 @@ export async function listAgentsAsync(
   });
 
   const response = await getAsync<ListResponse<AgentDetails>>(uri, cancellationToken, accountId, accountHint, interactive);
-  logger.trace('Dataverse', `Found ${response.result.value.length} owned agent(s)`);
+  logger.logDebug('Dataverse', `Found ${response.result.value.length} owned agent(s)`);
   return response.result.value.map(getAgentInfo);
 }
 
@@ -178,7 +177,6 @@ export async function listSharedAgentsAsync(
   accountHint?: string,
   interactive: boolean = false
 ): Promise<AgentInfo[]> {
-  logger.debug('Dataverse', `Listing shared agents from: ${baseEndpoint.authority}`);
   const systemUserId = await whoAmIAsync(baseEndpoint, cancellationToken, accountId, accountHint, interactive);
 
   // Get all unmanaged bots the user can see, excluding ones they own
@@ -189,7 +187,7 @@ export async function listSharedAgentsAsync(
   });
   const response = await getAsync<ListResponse<AgentDetails>>(uri, cancellationToken, accountId, accountHint, interactive);
   const sharedAgents = projectSharedAgents(response.result.value);
-  logger.trace('Dataverse', `Found ${sharedAgents.length} shared agent(s)`);
+  logger.logDebug('Dataverse', `Found ${sharedAgents.length} shared agent(s)`);
   return sharedAgents;
 }
 

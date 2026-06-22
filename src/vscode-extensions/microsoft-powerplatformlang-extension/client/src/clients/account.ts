@@ -462,7 +462,7 @@ export async function getPreferredAccountId(clusterCategory: CoreServicesCluster
  * Uses coalescing to prevent multiple concurrent consent dialogs.
  */
 export async function switchAccount(clusterCategory: CoreServicesClusterCategory): Promise<boolean> {
-    logger.info('Auth', 'Account sign-in initiated');
+    logger.logTrace('Auth', 'Switch account initiated');
     clearRecoverableAuthState();
     while (pendingInteractiveAuth) {
         await pendingInteractiveAuth;
@@ -490,7 +490,7 @@ export async function switchAccount(clusterCategory: CoreServicesClusterCategory
                     accountId: session.account.id,
                     accountEmail: session.account.label
                 };
-                logger.info('Auth', `Signed in to account: ${session.account.label}`);
+                logger.logInfo(TelemetryEventsKeys.SwitchAccountSuccess, undefined, { message: `Switched account successfully to <Pii>${session.account.label}</Pii>` });
                 try {
                     const { clearWhoAmICache } = await import('./dataverseClient.js');
                     clearWhoAmICache();
@@ -500,11 +500,9 @@ export async function switchAccount(clusterCategory: CoreServicesClusterCategory
             return true;
         } catch (error) {
             if (isCancellationError(error)) {
-                logger.info('Auth', 'Account picker cancelled by user');
-                logger.logInfo(TelemetryEventsKeys.SwitchAccountError, undefined, { message: 'Account picker cancelled by user' });
+                logger.logInfo(TelemetryEventsKeys.SwitchAccountError, undefined, { message: 'Switch account cancelled by user.'});
             } else {
                 const message = error instanceof Error ? error.message : String(error);
-                logger.error('Auth', `Account sign-in failed: ${message}`);
                 logger.logError(TelemetryEventsKeys.SwitchAccountError, `Failed to sign in: <pii>${message}</pii>`);
             }
             return false;
