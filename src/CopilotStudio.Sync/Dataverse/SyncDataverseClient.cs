@@ -960,11 +960,11 @@ public class SyncDataverseClient : ISyncDataverseClient
         string? scopeFilter = null;
         if (syncInfo.AgentId.HasValue && syncInfo.AgentId != Guid.Empty)
         {
-            scopeFilter = $"_parentbotid_value eq {syncInfo.AgentId}";
+            scopeFilter = $"_parentbotid_value eq {syncInfo.AgentId} and componenttype ne 19";
         }
         else if (syncInfo.ComponentCollectionId.HasValue && syncInfo.ComponentCollectionId != Guid.Empty)
         {
-            scopeFilter = $"_parentbotcomponentcollectionid_value eq {syncInfo.ComponentCollectionId}";
+            scopeFilter = $"_parentbotcomponentcollectionid_value eq {syncInfo.ComponentCollectionId} and componenttype ne 19";
         }
 
         if (scopeFilter == null)
@@ -973,8 +973,7 @@ public class SyncDataverseClient : ISyncDataverseClient
         }
 
         var aiModelIds = new HashSet<Guid>();
-        var filter = $"componenttype eq 9 and {scopeFilter}";
-        string? nextPageUrl = $"{DataverseUrl}/api/data/v9.2/botcomponents?$select=botcomponentid,data&$filter={Uri.EscapeDataString(filter)}";
+        string? nextPageUrl = $"{DataverseUrl}/api/data/v9.2/botcomponents?$select=botcomponentid,data&$filter={Uri.EscapeDataString(scopeFilter)}";
 
         while (!string.IsNullOrEmpty(nextPageUrl))
         {
@@ -995,10 +994,12 @@ public class SyncDataverseClient : ISyncDataverseClient
                         continue;
                     }
 
-                    var aiModelIdMatch = Regex.Match(componentYaml!, @"aIModelId\s*:\s*([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})");
-                    if (aiModelIdMatch.Success && Guid.TryParse(aiModelIdMatch.Groups[1].Value, out var modelId))
+                    foreach (Match aiModelIdMatch in Regex.Matches(componentYaml!, @"aIModelId\s*:\s*([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"))
                     {
-                        aiModelIds.Add(modelId);
+                        if (Guid.TryParse(aiModelIdMatch.Groups[1].Value, out var modelId))
+                        {
+                            aiModelIds.Add(modelId);
+                        }
                     }
                 }
             }
@@ -1011,7 +1012,27 @@ public class SyncDataverseClient : ISyncDataverseClient
             return Array.Empty<AIPromptMetadata>();
         }
 
-        return await FetchAIPromptsByModelIdsAsync(aiModelIds, cancellationToken).ConfigureAwait(false);
+        var fetchedPrompts = await FetchAIPromptsByModelIdsAsync(aiModelIds, cancellationToken).ConfigureAwait(false);
+
+        var resolvedModelIds = fetchedPrompts.Select(prompt => prompt.AIModelId).ToHashSet();
+        var unresolvedModelIds = aiModelIds.Where(id => !resolvedModelIds.Contains(id)).ToArray();
+        if (unresolvedModelIds.Length == 0)
+        {
+            return fetchedPrompts;
+        }
+
+        var combined = new List<AIPromptMetadata>(fetchedPrompts);
+        foreach (var unresolvedModelId in unresolvedModelIds)
+        {
+            combined.Add(new AIPromptMetadata
+            {
+                AIModelId = unresolvedModelId,
+                Name = unresolvedModelId.ToString(),
+                IsUnreadableReferencePlaceholder = true,
+            });
+        }
+
+        return combined.ToArray();
     }
 
     private async Task<AIPromptMetadata[]> FetchAIPromptsByModelIdsAsync(IEnumerable<Guid> aiModelIds, CancellationToken cancellationToken)
@@ -1350,6 +1371,10 @@ public class SyncDataverseClient : ISyncDataverseClient
         [YamlIgnore]
         [JsonPropertyName("customconfiguration")]
         public string? CustomConfiguration { get; set; }
+
+        [YamlIgnore]
+        [JsonIgnore]
+        public bool IsUnreadableReferencePlaceholder { get; set; }
     }
 
     public class AIPromptResponse
