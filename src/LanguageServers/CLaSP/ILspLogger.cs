@@ -9,7 +9,7 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
     public interface ILspLogger
     {
         void LogStartContext(string methodName);
-        void LogEndContext(string methodName, long durationMs = -1);
+        void LogEndContext(string methodName, long durationMs = -1, bool succeeded = true);
         void LogDebug(string message, params object[] @params);
         void LogInformation(string message, params object[] @params);
 
