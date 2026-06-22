@@ -102,7 +102,7 @@ public class CliAgentNodeS4HIntegrationTests
         mockDataverse
             .Setup(x => x.EnsureConnectionReferenceExistsAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<Guid?>()))
-            .Returns(Task.CompletedTask);
+            .ReturnsAsync((Guid?)null);
 
         // Folder-aware overload: overlays the disk refs onto the raw definition before provisioning.
         await synchronizer.ProvisionConnectionReferencesAsync(

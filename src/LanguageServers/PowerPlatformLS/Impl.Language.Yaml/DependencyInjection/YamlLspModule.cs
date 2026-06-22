@@ -1,6 +1,8 @@
 ﻿namespace Microsoft.PowerPlatformLS.Impl.Language.Yaml.DependencyInjection
 {
     using Microsoft.Extensions.DependencyInjection;
+    using Microsoft.Extensions.DependencyInjection.Extensions;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.Internal;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common.DependencyInjection;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common.Framework;
@@ -34,7 +36,9 @@
 
         private static void AddYamlValidationRules(IServiceCollection services)
         {
+            services.TryAddSingleton<IFileAccessorFactory, FileAccessorFactory>();
             services.AddSingleton<IValidationRule<YamlLspDocument>, UniqueIdsErrorRule>();
+            services.AddSingleton<IValidationRule<YamlLspDocument>, WorkflowStateValidationRule>();
         }
 
         private static void AddYamlCompletionRules(IServiceCollection services)

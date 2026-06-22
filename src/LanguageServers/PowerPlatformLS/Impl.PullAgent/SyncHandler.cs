@@ -59,7 +59,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
                 var operationContext = await _operationContextProvider.GetAsync(syncInfo);
 
-                var (updatedDefinition, workflowResponse, aiPromptResponse) = await ExecuteAsync(workspace, operationContext, _dataverseClient, syncInfo, request.ConnectionBindings, cancellationToken);
+                var (updatedDefinition, workflowResponse, aiPromptResponse) = await ExecuteAsync(workspace, operationContext, _dataverseClient, syncInfo, cancellationToken);
                 var (_, localChanges) = await _synchronizer.GetLocalChangesAsync(workspace.FolderPath, updatedDefinition, _dataverseClient, syncInfo, cancellationToken);
 
                 return new SyncAgentResponse
@@ -87,7 +87,6 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             AuthoringOperationContextBase operationContext,
             ISyncDataverseClient dataverseClient,
             AgentSyncInfo syncInfo,
-            ImmutableArray<ConnectionBindingInput> connectionBindings,
             CancellationToken cancellationToken);
     }
 }

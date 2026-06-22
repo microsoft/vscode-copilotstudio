@@ -15,11 +15,17 @@ export const LspMethods = {
   UPLOAD_KNOWLEDGE_FILES: "powerplatformls/uploadKnowledgeFiles",
   LIST_ENVIRONMENTS: "powerplatformls/listEnvironments",
   LIST_WORKSPACES: "workspace/listWorkspaces",
-  PREPARE_REATTACH: "powerplatformls/prepareReattach",
   REATTACH_AGENT: "powerplatformls/reattachAgent",
-  PREPARE_PUSH: "powerplatformls/preparePush",
   SYNC_PULL: "powerplatformls/syncPull",
   SYNC_PUSH: "powerplatformls/syncPush",
+  LIST_AGENT_CONNECTIONS: "powerplatformls/listAgentConnections",
+  APPLY_CONNECTION_BINDINGS: "powerplatformls/applyConnectionBindings",
+  LIST_WORKFLOW_STATUS: "powerplatformls/listWorkflowStatus",
+  SET_WORKFLOW_STATES: "powerplatformls/setWorkflowStates",
+  DECLARE_CONNECTION_REFERENCES: "powerplatformls/declareConnectionReferences",
+  REMOVE_CONNECTION_REFERENCE: "powerplatformls/removeConnectionReference",
+  LIST_CONNECTORS: "powerplatformls/listConnectors",
+  CREATE_CONNECTION_REFERENCE: "powerplatformls/createConnectionReference",
 } as const;
 
 export enum CoreServicesClusterCategory {

@@ -5,5 +5,7 @@
         public static string BotManagement => nameof(BotManagement);
 
         public static string Dataverse => nameof(Dataverse);
+
+        public static string ConnectionCatalog => nameof(ConnectionCatalog);
     }
 }

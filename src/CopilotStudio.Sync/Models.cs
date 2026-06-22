@@ -234,6 +234,149 @@ public class ConnectionNeeded
 
 #endregion
 
+#region Connection management
+
+public class ConnectionInstance
+{
+    public string Name { get; init; } = string.Empty;
+
+    public string DisplayName { get; init; } = string.Empty;
+
+    public string Status { get; init; } = string.Empty;
+
+    public string Owner { get; init; } = string.Empty;
+}
+
+public class ConnectorInfo
+{
+    public string InternalId { get; init; } = string.Empty;
+
+    public string DisplayName { get; init; } = string.Empty;
+
+    public string Publisher { get; init; } = string.Empty;
+
+    public string Tier { get; init; } = string.Empty;
+
+    public string IconUri { get; init; } = string.Empty;
+}
+
+public class AgentConnectionView
+{
+    public string ConnectionReferenceLogicalName { get; init; } = string.Empty;
+
+    public string ConnectorId { get; init; } = string.Empty;
+
+    public string ConnectorName { get; init; } = string.Empty;
+
+    public string BoundConnectionId { get; init; } = string.Empty;
+
+    public bool BoundConnectionExists { get; init; }
+
+    public ImmutableArray<ConnectionInstance> Candidates { get; init; } = ImmutableArray<ConnectionInstance>.Empty;
+
+    public ImmutableArray<ConnectionReferenceUsage> Usages { get; init; } = ImmutableArray<ConnectionReferenceUsage>.Empty;
+
+    public bool IsDeclared { get; init; } = true;
+
+    public bool CatalogUnavailable { get; init; }
+}
+
+public enum UsageKind
+{
+    Action,
+    Topic,
+    Workflow,
+    Connector,
+    ConnectionReferencesFile,
+    BotDefinition,
+}
+
+public class ConnectionReferenceUsage
+{
+    public string LogicalName { get; init; } = string.Empty;
+
+    public string FilePath { get; init; } = string.Empty;
+
+    public UsageKind Kind { get; init; }
+
+    public string DisplayName { get; init; } = string.Empty;
+}
+
+public enum WorkflowState
+{
+    Unknown,
+    Draft,
+    Activated,
+    Suspended,
+}
+
+public class WorkflowStatusView
+{
+    public string WorkflowId { get; init; } = string.Empty;
+
+    public string DisplayName { get; init; } = string.Empty;
+
+    public string FilePath { get; init; } = string.Empty;
+
+    public WorkflowState State { get; init; }
+
+    public ImmutableArray<string> ConnectionReferenceLogicalNames { get; init; } = ImmutableArray<string>.Empty;
+
+    public bool CanEnable { get; init; }
+}
+
+public class WorkflowActivationResult
+{
+    public bool Succeeded { get; init; }
+
+    public string? Message { get; init; }
+
+    public ImmutableArray<WorkflowStatusView> Workflows { get; init; } = ImmutableArray<WorkflowStatusView>.Empty;
+}
+
+public class WorkflowActivationRequest
+{
+    public Guid WorkflowId { get; init; }
+
+    public bool Activate { get; init; }
+}
+
+public class ConnectionReferenceRemovalResult
+{
+    public bool Removed { get; init; }
+
+    public ImmutableArray<ConnectionReferenceUsage> Usages { get; init; } = ImmutableArray<ConnectionReferenceUsage>.Empty;
+}
+
+public class DeclareConnectionReferencesResult
+{
+    public ImmutableArray<string> Declared { get; init; } = ImmutableArray<string>.Empty;
+
+    public ImmutableArray<string> Invalid { get; init; } = ImmutableArray<string>.Empty;
+}
+
+public class ConnectionBindingRequest
+{
+    public string ConnectionReferenceLogicalName { get; init; } = string.Empty;
+
+    public string ConnectionId { get; init; } = string.Empty;
+
+    public string? ConnectionDisplayName { get; init; }
+}
+
+public class ConnectionsCacheFile
+{
+    public string SchemaVersion { get; init; } = "2";
+
+    public DateTimeOffset RefreshedAt { get; init; }
+
+    public ImmutableArray<AgentConnectionView> Connections { get; init; } = ImmutableArray<AgentConnectionView>.Empty;
+
+    public ImmutableArray<WorkflowStatusView> Workflows { get; init; } = ImmutableArray<WorkflowStatusView>.Empty;
+}
+
+#endregion
+
 #region CloudFlowMetadata
 
 public class CloudFlowMetadata
@@ -241,6 +384,12 @@ public class CloudFlowMetadata
     public ImmutableArray<CloudFlowDefinition> Workflows { get; init; } = ImmutableArray<CloudFlowDefinition>.Empty;
 
     public ImmutableArray<ConnectionReference> ConnectionReferences { get; init; } = ImmutableArray<ConnectionReference>.Empty;
+
+    /// <summary>
+    /// True when the workflow download completed without error. False indicates the result is
+    /// non-authoritative (a transient failure) and must not be treated as the cloud's full workflow set.
+    /// </summary>
+    public bool Succeeded { get; init; } = true;
 }
 
 #endregion
@@ -351,6 +500,15 @@ public class WorkspaceSyncInfo
 #endregion
 
 #region WorkflowResponse
+
+public enum WorkflowActivationMode
+{
+    PreserveSavedState,
+
+    ActivateWhenConnectionsBound,
+
+    DraftWhenConnectionsUnbound,
+}
 
 public class WorkflowResponse
 {

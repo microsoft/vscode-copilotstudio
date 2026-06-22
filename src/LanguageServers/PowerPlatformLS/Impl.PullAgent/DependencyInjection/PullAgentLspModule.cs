@@ -12,6 +12,7 @@
     using Microsoft.Agents.Platform.Content.Internal.Modules;
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.CopilotStudio.Sync;
+    using Microsoft.CopilotStudio.Sync.Dataverse;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
@@ -81,7 +82,8 @@
             services.AddTransient<AuthorizeCopilotStudioRequestHandler>();
             AddHttpClient<AuthorizeDataverseRequestHandler>(HttpClientNames.Dataverse);
             AddHttpClient<AuthorizeCopilotStudioRequestHandler>(HttpClientNames.BotManagement);
-
+            services.AddHttpClient(HttpClientNames.ConnectionCatalog);
+            services.AddSingleton<IConnectionCatalogClient>(sp => new PowerAppsClient(sp.GetRequiredService<System.Net.Http.IHttpClientFactory>().CreateClient(HttpClientNames.ConnectionCatalog), userAgent));
             services.AddSingleton<IMethodHandler, CloneAgentHandler>();
             services.AddSingleton<IMethodHandler, SyncPushHandler>();
             services.AddSingleton<IMethodHandler, SyncPullHandler>();
@@ -90,12 +92,17 @@
             services.AddSingleton<IMethodHandler, GetRemoteFileHandler>();
             services.AddSingleton<IMethodHandler, GetWorkspaceDetailsHandler>();
             services.AddSingleton<IMethodHandler, ReattachAgentHandler>();
-            services.AddSingleton<IMethodHandler, PrepareReattachHandler>();
-            services.AddSingleton<IMethodHandler, PreparePushHandler>();
             services.AddSingleton<IMethodHandler, ListKnowledgeFilesHandler>();
             services.AddSingleton<IMethodHandler, DownloadKnowledgeFilesHandler>();
             services.AddSingleton<IMethodHandler, UploadKnowledgeFilesHandler>();
-
+            services.AddSingleton<IMethodHandler, ListAgentConnectionsHandler>();
+            services.AddSingleton<IMethodHandler, ApplyConnectionBindingsHandler>();
+            services.AddSingleton<IMethodHandler, ListWorkflowStatusHandler>();
+            services.AddSingleton<IMethodHandler, SetWorkflowStatesHandler>();
+            services.AddSingleton<IMethodHandler, DeclareConnectionReferencesHandler>();
+            services.AddSingleton<IMethodHandler, RemoveConnectionReferenceHandler>();
+            services.AddSingleton<IMethodHandler, ListConnectorsHandler>();
+            services.AddSingleton<IMethodHandler, CreateConnectionReferenceHandler>();
             void AddHttpClient<THandler>(string name) where THandler : DelegatingHandler
             {
                 services.AddHttpClient(name)

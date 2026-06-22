@@ -4,7 +4,7 @@
     using Microsoft.CopilotStudio.McsCore;
     using Microsoft.Agents.ObjectModel.Abstractions;
     using Microsoft.Extensions.DependencyInjection;
-    using Microsoft.PowerPlatformLS.Contracts.FileLayout;
+    using Microsoft.Extensions.DependencyInjection.Extensions;
     using Microsoft.PowerPlatformLS.Contracts.Internal;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common.DependencyInjection;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common.Framework;
@@ -29,6 +29,8 @@
             services.AddValidationRulesProcessor<McsLspDocument>();
             services.AddSingleton<IAgentFilesAnalyzer, AgentFilesAnalyzer>();
             services.AddSingleton<IValidationRule<McsLspDocument>, BotElementDiagnosticsValidationRule>();
+            services.TryAddSingleton<IFileAccessorFactory, FileAccessorFactory>();
+            services.AddSingleton<IValidationRule<McsLspDocument>, ConnectionReferenceValidationRule>();
             services.AddSingleton<ILanguageAbstraction, McsLanguage>();
             services.AddSingleton<IFeatureConfiguration, EnabledFeatures>();
             services.AddSingleton<IDiagnosticsProvider<McsLspDocument>, DiagnosticsProvider>();
@@ -46,6 +48,7 @@
 
             AddMcsHandlers(services);
             services.AddCompletionRule<CopilotStudioCompletionRule>();
+            services.AddCompletionRule<ConnectionReferenceCompletionRule>();
 
             // Signature help, this is for Power Fx expressions 
             services.AddHandler<PowerFxSignatureHandler>();

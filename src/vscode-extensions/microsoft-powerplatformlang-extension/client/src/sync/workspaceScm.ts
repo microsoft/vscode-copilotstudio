@@ -172,7 +172,7 @@ export async function pushNewWorkspace(context: ExtensionContext, ws: CopilotStu
   for (let attempt = 1; ; attempt++) {
     await synchronizer.pull(virtualKnowledgeProvider);
     try {
-      await synchronizer.push(true);
+      await synchronizer.push(true, true);
       break;
     } catch (error) {
       const isTransient = (error as Error).message?.includes('Improper response, not implemented');

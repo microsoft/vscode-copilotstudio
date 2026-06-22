@@ -4,8 +4,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
     using System.Collections.Immutable;
 
-    internal class PreparePushResponse : ResponseBase
+    internal class ListWorkflowStatusResponse : ResponseBase
     {
-        public ImmutableArray<ConnectionNeeded> AgentConnections { get; init; } = ImmutableArray<ConnectionNeeded>.Empty;
+        public ImmutableArray<WorkflowStatusView> Workflows { get; init; } = ImmutableArray<WorkflowStatusView>.Empty;
     }
 }

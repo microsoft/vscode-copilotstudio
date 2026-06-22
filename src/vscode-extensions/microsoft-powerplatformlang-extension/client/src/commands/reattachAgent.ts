@@ -1,14 +1,14 @@
 import * as vscode from 'vscode';
-import { AccountInfo, ConnectionBinding, EnvironmentInfo, PrepareReattachRequest, PrepareReattachResponse, ReattachAgentRequest, ReattachAgentResponse } from '../types';
+import { AccountInfo, EnvironmentInfo, ReattachAgentRequest, ReattachAgentResponse } from '../types';
 import { DefaultCoreServicesClusterCategory, LspMethods, TelemetryEventsKeys } from '../constants';
 import { listEnvironmentsAsync } from '../clients/bapClient';
 import { hasStoredAccount, switchAccount, getPreferredTreeAccount, listStoredAccounts } from '../clients/account';
 import { pushNewWorkspace } from '../sync/workspaceScm';
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import logger from '../services/logger';
-import { logWorkflowIssues, logAIPromptIssues, withSyncCommandBusy } from '../sync/workspaceSynchronizer';
-import { getActiveAgentAccount, getAllProjectAccounts } from '../sync/localWorkspaces';
-import { createAgentConnections } from '../connections/connectionRepair';
+import { logAIPromptIssues, withSyncCommandBusy } from '../sync/workspaceSynchronizer';
+import { getActiveAgentAccount, getAllProjectAccounts, WorkspaceType, CopilotStudioWorkspace } from '../sync/localWorkspaces';
+import { autoBindAgentConnections, promptManageConnections } from '../connections/connectionManager';
 
 type ReattachEnvironmentPickItem = vscode.QuickPickItem & {
   environment: EnvironmentInfo;
@@ -119,6 +119,8 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
       const workspaceFolder = vscode.workspace.workspaceFolders[0];
       const workspaceUri = workspaceFolder.uri.toString() + '/'; // Ensure trailing slash for consistency with workspace cache entries
 
+      let workspaceNeedingConnections: CopilotStudioWorkspace | undefined;
+
       await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
@@ -131,70 +133,51 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
               const selectedAccount = pickedEnvironment.sourceAccount ?? getPreferredTreeAccount();
               const basePayload = await buildLspRequestPayload(undefined, environmentInfo, selectedAccount);
 
-              const prepareRequest: PrepareReattachRequest = {
+              const reattachRequest: ReattachAgentRequest = {
                 ...basePayload,
                 workspaceUri
               };
-              const prepareResult = await lspClient.sendRequest<PrepareReattachResponse>(LspMethods.PREPARE_REATTACH, prepareRequest);
-              if (prepareResult.code !== 200) {
-                logger.logError(TelemetryEventsKeys.ReattachAgentError, `Reattach prepare failed: ${prepareResult.message ?? 'Unknown error'}`);
-                return;
-              }
-
-              let connectionBindings: ConnectionBinding[] = [];
-              let unfinishedConnections: string[] = [];
-              try {
-                if (prepareResult.agentConnections && prepareResult.agentConnections.length > 0) {
-                  const repair = await createAgentConnections(
-                    prepareResult.agentConnections,
-                    environmentInfo,
-                    basePayload.accountInfo.clusterCategory ?? DefaultCoreServicesClusterCategory,
-                    selectedAccount ?? undefined
-                  );
-                  connectionBindings = repair.bindings;
-                  unfinishedConnections = repair.unfinished;
-                }
-              } catch (error) {
-                logger.logError(TelemetryEventsKeys.ConnectionCreationError, `Error creating agent connections: ${(error as Error).message}`);
-                unfinishedConnections = prepareResult.agentConnections?.map(c => c.connectionReferenceLogicalName) ?? [];
-              }
-
-              const finalizeRequest: ReattachAgentRequest = {
-                ...basePayload,
-                workspaceUri,
-                agentSyncInfo: prepareResult.agentSyncInfo,
-                connectionBindings,
-                isNewAgent: prepareResult.isNewAgent,
-                updateWorkspaceDirectory: prepareResult.updateWorkspaceDirectory
-              };
-              const reattachResult = await lspClient.sendRequest<ReattachAgentResponse>(LspMethods.REATTACH_AGENT, finalizeRequest);
+              const reattachResult = await lspClient.sendRequest<ReattachAgentResponse>(LspMethods.REATTACH_AGENT, reattachRequest);
               if (reattachResult.code !== 200) {
-                logger.logError(TelemetryEventsKeys.ReattachAgentError, `Reattach finalize failed: ${reattachResult.message ?? 'Unknown error'}`);
+                logger.logError(TelemetryEventsKeys.ReattachAgentError, `Reattach failed: ${reattachResult.message ?? 'Unknown error'}`);
                 return;
               }
 
-              if (unfinishedConnections.length > 0) {
-                void vscode.window.showWarningMessage(
-                  `The agent was reattached, but these connections still need to be set up before it can run: ${unfinishedConnections.join(', ')}.`
-                );
-              }
+              const reattachedWorkspace: CopilotStudioWorkspace = {
+                workspaceUri,
+                displayName: pickedEnvironment.label || 'Reattached Agent',
+                description: '',
+                icon: new vscode.ThemeIcon('symbol-key'),
+                type: WorkspaceType.Agent,
+                syncInfo: reattachResult.agentSyncInfo
+              };
 
               if (reattachResult.isNewAgent) {
-                const newWorkspace = {
-                  workspaceUri,
-                  displayName: 'Reattached Agent',
-                  description: '',
-                  icon: new vscode.ThemeIcon('symbol-key'),
-                  type: 0,
-                  syncInfo: reattachResult.agentSyncInfo
-                };
-                await pushNewWorkspace(context, newWorkspace);
+                await pushNewWorkspace(context, reattachedWorkspace);
                 logger.logInfo(TelemetryEventsKeys.ReattachAgentInfo, `New agent ${reattachResult.agentSyncInfo.agentId} reattached successfully.`);
               } else {
                 logger.logInfo(TelemetryEventsKeys.ReattachAgentInfo, `Existing agent ${reattachResult.agentSyncInfo.agentId} reattached successfully.`);
               }
 
-              logWorkflowIssues(reattachResult.workflowResponse);
+              const autoBindResult = await autoBindAgentConnections(reattachedWorkspace, true);
+              if (autoBindResult.needsNewCount > 0) {
+                workspaceNeedingConnections = reattachedWorkspace;
+              } else {
+                const parts: string[] = [];
+                if (autoBindResult.boundCount > 0) {
+                  parts.push('Agent connections were bound to existing cloud connections.');
+                }
+                if (autoBindResult.enabledWorkflowCount > 0) {
+                  parts.push(`${autoBindResult.enabledWorkflowCount} workflow${autoBindResult.enabledWorkflowCount === 1 ? ' was' : 's were'} enabled.`);
+                }
+                if (parts.length > 0) {
+                  void vscode.window.showInformationMessage(parts.join(' '));
+                }
+              }
+
+              if (autoBindResult.disabledWorkflowNames.length > 0) {
+                logger.logWarning(TelemetryEventsKeys.ReattachAgentInfo, `These workflows are disabled. Bind their connections, then enable them from the connection manager: <pii>${autoBindResult.disabledWorkflowNames.join(', ')}</pii>`);
+              }
               logAIPromptIssues(reattachResult.aiPromptResponse);
             } catch (error) {
               logger.logError(TelemetryEventsKeys.ReattachAgentError, `Error reattaching agent: ${(error as Error).message}`);
@@ -202,6 +185,10 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
           });
         }
       );
+
+      if (workspaceNeedingConnections) {
+        await promptManageConnections(context, workspaceNeedingConnections);
+      }
     });
     
     quickPick.onDidHide(() => quickPick.dispose());

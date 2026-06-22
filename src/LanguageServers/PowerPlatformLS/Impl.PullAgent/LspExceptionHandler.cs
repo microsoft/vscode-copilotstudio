@@ -34,10 +34,6 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 DirectoryNotFoundException dnf =>
                     LogErrorMessage(logger, 400, dnf.Message),
 
-                // Connection binding failed during reattach (e.g., missing connector config).
-                ConnectionBindingException cbe =>
-                    LogErrorMessage(logger, 400, cbe.Message),
-
                 // User validation: caller explicitly threw to signal bad input.
                 InvalidOperationException ioe =>
                     LogErrorMessage(logger, 400, ioe.Message),
