@@ -1,8 +1,6 @@
 ﻿namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
 {
-    using Microsoft.Extensions.DependencyInjection;
     using Microsoft.PowerPlatformLS.Contracts.Internal;
-    using Microsoft.PowerPlatformLS.Contracts.Internal.Common.DependencyInjection;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Completion;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
@@ -10,7 +8,6 @@
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Completion;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.DependencyInjection;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models;
-    using System;
     using System.Collections.Generic;
     using System.Linq;
     using System.Text.Json;
@@ -31,7 +28,7 @@
             var doc = world.AddFile(fileNameInTestEnvironment, text);
             var context = world.GetRequestContext(doc, index);
 
-            var rule = world.GetRequiredService<ICompletionRule<McsLspDocument>>();
+            var rule = world.GetRequiredServices<ICompletionRule<McsLspDocument>>().OfType<CopilotStudioCompletionRule>().Single();
 
             var completions = rule.ComputeCompletion(context, new CompletionContext());
             var list = completions.ToList();
@@ -58,7 +55,7 @@
 
             var doc = world.AddFile("topic2.mcs.yml");
 
-            var rule = world.GetRequiredService<ICompletionRule<McsLspDocument>>();
+            var rule = world.GetRequiredServices<ICompletionRule<McsLspDocument>>().OfType<CopilotStudioCompletionRule>().Single();
 
             // Verify handlers where registered.
             world.GetRequiredService<My1Handler>();
@@ -117,7 +114,7 @@
 
             var reqCtx = world.GetRequestContext(doc, search);
 
-            var rule = world.GetRequiredService<ICompletionRule<McsLspDocument>>();
+            var rule = world.GetRequiredServices<ICompletionRule<McsLspDocument>>().OfType<CopilotStudioCompletionRule>().Single();
 
             var results = rule.ComputeCompletion(reqCtx, new CompletionContext());
 

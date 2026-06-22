@@ -65,6 +65,12 @@ public interface ISyncDataverseClient
     Task BindConnectionReferenceAsync(string connectionReferenceLogicalName, string connectionLogicalName, CancellationToken cancellationToken, string? connectionReferenceDisplayName = null);
 
     /// <summary>
+    /// Sets a workflow's activation state. When activate is true the workflow is activated
+    /// (statecode 1, statuscode 2); otherwise it is set back to draft (statecode 0, statuscode 1).
+    /// </summary>
+    Task SetWorkflowStateAsync(Guid workflowId, bool activate, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Get connection references by logical names.
     /// </summary>
     Task<ConnectionReferenceInfo[]> GetConnectionReferencesByLogicalNamesAsync(IEnumerable<string> logicalNames, CancellationToken cancellationToken);

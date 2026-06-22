@@ -222,12 +222,14 @@ public interface IWorkspaceSynchronizer
     /// <param name="dataverseClient">The dataverse client to use for communication with the dataverse service.</param>
     /// <param name="agentId">The Id for the agent.</param>
     /// <param name="cancellationToken">Cancellation token to cancel the operation.</param>
+    /// <param name="activationMode">Workflow activation mode.</param>
     /// <returns>List of workflow responses.</returns>
     Task<(ImmutableArray<WorkflowResponse>, CloudFlowMetadata)> UpsertWorkflowForAgentAsync(
         DirectoryPath workspaceFolder,
         ISyncDataverseClient dataverseClient,
         Guid? agentId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        WorkflowActivationMode activationMode = WorkflowActivationMode.PreserveSavedState);
 
     /// <summary>
     /// Pull AI Builder prompt models for agent
@@ -338,6 +340,12 @@ public interface IWorkspaceSynchronizer
         DefinitionBase definition,
         ISyncDataverseClient dataverseClient,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Deletes the local component sync baselines (custom connector, knowledge file, and AI prompt content hashes).
+    /// </summary>
+    /// <param name="workspaceFolder">The location of the root of the workspace</param>
+    void ClearComponentSyncBaselines(DirectoryPath workspaceFolder);
 
     /// <summary>
     /// Pushes local custom connector edits to Dataverse.

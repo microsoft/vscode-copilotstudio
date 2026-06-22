@@ -120,6 +120,30 @@
           "command": "microsoft-copilot-studio.workflow.visualize",
           "when": "resourceFilename == workflow.json && resourcePath =~ /workflows/",
           "group": "navigation"
+        },
+        {
+          "command": "microsoft-copilot-studio.manageConnections",
+          "when": "resourceFilename == connectionreferences.mcs.yml",
+          "group": "navigation"
+        },
+        {
+          "command": "microsoft-copilot-studio.manageConnections",
+          "when": "resourcePath =~ /[\\\\/]connections[\\\\/]/ && resourceExtname == .yml",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "microsoft-copilot-studio.manageConnections",
+          "when": "editorLangId == CopilotStudio",
+          "group": "z_commands"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "microsoft-copilot-studio.manageConnections",
+          "when": "resourceExtname == .yml && resourceFilename =~ /\\.mcs\\.yml$/",
+          "group": "z_commands"
         }
       ],
       "view/title": [
@@ -178,6 +202,11 @@
         {
           "command": "microsoft-copilot-studio.applyChanges",
           "when": "view == agent-changes && viewItem == changeGroup-local",
+          "group": "inline"
+        },
+        {
+          "command": "microsoft-copilot-studio.manageConnections",
+          "when": "view == agent-changes && viewItem == agent",
           "group": "inline"
         }
       ],
@@ -294,6 +323,11 @@
         "command": "microsoft-copilot-studio.reattachAgent",
         "title": "Copilot Studio: Reattach Agent",
         "icon": "$(repo-push)"
+      },
+      {
+        "command": "microsoft-copilot-studio.manageConnections",
+        "title": "Copilot Studio: Manage Connections",
+        "icon": "$(plug)"
       },
       {
         "command": "microsoft-copilot-studio.refreshAgentTreeView",

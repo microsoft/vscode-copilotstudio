@@ -1,13 +1,12 @@
 import * as vscode from 'vscode';
 import { resetAccount } from '../clients/account';
-import { SyncRequest, SyncResponse, WorkflowResponse, AIPromptResponse, ConnectionBinding, EnvironmentInfo, PreparePushRequest, PreparePushResponse } from '../types';
+import { SyncRequest, SyncResponse, WorkflowResponse, AIPromptResponse } from '../types';
 import { CopilotStudioWorkspace, tryRepairAgentManagementEndpoint } from './localWorkspaces';
 import { uploadKnowledgeFiles } from '../knowledgeFiles/uploadKnowledgeFiles';
 import { virtualKnowledgeFileSystemProvider } from '../knowledgeFiles/virtualKnowledgeFile';
 import { knowledgeTreeDataProvider } from '../knowledgeFiles/knowledgeFileTree';
-import { DefaultCoreServicesClusterCategory, LspMethods, TelemetryEventsKeys } from '../constants';
+import { LspMethods, TelemetryEventsKeys } from '../constants';
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
-import { createAgentConnections } from '../connections/connectionRepair';
 import logger from '../services/logger';
 
 let treeDataProvider: knowledgeTreeDataProvider | undefined;
@@ -69,7 +68,7 @@ export async function withSyncCommandBusy<T>(workspaceUri: string, body: () => P
 export interface WorkspaceSynchronizer {
     workspace: CopilotStudioWorkspace;
     syncState: SyncState;
-    push: (suppressErrorNotification?: boolean, connectionBindings?: ConnectionBinding[]) => Promise<SyncResponse | undefined>;
+    push: (suppressErrorNotification?: boolean, suppressWorkflowIssues?: boolean) => Promise<SyncResponse | undefined>;
     pull: (virtualProvider: virtualKnowledgeFileSystemProvider) => Promise<SyncResponse | undefined >;
     fetch: () => Promise<void>;
     subscribe: (listener: SyncStateListener) => () => void;
@@ -118,9 +117,9 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
   return {
     workspace: ws,
     get syncState() { return currentState; },
-    push: async (suppressErrorNotification = false, connectionBindings: ConnectionBinding[] = []): Promise<SyncResponse> => {
+    push: async (suppressErrorNotification = false, suppressWorkflowIssues = false): Promise<SyncResponse> => {
       return await executeSyncOperation(async () => {
-        const response = await sync(ws, 'applying changes', LspMethods.SYNC_PUSH, false, suppressErrorNotification, connectionBindings);
+        const response = await sync(ws, 'applying changes', LspMethods.SYNC_PUSH, false, suppressErrorNotification, suppressWorkflowIssues);
         await uploadKnowledgeFiles(ws);
         return response;
       }, SyncState.Pushing);
@@ -160,7 +159,7 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
   };
 }
 
-export async function sync(workspace: CopilotStudioWorkspace, displayText: string, methodName: string, silent: boolean, suppressErrorNotification = false, connectionBindings: ConnectionBinding[] = []): Promise<SyncResponse> {
+export async function sync(workspace: CopilotStudioWorkspace, displayText: string, methodName: string, silent: boolean, suppressErrorNotification = false, suppressWorkflowIssues = false): Promise<SyncResponse> {
   const { syncInfo, workspaceUri } = workspace;
   if (!syncInfo) {
     throw new Error(`${displayText} failed. Connection file .mcs::conn.json is missing, please clone again.`);
@@ -180,7 +179,6 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
   const request: SyncRequest = {
     ...await buildLspRequestPayload(syncInfo),
     workspaceUri,
-    connectionBindings,
   };
 
   try {
@@ -190,7 +188,9 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
         return await lspClient.sendRequest<SyncResponse>(methodName, request);
       });
     logger.logInfo(TelemetryEventsKeys.SyncWorkspaceSuccess, `Successfully completed ${displayText}`);
-    logWorkflowIssues(result.workflowResponse);
+    if (!suppressWorkflowIssues) {
+      logWorkflowIssues(result.workflowResponse);
+    }
     logAIPromptIssues(result.aiPromptResponse);
     return result;
   } catch (error) {
@@ -198,7 +198,7 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
       logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Your current account does not have permission. Please sign in with the account <pii>(${accountInfo.accountEmail ?? accountInfo.accountId})</pii> to perform this operation.`);
       try {
         resetAccount();
-        return await sync(workspace, displayText, methodName, silent, suppressErrorNotification, connectionBindings);
+        return await sync(workspace, displayText, methodName, silent, suppressErrorNotification, suppressWorkflowIssues);
       } catch (error) {
         logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Re-authentication failed: ${(error as Error).message}`);
         throw error;
@@ -211,63 +211,6 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
       throw error;
     }
   }
-}
-
-export type PreparePushConnectionsResult =
-  | { status: 'ready'; bindings: ConnectionBinding[] }
-  | { status: 'failed' }
-  | { status: 'incomplete'; bindings: ConnectionBinding[]; unfinished: string[] };
-
-export async function preparePushConnections(ws: CopilotStudioWorkspace): Promise<PreparePushConnectionsResult> {
-  const { syncInfo, workspaceUri } = ws;
-  if (!syncInfo) {
-    return { status: 'ready', bindings: [] };
-  }
-
-  const request: PreparePushRequest = {
-    ...await buildLspRequestPayload(syncInfo),
-    workspaceUri,
-  };
-
-  const prepareResult = await lspClient.sendRequest<PreparePushResponse>(LspMethods.PREPARE_PUSH, request);
-  if (prepareResult.code !== 200) {
-    logger.logError(TelemetryEventsKeys.ConnectionCreationError, `Prepare push for connections failed: ${prepareResult.message ?? 'Unknown error'}`);
-    return { status: 'failed' };
-  }
-
-  if (!prepareResult.agentConnections || prepareResult.agentConnections.length === 0) {
-    return { status: 'ready', bindings: [] };
-  }
-
-  const environmentInfo: EnvironmentInfo = {
-    environmentId: syncInfo.environmentId,
-    dataverseUrl: syncInfo.dataverseEndpoint,
-    agentManagementUrl: syncInfo.agentManagementEndpoint,
-    displayName: ''
-  };
-  const account = {
-    accountId: syncInfo.accountInfo.accountId,
-    accountEmail: syncInfo.accountInfo.accountEmail
-  };
-
-  let repair;
-  try {
-    repair = await createAgentConnections(
-      prepareResult.agentConnections,
-      environmentInfo,
-      syncInfo.accountInfo.clusterCategory ?? DefaultCoreServicesClusterCategory,
-      account
-    );
-  } catch (error) {
-    logger.logError(TelemetryEventsKeys.ConnectionCreationError, `Error creating agent connections: ${(error as Error).message}`);
-    return { status: 'failed' };
-  }
-
-  if (repair.unfinished.length > 0) {
-    return { status: 'incomplete', bindings: repair.bindings, unfinished: repair.unfinished };
-  }
-
-  return { status: 'ready', bindings: repair.bindings };
 }
 
 export function logWorkflowIssues(workflows: WorkflowResponse[] | undefined) {
@@ -288,9 +231,9 @@ export function logWorkflowIssues(workflows: WorkflowResponse[] | undefined) {
   }
 
   if (disabledWorkflows.length > 0) {
-    logger.logWarning(TelemetryEventsKeys.SyncWorkspaceError, `These workflows need reestablish connection and need to be enabled in MCS portal: ${disabledWorkflows.join(", ")}`);
+    logger.logWarning(TelemetryEventsKeys.SyncWorkspaceError, `These workflows are disabled. Bind their connections, then enable them from the connection manager: <pii>${disabledWorkflows.join(", ")}</pii>`);
   } else if (failedWorkflows.length > 0) {
-    logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Workflow errors: ${failedWorkflows.join(", ")}`);
+    logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Workflow errors: <pii>${failedWorkflows.join(", ")}</pii>`);
   }
 }
 

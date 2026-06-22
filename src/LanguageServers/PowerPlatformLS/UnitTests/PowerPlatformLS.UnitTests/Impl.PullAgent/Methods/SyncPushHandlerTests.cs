@@ -1,8 +1,6 @@
 namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
 {
-    using Microsoft.Agents.ObjectModel;
     using Microsoft.Agents.Platform.Content;
-    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.CopilotStudio.Sync.Dataverse;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
@@ -125,10 +123,10 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
         public bool PushAttempted { get; private set; }
 
         public override Task<(ImmutableArray<WorkflowResponse>, CloudFlowMetadata)> UpsertWorkflowForAgentAsync(
-            DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
+            DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken, WorkflowActivationMode activationMode = WorkflowActivationMode.PreserveSavedState)
         {
             PushAttempted = true;
-            return base.UpsertWorkflowForAgentAsync(workspaceFolder, dataverseClient, agentId, cancellationToken);
+            return base.UpsertWorkflowForAgentAsync(workspaceFolder, dataverseClient, agentId, cancellationToken, activationMode);
         }
     }
 }

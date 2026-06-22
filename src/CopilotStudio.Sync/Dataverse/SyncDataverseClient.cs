@@ -136,6 +136,7 @@ public class SyncDataverseClient : ISyncDataverseClient
         var errorMessage = string.Empty;
         try
         {
+            var shouldActivate = workflowMetadata.StateCode != 0;
             workflowMetadata.StateCode = null;
             workflowMetadata.StatusCode = null;
             var requestBody = CreateWorkflowRequestBody(workflowMetadata);
@@ -149,9 +150,17 @@ public class SyncDataverseClient : ISyncDataverseClient
                 cancellationToken
             ).ConfigureAwait(false);
 
-            await ActivateWorkflowAsync(workflowMetadata.WorkflowId, cancellationToken).ConfigureAwait(false);
-            workflowMetadata.StateCode = 1;
-            workflowMetadata.StatusCode = 2;
+            if (shouldActivate)
+            {
+                await ActivateWorkflowAsync(workflowMetadata.WorkflowId, cancellationToken).ConfigureAwait(false);
+                workflowMetadata.StateCode = 1;
+                workflowMetadata.StatusCode = 2;
+            }
+            else
+            {
+                workflowMetadata.StateCode = 0;
+                workflowMetadata.StatusCode = 1;
+            }
         }
         catch (OperationCanceledException)
         {
@@ -428,6 +437,18 @@ public class SyncDataverseClient : ISyncDataverseClient
         };
 
         await SendAsync<object>(HttpMethodHelper.Patch, activateUrl, activateBody, false, cancellationToken).ConfigureAwait(false);
+    }
+
+    public virtual async Task SetWorkflowStateAsync(Guid workflowId, bool activate, CancellationToken cancellationToken)
+    {
+        var url = $"{DataverseUrl}/api/data/v9.2/workflows({workflowId})";
+        var body = new Dictionary<string, object?>
+        {
+            ["statecode"] = activate ? 1 : 0,
+            ["statuscode"] = activate ? 2 : 1,
+        };
+
+        await SendAsync<object>(HttpMethodHelper.Patch, url, body, false, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<List<Guid>> GetAllBotComponentIdsAsync(AgentSyncInfo syncInfo, CancellationToken cancellationToken)
@@ -730,11 +751,7 @@ public class SyncDataverseClient : ISyncDataverseClient
         };
     }
 
-    public virtual async Task EnsureConnectionReferenceExistsAsync(
-        string connectionReferenceLogicalName,
-        string connectorId,
-        CancellationToken cancellationToken,
-        Guid? customConnectorRowId = null)
+    public virtual async Task EnsureConnectionReferenceExistsAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken, Guid? customConnectorRowId = null)
     {
         var existing = await GetConnectionReferenceByLogicalNameAsync(connectionReferenceLogicalName, cancellationToken).ConfigureAwait(false);
         if (existing is null)
@@ -745,9 +762,7 @@ public class SyncDataverseClient : ISyncDataverseClient
 
         var desiredInternalId = ExtractConnectorInternalId(connectorId);
         var existingInternalId = ExtractConnectorInternalId(existing.ConnectorId);
-        if (!string.IsNullOrWhiteSpace(desiredInternalId) &&
-            !string.IsNullOrWhiteSpace(existingInternalId) &&
-            !string.Equals(existingInternalId, desiredInternalId, StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(desiredInternalId) && !string.IsNullOrWhiteSpace(existingInternalId) && !string.Equals(existingInternalId, desiredInternalId, StringComparison.OrdinalIgnoreCase))
         {
             await UpdateConnectionReferenceConnectorAsync(existing.ConnectionReferenceId, connectorId, customConnectorRowId, cancellationToken).ConfigureAwait(false);
         }
@@ -798,13 +813,6 @@ public class SyncDataverseClient : ISyncDataverseClient
         await SendAsync<object>(HttpMethodHelper.Patch, patchUri.ToString(), body, false, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Binds a connection reference to a connection by setting its connectionid.
-    /// </summary>
-    /// <param name="connectionReferenceLogicalName">Logical name of the connection reference to bind.</param>
-    /// <param name="connectionLogicalName">The bound connection's logical name.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <param name="connectionReferenceDisplayName">Optional display name to set on the reference.</param>
     public virtual async Task BindConnectionReferenceAsync(string connectionReferenceLogicalName, string connectionLogicalName, CancellationToken cancellationToken, string? connectionReferenceDisplayName = null)
     {
         if (connectionReferenceLogicalName is null)
@@ -831,6 +839,7 @@ public class SyncDataverseClient : ISyncDataverseClient
         }
 
         var connectionReferenceId = existing[0].ConnectionReferenceId;
+
         var patchUri = new Uri(new Uri(DataverseUrl), $"/api/data/v9.2/connectionreferences({connectionReferenceId})");
 
         var body = new Dictionary<string, object>
@@ -1321,6 +1330,9 @@ public class SyncDataverseClient : ISyncDataverseClient
         [YamlIgnore]
         [JsonPropertyName("clientdata")]
         public string? ClientData { get; set; }
+
+        [JsonIgnore]
+        public List<string> ConnectionReferences { get; set; } = new();
     }
 
     public class ManagedProperty

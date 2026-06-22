@@ -197,6 +197,55 @@ public class KnowledgeFileUnifyTests
     }
 
     [Fact]
+    public async Task UploadKnowledgeFiles_UnchangedSinceLastUpload_SkipsSecondUpload()
+    {
+        var (_, definition, accessor, synchronizer, workspace) =
+            await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
+
+        var fileComponent = definition.Components.OfType<FileAttachmentComponent>().Single();
+        await accessor.WriteAsync(
+            new AgentFilePath($"capabilities/knowledge/files/{fileComponent.DisplayName}"), FileBytes, CancellationToken.None);
+
+        var dataverse = new Mock<ISyncDataverseClient>();
+        dataverse.Setup(d => d.UploadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var first = await synchronizer.UploadKnowledgeFilesAsync(workspace, dataverse.Object, CancellationToken.None);
+        var second = await synchronizer.UploadKnowledgeFilesAsync(workspace, dataverse.Object, CancellationToken.None);
+
+        Assert.Single(first);
+        Assert.Empty(second);
+        dataverse.Verify(
+            d => d.UploadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task UploadKnowledgeFiles_ContentChanged_ReUploads()
+    {
+        var (_, definition, accessor, synchronizer, workspace) =
+            await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
+
+        var fileComponent = definition.Components.OfType<FileAttachmentComponent>().Single();
+        var contentPath = new AgentFilePath($"capabilities/knowledge/files/{fileComponent.DisplayName}");
+        await accessor.WriteAsync(contentPath, FileBytes, CancellationToken.None);
+
+        var dataverse = new Mock<ISyncDataverseClient>();
+        dataverse.Setup(d => d.UploadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        await synchronizer.UploadKnowledgeFilesAsync(workspace, dataverse.Object, CancellationToken.None);
+
+        await accessor.WriteAsync(contentPath, Encoding.UTF8.GetBytes("col1,col2\n3,4\n9,9\n"), CancellationToken.None);
+        var second = await synchronizer.UploadKnowledgeFilesAsync(workspace, dataverse.Object, CancellationToken.None);
+
+        Assert.Single(second);
+        dataverse.Verify(
+            d => d.UploadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Exactly(2));
+    }
+
+    [Fact]
     public async Task GetLocalChanges_NewKnowledgeFileOnDisk_CreatesComponentWithoutWritingMetadata()
     {
         var (_, definition, accessor, synchronizer, workspace) =

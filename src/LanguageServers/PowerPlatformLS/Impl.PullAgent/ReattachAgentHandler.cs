@@ -1,6 +1,6 @@
 namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 {
-    using Microsoft.Agents.Platform.Content.Exceptions;
+    using Microsoft.Agents.ObjectModel;
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.CopilotStudio.Sync.Dataverse;
@@ -13,8 +13,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using System.Threading.Tasks;
 
     /// <summary>
-    /// Binds the connections the client created after <see cref="PrepareReattachRequest"/>, then upserts workflows and AI prompts and syncs the workspace.
-    /// Binding runs before the workflow upsert so workflows that depend on those connections succeed.
+    /// Reattaches a local agent workspace to a cloud environment.
     /// </summary>
     [LanguageServerEndpoint(ReattachAgentRequest.MessageName, LanguageServerConstants.DefaultLanguageName)]
     internal class ReattachAgentHandler : IRequestHandler<ReattachAgentRequest, ReattachAgentResponse, RequestContext>
@@ -57,16 +56,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         public async Task<ReattachAgentResponse> HandleRequestAsync(ReattachAgentRequest request, RequestContext context, CancellationToken cancellationToken)
         {
             var workspaceFolder = request.WorkspaceUri.ToDirectoryPath();
-
-            var defaultSyncInfo = new AgentSyncInfo()
-            {
-                AgentId = Guid.Empty,
-                DataverseEndpoint = new Uri(request.EnvironmentInfo.DataverseUrl),
-                EnvironmentId = request.EnvironmentInfo.EnvironmentId,
-                AccountInfo = request.AccountInfo,
-                SolutionVersions = request.SolutionVersions,
-                AgentManagementEndpoint = new Uri(request.EnvironmentInfo.AgentManagementUrl)
-            };
+            var defaultSyncInfo = ConnectionHelper.BuildDefaultSyncInfo(request);
 
             try
             {
@@ -77,54 +67,83 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
                 if (!language.IsValidAgentDirectory(workspaceFolder, out _))
                 {
-                    return new ReattachAgentResponse()
+                    return CreateErrorResponse(400, "Agent directory is not valid for reattach. Try opening root of the selected agent folder.", defaultSyncInfo);
+                }
+
+                if (_workspaceSynchronizer.IsSyncInfoAvailable(workspaceFolder))
+                {
+                    return CreateErrorResponse(400, "This agent is already connected to a cloud instance.", defaultSyncInfo);
+                }
+
+                string thisSchema = string.Empty;
+                string agentDisplayName = "ReattachAgent";
+
+                if (workspace.Definition is BotComponentCollectionDefinition collection)
+                {
+                    thisSchema = collection.GetRootSchemaName();
+                }
+                else if (workspace.Definition is BotDefinition bot)
+                {
+                    thisSchema = bot.GetRootSchemaName();
+                    if (!string.IsNullOrEmpty(bot.Entity?.DisplayName))
                     {
-                        Code = 400,
-                        Message = "Agent directory is not valid for reattach. Try opening root of the selected agent folder.",
-                        AgentSyncInfo = defaultSyncInfo
-                    };
+                        agentDisplayName = bot.Entity!.DisplayName!;
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(thisSchema) && !SchemaNameValidator.IsValid(thisSchema))
+                {
+                    return CreateErrorResponse(400, $"Invalid schema name '{thisSchema}'.", defaultSyncInfo);
                 }
 
                 var classification = AgentClassifier.Classify(workspace.Definition, workspaceFolder.ToString());
                 if (!classification.Allows(SyncOperation.Reattach))
                 {
-                    return new ReattachAgentResponse()
-                    {
-                        Code = 400,
-                        Message = AuthoringSupportGate.DescribeBlocked(classification, SyncOperation.Reattach),
-                        AgentSyncInfo = defaultSyncInfo
-                    };
+                    return CreateErrorResponse(400, AuthoringSupportGate.DescribeBlocked(classification, SyncOperation.Reattach), defaultSyncInfo);
                 }
 
-                if (_workspaceSynchronizer.IsSyncInfoAvailable(workspaceFolder))
+                var agentId = await _dataverseClient.GetAgentIdBySchemaNameAsync(thisSchema, cancellationToken);
+                bool isNewAgent = false;
+                bool updateWorkspaceDirectory = false;
+                if (agentId == Guid.Empty)
                 {
-                    return new ReattachAgentResponse()
+                    var authoringShape = workspace.AuthoringShape;
+                    if (authoringShape == AuthoringShape.Unknown)
                     {
-                        Code = 400,
-                        Message = "This agent is already connected to a cloud instance.",
-                        AgentSyncInfo = defaultSyncInfo
-                    };
+                        authoringShape = AgentClassifier.DetectAuthoringShapeFromFolder(workspaceFolder.ToString());
+                    }
+
+                    var newAgent = await _dataverseClient.CreateNewAgentAsync(agentDisplayName, thisSchema, authoringShape, cancellationToken);
+                    agentId = newAgent.AgentId;
+                    isNewAgent = true;
+
+                    if (!string.IsNullOrWhiteSpace(thisSchema) && thisSchema != newAgent.SchemaName)
+                    {
+                        _logger.LogSensitiveInformation($"ReattachInfo: Local schema name '{thisSchema}' is different with the new agent's schema name '{newAgent.SchemaName}'.", "ReattachInfo: Local schema name differs from the new agent's schema name.");
+                    }
+
+                    updateWorkspaceDirectory = thisSchema != newAgent.SchemaName;
                 }
 
-                if (request.AgentSyncInfo is null)
+                var syncInfo = new AgentSyncInfo()
                 {
-                    return new ReattachAgentResponse()
-                    {
-                        Code = 400,
-                        Message = "Reattach was not prepared for this agent. Run reattach again.",
-                        AgentSyncInfo = defaultSyncInfo
-                    };
-                }
+                    AgentId = agentId,
+                    DataverseEndpoint = new Uri(request.EnvironmentInfo.DataverseUrl),
+                    EnvironmentId = request.EnvironmentInfo.EnvironmentId,
+                    AccountInfo = request.AccountInfo,
+                    SolutionVersions = request.SolutionVersions,
+                    AgentManagementEndpoint = new Uri(request.EnvironmentInfo.AgentManagementUrl)
+                };
 
-                var syncInfo = request.AgentSyncInfo;
-                var agentId = syncInfo.AgentId;
                 var operationContext = await _operationContextProvider.GetAsync(syncInfo);
 
-                await ConnectionHelper.BindConnectionsAsync(_dataverseClient, request.ConnectionBindings, _logger, cancellationToken);
+                _workspaceSynchronizer.ClearComponentSyncBaselines(workspaceFolder);
 
-                var (workflowResponse, cloudFlowMetadata) = await _workspaceSynchronizer.UpsertWorkflowForAgentAsync(workspaceFolder, _dataverseClient, agentId, cancellationToken);
+                await ConnectionHelper.ProvisionConnectionsAsync(_workspaceSynchronizer, workspaceFolder, workspace.Definition, _dataverseClient, cancellationToken);
+
+                var (workflowResponse, cloudFlowMetadata) = await _workspaceSynchronizer.UpsertWorkflowForAgentAsync(workspaceFolder, _dataverseClient, agentId, cancellationToken, CopilotStudio.Sync.WorkflowActivationMode.ActivateWhenConnectionsBound);
                 var (aiPromptResponse, _) = await _workspaceSynchronizer.UpsertAIPromptsForAgentAsync(workspaceFolder, _dataverseClient, agentId, cancellationToken);
-                await _workspaceSynchronizer.SyncWorkspaceAsync(workspaceFolder, operationContext, changeToken: null, request.UpdateWorkspaceDirectory, _dataverseClient, syncInfo, cloudFlowMetadata, cancellationToken: cancellationToken);
+                await _workspaceSynchronizer.SyncWorkspaceAsync(workspaceFolder, operationContext, changeToken: null, updateWorkspaceDirectory, _dataverseClient, syncInfo, cloudFlowMetadata, cancellationToken: cancellationToken);
                 await _workspaceSynchronizer.SaveSyncInfoAsync(workspaceFolder, syncInfo);
 
                 return new ReattachAgentResponse()
@@ -132,7 +151,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     Code = 200,
                     Message = string.Empty,
                     AgentSyncInfo = syncInfo,
-                    IsNewAgent = request.IsNewAgent,
+                    IsNewAgent = isNewAgent,
                     WorkflowResponse = workflowResponse,
                     AIPromptResponse = aiPromptResponse,
                 };
@@ -140,13 +159,15 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             catch (Exception ex)
             {
                 var (code, message) = LspExceptionHandler.Handle(ex, _logger, cancellationToken);
-                return new ReattachAgentResponse()
-                {
-                    Code = code,
-                    Message = message,
-                    AgentSyncInfo = defaultSyncInfo
-                };
+                return CreateErrorResponse(code, message, defaultSyncInfo);
             }
         }
+
+        private static ReattachAgentResponse CreateErrorResponse(int code, string message, AgentSyncInfo defaultSyncInfo) => new()
+        {
+            Code = code,
+            Message = message,
+            AgentSyncInfo = defaultSyncInfo,
+        };
     }
 }

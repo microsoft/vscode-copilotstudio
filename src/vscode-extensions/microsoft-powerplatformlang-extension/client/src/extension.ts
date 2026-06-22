@@ -19,6 +19,9 @@ import { registerOpenKnowledgeFileCommand } from './commands/openKnowledgeFile';
 import { registerResetAccountCommand } from './commands/resetAccount';
 import { registerSyncCommands } from './commands/syncWorkspace';
 import { registerReattachAgentCommand } from './commands/reattachAgent';
+import { registerManageConnectionsCommand, registerDeclareConnectionReferenceCommand } from './commands/manageConnections';
+import { registerConnectionReferenceQuickFix } from './connections/connectionDiagnostics';
+import { registerAddConnectionReferenceCommand } from './connections/addConnectionReferenceCommand';
 import { registerTelemetrySettingsListeners } from './services/telemetry';
 import { maybeOpenFileFromPostOpen } from './startup/postOpen';
 import { registerSignInCommand } from './commands/signIn';
@@ -73,6 +76,10 @@ export async function activate(context: vscode.ExtensionContext) {
   registerSessionInfoCommand(context, sessionId);
   registerOpenKnowledgeFileCommand(context);
   registerReattachAgentCommand(context);
+  registerManageConnectionsCommand(context);
+  registerDeclareConnectionReferenceCommand(context);
+  registerConnectionReferenceQuickFix(context);
+  registerAddConnectionReferenceCommand(context);
   initializeWorkflowFeatures(context);
   initializeWorkflowVisualization(context);
 

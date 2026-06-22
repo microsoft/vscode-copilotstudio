@@ -10,9 +10,11 @@ using Microsoft.Agents.ObjectModel.Yaml;
 using Microsoft.Agents.Platform.Content;
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 using static Microsoft.CopilotStudio.Sync.Dataverse.SyncDataverseClient;
@@ -25,7 +27,7 @@ namespace Microsoft.CopilotStudio.Sync;
 /// <see cref="IFileAccessor"/>.
 /// Handles components, change tokens, etc. 
 /// </summary>
-internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
+internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManagementService, IWorkflowActivationService
 {
     // We write internal state to our own hidden folder.
     // We can version this later by appending a version number subdir.
@@ -36,6 +38,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
     // Maximum allowed size for a workflow upload 125 MB (workflow.json + metadata.yml).
     private const long MaxWorkflowUploadSizeBytes = 125L * 1024 * 1024;
+
+    private const int MaxConnectionCatalogConcurrency = 8;
 
     // Folder where environment variables are projected.
     private const string EnvironmentVariablesFolder = "environmentvariables";
@@ -61,6 +65,14 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
     // - BotComponentId, Version (for later upload)
     // - original contents  - for providing diff; and reverting. 
     private static readonly AgentFilePath BotCachePath = new AgentFilePath(HiddenRoot + "/botdefinition.json");
+
+    private static readonly AgentFilePath ConnectionsCachePath = new AgentFilePath(HiddenRoot + "/.connections-cache.json");
+
+    private static readonly AgentFilePath ConnectorsSyncStatePath = new AgentFilePath(HiddenRoot + "/.connectors-sync.json");
+
+    private static readonly AgentFilePath KnowledgeSyncStatePath = new AgentFilePath(HiddenRoot + "/.knowledge-sync.json");
+
+    private static readonly AgentFilePath AiPromptsSyncStatePath = new AgentFilePath(HiddenRoot + "/.aiprompts-sync.json");
 
     // Capture the full BotDefinition.
     // This includes key information like:
@@ -114,6 +126,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
     private readonly IFileAccessorFactory _fileAccessorFactory;
     private readonly IIslandControlPlaneService _islandControlPlaneService;
     private readonly ISyncProgress _syncProgress;
+
+    private readonly object _connectionsCacheGate = new object();
+    private readonly Dictionary<string, long> _connectionsCacheGeneration = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
 
     public WorkspaceSynchronizer(
         IMcsFileParser fileParser,
@@ -260,13 +275,15 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
 
         var workflows = await GetWorkflowsAsync(workspaceFolder, dataverseClient, syncInfo, fileAccessor, cancellationToken).ConfigureAwait(false);
-        var mergedConnectionReferences = previousDefinition.ConnectionReferences.Concat(workflows.ConnectionReferences)
-               .Where(cr => !string.IsNullOrEmpty(cr.ConnectionReferenceLogicalName.Value))
-               .GroupBy(cr => cr.ConnectionReferenceLogicalName.Value, StringComparer.OrdinalIgnoreCase)
-               .Select(g => g.Last())
-               .ToList();
-        previousDefinition = previousDefinition.WithFlows(workflows.Workflows).WithConnectionReferences(mergedConnectionReferences);
-
+        if (workflows.Succeeded)
+        {
+            var mergedConnectionReferences = previousDefinition.ConnectionReferences.Concat(workflows.ConnectionReferences)
+                   .Where(cr => !string.IsNullOrEmpty(cr.ConnectionReferenceLogicalName.Value))
+                   .GroupBy(cr => cr.ConnectionReferenceLogicalName.Value, StringComparer.OrdinalIgnoreCase)
+                   .Select(g => g.Last())
+                   .ToList();
+            previousDefinition = previousDefinition.WithFlows(workflows.Workflows).WithConnectionReferences(mergedConnectionReferences);
+        }
         var aiPrompts = await GetAIPromptsAsync(workspaceFolder, dataverseClient, syncInfo, fileAccessor, cancellationToken).ConfigureAwait(false);
         if (!aiPrompts.IsDefaultOrEmpty)
         {
@@ -281,8 +298,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
         var originalSnapshot = ReadCloudCacheSnapshot(fileAccessor);
 
+        var currentWorkflowIds = workflows.Workflows.IsDefaultOrEmpty ? new HashSet<Guid>() : new HashSet<Guid>(workflows.Workflows.Select(f => f.WorkflowId.Value));
+        var workflowRemoved = workflows.Succeeded && originalSnapshot != null && !originalSnapshot.Flows.IsDefaultOrEmpty && originalSnapshot.Flows.Any(f => !currentWorkflowIds.Contains(f.WorkflowId.Value));
+        var connectionReferencesNeedOverride = workflowRemoved || remoteChangeset.BotComponentChanges.OfType<BotComponentDelete>().Any();
+
         // Apply raw changeSet on cloud cache
-        var (newSnapshot, _) = UpdateCloudCache(fileAccessor, remoteChangeset, workflows, aiPrompts, agentId: syncInfo.AgentId);
+        var (newSnapshot, _) = UpdateCloudCache(fileAccessor, remoteChangeset, workflows.Succeeded ? workflows : null, aiPrompts, agentId: syncInfo.AgentId, overrideConnectionReferences: connectionReferencesNeedOverride);
 
         // Persist new delta token
         await WriteChangeTokenAsync(fileAccessor, remoteChangeset, cancellationToken).ConfigureAwait(false);
@@ -338,10 +359,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 ).ConfigureAwait(false);
             }).ConfigureAwait(false);
 #endif
+
+            RecordKnowledgeFilesBaseline(fileAccessor, newSnapshot, fileComponents);
         }
 
         // persist updated change set on directory
-        var updatedDefinition = await UpdateWorkspaceDirectoryAsync(fileAccessor, updatedChangeSet, previousDefinition, deletedComponents.ToArray(), cancellationToken: cancellationToken, pathGroundingDefinition: newSnapshot).ConfigureAwait(false);
+        var updatedDefinition = await UpdateWorkspaceDirectoryAsync(fileAccessor, updatedChangeSet, previousDefinition, deletedComponents.ToArray(), cancellationToken: cancellationToken, pathGroundingDefinition: newSnapshot, overrideConnectionReferences: connectionReferencesNeedOverride || deletedComponents.Count > 0).ConfigureAwait(false);
 
         var connectorResolvedDefinition = await ResolveConnectionReferenceConnectorIdsAsync(updatedDefinition, dataverseClient, cancellationToken).ConfigureAwait(false);
         await WriteCustomConnectorsAsync(fileAccessor, workspaceFolder, connectorResolvedDefinition, dataverseClient, cancellationToken).ConfigureAwait(false);
@@ -704,6 +727,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 };
             }
 
+            var baseline = ReadKnowledgeSyncState(fileAccessor);
+            var newHashes = new ConcurrentDictionary<string, string>(baseline, StringComparer.OrdinalIgnoreCase);
+            var uploaded = new ConcurrentBag<string>();
+
             // #if kept: net10 uses Parallel.ForEachAsync with MaxDegreeOfParallelism=5
             // for concurrent knowledge-file uploads; netstandard2.0 has no equivalent
             // and the LCD foreach loses ~5x throughput. Cost is real, so we preserve
@@ -712,26 +739,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             foreach (var newFileComponent in newFileComponents)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (string.IsNullOrEmpty(newFileComponent.DisplayName))
-                {
-                    continue;
-                }
-
-                var componentPath = new AgentFilePath(_pathResolver.GetComponentPath(newFileComponent, snapshot));
-                if (!IsValidFileToUpload(fileAccessor, GetKnowledgeContentFilePath(componentPath, newFileComponent.DisplayName!)))
-                {
-                    continue;
-                }
-
-                // ns2.0 BCL's IsNullOrEmpty lacks NotNullWhen; ! is compile-time only.
-                await dataverseClient.UploadKnowledgeFileAsync(
-                    Path.Combine(workspaceFolder.ToString(), componentPath.ParentDirectoryName),
-                    newFileComponent.Id.Value,
-                    newFileComponent.DisplayName!,
-                    cancellationToken
-                ).ConfigureAwait(false);
-
-                numberOfUploadedFiles++;
+                await UploadKnowledgeFileIfChangedAsync(fileAccessor, workspaceFolder, snapshot, newFileComponent, baseline, newHashes, uploaded, dataverseClient, cancellationToken).ConfigureAwait(false);
             }
 #else
             await Parallel.ForEachAsync(newFileComponents, new ParallelOptions
@@ -741,27 +749,15 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             },
             async (newFileComponent, cancellationToken) =>
             {
-                if (string.IsNullOrEmpty(newFileComponent.DisplayName))
-                {
-                    return;
-                }
-
-                var componentPath = new AgentFilePath(_pathResolver.GetComponentPath(newFileComponent, snapshot));
-                if (!IsValidFileToUpload(fileAccessor, GetKnowledgeContentFilePath(componentPath, newFileComponent.DisplayName!)))
-                {
-                    return;
-                }
-
-                await dataverseClient.UploadKnowledgeFileAsync(
-                    Path.Combine(workspaceFolder.ToString(), componentPath.ParentDirectoryName),
-                    newFileComponent.Id.Value,
-                    newFileComponent.DisplayName,
-                    cancellationToken
-                ).ConfigureAwait(false);
-
-                Interlocked.Increment(ref numberOfUploadedFiles);
+                await UploadKnowledgeFileIfChangedAsync(fileAccessor, workspaceFolder, snapshot, newFileComponent, baseline, newHashes, uploaded, dataverseClient, cancellationToken).ConfigureAwait(false);
             }).ConfigureAwait(false);
 #endif
+
+            numberOfUploadedFiles = uploaded.Count;
+            if (numberOfUploadedFiles > 0)
+            {
+                WriteKnowledgeSyncState(fileAccessor, newHashes);
+            }
         }
 
         return new PushChangesetResult
@@ -858,6 +854,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         }).ConfigureAwait(false);
 #endif
 
+        RecordKnowledgeFilesBaseline(fileAccessor, snapshot, fileComponents);
+
         return downloaded.ToImmutableArray();
     }
 
@@ -875,24 +873,15 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             .Where(c => !string.IsNullOrEmpty(c.DisplayName))
             .ToList();
 
+        var baseline = ReadKnowledgeSyncState(fileAccessor);
+        var newHashes = new ConcurrentDictionary<string, string>(baseline, StringComparer.OrdinalIgnoreCase);
         var uploaded = new ConcurrentBag<string>();
 
 #if NETSTANDARD2_0
         foreach (var component in fileComponents)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var componentPath = new AgentFilePath(_pathResolver.GetComponentPath(component, snapshot));
-            if (!IsValidFileToUpload(fileAccessor, GetKnowledgeContentFilePath(componentPath, component.DisplayName!)))
-            {
-                continue;
-            }
-
-            await dataverseClient.UploadKnowledgeFileAsync(
-                Path.Combine(workspaceFolder.ToString(), componentPath.ParentDirectoryName),
-                component.Id.Value,
-                component.DisplayName!,
-                cancellationToken).ConfigureAwait(false);
-            uploaded.Add(component.DisplayName!);
+            await UploadKnowledgeFileIfChangedAsync(fileAccessor, workspaceFolder, snapshot, component, baseline, newHashes, uploaded, dataverseClient, cancellationToken).ConfigureAwait(false);
         }
 #else
         await Parallel.ForEachAsync(fileComponents, new ParallelOptions
@@ -901,22 +890,61 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             CancellationToken = cancellationToken
         }, async (component, ct) =>
         {
-            var componentPath = new AgentFilePath(_pathResolver.GetComponentPath(component, snapshot));
-            if (!IsValidFileToUpload(fileAccessor, GetKnowledgeContentFilePath(componentPath, component.DisplayName!)))
-            {
-                return;
-            }
-
-            await dataverseClient.UploadKnowledgeFileAsync(
-                Path.Combine(workspaceFolder.ToString(), componentPath.ParentDirectoryName),
-                component.Id.Value,
-                component.DisplayName!,
-                ct).ConfigureAwait(false);
-            uploaded.Add(component.DisplayName!);
+            await UploadKnowledgeFileIfChangedAsync(fileAccessor, workspaceFolder, snapshot, component, baseline, newHashes, uploaded, dataverseClient, ct).ConfigureAwait(false);
         }).ConfigureAwait(false);
+
 #endif
 
+        if (!uploaded.IsEmpty)
+        {
+            WriteKnowledgeSyncState(fileAccessor, newHashes);
+        }
+
         return uploaded.ToImmutableArray();
+    }
+
+    private async Task UploadKnowledgeFileIfChangedAsync(
+        IFileAccessor fileAccessor,
+        DirectoryPath workspaceFolder,
+        DefinitionBase snapshot,
+        FileAttachmentComponent component,
+        IReadOnlyDictionary<string, string> baseline,
+        ConcurrentDictionary<string, string> newHashes,
+        ConcurrentBag<string> uploaded,
+        ISyncDataverseClient dataverseClient,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(component.DisplayName))
+        {
+            return;
+        }
+
+        var componentPath = new AgentFilePath(_pathResolver.GetComponentPath(component, snapshot));
+        var contentPath = GetKnowledgeContentFilePath(componentPath, component.DisplayName!);
+        if (!IsValidFileToUpload(fileAccessor, contentPath))
+        {
+            return;
+        }
+
+        var key = component.Id.Value.ToString("N");
+        var hash = ComputeKnowledgeFileHash(fileAccessor, contentPath);
+        if (hash != null && baseline.TryGetValue(key, out var existing) && string.Equals(existing, hash, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        await dataverseClient.UploadKnowledgeFileAsync(
+            Path.Combine(workspaceFolder.ToString(), componentPath.ParentDirectoryName),
+            component.Id.Value,
+            component.DisplayName!,
+            cancellationToken).ConfigureAwait(false);
+
+        if (hash != null)
+        {
+            newHashes[key] = hash;
+        }
+
+        uploaded.Add(component.DisplayName!);
     }
 
     private async Task<KnowledgeFileInfo> DownloadSingleKnowledgeFileAsync(
@@ -1374,6 +1402,764 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         return await GetAgentConnectionReferencesAsync(newDefinition, dataverseClient, cancellationToken).ConfigureAwait(false);
     }
 
+    public virtual async Task<IReadOnlyList<AgentConnectionView>> GetAgentConnectionViewsAsync(
+        DirectoryPath workspaceFolder,
+        DefinitionBase definition,
+        ISyncDataverseClient dataverseClient,
+        IConnectionCatalogClient catalogClient,
+        PowerAppsContext catalogContext,
+        CancellationToken cancellationToken)
+    {
+        var viewFileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var declaredDefinition = definition.WithConnectionReferences(ReadDeclaredConnectionReferencesFromDisk(viewFileAccessor, definition));
+        var references = await GetAgentConnectionReferencesAsync(declaredDefinition, dataverseClient, cancellationToken).ConfigureAwait(false);
+        var scan = ScanConnectionReferenceUsages(workspaceFolder, references);
+        var declaredLogicalNames = new HashSet<string>(references.Select(r => r.ConnectionReferenceLogicalName), StringComparer.OrdinalIgnoreCase);
+        var authoredLogicalNames = scan.AuthoredLogicalNames
+            .Concat(scan.Workflows.SelectMany(w => w.ConnectionReferenceLogicalNames))
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+        var undeclared = authoredLogicalNames.Where(name => !declaredLogicalNames.Contains(name)).Select(name => new { LogicalName = name, ConnectorName = ParseConnectorInternalId(name) }).ToList();
+
+        if (references.Count == 0 && undeclared.Count == 0)
+        {
+            return Array.Empty<AgentConnectionView>();
+        }
+
+        var candidatesByConnector = new ConcurrentDictionary<string, ImmutableArray<ConnectionInstance>>(StringComparer.OrdinalIgnoreCase);
+        var catalogAttempted = catalogClient != null && !string.IsNullOrWhiteSpace(catalogContext?.AccessToken);
+        if (catalogAttempted)
+        {
+            var distinctConnectors = references.Select(r => r.ConnectorName).Concat(undeclared.Select(u => u.ConnectorName)).Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n!).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+            using var throttler = new SemaphoreSlim(MaxConnectionCatalogConcurrency);
+            var listTasks = distinctConnectors.Select(async connectorName =>
+            {
+                await throttler.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    var connections = await catalogClient!.ListConnectionsAsync(catalogContext!, connectorName, cancellationToken).ConfigureAwait(false);
+                    candidatesByConnector[connectorName] = connections.ToImmutableArray();
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _syncProgress.Report($"Could not list connections for connector '{connectorName}': {ex.Message}");
+                }
+                finally
+                {
+                    throttler.Release();
+                }
+            });
+
+            await Task.WhenAll(listTasks).ConfigureAwait(false);
+        }
+
+        var result = new List<AgentConnectionView>(references.Count + undeclared.Count);
+        foreach (var reference in references)
+        {
+            var catalogKnown = candidatesByConnector.TryGetValue(reference.ConnectorName, out var found);
+            var candidates = catalogKnown ? found : ImmutableArray<ConnectionInstance>.Empty;
+            var boundExists = !string.IsNullOrWhiteSpace(reference.BoundConnectionId) && (!catalogKnown || candidates.Any(c => string.Equals(c.Name, reference.BoundConnectionId, StringComparison.OrdinalIgnoreCase)));
+
+            result.Add(new AgentConnectionView
+            {
+                ConnectionReferenceLogicalName = reference.ConnectionReferenceLogicalName,
+                ConnectorId = reference.ConnectorId,
+                ConnectorName = reference.ConnectorName,
+                BoundConnectionId = reference.BoundConnectionId,
+                BoundConnectionExists = boundExists,
+                Candidates = candidates,
+                Usages = scan.GetUsages(reference.ConnectionReferenceLogicalName),
+                IsDeclared = true,
+                CatalogUnavailable = catalogAttempted && !string.IsNullOrWhiteSpace(reference.ConnectorName) && !catalogKnown,
+            });
+        }
+
+        foreach (var item in undeclared)
+        {
+            var catalogKnown = item.ConnectorName != null && candidatesByConnector.ContainsKey(item.ConnectorName);
+            var candidates = catalogKnown ? candidatesByConnector[item.ConnectorName!] : ImmutableArray<ConnectionInstance>.Empty;
+
+            result.Add(new AgentConnectionView
+            {
+                ConnectionReferenceLogicalName = item.LogicalName,
+                ConnectorId = string.Empty,
+                ConnectorName = item.ConnectorName ?? string.Empty,
+                BoundConnectionId = string.Empty,
+                BoundConnectionExists = false,
+                Candidates = candidates,
+                Usages = scan.GetUsages(item.LogicalName),
+                IsDeclared = false,
+                CatalogUnavailable = catalogAttempted && !string.IsNullOrWhiteSpace(item.ConnectorName) && !catalogKnown,
+            });
+        }
+
+        return result;
+    }
+
+    private static string? ParseConnectorInternalId(string connectionReferenceLogicalName)
+    {
+        if (string.IsNullOrWhiteSpace(connectionReferenceLogicalName))
+        {
+            return null;
+        }
+
+        foreach (var segment in connectionReferenceLogicalName.Split('.'))
+        {
+            if (segment.StartsWith("shared_", StringComparison.OrdinalIgnoreCase))
+            {
+                return segment;
+            }
+        }
+
+        return null;
+    }
+
+    public virtual ConnectionReferenceUsageScan ScanConnectionReferenceUsages(DirectoryPath workspaceFolder, IReadOnlyList<ConnectionNeeded> references)
+    {
+        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var connectorInternalIdByLogicalName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (references != null)
+        {
+            foreach (var reference in references)
+            {
+                if (!string.IsNullOrWhiteSpace(reference.ConnectionReferenceLogicalName) && !string.IsNullOrWhiteSpace(reference.ConnectorName))
+                {
+                    connectorInternalIdByLogicalName[reference.ConnectionReferenceLogicalName] = reference.ConnectorName;
+                }
+            }
+        }
+
+        var scanner = new ConnectionReferenceUsageScanner();
+        return scanner.Scan(fileAccessor, connectorInternalIdByLogicalName, CancellationToken.None);
+    }
+
+    public virtual IReadOnlyList<WorkflowStatusView> GetWorkflowStatusViews(DirectoryPath workspaceFolder, IReadOnlyList<AgentConnectionView> views)
+    {
+        var scan = ScanConnectionReferenceUsages(workspaceFolder, Array.Empty<ConnectionNeeded>());
+        return BuildWorkflowStatusViews(scan, views);
+    }
+
+    private static IReadOnlyList<WorkflowStatusView> BuildWorkflowStatusViews(ConnectionReferenceUsageScan scan, IReadOnlyList<AgentConnectionView> views)
+    {
+        var boundByLogicalName = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        if (views != null)
+        {
+            foreach (var view in views)
+            {
+                boundByLogicalName[view.ConnectionReferenceLogicalName] = view.BoundConnectionExists;
+            }
+        }
+
+        var result = new List<WorkflowStatusView>(scan.Workflows.Length);
+        foreach (var workflow in scan.Workflows)
+        {
+            var canEnable = workflow.ConnectionReferenceLogicalNames.Length == 0
+                || workflow.ConnectionReferenceLogicalNames.All(n => boundByLogicalName.TryGetValue(n, out var bound) && bound);
+
+            result.Add(new WorkflowStatusView
+            {
+                WorkflowId = workflow.WorkflowId,
+                DisplayName = workflow.DisplayName,
+                FilePath = workflow.FilePath,
+                State = workflow.State,
+                ConnectionReferenceLogicalNames = workflow.ConnectionReferenceLogicalNames,
+                CanEnable = canEnable,
+            });
+        }
+
+        return result;
+    }
+
+    public virtual async Task<WorkflowActivationResult> SetWorkflowActivationsAsync(DirectoryPath workspaceFolder, IReadOnlyList<WorkflowActivationRequest> requests, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+    {
+        var cache = ReadConnectionsCache(workspaceFolder);
+        var views = cache?.Connections ?? ImmutableArray<AgentConnectionView>.Empty;
+        var workflows = GetWorkflowStatusViews(workspaceFolder, views.ToList());
+
+        if (requests == null || requests.Count == 0)
+        {
+            return new WorkflowActivationResult { Succeeded = true, Workflows = workflows.ToImmutableArray() };
+        }
+
+        var byId = new Dictionary<string, WorkflowStatusView>(StringComparer.OrdinalIgnoreCase);
+        foreach (var w in workflows)
+        {
+            byId[w.WorkflowId] = w;
+        }
+
+        var applied = new Dictionary<Guid, bool>();
+        string? firstError = null;
+
+        foreach (var request in requests)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!byId.TryGetValue(request.WorkflowId.ToString(), out var target))
+            {
+                firstError ??= $"Workflow '{request.WorkflowId}' was not found in this agent.";
+                continue;
+            }
+
+            if (request.Activate && !target.CanEnable)
+            {
+                firstError ??= "All connection references used by this workflow must be bound to an existing connection before it can be enabled.";
+                continue;
+            }
+
+            try
+            {
+                await dataverseClient.SetWorkflowStateAsync(request.WorkflowId, request.Activate, cancellationToken).ConfigureAwait(false);
+                UpdateWorkflowStateInMetadata(workspaceFolder, target.FilePath, request.Activate);
+                applied[request.WorkflowId] = request.Activate;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (request.Activate && IsWorkflowActivationConnectionError(ex))
+            {
+                UpdateWorkflowStateInMetadata(workspaceFolder, target.FilePath, activate: false);
+                applied[request.WorkflowId] = false;
+                firstError ??= $"Workflow '{target.DisplayName}' was kept as a draft because its connection could not be used. Bind a valid connection you can access, then enable it again.";
+            }
+        }
+
+        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        if (applied.Count > 0)
+        {
+            UpdateWorkflowStatesInCloudCache(fileAccessor, applied);
+        }
+
+        var appliedByWorkflowId = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in applied)
+        {
+            appliedByWorkflowId[entry.Key.ToString()] = entry.Value;
+        }
+
+        var refreshed = workflows.Select(w => appliedByWorkflowId.TryGetValue(w.WorkflowId, out var activate)
+                ? new WorkflowStatusView
+                {
+                    WorkflowId = w.WorkflowId,
+                    DisplayName = w.DisplayName,
+                    FilePath = w.FilePath,
+                    State = activate ? WorkflowState.Activated : WorkflowState.Draft,
+                    ConnectionReferenceLogicalNames = w.ConnectionReferenceLogicalNames,
+                    CanEnable = w.CanEnable,
+                }
+                : w)
+            .ToImmutableArray();
+
+        WriteConnectionsCacheAndBump(workspaceFolder, fileAccessor, views.ToList(), refreshed);
+
+        return new WorkflowActivationResult
+        {
+            Succeeded = firstError == null,
+            Message = firstError,
+            Workflows = refreshed,
+        };
+    }
+
+    private static bool IsWorkflowActivationConnectionError(Exception ex)
+    {
+        var current = ex;
+        while (current != null)
+        {
+            var message = current.Message;
+            if (!string.IsNullOrEmpty(message)
+                && (message.IndexOf("ConnectionAuthorizationFailed", StringComparison.OrdinalIgnoreCase) >= 0
+                    || message.IndexOf("cannot be used to activate this flow", StringComparison.OrdinalIgnoreCase) >= 0
+                    || message.IndexOf("this is not a valid connection", StringComparison.OrdinalIgnoreCase) >= 0))
+            {
+                return true;
+            }
+
+            current = current.InnerException;
+        }
+
+        return false;
+    }
+
+    private void UpdateWorkflowStateInMetadata(DirectoryPath workspaceFolder, string? metadataFilePath, bool activate)
+    {
+        if (string.IsNullOrWhiteSpace(metadataFilePath))
+        {
+            return;
+        }
+
+        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var path = new AgentFilePath(metadataFilePath!);
+        if (!fileAccessor.Exists(path))
+        {
+            return;
+        }
+
+        string yaml;
+        try
+        {
+            using var readStream = fileAccessor.OpenRead(path);
+            using var reader = new StreamReader(readStream);
+            yaml = reader.ReadToEnd();
+        }
+        catch (IOException)
+        {
+            return;
+        }
+
+        var deserializer = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).IgnoreUnmatchedProperties().Build();
+        WorkflowMetadata? metadata;
+        try
+        {
+            metadata = deserializer.Deserialize<WorkflowMetadata>(yaml);
+        }
+        catch (YamlDotNet.Core.YamlException)
+        {
+            return;
+        }
+
+        if (metadata == null)
+        {
+            return;
+        }
+
+        metadata.StateCode = activate ? 1 : 0;
+        metadata.StatusCode = activate ? 2 : 1;
+
+        var serializer = new SerializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
+        using var writeStream = fileAccessor.OpenWrite(path);
+        using var writer = new StreamWriter(writeStream, Encoding.UTF8);
+        serializer.Serialize(writer, metadata);
+    }
+
+    private void UpdateWorkflowStatesInCloudCache(IFileAccessor fileAccessor, IReadOnlyDictionary<Guid, bool> activations)
+    {
+        var snapshot = ReadCloudCacheSnapshot(fileAccessor, allowMissing: true);
+        if (snapshot?.Flows == null)
+        {
+            return;
+        }
+
+        var deserializer = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).IgnoreUnmatchedProperties().Build();
+        var rebuilt = ImmutableArray.CreateBuilder<CloudFlowDefinition>(snapshot.Flows.Length);
+        var changed = false;
+
+        foreach (var flow in snapshot.Flows)
+        {
+            if (activations.TryGetValue(flow.WorkflowId.Value, out var activate))
+            {
+                var metadataYaml = GetWorkflowMetadata(flow);
+                if (!string.IsNullOrEmpty(metadataYaml))
+                {
+                    WorkflowMetadata? metadata;
+                    try
+                    {
+                        metadata = deserializer.Deserialize<WorkflowMetadata>(metadataYaml);
+                    }
+                    catch (YamlDotNet.Core.YamlException)
+                    {
+                        metadata = null;
+                    }
+
+                    if (metadata != null)
+                    {
+                        metadata.StateCode = activate ? 1 : 0;
+                        metadata.StatusCode = activate ? 2 : 1;
+                        metadata.ClientData = GetClientData(flow);
+                        var (updatedFlow, _) = GetFlowDefinition(metadata);
+                        rebuilt.Add(updatedFlow);
+                        changed = true;
+                        continue;
+                    }
+                }
+            }
+
+            rebuilt.Add(flow);
+        }
+
+        if (changed)
+        {
+            WriteCloudCache(fileAccessor, snapshot.WithFlows(rebuilt.ToImmutable()));
+        }
+    }
+
+    public virtual async Task<DeclareConnectionReferencesResult> DeclareConnectionReferencesAsync(DirectoryPath workspaceFolder, DefinitionBase definition, IReadOnlyList<string> logicalNames, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+    {
+        if (logicalNames == null || logicalNames.Count == 0)
+        {
+            return new DeclareConnectionReferencesResult();
+        }
+
+        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var declaredRefs = ReadDeclaredConnectionReferencesFromDisk(fileAccessor, definition);
+        var existing = new HashSet<string>(declaredRefs.Select(c => c.ConnectionReferenceLogicalName.Value), StringComparer.OrdinalIgnoreCase);
+        var additions = ImmutableArray.CreateBuilder<ConnectionReference>();
+        var declared = ImmutableArray.CreateBuilder<string>();
+        var invalid = ImmutableArray.CreateBuilder<string>();
+        var prefixCache = new Dictionary<string, CustomConnectorMetadata[]>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var logicalName in logicalNames)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (string.IsNullOrWhiteSpace(logicalName) || existing.Contains(logicalName))
+            {
+                continue;
+            }
+
+            var internalId = ParseConnectorInternalId(logicalName);
+            if (string.IsNullOrWhiteSpace(internalId))
+            {
+                invalid.Add(logicalName);
+                continue;
+            }
+
+            var rawConnectorId = $"/providers/Microsoft.PowerApps/apis/{internalId}";
+            var connectorId = await ResolveTargetConnectorIdAsync(rawConnectorId, dataverseClient, cancellationToken, prefixCache).ConfigureAwait(false);
+            await dataverseClient.EnsureConnectionReferenceExistsAsync(logicalName, connectorId, cancellationToken).ConfigureAwait(false);
+            additions.Add(new ConnectionReference(connectionReferenceLogicalName: logicalName, connectionId: string.Empty, connectorId: connectorId));
+            declared.Add(logicalName);
+            existing.Add(logicalName);
+        }
+
+        if (additions.Count == 0)
+        {
+            return new DeclareConnectionReferencesResult { Invalid = invalid.ToImmutable() };
+        }
+
+        var updated = definition.WithConnectionReferences(declaredRefs.AddRange(additions.ToImmutable()));
+        var isCliAgent = definition is BotDefinition bot && bot.Entity != null && IsCliAgentEntity(bot.Entity);
+        await WriteConnectionReferencesAsync(fileAccessor, updated, isCliAgent, cancellationToken).ConfigureAwait(false);
+
+        return new DeclareConnectionReferencesResult
+        {
+            Declared = declared.ToImmutable(),
+            Invalid = invalid.ToImmutable(),
+        };
+    }
+
+    public virtual async Task<string> CreateConnectionReferenceForConnectorAsync(DirectoryPath workspaceFolder, DefinitionBase definition, string connectorInternalId, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(connectorInternalId))
+        {
+            throw new ArgumentException("Connector internal id is required.", nameof(connectorInternalId));
+        }
+
+        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var declaredRefs = ReadDeclaredConnectionReferencesFromDisk(fileAccessor, definition);
+        var prefix = DeriveConnectionReferencePrefix(definition.WithConnectionReferences(declaredRefs));
+        var logicalName = $"{prefix}.{connectorInternalId}.{Guid.NewGuid():N}";
+        var connectorId = $"/providers/Microsoft.PowerApps/apis/{connectorInternalId}";
+
+        await dataverseClient.EnsureConnectionReferenceExistsAsync(logicalName, connectorId, cancellationToken).ConfigureAwait(false);
+
+        var addition = new ConnectionReference(connectionReferenceLogicalName: logicalName, connectionId: string.Empty, connectorId: connectorId);
+        var updated = definition.WithConnectionReferences(declaredRefs.Add(addition));
+        var isCliAgent = definition is BotDefinition bot && bot.Entity != null && IsCliAgentEntity(bot.Entity);
+
+        await WriteConnectionReferencesAsync(fileAccessor, updated, isCliAgent, cancellationToken).ConfigureAwait(false);
+
+        return logicalName;
+    }
+
+    private static string DeriveConnectionReferencePrefix(DefinitionBase snapshot)
+    {
+        foreach (var reference in snapshot.ConnectionReferences)
+        {
+            var value = reference.ConnectionReferenceLogicalName.Value;
+            var firstDot = value.IndexOf('.');
+            if (firstDot > 0)
+            {
+                return value.Substring(0, firstDot);
+            }
+        }
+
+        if (snapshot is BotDefinition bot && bot.Entity != null)
+        {
+            var schemaName = bot.Entity.SchemaName.Value;
+            if (!string.IsNullOrWhiteSpace(schemaName))
+            {
+                return schemaName;
+            }
+        }
+
+        return "new_agent";
+    }
+
+    private ImmutableArray<ConnectionReference> ReadDeclaredConnectionReferencesFromDisk(IFileAccessor fileAccessor, DefinitionBase definition)
+    {
+        var entity = (definition as BotDefinition)?.Entity;
+        if (entity != null && IsCliAgentEntity(entity) && CliAgentConnectionsReader.IsLayeredShapeActive(fileAccessor))
+        {
+            var diskRefs = CliAgentConnectionsReader.Overlay(fileAccessor, Array.Empty<ConnectionReference>(), _syncProgress.Report, CancellationToken.None);
+            return diskRefs.ToImmutableArray();
+        }
+
+        if (!fileAccessor.Exists(ConnectionReferencesPath))
+        {
+            return ImmutableArray<ConnectionReference>.Empty;
+        }
+
+        string yaml;
+        try
+        {
+            using var stream = fileAccessor.OpenRead(ConnectionReferencesPath);
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            yaml = reader.ReadToEnd();
+        }
+        catch (IOException)
+        {
+            return ImmutableArray<ConnectionReference>.Empty;
+        }
+
+        try
+        {
+            using var ctx = YamlSerializationContext.UseStandardSerializationContextIfNotDefined(throwOnInvalidYaml: false);
+            var parsed = CodeSerializer.Deserialize<ConnectionReferencesSourceFile>(yaml, sourceUri: null);
+            if (parsed == null || parsed.ConnectionReferences.IsDefaultOrEmpty)
+            {
+                return ImmutableArray<ConnectionReference>.Empty;
+            }
+
+            return parsed.ConnectionReferences;
+        }
+        catch (Exception)
+        {
+            return ImmutableArray<ConnectionReference>.Empty;
+        }
+    }
+
+    public virtual async Task<ConnectionReferenceRemovalResult> RemoveConnectionReferenceAsync(DirectoryPath workspaceFolder, DefinitionBase definition, string logicalName, bool confirmed, CancellationToken cancellationToken)
+    {
+        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var scan = ScanConnectionReferenceUsages(workspaceFolder, Array.Empty<ConnectionNeeded>());
+        var usages = scan.GetUsages(logicalName);
+
+        if (usages.Length > 0 && !confirmed)
+        {
+            return new ConnectionReferenceRemovalResult { Removed = false, Usages = usages };
+        }
+
+        var declaredRefs = ReadDeclaredConnectionReferencesFromDisk(fileAccessor, definition);
+        var remaining = declaredRefs.Where(c => !string.Equals(c.ConnectionReferenceLogicalName.Value, logicalName, StringComparison.OrdinalIgnoreCase)).ToImmutableArray();
+
+        if (remaining.Length == declaredRefs.Length)
+        {
+            return new ConnectionReferenceRemovalResult { Removed = false, Usages = usages };
+        }
+
+        var updated = definition.WithConnectionReferences(remaining);
+        var isCliAgent = definition is BotDefinition bot && bot.Entity != null && IsCliAgentEntity(bot.Entity);
+        await WriteConnectionReferencesAsync(fileAccessor, updated, isCliAgent, cancellationToken).ConfigureAwait(false);
+
+        return new ConnectionReferenceRemovalResult { Removed = true };
+    }
+
+    public virtual async Task<IReadOnlyList<AgentConnectionView>> ApplyConnectionBindingsAsync(
+        DirectoryPath workspaceFolder,
+        DefinitionBase definition,
+        ISyncDataverseClient dataverseClient,
+        IConnectionCatalogClient catalogClient,
+        PowerAppsContext catalogContext,
+        IReadOnlyList<ConnectionBindingRequest> bindings,
+        CancellationToken cancellationToken)
+    {
+        await DeclareConnectionReferencesAsync(workspaceFolder, definition, bindings.Select(b => b.ConnectionReferenceLogicalName).ToList(), dataverseClient, cancellationToken).ConfigureAwait(false);
+
+        var prefixCache = new ConcurrentDictionary<string, CustomConnectorMetadata[]>(StringComparer.OrdinalIgnoreCase);
+
+#if NETSTANDARD2_0
+        foreach (var binding in bindings)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await BindConnectionAsync(binding, dataverseClient, prefixCache, cancellationToken).ConfigureAwait(false);
+        }
+#else
+        await Parallel.ForEachAsync(bindings, new ParallelOptions
+        {
+            MaxDegreeOfParallelism = 5,
+            CancellationToken = cancellationToken
+        },
+        async (binding, ct) =>
+        {
+            await BindConnectionAsync(binding, dataverseClient, prefixCache, ct).ConfigureAwait(false);
+        }).ConfigureAwait(false);
+#endif
+
+        var views = await GetAgentConnectionViewsAsync(workspaceFolder, definition, dataverseClient, catalogClient, catalogContext, cancellationToken).ConfigureAwait(false);
+
+        var writeAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var workflows = GetWorkflowStatusViews(workspaceFolder, views);
+        WriteConnectionsCacheAndBump(workspaceFolder, writeAccessor, views, workflows);
+
+        return views;
+    }
+
+    private static async Task BindConnectionAsync(ConnectionBindingRequest binding, ISyncDataverseClient dataverseClient, IDictionary<string, CustomConnectorMetadata[]> prefixCache, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(binding.ConnectionReferenceLogicalName) || string.IsNullOrWhiteSpace(binding.ConnectionId))
+        {
+            return;
+        }
+
+        await EnsureConnectionReferenceExistsBeforeBindAsync(binding.ConnectionReferenceLogicalName, dataverseClient, prefixCache, cancellationToken).ConfigureAwait(false);
+
+        await dataverseClient.BindConnectionReferenceAsync(binding.ConnectionReferenceLogicalName, binding.ConnectionId, cancellationToken, binding.ConnectionDisplayName).ConfigureAwait(false);
+    }
+
+    private static async Task EnsureConnectionReferenceExistsBeforeBindAsync(string logicalName, ISyncDataverseClient dataverseClient, IDictionary<string, CustomConnectorMetadata[]> prefixCache, CancellationToken cancellationToken)
+    {
+        var internalId = ParseConnectorInternalId(logicalName);
+        if (string.IsNullOrWhiteSpace(internalId))
+        {
+            return;
+        }
+
+        var rawConnectorId = $"/providers/Microsoft.PowerApps/apis/{internalId}";
+        var resolvedConnectorId = await ResolveTargetConnectorIdAsync(rawConnectorId, dataverseClient, cancellationToken, prefixCache).ConfigureAwait(false);
+        await dataverseClient.EnsureConnectionReferenceExistsAsync(logicalName, resolvedConnectorId, cancellationToken).ConfigureAwait(false);
+    }
+
+    public virtual void WriteConnectionsCache(DirectoryPath workspaceFolder, IReadOnlyList<AgentConnectionView> views)
+    {
+        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var workflows = GetWorkflowStatusViews(workspaceFolder, views);
+        WriteConnectionsCacheAndBump(workspaceFolder, fileAccessor, views, workflows);
+    }
+
+    public virtual long GetConnectionsCacheGeneration(DirectoryPath workspaceFolder)
+    {
+        lock (_connectionsCacheGate)
+        {
+            return GetConnectionsCacheGenerationLocked(workspaceFolder);
+        }
+    }
+
+    public virtual bool TryWriteConnectionsCache(DirectoryPath workspaceFolder, IReadOnlyList<AgentConnectionView> views, long expectedGeneration)
+    {
+        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var workflows = GetWorkflowStatusViews(workspaceFolder, views);
+        lock (_connectionsCacheGate)
+        {
+            if (GetConnectionsCacheGenerationLocked(workspaceFolder) != expectedGeneration)
+            {
+                return false;
+            }
+
+            try
+            {
+                WriteConnectionsCacheToDisk(fileAccessor, views, workflows);
+            }
+            catch (IOException)
+            {
+                return false;
+            }
+
+            _connectionsCacheGeneration[workspaceFolder.ToString()] = expectedGeneration + 1;
+            return true;
+        }
+    }
+
+    public virtual ConnectionsCacheFile? ReadConnectionsCache(DirectoryPath workspaceFolder)
+    {
+        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        return ReadConnectionsCache(fileAccessor);
+    }
+
+    private void WriteConnectionsCacheAndBump(DirectoryPath workspaceFolder, IFileAccessor fileAccessor, IReadOnlyList<AgentConnectionView> views, IReadOnlyList<WorkflowStatusView>? workflows)
+    {
+        lock (_connectionsCacheGate)
+        {
+            WriteConnectionsCacheToDisk(fileAccessor, views, workflows);
+            _connectionsCacheGeneration[workspaceFolder.ToString()] = GetConnectionsCacheGenerationLocked(workspaceFolder) + 1;
+        }
+    }
+
+    private long GetConnectionsCacheGenerationLocked(DirectoryPath workspaceFolder) => _connectionsCacheGeneration.TryGetValue(workspaceFolder.ToString(), out var generation) ? generation : 0;
+
+    private static void WriteConnectionsCacheToDisk(IFileAccessor fileAccessor, IReadOnlyList<AgentConnectionView> views, IReadOnlyList<WorkflowStatusView>? workflows)
+    {
+        var cache = new ConnectionsCacheFile
+        {
+            RefreshedAt = DateTimeOffset.UtcNow,
+            Connections = views.ToImmutableArray(),
+            Workflows = workflows?.ToImmutableArray() ?? ImmutableArray<WorkflowStatusView>.Empty,
+        };
+
+        var tempPath = new AgentFilePath(ConnectionsCachePath.ToString() + "." + Guid.NewGuid().ToString("N") + ".tmp");
+        using (var stream = fileAccessor.OpenWrite(tempPath))
+        {
+            JsonSerializer.Serialize(stream, cache, ConnectionsCacheJsonOptions);
+        }
+
+        try
+        {
+            ReplaceWithRetry(fileAccessor, tempPath, ConnectionsCachePath);
+        }
+        catch (IOException)
+        {
+            try
+            {
+                fileAccessor.Delete(tempPath);
+            }
+            catch (IOException)
+            {
+            }
+
+            throw;
+        }
+    }
+
+    private static void ReplaceWithRetry(IFileAccessor fileAccessor, AgentFilePath sourcePath, AgentFilePath targetPath)
+    {
+        const int maxAttempts = 3;
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                fileAccessor.Replace(sourcePath, targetPath);
+                return;
+            }
+            catch (IOException) when (attempt < maxAttempts)
+            {
+                Thread.Sleep(40 * attempt);
+            }
+        }
+    }
+
+    private static ConnectionsCacheFile? ReadConnectionsCache(IFileAccessor fileAccessor)
+    {
+        if (!fileAccessor.Exists(ConnectionsCachePath))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var stream = fileAccessor.OpenRead(ConnectionsCachePath);
+            return JsonSerializer.Deserialize<ConnectionsCacheFile>(stream, ConnectionsCacheJsonOptions);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    private static readonly JsonSerializerOptions ConnectionsCacheJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        WriteIndented = true,
+    };
+
     /// <summary>
     /// Returns connection reference declared by the bot definition, annotated with its current Dataverse binding state.
     /// </summary>
@@ -1682,7 +2468,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         DefinitionBase definition,
         IReadOnlyList<BotComponentBase> deletedComponents,
         CancellationToken cancellationToken,
-        DefinitionBase? pathGroundingDefinition = null)
+        DefinitionBase? pathGroundingDefinition = null,
+        bool overrideConnectionReferences = false)
     {
         var thisSchema = string.Empty;
 
@@ -1715,6 +2502,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         // This is benign because the only thing we use these for is looking up ids. 
 
         var updatedDefinition = definition.ApplyChanges(changeset);
+        if (overrideConnectionReferences)
+        {
+            updatedDefinition = OverrideConnectionReferencesWithUsed(updatedDefinition);
+        }
+
         var groundingDefinition = pathGroundingDefinition != null
             ? pathGroundingDefinition.ApplyChanges(changeset)
             : updatedDefinition;
@@ -1989,7 +2781,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
     // This will ensure our cloud cache reflects the actual cloud. This is simple because:
     // - the cloud cache has BotIds, so it's easy to apply the changeset.
     // - the user can't edit the cloud cache, so there's never any conflict resolution. 
-    private (DefinitionBase newCache, ImmutableArray<BotComponentBase> deletedComponents) UpdateCloudCache(IFileAccessor fileAccessor, PvaComponentChangeSet changeset, CloudFlowMetadata? cloudFlowMetadata = null, ImmutableArray<AIPromptMetadata> aiPrompts = default, Guid? agentId = null, bool preserveExistingAIModelDefinitions = false)
+    private (DefinitionBase newCache, ImmutableArray<BotComponentBase> deletedComponents) UpdateCloudCache(IFileAccessor fileAccessor, PvaComponentChangeSet changeset, CloudFlowMetadata? cloudFlowMetadata = null, ImmutableArray<AIPromptMetadata> aiPrompts = default, Guid? agentId = null, bool overrideConnectionReferences = false, bool preserveExistingAIModelDefinitions = false)
     {
         var snapshot = ReadCloudCacheSnapshot(fileAccessor);
         if (snapshot == null)
@@ -2036,6 +2828,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         else if (!aiPrompts.IsDefaultOrEmpty)
         {
             newSnapshot = newSnapshot.WithAIModelDefinitions(BuildAIModelDefinitions(aiPrompts));
+        }
+
+        if (overrideConnectionReferences)
+        {
+            newSnapshot = OverrideConnectionReferencesWithUsed(newSnapshot);
         }
 
         WriteCloudCache(fileAccessor, newSnapshot);
@@ -2096,6 +2893,14 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         writer.CreateHiddenDirectory(new(HiddenRoot));
         using var stream = writer.OpenWrite(ConnectionDetailsPath);
         await JsonSerializer.SerializeAsync(stream, syncInfo).ConfigureAwait(false);
+    }
+
+    public virtual void ClearComponentSyncBaselines(DirectoryPath workspaceFolder)
+    {
+        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        fileAccessor.Delete(ConnectorsSyncStatePath);
+        fileAccessor.Delete(KnowledgeSyncStatePath);
+        fileAccessor.Delete(AiPromptsSyncStatePath);
     }
 
     /// <summary>
@@ -2789,7 +3594,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         }
     }
 
-    public virtual async Task<(ImmutableArray<WorkflowResponse>, CloudFlowMetadata)> UpsertWorkflowForAgentAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
+    public virtual async Task<(ImmutableArray<WorkflowResponse>, CloudFlowMetadata)> UpsertWorkflowForAgentAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken, WorkflowActivationMode activationMode = WorkflowActivationMode.PreserveSavedState)
     {
         var cloudFlowDefinitions = new List<CloudFlowDefinition>();
         var workflows = new List<WorkflowMetadata>();
@@ -2814,6 +3619,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         {
             var deserializer = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
             var workflowsToUpload = new List<WorkflowMetadata>();
+            var unchangedActivatedWorkflows = new List<WorkflowMetadata>();
 
             foreach (var workflowFolder in Directory.EnumerateDirectories(workflowsDir))
             {
@@ -2850,15 +3656,44 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 var (cloudFlowDefinition, _) = GetFlowDefinition(metadata);
                 cloudFlowDefinitions.Add(cloudFlowDefinition);
 
-                if (cachedWorkflowClientData.TryGetValue(workflowId.Value, out var cachedClientData)
+                if (activationMode != WorkflowActivationMode.ActivateWhenConnectionsBound
+                    && cachedWorkflowClientData.TryGetValue(workflowId.Value, out var cachedClientData)
                     && string.Equals(cachedClientData, NormalizeWorkflowClientData(clientDataJson), StringComparison.Ordinal)
                     && cachedWorkflowMetadata.TryGetValue(workflowId.Value, out var cachedMetadata)
                     && string.Equals(cachedMetadata, NormalizeWorkflowMetadata(metadata), StringComparison.Ordinal))
                 {
+                    if (activationMode == WorkflowActivationMode.DraftWhenConnectionsUnbound
+                        && metadata.StateCode == 1
+                        && metadata.ConnectionReferences.Any(n => !string.IsNullOrWhiteSpace(n)))
+                    {
+                        unchangedActivatedWorkflows.Add(metadata);
+                    }
+
                     continue;
                 }
 
                 workflowsToUpload.Add(metadata);
+            }
+
+            if (activationMode == WorkflowActivationMode.ActivateWhenConnectionsBound)
+            {
+                if (workflowsToUpload.Count > 0)
+                {
+                    await ApplyConnectionAwareWorkflowStateAsync(workflowsToUpload, dataverseClient, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            else if (activationMode == WorkflowActivationMode.DraftWhenConnectionsUnbound)
+            {
+                var draftCandidates = new List<WorkflowMetadata>(workflowsToUpload);
+                draftCandidates.AddRange(unchangedActivatedWorkflows);
+                var downgraded = await DraftUnboundWorkflowActivationsAsync(draftCandidates, dataverseClient, cancellationToken).ConfigureAwait(false);
+                foreach (var workflow in downgraded)
+                {
+                    if (unchangedActivatedWorkflows.Contains(workflow))
+                    {
+                        workflowsToUpload.Add(workflow);
+                    }
+                }
             }
 
             if (workflowsToUpload.Count > 0)
@@ -2887,6 +3722,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             }
 
             connectionReferences = await GetConnectionReferenceFromLogicalNamesAsync(GetConnectionReferenceLogicalNamesFromFlows(workflows), dataverseClient, cancellationToken).ConfigureAwait(false);
+
+            if (activationMode != WorkflowActivationMode.PreserveSavedState)
+            {
+                cloudFlowDefinitions = workflows.Select(w => GetFlowDefinition(w).Item1).ToList();
+            }
         }
 
         return (workflowResponseBuilder.ToImmutable(), new CloudFlowMetadata
@@ -2896,11 +3736,98 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         });
     }
 
+    private static async Task ApplyConnectionAwareWorkflowStateAsync(
+        List<WorkflowMetadata> workflows,
+        ISyncDataverseClient dataverseClient,
+        CancellationToken cancellationToken)
+    {
+        var logicalNames = workflows
+            .SelectMany(w => w.ConnectionReferences)
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var boundLogicalNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (logicalNames.Count > 0)
+        {
+            var references = await dataverseClient.GetConnectionReferencesByLogicalNamesAsync(logicalNames, cancellationToken).ConfigureAwait(false);
+            foreach (var reference in references)
+            {
+                if (!string.IsNullOrWhiteSpace(reference.ConnectionId))
+                {
+                    boundLogicalNames.Add(reference.ConnectionReferenceLogicalName);
+                }
+            }
+        }
+
+        foreach (var workflow in workflows)
+        {
+            var allConnectionsBound = workflow.ConnectionReferences.All(boundLogicalNames.Contains);
+            if (allConnectionsBound)
+            {
+                workflow.StateCode = 1;
+                workflow.StatusCode = 2;
+            }
+            else
+            {
+                workflow.StateCode = 0;
+                workflow.StatusCode = 1;
+            }
+        }
+    }
+
+    private static async Task<IReadOnlyList<WorkflowMetadata>> DraftUnboundWorkflowActivationsAsync(
+        List<WorkflowMetadata> workflows,
+        ISyncDataverseClient dataverseClient,
+        CancellationToken cancellationToken)
+    {
+        var activating = workflows
+            .Where(w => w.StateCode == 1 && w.ConnectionReferences.Any(n => !string.IsNullOrWhiteSpace(n)))
+            .ToList();
+        if (activating.Count == 0)
+        {
+            return Array.Empty<WorkflowMetadata>();
+        }
+
+        var logicalNames = activating
+            .SelectMany(w => w.ConnectionReferences)
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var boundLogicalNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var references = await dataverseClient.GetConnectionReferencesByLogicalNamesAsync(logicalNames, cancellationToken).ConfigureAwait(false);
+        foreach (var reference in references)
+        {
+            if (!string.IsNullOrWhiteSpace(reference.ConnectionId))
+            {
+                boundLogicalNames.Add(reference.ConnectionReferenceLogicalName);
+            }
+        }
+
+        var downgraded = new List<WorkflowMetadata>();
+        foreach (var workflow in activating)
+        {
+            var allConnectionsBound = workflow.ConnectionReferences
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .All(boundLogicalNames.Contains);
+            if (!allConnectionsBound)
+            {
+                workflow.StateCode = 0;
+                workflow.StatusCode = 1;
+                downgraded.Add(workflow);
+            }
+        }
+
+        return downgraded;
+    }
+
     public async Task<CloudFlowMetadata> GetWorkflowsAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, IFileAccessor fileAccessor, CancellationToken cancellationToken)
     {
         var cloudFlowDefinitions = new List<CloudFlowDefinition>();
         var workflows = new List<WorkflowMetadata>();
         var connectionReferences = ImmutableArray<ConnectionReference>.Empty;
+        var succeeded = true;
 
         try
         {
@@ -3056,13 +3983,15 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         }
         catch (Exception ex)
         {
+            succeeded = false;
             _syncProgress.Report($"Failed to download workflows for agent {syncInfo.AgentId}. Exception: {ex.Message}");
         }
 
         return new CloudFlowMetadata
         {
             Workflows = cloudFlowDefinitions.ToImmutableArray(),
-            ConnectionReferences = connectionReferences
+            ConnectionReferences = connectionReferences,
+            Succeeded = succeeded
         };
     }
 
@@ -3105,6 +4034,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             {
                 Directory.CreateDirectory(promptsRoot);
             }
+
+            var downloadedHashes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var prompt in remotePrompts)
             {
@@ -3192,6 +4123,16 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 }
 #endif
                 fileAccessor.Replace(promptMetadataTempPath, promptMetadataPath);
+
+                var metadataAbsPath = Path.Combine(folderPath, "metadata.yml");
+                var promptJsonAbsPath = Path.Combine(folderPath, "prompt.json");
+                var writtenYaml = File.Exists(metadataAbsPath)
+                    ? await FileShim.ReadAllTextAsync(metadataAbsPath, Encoding.UTF8, cancellationToken).ConfigureAwait(false)
+                    : null;
+                var writtenJson = File.Exists(promptJsonAbsPath)
+                    ? await FileShim.ReadAllTextAsync(promptJsonAbsPath, Encoding.UTF8, cancellationToken).ConfigureAwait(false)
+                    : null;
+                downloadedHashes[prompt.AIModelId.ToString("N")] = ComputeAiPromptHash(writtenYaml, writtenJson);
             }
 
             var remoteIds = remotePrompts
@@ -3204,6 +4145,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 {
                     Directory.Delete(existingFolder.Value, true);
                 }
+            }
+
+            if (downloadedHashes.Count > 0)
+            {
+                WriteAiPromptSyncState(fileAccessor, downloadedHashes);
             }
         }
         catch (Exception ex)
@@ -3224,6 +4170,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             return (responses.ToImmutable(), prompts.ToImmutable());
         }
 
+        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var baseline = ReadAiPromptSyncState(fileAccessor);
+        var updatedState = new Dictionary<string, string>(baseline, StringComparer.OrdinalIgnoreCase);
+        var stateChanged = false;
+
         foreach (var promptFolder in Directory.EnumerateDirectories(promptsDir))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -3242,6 +4193,14 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             }
 
             var yamlText = await FileShim.ReadAllTextAsync(metadataFile, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+            var promptJsonText = File.Exists(promptJsonFile)
+                ? await FileShim.ReadAllTextAsync(promptJsonFile, Encoding.UTF8, cancellationToken).ConfigureAwait(false)
+                : null;
+
+            var key = aiModelId.Value.ToString("N");
+            var hash = ComputeAiPromptHash(yamlText, promptJsonText);
+            var unchanged = baseline.TryGetValue(key, out var baselineHash) && string.Equals(baselineHash, hash, StringComparison.Ordinal);
+
             var deserializer = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).IgnoreUnmatchedProperties().Build();
             AIPromptMetadata metadata;
             try
@@ -3256,9 +4215,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
             metadata.AIModelId = aiModelId.Value;
 
-            if (File.Exists(promptJsonFile))
+            if (promptJsonText != null)
             {
-                var promptJsonText = await FileShim.ReadAllTextAsync(promptJsonFile, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
                 metadata.CustomConfiguration = BuildCustomConfigurationFromPromptJson(promptJsonText);
 
                 var promptName = TryReadPromptName(promptJsonText);
@@ -3268,17 +4226,30 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 }
             }
 
+            if (unchanged)
+            {
+                prompts.Add(metadata);
+                continue;
+            }
+
             var response = await dataverseClient.UpsertAIPromptAsync(agentId, metadata, cancellationToken).ConfigureAwait(false);
             responses.Add(response);
 
             if (string.IsNullOrEmpty(response.ErrorMessage))
             {
                 prompts.Add(metadata);
+                updatedState[key] = hash;
+                stateChanged = true;
             }
             else
             {
                 _syncProgress.Report($"AI prompt '{response.PromptName}' publish failed; error: {response.ErrorMessage}");
             }
+        }
+
+        if (stateChanged)
+        {
+            WriteAiPromptSyncState(fileAccessor, updatedState);
         }
 
         return (responses.ToImmutable(), prompts.ToImmutable());
@@ -4549,12 +5520,95 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         return references;
     }
 
+    private static DefinitionBase OverrideConnectionReferencesWithUsed(DefinitionBase definition)
+    {
+        if (definition.ConnectionReferences.IsDefaultOrEmpty)
+        {
+            return definition;
+        }
+
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var component in definition.Components)
+        {
+            if (component.RootElement is null)
+            {
+                continue;
+            }
+
+            var yaml = CodeSerializer.Serialize(component.RootElement);
+            foreach (var name in ConnectionReferenceText.ExtractConnectionReferenceNames(yaml))
+            {
+                used.Add(name);
+            }
+        }
+
+        if (!definition.Flows.IsDefaultOrEmpty)
+        {
+            foreach (var flow in definition.Flows)
+            {
+                foreach (var name in GetFlowConnectionReferenceLogicalNames(flow))
+                {
+                    used.Add(name);
+                }
+            }
+        }
+
+        var kept = definition.ConnectionReferences.Where(cr => used.Contains(cr.ConnectionReferenceLogicalName.Value)).ToImmutableArray();
+
+        return kept.Length == definition.ConnectionReferences.Length ? definition : definition.WithConnectionReferences(kept);
+    }
+
+    private static readonly IDeserializer WorkflowMetadataDeserializer = new DeserializerBuilder()
+        .WithNamingConvention(CamelCaseNamingConvention.Instance)
+        .IgnoreUnmatchedProperties()
+        .Build();
+
+    private static IEnumerable<string> GetFlowConnectionReferenceLogicalNames(CloudFlowDefinition? flow)
+    {
+        var metadataYaml = GetWorkflowMetadata(flow);
+        if (string.IsNullOrWhiteSpace(metadataYaml))
+        {
+            return Array.Empty<string>();
+        }
+
+        SyncDataverseClient.WorkflowMetadata? metadata;
+        try
+        {
+            metadata = WorkflowMetadataDeserializer.Deserialize<SyncDataverseClient.WorkflowMetadata>(metadataYaml);
+        }
+        catch (YamlDotNet.Core.YamlException)
+        {
+            return Array.Empty<string>();
+        }
+
+        if (metadata?.ConnectionReferences == null)
+        {
+            return Array.Empty<string>();
+        }
+
+        return metadata.ConnectionReferences.Where(n => !string.IsNullOrWhiteSpace(n));
+    }
+
     private static ImmutableArray<string> GetConnectionReferenceLogicalNamesFromFlows(IEnumerable<WorkflowMetadata> workflows)
     {
         var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var workflow in workflows)
         {
+            if (workflow.ConnectionReferences.Count > 0)
+            {
+                foreach (var name in workflow.ConnectionReferences)
+                {
+                    if (!string.IsNullOrWhiteSpace(name))
+                    {
+                        set.Add(name);
+                    }
+                }
+
+                continue;
+            }
+
             if (string.IsNullOrWhiteSpace(workflow.ClientData))
             {
                 continue;
@@ -4574,23 +5628,33 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         return set.ToImmutableArray();
     }
 
-    private static string GetClientData(CloudFlowDefinition? flow)
+    private static string GetRawClientData(CloudFlowDefinition? flow)
     {
         if (flow?.ExtensionData?.Properties.TryGetValue("clientdata", out var value) == true && value is StringDataValue s && !string.IsNullOrEmpty(s.Value))
         {
-            try
-            {
-                // ns2.0 BCL's IsNullOrEmpty lacks NotNullWhen; ! is compile-time only.
-                using var doc = JsonDocument.Parse(s.Value!);
-                return JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = true });
-            }
-            catch (JsonException)
-            {
-                return s.Value!;
-            }
+            return s.Value!;
         }
 
         return string.Empty;
+    }
+
+    private static string GetClientData(CloudFlowDefinition? flow)
+    {
+        var raw = GetRawClientData(flow);
+        if (string.IsNullOrEmpty(raw))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(raw);
+            return JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch (JsonException)
+        {
+            return raw;
+        }
     }
 
     private static string NormalizeWorkflowClientData(string? clientData)
@@ -4671,6 +5735,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
             outputType = ExtractWorkflowOutputType(root);
             workflowConnectionNames = ExtractConnectionReferenceLogicalNames(root);
+            workflow.ConnectionReferences = workflowConnectionNames.ToList();
         }
 
         var cloudFlowDefinition = new CloudFlowDefinition(
@@ -4892,54 +5957,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
         };
     }
 
-    /// <summary>
-    /// Validates connection references - removes orphaned entries without workspace usage (after pull).
-    /// </summary>
-    private BotDefinition? ValidateConnectionReferences(DefinitionBase definition)
-    {
-        if (definition is not BotDefinition bot || bot.Entity == null)
-        {
-            return null;
-        }
-
-        // Get set of all ConnectionReferenceLogicalNames actually used in workspace
-        var usedConnections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        // Collect all connection reference usages from the definition
-        foreach (var connRef in definition.ConnectionReferences)
-        {
-            var name = connRef.ConnectionReferenceLogicalName.ToString();
-            if (!string.IsNullOrEmpty(name))
-            {
-                usedConnections.Add(name);
-            }
-        }
-
-        // Filter definition.ConnectionReferences to only include those actually used
-        var validConnections = definition.ConnectionReferences
-            .Where(cr => usedConnections.Contains(cr.ConnectionReferenceLogicalName.ToString()))
-            .OrderBy(cr => cr.ConnectionReferenceLogicalName.ToString(), StringComparer.Ordinal)
-            .ToList();
-
-        if (validConnections.Count < definition.ConnectionReferences.Length)
-        {
-            var removed = definition.ConnectionReferences.Length - validConnections.Count;
-            _syncProgress.Report($"Removed {removed} orphaned connection reference(s) with no workspace usage");
-        }
-
-        return bot;
-    }
-
-    /// <summary>
-    /// Merges connection references from updated definition into changeset.
-    /// This preserves cloud's authoritative data (version, IDs, etc.).
-    /// </summary>
-    private PvaComponentChangeSet MergeConnectionReferencesIntoChangeset(DefinitionBase updatedDefinition, PvaComponentChangeSet changeset)
-    {
-        // Connection references are already in the definition, no need to merge into entity
-        return changeset;
-    }
-
     private Task WriteConnectionReferencesAsync(IFileAccessor fileAccessor, DefinitionBase definition, bool isCliAgent, CancellationToken cancellationToken)
     {
         var uniqueConnectionReferences = definition.ConnectionReferences
@@ -4983,13 +6000,16 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
 
             CodeSerializer.SerializeConnectionReferences(sw, uniqueConnectionReferences);
         }
+        else if (fileAccessor.Exists(ConnectionReferencesPath))
+        {
+            fileAccessor.Delete(ConnectionReferencesPath);
+        }
 
         return Task.CompletedTask;
     }
 
     private async Task WriteCustomConnectorsAsync(IFileAccessor fileAccessor, DirectoryPath workspaceFolder, DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
     {
-        var expectedConnectorIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var internalIdToConnectorId = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         if (!definition.ConnectionReferences.IsDefaultOrEmpty)
@@ -5167,13 +6187,202 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             }
 
             var metadataNode = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(connector, jsonOpts))!.AsObject();
-            var connectorNameForRef = !string.IsNullOrWhiteSpace(connector.Name) ? connector.Name! : safeName;
             metadataNode["openapidefinition"] = swaggerWritten ? $"{folder}/openapidefinition.json" : null;
             metadataNode["connectionparameters"] = $"{folder}/connectionparameters.json";
             metadataNode["policytemplateinstances"] = $"{folder}/policytemplateinstances.json";
             metadataNode["iconblob"] = iconWritten ? $"{folder}/iconblob.png" : null;
 
             await fileAccessor.WriteAsync(new AgentFilePath($"{folder}/metadata.yml"), metadataNode.ToJsonString(jsonOpts), cancellationToken).ConfigureAwait(false);
+        }
+
+        RecordConnectorSyncState(fileAccessor, connectors);
+    }
+
+    private static void RecordConnectorSyncState(IFileAccessor fileAccessor, IReadOnlyList<CustomConnectorMetadata> connectors)
+    {
+        if (connectors == null || connectors.Count == 0)
+        {
+            return;
+        }
+
+        var state = ReadConnectorSyncState(fileAccessor);
+        var changed = false;
+        foreach (var connector in connectors)
+        {
+            if (connector.ConnectorId == Guid.Empty)
+            {
+                continue;
+            }
+
+            var key = connector.ConnectorId.ToString("N");
+            var hash = ComputeConnectorContentHash(connector);
+            if (!state.TryGetValue(key, out var existing) || !string.Equals(existing, hash, StringComparison.Ordinal))
+            {
+                state[key] = hash;
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
+            WriteConnectorSyncState(fileAccessor, state);
+        }
+    }
+
+    private static Dictionary<string, string> ReadConnectorSyncState(IFileAccessor fileAccessor)
+        => ReadSyncStateMap(fileAccessor, ConnectorsSyncStatePath);
+
+    private static void WriteConnectorSyncState(IFileAccessor fileAccessor, IReadOnlyDictionary<string, string> state)
+        => WriteSyncStateMap(fileAccessor, ConnectorsSyncStatePath, state);
+
+    private static string ComputeConnectorContentHash(CustomConnectorMetadata connector)
+    {
+        var sb = new StringBuilder();
+        sb.Append(connector.ConnectorId.ToString("N"));
+        AppendHashField(sb, connector.Name);
+        AppendHashField(sb, connector.DisplayName);
+        AppendHashField(sb, connector.Description);
+        AppendHashField(sb, connector.ConnectorInternalId);
+        AppendHashField(sb, connector.IconBrandColor);
+        AppendHashField(sb, connector.IconBlobBase64);
+        AppendHashField(sb, connector.ConnectorType?.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        AppendHashField(sb, NormalizeJsonForHash(connector.OpenApiDefinition));
+        AppendHashField(sb, NormalizeJsonForHash(connector.ConnectionParameters));
+        AppendHashField(sb, NormalizeJsonForHash(connector.ConnectionParameterSets));
+        AppendHashField(sb, NormalizeJsonForHash(connector.PolicyTemplateInstances));
+
+        return Sha256Base64(sb.ToString());
+    }
+
+    private static void AppendHashField(StringBuilder sb, string? value)
+    {
+        sb.Append('\u001f').Append(value ?? string.Empty);
+    }
+
+    private static string NormalizeJsonForHash(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(value!);
+            return JsonSerializer.Serialize(doc.RootElement);
+        }
+        catch (JsonException)
+        {
+            return value!;
+        }
+    }
+
+    private static Dictionary<string, string> ReadKnowledgeSyncState(IFileAccessor fileAccessor)
+        => ReadSyncStateMap(fileAccessor, KnowledgeSyncStatePath);
+
+    private static void WriteKnowledgeSyncState(IFileAccessor fileAccessor, IReadOnlyDictionary<string, string> state)
+        => WriteSyncStateMap(fileAccessor, KnowledgeSyncStatePath, state);
+
+    private static Dictionary<string, string> ReadAiPromptSyncState(IFileAccessor fileAccessor)
+        => ReadSyncStateMap(fileAccessor, AiPromptsSyncStatePath);
+
+    private static void WriteAiPromptSyncState(IFileAccessor fileAccessor, IReadOnlyDictionary<string, string> state)
+        => WriteSyncStateMap(fileAccessor, AiPromptsSyncStatePath, state);
+
+    private static string ComputeAiPromptHash(string? metadataYaml, string? promptJson)
+    {
+        return Sha256Base64((metadataYaml ?? string.Empty) + "\u001f" + (promptJson ?? string.Empty));
+    }
+
+    private static string Sha256Base64(string value)
+    {
+        using var sha = SHA256.Create();
+        return Convert.ToBase64String(sha.ComputeHash(Encoding.UTF8.GetBytes(value)));
+    }
+
+    private static Dictionary<string, string> ReadSyncStateMap(IFileAccessor fileAccessor, AgentFilePath path)
+    {
+        try
+        {
+            if (!fileAccessor.Exists(path))
+            {
+                return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            }
+
+            using var stream = fileAccessor.OpenRead(path);
+            var parsed = JsonSerializer.Deserialize<Dictionary<string, string>>(stream);
+            return parsed != null
+                ? new Dictionary<string, string>(parsed, StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception)
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    private static void WriteSyncStateMap(IFileAccessor fileAccessor, AgentFilePath path, IReadOnlyDictionary<string, string> state)
+    {
+        try
+        {
+            using var stream = fileAccessor.OpenWrite(path);
+            JsonSerializer.Serialize(stream, state, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+    private static string? ComputeKnowledgeFileHash(IFileAccessor fileAccessor, AgentFilePath knowledgeFile)
+    {
+        try
+        {
+            using var stream = fileAccessor.OpenRead(knowledgeFile);
+            using var sha = SHA256.Create();
+            var bytes = sha.ComputeHash(stream);
+            return Convert.ToBase64String(bytes);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private void RecordKnowledgeFilesBaseline(IFileAccessor fileAccessor, DefinitionBase snapshot, IEnumerable<FileAttachmentComponent> components)
+    {
+        var state = ReadKnowledgeSyncState(fileAccessor);
+        var changed = false;
+        foreach (var component in components)
+        {
+            if (string.IsNullOrEmpty(component.DisplayName))
+            {
+                continue;
+            }
+
+            var componentPath = new AgentFilePath(_pathResolver.GetComponentPath(component, snapshot));
+            var contentPath = GetKnowledgeContentFilePath(componentPath, component.DisplayName!);
+            if (!fileAccessor.Exists(contentPath))
+            {
+                continue;
+            }
+
+            var hash = ComputeKnowledgeFileHash(fileAccessor, contentPath);
+            if (hash == null)
+            {
+                continue;
+            }
+
+            var key = component.Id.Value.ToString("N");
+            if (!state.TryGetValue(key, out var existing) || !string.Equals(existing, hash, StringComparison.Ordinal))
+            {
+                state[key] = hash;
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
+            WriteKnowledgeSyncState(fileAccessor, state);
         }
     }
 
@@ -5219,9 +6428,27 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             return new CustomConnectorPushResult { PushedRowIds = pushedRowIds };
         }
 
+        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var baseline = ReadConnectorSyncState(fileAccessor);
+        var updatedState = new Dictionary<string, string>(baseline, StringComparer.OrdinalIgnoreCase);
+        var stateChanged = false;
+
         foreach (var local in localConnectors)
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            var key = local.ConnectorId.ToString("N");
+            var hash = ComputeConnectorContentHash(local);
+
+            if (baseline.TryGetValue(key, out var baselineHash) && string.Equals(baselineHash, hash, StringComparison.Ordinal))
+            {
+                if (!string.IsNullOrWhiteSpace(local.ConnectorInternalId))
+                {
+                    pushedRowIds[local.ConnectorInternalId!] = local.ConnectorId;
+                }
+
+                continue;
+            }
 
             try
             {
@@ -5230,6 +6457,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 {
                     pushedRowIds[local.ConnectorInternalId!] = local.ConnectorId;
                 }
+
+                updatedState[key] = hash;
+                stateChanged = true;
             }
             catch (OperationCanceledException)
             {
@@ -5240,6 +6470,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 _syncProgress.Report($"Failed to push custom connector '{local.Name ?? local.ConnectorId.ToString()}': {ex.Message}");
                 // continue with other connector
             }
+        }
+
+        if (stateChanged)
+        {
+            WriteConnectorSyncState(fileAccessor, updatedState);
         }
 
         return new CustomConnectorPushResult { PushedRowIds = pushedRowIds };

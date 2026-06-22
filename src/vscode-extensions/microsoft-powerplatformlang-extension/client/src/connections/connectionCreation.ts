@@ -12,6 +12,19 @@ export type ConnectionCreationResult =
   | { status: 'cancelled' }
   | { status: 'error'; errorMessage?: string };
 
+export const resolveCreatedConnectionId = (result: { connectionName?: string; connectionId?: string }): string | undefined => {
+  const name = result.connectionName?.trim();
+  if (name) {
+    return name;
+  }
+  const id = result.connectionId?.trim();
+  if (!id) {
+    return undefined;
+  }
+  const segments = id.split('/').filter(Boolean);
+  return segments.length ? segments[segments.length - 1] : id;
+};
+
 export interface ConnectionCreationOptions {
   connectorName: string;
   environmentId: string;
@@ -52,13 +65,7 @@ const normalizeConnector = (connector: string): string => {
   return trimmed.includes('/') ? trimmed.substring(trimmed.lastIndexOf('/') + 1) : trimmed;
 };
 
-const buildPlayerUrl = (
-  clusterCategory: CoreServicesClusterCategory,
-  environmentId: string,
-  connector: string,
-  callbackUrl: string,
-  nonce: string
-): string => {
+const buildPlayerUrl = (clusterCategory: CoreServicesClusterCategory, environmentId: string, connector: string, callbackUrl: string, nonce: string): string => {
   const url = new URL(`/appframework/e/${environmentId}/connections/new`, getPlayerBaseUrl(clusterCategory));
   url.searchParams.set('connector', connector);
   url.searchParams.set('callbackUrl', callbackUrl);
@@ -71,12 +78,7 @@ const escapeHtml = (s: string): string => s.replace(/[&<>"']/g, c => `&#${c.char
 
 const renderResultPage = (status: string | null, message?: string): string => {
   const safeMessage = message ? escapeHtml(message) : '';
-  const heading =
-    status === 'created'
-      ? 'Connection created. You can close this tab and return to VS Code.'
-      : status === 'error'
-        ? 'Connection creation failed.'
-        : 'Connection creation was cancelled.';
+  const heading = status === 'created' ? 'Connection created. You can close this tab and return to VS Code.' : status === 'error' ? 'Connection creation failed.' : 'Connection creation was cancelled.';
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Copilot Studio</title></head>`
     + `<body style="font-family: sans-serif; padding: 2rem; font-size: 0.9rem;"><p style="font-size: 1rem; font-weight: 600; margin: 0 0 0.5rem;">${escapeHtml(heading)}</p>`
     + (safeMessage ? `<p style="margin: 0;">${safeMessage}</p>` : '')

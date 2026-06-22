@@ -31,7 +31,6 @@ export interface AgentSyncInfo {
 export interface SyncRequest extends RemoteApiRequest {
   // Workspace URI: get from vscode.WorkspaceFolder;
   workspaceUri: string;
-  connectionBindings?: ConnectionBinding[];
 }
 
 export interface SyncResponse extends RemoteApiResponse {
@@ -163,10 +162,6 @@ export interface ClonedAssets {
 
 export interface ReattachAgentRequest extends RemoteApiRequest {
   workspaceUri: string;
-  agentSyncInfo: AgentSyncInfo;
-  connectionBindings?: ConnectionBinding[];
-  isNewAgent: boolean;
-  updateWorkspaceDirectory: boolean;
 }
 
 export interface ReattachAgentResponse extends RemoteApiResponse {
@@ -176,25 +171,6 @@ export interface ReattachAgentResponse extends RemoteApiResponse {
   aiPromptResponse?: AIPromptResponse[];
 }
 
-export interface PrepareReattachRequest extends RemoteApiRequest {
-  workspaceUri: string;
-}
-
-export interface PrepareReattachResponse extends RemoteApiResponse {
-  agentSyncInfo: AgentSyncInfo;
-  isNewAgent: boolean;
-  updateWorkspaceDirectory: boolean;
-  agentConnections?: ConnectionNeeded[];
-}
-
-export interface PreparePushRequest extends RemoteApiRequest {
-  workspaceUri: string;
-}
-
-export interface PreparePushResponse extends RemoteApiResponse {
-  agentConnections?: ConnectionNeeded[];
-}
-
 export interface ConnectionNeeded {
   connectionReferenceLogicalName: string;
   connectorId: string;
@@ -202,10 +178,155 @@ export interface ConnectionNeeded {
   boundConnectionId: string;
 }
 
-export interface ConnectionBinding {
+export interface ConnectionInstance {
+  name: string;
+  displayName: string;
+  status: string;
+  owner: string;
+}
+
+export enum UsageKind {
+  Action = 0,
+  Topic = 1,
+  Workflow = 2,
+  Connector = 3,
+  ConnectionReferencesFile = 4,
+  BotDefinition = 5
+}
+
+export interface ConnectionReferenceUsage {
+  logicalName: string;
+  filePath: string;
+  kind: UsageKind;
+  displayName: string;
+}
+
+export enum WorkflowState {
+  Unknown = 0,
+  Draft = 1,
+  Activated = 2,
+  Suspended = 3
+}
+
+export interface AgentConnectionView {
   connectionReferenceLogicalName: string;
-  connectionLogicalName: string;
+  connectorId: string;
+  connectorName: string;
+  boundConnectionId: string;
+  boundConnectionExists: boolean;
+  candidates: ConnectionInstance[];
+  usages: ConnectionReferenceUsage[];
+  isDeclared: boolean;
+  catalogUnavailable?: boolean;
+}
+
+export interface WorkflowStatusView {
+  workflowId: string;
+  displayName: string;
+  filePath: string;
+  state: WorkflowState;
+  connectionReferenceLogicalNames: string[];
+  canEnable: boolean;
+}
+
+export interface ConnectionBindingRequest {
+  connectionReferenceLogicalName: string;
+  connectionId: string;
   connectionDisplayName?: string;
+}
+
+export interface ListAgentConnectionsRequest extends RemoteApiRequest {
+  workspaceUri: string;
+  connectionsAccessToken?: string;
+}
+
+export interface ListAgentConnectionsResponse extends RemoteApiResponse {
+  agentConnections?: AgentConnectionView[];
+}
+
+export interface ApplyConnectionBindingsRequest extends RemoteApiRequest {
+  workspaceUri: string;
+  connectionsAccessToken?: string;
+  bindings: ConnectionBindingRequest[];
+}
+
+export interface ApplyConnectionBindingsResponse extends RemoteApiResponse {
+  agentConnections?: AgentConnectionView[];
+}
+
+export interface ListWorkflowStatusRequest extends RemoteApiRequest {
+  workspaceUri: string;
+  connectionsAccessToken?: string;
+}
+
+export interface ListWorkflowStatusResponse extends RemoteApiResponse {
+  workflows?: WorkflowStatusView[];
+}
+
+export interface WorkflowStateChange {
+  workflowId: string;
+  activate: boolean;
+}
+
+export interface SetWorkflowStatesRequest extends RemoteApiRequest {
+  workspaceUri: string;
+  changes: WorkflowStateChange[];
+  connectionsAccessToken?: string;
+}
+
+export interface SetWorkflowStatesResponse extends RemoteApiResponse {
+  succeeded: boolean;
+  workflows?: WorkflowStatusView[];
+}
+
+export interface DeclareConnectionReferencesRequest extends RemoteApiRequest {
+  workspaceUri: string;
+  logicalNames: string[];
+  connectionsAccessToken?: string;
+}
+
+export interface DeclareConnectionReferencesResponse extends RemoteApiResponse {
+  agentConnections?: AgentConnectionView[];
+  invalidLogicalNames?: string[];
+}
+
+export interface RemoveConnectionReferenceRequest extends RemoteApiRequest {
+  workspaceUri: string;
+  logicalName: string;
+  confirmed: boolean;
+}
+
+export interface RemoveConnectionReferenceResponse extends RemoteApiResponse {
+  removed: boolean;
+  usages?: ConnectionReferenceUsage[];
+}
+
+export interface ConnectorInfo {
+  internalId: string;
+  displayName: string;
+  publisher: string;
+  tier: string;
+  iconUri: string;
+}
+
+export interface ListConnectorsRequest extends RemoteApiRequest {
+  workspaceUri: string;
+  connectionsAccessToken?: string;
+}
+
+export interface ListConnectorsResponse extends RemoteApiResponse {
+  connectors?: ConnectorInfo[];
+}
+
+export interface CreateConnectionReferenceRequest extends RemoteApiRequest {
+  workspaceUri: string;
+  connectorInternalId: string;
+  connectionsAccessToken?: string;
+}
+
+export interface CreateConnectionReferenceResponse extends RemoteApiResponse {
+  logicalName: string;
+  agentConnections?: AgentConnectionView[];
 }
 
 export interface WorkflowResponse {
