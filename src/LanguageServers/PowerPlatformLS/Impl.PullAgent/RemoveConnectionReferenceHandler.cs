@@ -16,7 +16,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     internal class RemoveConnectionReferenceHandler : IRequestHandler<RemoveConnectionReferenceRequest, RemoveConnectionReferenceResponse, RequestContext>
     {
         private readonly IIslandControlPlaneService _islandControlPlaneService;
-        private readonly IWorkspaceSynchronizer _workspaceSynchronizer;
+        private readonly IConnectionManagementService _connectionManagementService;
         private readonly ITokenManager _dataverseTokenManager;
         private readonly ISyncDataverseClient _dataverseClient;
         private readonly LspDataverseHttpClientAccessor _dataverseHttpClientAccessor;
@@ -26,14 +26,14 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
         public RemoveConnectionReferenceHandler(
             IIslandControlPlaneService islandControlPlaneService,
-            IWorkspaceSynchronizer workspaceSynchronizer,
+            IConnectionManagementService connectionManagementService,
             ITokenManager dataverseTokenManager,
             ISyncDataverseClient dataverseClient,
             LspDataverseHttpClientAccessor dataverseHttpClientAccessor,
             ILspLogger logger)
         {
             _islandControlPlaneService = islandControlPlaneService;
-            _workspaceSynchronizer = workspaceSynchronizer ?? throw new ArgumentNullException(nameof(workspaceSynchronizer));
+            _connectionManagementService = connectionManagementService ?? throw new ArgumentNullException(nameof(connectionManagementService));
             _dataverseTokenManager = dataverseTokenManager ?? throw new ArgumentNullException(nameof(dataverseTokenManager));
             _dataverseClient = dataverseClient ?? throw new ArgumentNullException(nameof(dataverseClient));
             _dataverseHttpClientAccessor = dataverseHttpClientAccessor ?? throw new ArgumentNullException(nameof(dataverseHttpClientAccessor));
@@ -57,7 +57,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     };
                 }
 
-                var result = await _workspaceSynchronizer.RemoveConnectionReferenceAsync(
+                var result = await _connectionManagementService.RemoveConnectionReferenceAsync(
                     workspace.FolderPath,
                     workspace.Definition,
                     request.LogicalName,

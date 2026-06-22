@@ -36,6 +36,39 @@ public class ConnectionReferenceUsageScannerTests
         Assert.Contains("cr_office365", scan.AuthoredLogicalNames);
     }
 
+    [Fact]
+    public void Scan_DetectsUsagesInLegacyMcsYamlFiles()
+    {
+        var accessor = CreateAccessor();
+        Write(accessor, "actions/sendmail.mcs.yaml", "kind: TaskDialog\nconnectionReference: cr_office365\n");
+
+        var scan = new ConnectionReferenceUsageScanner().Scan(
+            accessor,
+            connectorInternalIdByLogicalName: System.Collections.Immutable.ImmutableDictionary<string, string>.Empty,
+            System.Threading.CancellationToken.None);
+
+        var usage = Assert.Single(scan.GetUsages("cr_office365"));
+        Assert.Equal(UsageKind.Action, usage.Kind);
+        Assert.Equal("actions/sendmail.mcs.yaml", usage.FilePath);
+        Assert.Equal("sendmail", usage.DisplayName);
+        Assert.Contains("cr_office365", scan.AuthoredLogicalNames);
+    }
+
+    [Fact]
+    public void Scan_IgnoresLegacyConnectionReferencesYamlDeclarationFile()
+    {
+        var accessor = CreateAccessor();
+        Write(accessor, "connectionreferences.mcs.yaml", "connectionReference: cr_office365\n");
+
+        var scan = new ConnectionReferenceUsageScanner().Scan(
+            accessor,
+            connectorInternalIdByLogicalName: System.Collections.Immutable.ImmutableDictionary<string, string>.Empty,
+            System.Threading.CancellationToken.None);
+
+        Assert.Empty(scan.GetUsages("cr_office365"));
+        Assert.Empty(scan.AuthoredLogicalNames);
+    }
+
     [Theory]
     [InlineData("kind: TaskDialog\nconnectionReference: 'cr_office365'\n")]
     [InlineData("kind: TaskDialog\nconnectionReference: \"cr_office365\"\n")]

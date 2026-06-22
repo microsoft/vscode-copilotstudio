@@ -18,7 +18,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     internal class ApplyConnectionBindingsHandler : IRequestHandler<ApplyConnectionBindingsRequest, ApplyConnectionBindingsResponse, RequestContext>
     {
         private readonly IIslandControlPlaneService _islandControlPlaneService;
-        private readonly IWorkspaceSynchronizer _workspaceSynchronizer;
+        private readonly IConnectionManagementService _connectionManagementService;
         private readonly ITokenManager _dataverseTokenManager;
         private readonly ISyncDataverseClient _dataverseClient;
         private readonly IConnectionCatalogClient _connectionCatalogClient;
@@ -30,7 +30,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
         public ApplyConnectionBindingsHandler(
             IIslandControlPlaneService islandControlPlaneService,
-            IWorkspaceSynchronizer workspaceSynchronizer,
+            IConnectionManagementService connectionManagementService,
             ITokenManager dataverseTokenManager,
             ISyncDataverseClient dataverseClient,
             IConnectionCatalogClient connectionCatalogClient,
@@ -39,7 +39,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             ILspLogger logger)
         {
             _islandControlPlaneService = islandControlPlaneService;
-            _workspaceSynchronizer = workspaceSynchronizer ?? throw new ArgumentNullException(nameof(workspaceSynchronizer));
+            _connectionManagementService = connectionManagementService ?? throw new ArgumentNullException(nameof(connectionManagementService));
             _dataverseTokenManager = dataverseTokenManager ?? throw new ArgumentNullException(nameof(dataverseTokenManager));
             _dataverseClient = dataverseClient ?? throw new ArgumentNullException(nameof(dataverseClient));
             _connectionCatalogClient = connectionCatalogClient ?? throw new ArgumentNullException(nameof(connectionCatalogClient));
@@ -66,7 +66,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 }
 
                 var catalogContext = ConnectionHelper.BuildCatalogContext(request, request.ConnectionsAccessToken);
-                var views = await _workspaceSynchronizer.ApplyConnectionBindingsAsync(
+                var views = await _connectionManagementService.ApplyConnectionBindingsAsync(
                     workspace.FolderPath,
                     workspace.Definition,
                     _dataverseClient,

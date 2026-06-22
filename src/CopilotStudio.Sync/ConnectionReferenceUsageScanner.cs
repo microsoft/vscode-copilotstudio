@@ -39,7 +39,10 @@ internal static class ConnectionReferenceText
 
 public sealed class ConnectionReferenceUsageScanner
 {
+    private const string ComponentExtension = ".mcs.yml";
+    private const string ComponentExtensionLong = ".mcs.yaml";
     private const string ConnectionReferencesFileName = "connectionreferences.mcs.yml";
+    private const string ConnectionReferencesFileNameLong = "connectionreferences.mcs.yaml";
     private const string WorkflowsFolder = "workflows";
     private const string ConnectorsFolder = "connectors";
     private const string HiddenFolder = ".mcs";
@@ -79,12 +82,12 @@ public sealed class ConnectionReferenceUsageScanner
             cancellationToken.ThrowIfCancellationRequested();
             var path = NormalizePath(file.ToString());
 
-            if (!path.EndsWith(".mcs.yml", StringComparison.OrdinalIgnoreCase))
+            if (!path.EndsWith(ComponentExtension, StringComparison.OrdinalIgnoreCase) && !path.EndsWith(ComponentExtensionLong, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
-            if (IsUnder(path, HiddenFolder) || path.EndsWith("/" + ConnectionReferencesFileName, StringComparison.OrdinalIgnoreCase) || string.Equals(path, ConnectionReferencesFileName, StringComparison.OrdinalIgnoreCase))
+            if (IsUnder(path, HiddenFolder) || IsConnectionReferencesFile(path))
             {
                 continue;
             }
@@ -323,6 +326,14 @@ public sealed class ConnectionReferenceUsageScanner
         }
     }
 
+    private static bool IsConnectionReferencesFile(string normalizedPath)
+    {
+        return normalizedPath.EndsWith("/" + ConnectionReferencesFileName, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(normalizedPath, ConnectionReferencesFileName, StringComparison.OrdinalIgnoreCase)
+            || normalizedPath.EndsWith("/" + ConnectionReferencesFileNameLong, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(normalizedPath, ConnectionReferencesFileNameLong, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static bool IsUnder(string normalizedPath, string folder)
     {
         return normalizedPath.StartsWith(folder + "/", StringComparison.OrdinalIgnoreCase) || normalizedPath.IndexOf("/" + folder + "/", StringComparison.OrdinalIgnoreCase) >= 0;
@@ -367,9 +378,13 @@ public sealed class ConnectionReferenceUsageScanner
             return folderSlash >= 0 ? trimmed.Substring(folderSlash + 1) : trimmed;
         }
 
-        if (name.EndsWith(".mcs.yml", StringComparison.OrdinalIgnoreCase))
+        if (name.EndsWith(ComponentExtensionLong, StringComparison.OrdinalIgnoreCase))
         {
-            name = name.Substring(0, name.Length - ".mcs.yml".Length);
+            name = name.Substring(0, name.Length - ComponentExtensionLong.Length);
+        }
+        else if (name.EndsWith(ComponentExtension, StringComparison.OrdinalIgnoreCase))
+        {
+            name = name.Substring(0, name.Length - ComponentExtension.Length);
         }
 
         return name;

@@ -57,12 +57,12 @@ public interface ISyncDataverseClient
     /// <summary>
     /// Ensures connection reference exists (creates if missing).
     /// </summary>
-    Task<Guid?> EnsureConnectionReferenceExistsAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken, Guid? customConnectorRowId = null);
+    Task EnsureConnectionReferenceExistsAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken, Guid? customConnectorRowId = null);
 
     /// <summary>
     /// Binds a connection reference to a connection by setting its connectionid.
     /// </summary>
-    Task BindConnectionReferenceAsync(string connectionReferenceLogicalName, string connectionLogicalName, CancellationToken cancellationToken, string? connectionReferenceDisplayName = null, Guid? knownConnectionReferenceId = null);
+    Task BindConnectionReferenceAsync(string connectionReferenceLogicalName, string connectionLogicalName, CancellationToken cancellationToken, string? connectionReferenceDisplayName = null);
 
     /// <summary>
     /// Sets a workflow's activation state. When activate is true the workflow is activated

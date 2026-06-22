@@ -462,12 +462,12 @@
         public virtual Task CreateConnectionReferenceAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken, Guid? customConnectorRowId = null)
             => Task.CompletedTask;
 
-        public virtual Task<Guid?> EnsureConnectionReferenceExistsAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken, Guid? customConnectorRowId = null)
-            => Task.FromResult<Guid?>(null);
+        public virtual Task EnsureConnectionReferenceExistsAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken, Guid? customConnectorRowId = null)
+            => Task.CompletedTask;
 
         public List<(string ConnectionReferenceLogicalName, string ConnectionLogicalName, string? ConnectionDisplayName)> BindConnectionReferenceCalls { get; } = new();
 
-        public virtual Task BindConnectionReferenceAsync(string connectionReferenceLogicalName, string connectionLogicalName, CancellationToken cancellationToken, string? connectionReferenceDisplayName = null, Guid? knownConnectionReferenceId = null)
+        public virtual Task BindConnectionReferenceAsync(string connectionReferenceLogicalName, string connectionLogicalName, CancellationToken cancellationToken, string? connectionReferenceDisplayName = null)
         {
             BindConnectionReferenceCalls.Add((connectionReferenceLogicalName, connectionLogicalName, connectionReferenceDisplayName));
             return Task.CompletedTask;
@@ -557,7 +557,7 @@
         }
     }
 
-    internal class TestWorkspaceSynchronizer : IWorkspaceSynchronizer
+    internal class TestWorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManagementService, IWorkflowActivationService
     {
         public bool ReattachCalled { get; private set; } = false;
 
@@ -824,13 +824,13 @@
             return Task.CompletedTask;
         }
 
-        public override Task<Guid?> EnsureConnectionReferenceExistsAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken, Guid? customConnectorRowId = null)
+        public override Task EnsureConnectionReferenceExistsAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken, Guid? customConnectorRowId = null)
         {
             lock (_provisionLock)
             {
                 ProvisionedConnections.Add((connectionReferenceLogicalName, connectorId));
             }
-            return Task.FromResult<Guid?>(null);
+            return Task.CompletedTask;
         }
     }
 

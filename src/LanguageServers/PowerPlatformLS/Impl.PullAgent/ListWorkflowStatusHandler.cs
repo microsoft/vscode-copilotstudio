@@ -18,7 +18,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     internal class ListWorkflowStatusHandler : IRequestHandler<ListWorkflowStatusRequest, ListWorkflowStatusResponse, RequestContext>
     {
         private readonly IIslandControlPlaneService _islandControlPlaneService;
-        private readonly IWorkspaceSynchronizer _workspaceSynchronizer;
+        private readonly IConnectionManagementService _connectionManagementService;
+        private readonly IWorkflowActivationService _workflowActivationService;
         private readonly ITokenManager _dataverseTokenManager;
         private readonly ISyncDataverseClient _dataverseClient;
         private readonly IConnectionCatalogClient _connectionCatalogClient;
@@ -29,7 +30,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
         public ListWorkflowStatusHandler(
             IIslandControlPlaneService islandControlPlaneService,
-            IWorkspaceSynchronizer workspaceSynchronizer,
+            IConnectionManagementService connectionManagementService,
+            IWorkflowActivationService workflowActivationService,
             ITokenManager dataverseTokenManager,
             ISyncDataverseClient dataverseClient,
             IConnectionCatalogClient connectionCatalogClient,
@@ -37,7 +39,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             ILspLogger logger)
         {
             _islandControlPlaneService = islandControlPlaneService;
-            _workspaceSynchronizer = workspaceSynchronizer ?? throw new ArgumentNullException(nameof(workspaceSynchronizer));
+            _connectionManagementService = connectionManagementService ?? throw new ArgumentNullException(nameof(connectionManagementService));
+            _workflowActivationService = workflowActivationService ?? throw new ArgumentNullException(nameof(workflowActivationService));
             _dataverseTokenManager = dataverseTokenManager ?? throw new ArgumentNullException(nameof(dataverseTokenManager));
             _dataverseClient = dataverseClient ?? throw new ArgumentNullException(nameof(dataverseClient));
             _connectionCatalogClient = connectionCatalogClient ?? throw new ArgumentNullException(nameof(connectionCatalogClient));
@@ -63,10 +66,10 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 }
 
                 var catalogContext = ConnectionHelper.BuildCatalogContext(request, request.ConnectionsAccessToken);
-                var cache = _workspaceSynchronizer.ReadConnectionsCache(workspace.FolderPath);
+                var cache = _connectionManagementService.ReadConnectionsCache(workspace.FolderPath);
                 IReadOnlyList<AgentConnectionView> views = cache != null
                     ? cache.Connections
-                    : await _workspaceSynchronizer.GetAgentConnectionViewsAsync(
+                    : await _connectionManagementService.GetAgentConnectionViewsAsync(
                         workspace.FolderPath,
                         workspace.Definition,
                         _dataverseClient,
@@ -74,7 +77,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                         catalogContext,
                         cancellationToken);
 
-                var workflows = _workspaceSynchronizer.GetWorkflowStatusViews(workspace.FolderPath, views);
+                var workflows = _workflowActivationService.GetWorkflowStatusViews(workspace.FolderPath, views);
 
                 return new ListWorkflowStatusResponse()
                 {

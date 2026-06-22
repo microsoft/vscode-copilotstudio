@@ -751,13 +751,13 @@ public class SyncDataverseClient : ISyncDataverseClient
         };
     }
 
-    public virtual async Task<Guid?> EnsureConnectionReferenceExistsAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken, Guid? customConnectorRowId = null)
+    public virtual async Task EnsureConnectionReferenceExistsAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken, Guid? customConnectorRowId = null)
     {
         var existing = await GetConnectionReferenceByLogicalNameAsync(connectionReferenceLogicalName, cancellationToken).ConfigureAwait(false);
         if (existing is null)
         {
             await CreateConnectionReferenceAsync(connectionReferenceLogicalName, connectorId, cancellationToken, customConnectorRowId).ConfigureAwait(false);
-            return null;
+            return;
         }
 
         var desiredInternalId = ExtractConnectorInternalId(connectorId);
@@ -766,8 +766,6 @@ public class SyncDataverseClient : ISyncDataverseClient
         {
             await UpdateConnectionReferenceConnectorAsync(existing.ConnectionReferenceId, connectorId, customConnectorRowId, cancellationToken).ConfigureAwait(false);
         }
-
-        return existing.ConnectionReferenceId;
     }
 
     private async Task<ConnectionReferenceInfo?> GetConnectionReferenceByLogicalNameAsync(string connectionReferenceLogicalName, CancellationToken cancellationToken)
@@ -815,7 +813,7 @@ public class SyncDataverseClient : ISyncDataverseClient
         await SendAsync<object>(HttpMethodHelper.Patch, patchUri.ToString(), body, false, cancellationToken).ConfigureAwait(false);
     }
 
-    public virtual async Task BindConnectionReferenceAsync(string connectionReferenceLogicalName, string connectionLogicalName, CancellationToken cancellationToken, string? connectionReferenceDisplayName = null, Guid? knownConnectionReferenceId = null)
+    public virtual async Task BindConnectionReferenceAsync(string connectionReferenceLogicalName, string connectionLogicalName, CancellationToken cancellationToken, string? connectionReferenceDisplayName = null)
     {
         if (connectionReferenceLogicalName is null)
         {
@@ -827,28 +825,20 @@ public class SyncDataverseClient : ISyncDataverseClient
             throw new ArgumentException("Connection logical name is required.", nameof(connectionLogicalName));
         }
 
-        Guid connectionReferenceId;
-        if (knownConnectionReferenceId.HasValue)
+        var literal = connectionReferenceLogicalName.Replace("'", "''");
+        var filterExpr = $"connectionreferencelogicalname eq '{literal}'";
+        var baseUri = new Uri(new Uri(DataverseUrl), "/api/data/v9.2/connectionreferences");
+        var queryUri = new Uri($"{baseUri}?$select=connectionreferenceid&$top=1&$filter={Uri.EscapeDataString(filterExpr)}");
+
+        var queryResponse = await SendAsync<ConnectionReferenceQueryResponse>(HttpMethod.Get, queryUri.ToString(), null, false, cancellationToken).ConfigureAwait(false);
+
+        var existing = queryResponse?.Value;
+        if (existing == null || existing.Length == 0)
         {
-            connectionReferenceId = knownConnectionReferenceId.Value;
+            throw new InvalidOperationException($"Connection reference '{connectionReferenceLogicalName}' was not found in Dataverse.");
         }
-        else
-        {
-            var literal = connectionReferenceLogicalName.Replace("'", "''");
-            var filterExpr = $"connectionreferencelogicalname eq '{literal}'";
-            var baseUri = new Uri(new Uri(DataverseUrl), "/api/data/v9.2/connectionreferences");
-            var queryUri = new Uri($"{baseUri}?$select=connectionreferenceid&$top=1&$filter={Uri.EscapeDataString(filterExpr)}");
 
-            var queryResponse = await SendAsync<ConnectionReferenceQueryResponse>(HttpMethod.Get, queryUri.ToString(), null, false, cancellationToken).ConfigureAwait(false);
-
-            var existing = queryResponse?.Value;
-            if (existing == null || existing.Length == 0)
-            {
-                throw new InvalidOperationException($"Connection reference '{connectionReferenceLogicalName}' was not found in Dataverse.");
-            }
-
-            connectionReferenceId = existing[0].ConnectionReferenceId;
-        }
+        var connectionReferenceId = existing[0].ConnectionReferenceId;
 
         var patchUri = new Uri(new Uri(DataverseUrl), $"/api/data/v9.2/connectionreferences({connectionReferenceId})");
 

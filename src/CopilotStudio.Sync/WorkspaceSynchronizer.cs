@@ -27,7 +27,7 @@ namespace Microsoft.CopilotStudio.Sync;
 /// <see cref="IFileAccessor"/>.
 /// Handles components, change tokens, etc. 
 /// </summary>
-internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
+internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManagementService, IWorkflowActivationService
 {
     // We write internal state to our own hidden folder.
     // We can version this later by appending a version number subdir.
@@ -2004,22 +2004,22 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             return;
         }
 
-        var connectionReferenceId = await EnsureConnectionReferenceExistsBeforeBindAsync(binding.ConnectionReferenceLogicalName, dataverseClient, prefixCache, cancellationToken).ConfigureAwait(false);
+        await EnsureConnectionReferenceExistsBeforeBindAsync(binding.ConnectionReferenceLogicalName, dataverseClient, prefixCache, cancellationToken).ConfigureAwait(false);
 
-        await dataverseClient.BindConnectionReferenceAsync(binding.ConnectionReferenceLogicalName, binding.ConnectionId, cancellationToken, binding.ConnectionDisplayName, connectionReferenceId).ConfigureAwait(false);
+        await dataverseClient.BindConnectionReferenceAsync(binding.ConnectionReferenceLogicalName, binding.ConnectionId, cancellationToken, binding.ConnectionDisplayName).ConfigureAwait(false);
     }
 
-    private static async Task<Guid?> EnsureConnectionReferenceExistsBeforeBindAsync(string logicalName, ISyncDataverseClient dataverseClient, IDictionary<string, CustomConnectorMetadata[]> prefixCache, CancellationToken cancellationToken)
+    private static async Task EnsureConnectionReferenceExistsBeforeBindAsync(string logicalName, ISyncDataverseClient dataverseClient, IDictionary<string, CustomConnectorMetadata[]> prefixCache, CancellationToken cancellationToken)
     {
         var internalId = ParseConnectorInternalId(logicalName);
         if (string.IsNullOrWhiteSpace(internalId))
         {
-            return null;
+            return;
         }
 
         var rawConnectorId = $"/providers/Microsoft.PowerApps/apis/{internalId}";
         var resolvedConnectorId = await ResolveTargetConnectorIdAsync(rawConnectorId, dataverseClient, cancellationToken, prefixCache).ConfigureAwait(false);
-        return await dataverseClient.EnsureConnectionReferenceExistsAsync(logicalName, resolvedConnectorId, cancellationToken).ConfigureAwait(false);
+        await dataverseClient.EnsureConnectionReferenceExistsAsync(logicalName, resolvedConnectorId, cancellationToken).ConfigureAwait(false);
     }
 
     public virtual void WriteConnectionsCache(DirectoryPath workspaceFolder, IReadOnlyList<AgentConnectionView> views)
@@ -2048,7 +2048,15 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
                 return false;
             }
 
-            WriteConnectionsCacheToDisk(fileAccessor, views, workflows);
+            try
+            {
+                WriteConnectionsCacheToDisk(fileAccessor, views, workflows);
+            }
+            catch (IOException)
+            {
+                return false;
+            }
+
             _connectionsCacheGeneration[workspaceFolder.ToString()] = expectedGeneration + 1;
             return true;
         }
@@ -2086,7 +2094,39 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer
             JsonSerializer.Serialize(stream, cache, ConnectionsCacheJsonOptions);
         }
 
-        fileAccessor.Replace(tempPath, ConnectionsCachePath);
+        try
+        {
+            ReplaceWithRetry(fileAccessor, tempPath, ConnectionsCachePath);
+        }
+        catch (IOException)
+        {
+            try
+            {
+                fileAccessor.Delete(tempPath);
+            }
+            catch (IOException)
+            {
+            }
+
+            throw;
+        }
+    }
+
+    private static void ReplaceWithRetry(IFileAccessor fileAccessor, AgentFilePath sourcePath, AgentFilePath targetPath)
+    {
+        const int maxAttempts = 3;
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                fileAccessor.Replace(sourcePath, targetPath);
+                return;
+            }
+            catch (IOException) when (attempt < maxAttempts)
+            {
+                Thread.Sleep(40 * attempt);
+            }
+        }
     }
 
     private static ConnectionsCacheFile? ReadConnectionsCache(IFileAccessor fileAccessor)

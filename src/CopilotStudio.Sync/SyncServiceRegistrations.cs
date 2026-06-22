@@ -35,6 +35,9 @@ public static class SyncServiceRegistrations
         services.AddSingleton(LspProjectorService.Instance);
         services.AddSingleton<IMcsFileParser, SyncMcsFileParser>();
         services.AddSingleton<IComponentPathResolver, LspComponentPathResolver>();
-        services.AddSingleton<IWorkspaceSynchronizer, WorkspaceSynchronizer>();
+        services.AddSingleton<WorkspaceSynchronizer>();
+        services.AddSingleton<IWorkspaceSynchronizer>(sp => sp.GetRequiredService<WorkspaceSynchronizer>());
+        services.AddSingleton<IConnectionManagementService>(sp => sp.GetRequiredService<WorkspaceSynchronizer>());
+        services.AddSingleton<IWorkflowActivationService>(sp => sp.GetRequiredService<WorkspaceSynchronizer>());
     }
 }

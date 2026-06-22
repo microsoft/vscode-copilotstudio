@@ -17,7 +17,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     internal class CreateConnectionReferenceHandler : IRequestHandler<CreateConnectionReferenceRequest, CreateConnectionReferenceResponse, RequestContext>
     {
         private readonly IIslandControlPlaneService _islandControlPlaneService;
-        private readonly IWorkspaceSynchronizer _workspaceSynchronizer;
+        private readonly IConnectionManagementService _connectionManagementService;
         private readonly ITokenManager _dataverseTokenManager;
         private readonly ISyncDataverseClient _dataverseClient;
         private readonly IConnectionCatalogClient _connectionCatalogClient;
@@ -28,7 +28,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
         public CreateConnectionReferenceHandler(
             IIslandControlPlaneService islandControlPlaneService,
-            IWorkspaceSynchronizer workspaceSynchronizer,
+            IConnectionManagementService connectionManagementService,
             ITokenManager dataverseTokenManager,
             ISyncDataverseClient dataverseClient,
             IConnectionCatalogClient connectionCatalogClient,
@@ -36,7 +36,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             ILspLogger logger)
         {
             _islandControlPlaneService = islandControlPlaneService;
-            _workspaceSynchronizer = workspaceSynchronizer ?? throw new ArgumentNullException(nameof(workspaceSynchronizer));
+            _connectionManagementService = connectionManagementService ?? throw new ArgumentNullException(nameof(connectionManagementService));
             _dataverseTokenManager = dataverseTokenManager ?? throw new ArgumentNullException(nameof(dataverseTokenManager));
             _dataverseClient = dataverseClient ?? throw new ArgumentNullException(nameof(dataverseClient));
             _connectionCatalogClient = connectionCatalogClient ?? throw new ArgumentNullException(nameof(connectionCatalogClient));
@@ -61,7 +61,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     };
                 }
 
-                var logicalName = await _workspaceSynchronizer.CreateConnectionReferenceForConnectorAsync(
+                var logicalName = await _connectionManagementService.CreateConnectionReferenceForConnectorAsync(
                     workspace.FolderPath,
                     workspace.Definition,
                     request.ConnectorInternalId,
@@ -69,7 +69,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     cancellationToken);
 
                 var catalogContext = ConnectionHelper.BuildCatalogContext(request, request.ConnectionsAccessToken);
-                var views = await _workspaceSynchronizer.GetAgentConnectionViewsAsync(
+                var views = await _connectionManagementService.GetAgentConnectionViewsAsync(
                     workspace.FolderPath,
                     workspace.Definition,
                     _dataverseClient,
@@ -77,7 +77,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     catalogContext,
                     cancellationToken);
 
-                _workspaceSynchronizer.WriteConnectionsCache(workspace.FolderPath, views);
+                _connectionManagementService.WriteConnectionsCache(workspace.FolderPath, views);
 
                 return new CreateConnectionReferenceResponse()
                 {

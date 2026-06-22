@@ -441,7 +441,7 @@ public class ConnectionManagementTests
             c => c.EnsureConnectionReferenceExistsAsync(logicalName, resolvedConnectorId, It.IsAny<CancellationToken>(), It.IsAny<Guid?>()),
             Times.Once);
         dataverse.Verify(
-            c => c.BindConnectionReferenceAsync(logicalName, "conn-7eee", It.IsAny<CancellationToken>(), It.IsAny<string?>(), It.IsAny<Guid?>()),
+            c => c.BindConnectionReferenceAsync(logicalName, "conn-7eee", It.IsAny<CancellationToken>(), It.IsAny<string?>()),
             Times.Once);
     }
 
@@ -478,7 +478,7 @@ public class ConnectionManagementTests
             c => c.EnsureConnectionReferenceExistsAsync(logicalName, connectorId, It.IsAny<CancellationToken>(), It.IsAny<Guid?>()),
             Times.Once);
         dataverse.Verify(
-            c => c.BindConnectionReferenceAsync(logicalName, "user@contoso.com", It.IsAny<CancellationToken>(), It.IsAny<string?>(), It.IsAny<Guid?>()),
+            c => c.BindConnectionReferenceAsync(logicalName, "user@contoso.com", It.IsAny<CancellationToken>(), It.IsAny<string?>()),
             Times.Once);
     }
 

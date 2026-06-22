@@ -17,7 +17,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     internal class SetWorkflowStatesHandler : IRequestHandler<SetWorkflowStatesRequest, SetWorkflowStatesResponse, RequestContext>
     {
         private readonly IIslandControlPlaneService _islandControlPlaneService;
-        private readonly IWorkspaceSynchronizer _workspaceSynchronizer;
+        private readonly IWorkflowActivationService _workflowActivationService;
         private readonly ITokenManager _dataverseTokenManager;
         private readonly ISyncDataverseClient _dataverseClient;
         private readonly LspDataverseHttpClientAccessor _dataverseHttpClientAccessor;
@@ -27,14 +27,14 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
         public SetWorkflowStatesHandler(
             IIslandControlPlaneService islandControlPlaneService,
-            IWorkspaceSynchronizer workspaceSynchronizer,
+            IWorkflowActivationService workflowActivationService,
             ITokenManager dataverseTokenManager,
             ISyncDataverseClient dataverseClient,
             LspDataverseHttpClientAccessor dataverseHttpClientAccessor,
             ILspLogger logger)
         {
             _islandControlPlaneService = islandControlPlaneService;
-            _workspaceSynchronizer = workspaceSynchronizer ?? throw new ArgumentNullException(nameof(workspaceSynchronizer));
+            _workflowActivationService = workflowActivationService ?? throw new ArgumentNullException(nameof(workflowActivationService));
             _dataverseTokenManager = dataverseTokenManager ?? throw new ArgumentNullException(nameof(dataverseTokenManager));
             _dataverseClient = dataverseClient ?? throw new ArgumentNullException(nameof(dataverseClient));
             _dataverseHttpClientAccessor = dataverseHttpClientAccessor ?? throw new ArgumentNullException(nameof(dataverseHttpClientAccessor));
@@ -53,7 +53,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 {
                     return new SetWorkflowStatesResponse()
                     {
-                        Code = 400,
+                        Code = 200,
+                        Succeeded = false,
                         Message = AuthoringSupportGate.DescribeBlocked(classification, SyncOperation.Push),
                     };
                 }
@@ -63,13 +64,13 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 {
                     if (!Guid.TryParse(change.WorkflowId, out var workflowId))
                     {
-                        return new SetWorkflowStatesResponse() { Code = 400, Message = $"Invalid workflow id '{change.WorkflowId}'." };
+                        return new SetWorkflowStatesResponse() { Code = 200, Succeeded = false, Message = $"Invalid workflow id '{change.WorkflowId}'." };
                     }
 
                     activationRequests.Add(new WorkflowActivationRequest { WorkflowId = workflowId, Activate = change.Activate });
                 }
 
-                var result = await _workspaceSynchronizer.SetWorkflowActivationsAsync(
+                var result = await _workflowActivationService.SetWorkflowActivationsAsync(
                     workspace.FolderPath,
                     activationRequests,
                     _dataverseClient,
@@ -77,7 +78,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
                 return new SetWorkflowStatesResponse()
                 {
-                    Code = result.Succeeded ? 200 : 400,
+                    Code = 200,
                     Message = result.Message ?? string.Empty,
                     Succeeded = result.Succeeded,
                     Workflows = result.Workflows,
