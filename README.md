@@ -1,14 +1,5 @@
 # Copilot Studio Extension for Visual Studio Code
 
-> [!IMPORTANT]
-> This repository contains the full source code for the Copilot Studio VS Code
-> extension. The build currently requires internal NuGet packages and is not
-> externally reproducible yet. We are replacing the internal dependency
-> (Dataverse authoring SDK) with [PAC CLI](https://learn.microsoft.com/power-platform/developer/cli/introduction)
-> delegation, which will make the build fully self-contained with public
-> packages. See [CONTRIBUTING.md](CONTRIBUTING.md) for details and current
-> status.
-
 The Copilot Studio extension for Visual Studio Code is designed to enhance the development experience of Microsoft Copilot Studio agents. It provides language support, IntelliSense code completion and suggestions, and authoring capabilities for Copilot Studio agent components.
 
 After installation, the extension prompts you to sign in to Copilot Studio. It can then show you a list of the agents associated with your environment. Clone an agent to see its editable components, including knowledge sources, actions, topics, and triggers.
