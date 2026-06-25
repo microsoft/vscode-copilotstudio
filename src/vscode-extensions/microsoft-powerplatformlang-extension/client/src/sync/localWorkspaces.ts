@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as fs from 'fs';
-import { ExtensionContext, IconPath, ThemeIcon, Uri, window, workspace } from "vscode";
+import { ExtensionContext, IconPath, MarkdownString, ThemeIcon, Uri, window, workspace } from "vscode";
 import { Disposable } from "vscode-languageclient";
 import { lspClient } from '../services/lspClient';
 import { AccountInfo, AgentSyncInfo } from "../types";
@@ -27,6 +27,7 @@ export interface CopilotStudioWorkspace {
   icon: WorkspaceIcon;
   type: WorkspaceType
   syncInfo?: AgentSyncInfo
+  schemaName?: string
 }
 
 interface ListWorkspacesResponse {
@@ -52,6 +53,39 @@ let iterations = 0;
 const repairAttempted = new Set<string>();
 
 export const getAllWorkspaces = (): CopilotStudioWorkspace[] => workspaceCache;
+
+export const getDuplicateDisplayNames = (workspaces: CopilotStudioWorkspace[] = workspaceCache): Set<string> => {
+  const counts = new Map<string, number>();
+  for (const ws of workspaces) {
+    const key = ws.displayName.toLowerCase();
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const duplicates = new Set<string>();
+  for (const [key, count] of counts) {
+    if (count > 1) {
+      duplicates.add(key);
+    }
+  }
+  return duplicates;
+};
+
+export const buildAgentIdentityTooltip = (ws: CopilotStudioWorkspace): MarkdownString => {
+  const connected = hasConnectionFileInWorkspace(ws.workspaceUri);
+  const environmentId = ws.syncInfo?.environmentId;
+  const environmentDisplayName = ws.syncInfo?.environmentDisplayName;
+  const tenantId = ws.syncInfo?.accountInfo?.tenantId;
+  const tooltip = new MarkdownString();
+  tooltip.appendMarkdown(`**${ws.displayName}**\n\n`);
+  tooltip.appendMarkdown(`SchemaName: \`${ws.schemaName ?? '—'}\`\n\n`);
+  const environmentText = environmentDisplayName ? `${environmentDisplayName} (\`${environmentId ?? '—'}\`)` : `\`${environmentId ?? '—'}\``;
+  tooltip.appendMarkdown(`Environment: ${environmentText}\n\n`);
+  if (tenantId) {
+    tooltip.appendMarkdown(`Tenant: \`${tenantId}\`\n\n`);
+  }
+  tooltip.appendMarkdown(`Account: ${ws.syncInfo?.accountInfo?.accountEmail ?? '—'}\n\n`);
+  tooltip.appendMarkdown(`Status: ${connected ? 'Connected' : 'Not connected'}`);
+  return tooltip;
+};
 
 // Finds the matching workspace by checking if the uri is a child of any workspace URI.
 export const findWorkspaceForUri = (uri: string): CopilotStudioWorkspace | undefined => workspaceCache.find(workspace =>

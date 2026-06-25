@@ -208,6 +208,11 @@
           "command": "microsoft-copilot-studio.manageConnections",
           "when": "view == agent-changes && viewItem == agent",
           "group": "inline"
+        },
+        {
+          "command": "microsoft-copilot-studio.reattachAgent",
+          "when": "view == agent-changes && viewItem == agent",
+          "group": "navigation"
         }
       ],
       "scm/resourceGroup/context": [

@@ -23,6 +23,7 @@ import { registerManageConnectionsCommand, registerDeclareConnectionReferenceCom
 import { registerConnectionReferenceQuickFix } from './connections/connectionDiagnostics';
 import { registerAddConnectionReferenceCommand } from './connections/addConnectionReferenceCommand';
 import { registerTelemetrySettingsListeners } from './services/telemetry';
+import { registerAgentStatusBar } from './services/agentStatusBar';
 import { maybeOpenFileFromPostOpen } from './startup/postOpen';
 import { registerSignInCommand } from './commands/signIn';
 import { registerOriginalFileSystemProvider } from './commands/originalFileSystemProvider';
@@ -80,6 +81,7 @@ export async function activate(context: vscode.ExtensionContext) {
   registerDeclareConnectionReferenceCommand(context);
   registerConnectionReferenceQuickFix(context);
   registerAddConnectionReferenceCommand(context);
+  registerAgentStatusBar(context);
   initializeWorkflowFeatures(context);
   initializeWorkflowVisualization(context);
 

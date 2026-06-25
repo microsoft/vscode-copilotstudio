@@ -2,13 +2,21 @@
 {
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
 
-    /// <summary>
-    /// ReattachAgentRequest is used to reattach the agent to a workspace.
-    /// </summary>
+    internal enum RetargetConflictResolution
+    {
+        Prompt = 0,
+
+        ReuseExisting = 1,
+    }
+
     internal class ReattachAgentRequest : DataverseRequest, IHasWorkspace
     {
         public const string MessageName = "powerplatformls/reattachAgent";
 
         public required Uri WorkspaceUri { get; set; }
+
+        public bool AllowRetarget { get; set; }
+
+        public RetargetConflictResolution ConflictResolution { get; set; }
     }
 }

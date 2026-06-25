@@ -4,7 +4,7 @@ import { addWorkspaceChangeSubscription, CopilotStudioWorkspace, getAllWorkspace
 import { LocalChangeResourceCommandResolver, RemoteChangeResourceCommandResolver, Resource, ResourceCommandResolver } from "./changeTracking";
 import { SyncResponse, Change, SyncRequest, DiffRequest } from "../types";
 import { LOCAL_STATE_SCHEME } from "./originalState";
-import { getOrAddSynchronizer, SyncState } from "./workspaceSynchronizer";
+import { getOrAddSynchronizer, removeSynchronizer, SyncState } from "./workspaceSynchronizer";
 import { registerVirtualKnowledgeProvider } from "../knowledgeFiles/virtualKnowledgeFile";
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import { isChildUri, isSameUri } from "../utils/genericUtils";
@@ -160,7 +160,20 @@ export async function refreshWorkspaces(workspaces: CopilotStudioWorkspace[], co
   void commands.executeCommand('setContext', 'mcs.hasConnectedAgent', hasConnectedAgent);
 }
 
-export async function pushNewWorkspace(context: ExtensionContext, ws: CopilotStudioWorkspace) {
+export async function pushNewWorkspace(context: ExtensionContext, ws: CopilotStudioWorkspace, draftConnectionReferenceWorkflows = false) {
+  removeSynchronizer(ws.workspaceUri);
+
+  const pendingSetup = workspaceSetupPromises.get(ws.workspaceUri);
+  if (pendingSetup) {
+    await pendingSetup.catch(() => { });
+  }
+
+  const staleTracking = workspaceMap.get(ws.workspaceUri);
+  if (staleTracking) {
+    staleTracking.dispose();
+    workspaceMap.delete(ws.workspaceUri);
+  }
+
   const updatedCache = await updateWorkspaceCache(ws);
   await refreshWorkspaces(updatedCache, context);
 
@@ -170,9 +183,11 @@ export async function pushNewWorkspace(context: ExtensionContext, ws: CopilotStu
 
   const maxAttempts = 4;
   for (let attempt = 1; ; attempt++) {
-    await synchronizer.pull(virtualKnowledgeProvider);
+    if (attempt > 1) {
+      await synchronizer.pull(virtualKnowledgeProvider);
+    }
     try {
-      await synchronizer.push(true, true);
+      await synchronizer.push(true, true, draftConnectionReferenceWorkflows);
       break;
     } catch (error) {
       const isTransient = (error as Error).message?.includes('Improper response, not implemented');

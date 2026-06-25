@@ -18,6 +18,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
         public string? DisplayName { get; set; }
 
+        public string? SchemaName { get; set; }
+
         public string? Description { get; set; }
 
         public WorkspaceType Type { get; set; }

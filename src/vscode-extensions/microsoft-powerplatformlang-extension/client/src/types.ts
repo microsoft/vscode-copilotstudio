@@ -20,6 +20,7 @@ export interface AgentSyncInfo {
   dataverseEndpoint: string;
   agentManagementEndpoint: string;
   environmentId: string;
+  environmentDisplayName?: string;
 
   // TODO: This will break with component collections.
   agentId: string;
@@ -31,6 +32,7 @@ export interface AgentSyncInfo {
 export interface SyncRequest extends RemoteApiRequest {
   // Workspace URI: get from vscode.WorkspaceFolder;
   workspaceUri: string;
+  draftConnectionReferenceWorkflows?: boolean;
 }
 
 export interface SyncResponse extends RemoteApiResponse {
@@ -114,6 +116,7 @@ export interface CloneAgentResponse extends RemoteApiResponse {
 export interface AgentInfo {
   agentId: string; // Guid in C# maps to string in TypeScript
   displayName: string;
+  schemaName: string;
   iconBase64: string;
   displayComplement: string;
   componentCollections: ComponentCollection[];
@@ -162,11 +165,20 @@ export interface ClonedAssets {
 
 export interface ReattachAgentRequest extends RemoteApiRequest {
   workspaceUri: string;
+  allowRetarget?: boolean;
+  conflictResolution?: RetargetConflictResolution;
+}
+
+export enum RetargetConflictResolution {
+  Prompt = 0,
+  ReuseExisting = 1,
 }
 
 export interface ReattachAgentResponse extends RemoteApiResponse {
   agentSyncInfo: AgentSyncInfo;
   isNewAgent: boolean;
+  requiresLocalPush?: boolean;
+  schemaConflict?: boolean;
   workflowResponse: WorkflowResponse[];
   aiPromptResponse?: AIPromptResponse[];
 }

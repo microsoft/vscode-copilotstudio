@@ -8,6 +8,7 @@ using Microsoft.Agents.ObjectModel.FileProjection;
 using Microsoft.Agents.ObjectModel.Merge;
 using Microsoft.Agents.ObjectModel.Yaml;
 using Microsoft.Agents.Platform.Content;
+using Microsoft.Agents.Platform.Content.Exceptions;
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Security.Cryptography;
@@ -27,7 +28,7 @@ namespace Microsoft.CopilotStudio.Sync;
 /// <see cref="IFileAccessor"/>.
 /// Handles components, change tokens, etc. 
 /// </summary>
-internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManagementService, IWorkflowActivationService
+internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManagementService, IWorkflowActivationService, IWorkspaceRetargetService
 {
     // We write internal state to our own hidden folder.
     // We can version this later by appending a version number subdir.
@@ -79,6 +80,17 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     // - BotComponentId, Version (for later upload)
     // - original contents  - for providing diff; and reverting. 
     private static readonly AgentFilePath OldBotCachePath = new AgentFilePath(HiddenRoot + "/botdefinition.yml");
+
+    private static readonly AgentFilePath[] RemoteBindingFilePaths =
+    {
+        BotCachePath,
+        OldBotCachePath,
+        ChangeTokenPath,
+        ConnectionsCachePath,
+        ConnectorsSyncStatePath,
+        KnowledgeSyncStatePath,
+        AiPromptsSyncStatePath,
+    };
 
     /// <summary>
     /// Write the top-level <see cref="BotEntity"/>.
@@ -1029,6 +1041,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         CancellationToken cancellationToken)
     {
         const int maxPasses = 32;
+        const int maxConcurrencyRetries = 3;
+        var concurrencyRetries = 0;
         for (var pass = 0; pass < maxPasses; pass++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -1068,7 +1082,17 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 }
             }
 
-            await PushChangesetAsync(workspaceFolder, operationContext, changeSet, dataverseClient, syncInfo.AgentId, cloudFlowMetadata, aiPrompts, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await PushChangesetAsync(workspaceFolder, operationContext, changeSet, dataverseClient, syncInfo.AgentId, cloudFlowMetadata, aiPrompts, cancellationToken).ConfigureAwait(false);
+            }
+            catch (DataversePreconditionFailedException) when (concurrencyRetries < maxConcurrencyRetries)
+            {
+                concurrencyRetries++;
+                await RefreshCloudCacheFromRemoteAsync(workspaceFolder, operationContext, cancellationToken).ConfigureAwait(false);
+                pass--;
+                continue;
+            }
 
             if (!deferredMissingParent)
             {
@@ -1080,6 +1104,15 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 throw new InvalidOperationException("Unsupported sync operation. A component references a parent agent that could not be created on the cloud.");
             }
         }
+    }
+
+    private async Task RefreshCloudCacheFromRemoteAsync(DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, CancellationToken cancellationToken)
+    {
+        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var changeToken = await GetChangeTokenOrNullAsync(fileAccessor, cancellationToken).ConfigureAwait(false);
+        var changeset = await _islandControlPlaneService.GetComponentsAsync(operationContext, changeToken, cancellationToken).ConfigureAwait(false);
+        UpdateCloudCache(fileAccessor, changeset);
+        await WriteChangeTokenAsync(fileAccessor, changeset, cancellationToken).ConfigureAwait(false);
     }
 
     public virtual async Task ProvisionConnectionReferencesAsync(
@@ -2358,19 +2391,28 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     /// <param name="cloudFlowMetadata">The cloud flow metadata containing workflow definitions and connection references.</param>
     /// <param name="cancellationToken">Cancellation token to cancel the operation.</param>
     /// <returns>Workspace sync result.</returns>
-    public async Task<WorkspaceSyncInfo> SyncWorkspaceAsync(
-        DirectoryPath workspaceFolder,
-        AuthoringOperationContextBase operationContext,
-        string? changeToken,
-        bool updateWorkspaceDirectory,
-        ISyncDataverseClient dataverseClient,
-        AgentSyncInfo syncInfo,
-        CloudFlowMetadata? cloudFlowMetadata,
-        CancellationToken cancellationToken)
+    public Task<WorkspaceSyncInfo> SyncWorkspaceAsync(DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, string? changeToken, bool updateWorkspaceDirectory, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken)
+        => SyncWorkspaceAsync(workspaceFolder, operationContext, changeToken, updateWorkspaceDirectory, dataverseClient, syncInfo, cloudFlowMetadata, cancellationToken, default);
+
+    /// <summary>
+    /// Sync workspace using AI prompt metadata already upserted to the target environment during retarget.
+    /// </summary>
+    /// <param name="workspaceFolder">Workspace folder.</param>
+    /// <param name="operationContext">Context.</param>
+    /// <param name="changeToken">Change token.</param>
+    /// <param name="updateWorkspaceDirectory">Whether to update workspace directory.</param>
+    /// <param name="dataverseClient">The dataverse client to use for communication with the dataverse service.</param>
+    /// <param name="syncInfo">Synchronization information for the agent.</param>
+    /// <param name="cloudFlowMetadata">The cloud flow metadata containing workflow definitions and connection references.</param>
+    /// <param name="cancellationToken">Cancellation token to cancel the operation.</param>
+    /// <param name="aiPromptMetadata">AI prompt metadata already upserted to the target environment.</param>
+    /// <param name="syncCustomConnectors">When false, skips custom connector folder reconciliation so a pre-push retarget sync does not delete local connector content before it is pushed.</param>
+    /// <returns>Workspace sync result.</returns>
+    public async Task<WorkspaceSyncInfo> SyncWorkspaceAsync(DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, string? changeToken, bool updateWorkspaceDirectory, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken, ImmutableArray<AIPromptMetadata> aiPromptMetadata, bool syncCustomConnectors = true)
     {
         var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
         var workflows = cloudFlowMetadata ?? await GetWorkflowsAsync(workspaceFolder, dataverseClient, syncInfo, fileAccessor, cancellationToken).ConfigureAwait(false);
-        var aiPrompts = await GetAIPromptsAsync(workspaceFolder, dataverseClient, syncInfo, fileAccessor, cancellationToken).ConfigureAwait(false);
+        var aiPrompts = aiPromptMetadata.IsDefault ? await GetAIPromptsAsync(workspaceFolder, dataverseClient, syncInfo, fileAccessor, cancellationToken).ConfigureAwait(false) : aiPromptMetadata;
         var changeset = await _islandControlPlaneService.GetComponentsAsync(operationContext, changeToken, cancellationToken).ConfigureAwait(false);
 
         DefinitionBase emptyDefinition = operationContext switch
@@ -2403,7 +2445,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 cancellationToken: cancellationToken).ConfigureAwait(false);
         }
 
-        await WriteCustomConnectorsAsync(fileAccessor, workspaceFolder, definition, dataverseClient, cancellationToken).ConfigureAwait(false);
+        if (syncCustomConnectors)
+        {
+            await WriteCustomConnectorsAsync(fileAccessor, workspaceFolder, definition, dataverseClient, cancellationToken).ConfigureAwait(false);
+        }
 
         return new WorkspaceSyncInfo
         {
@@ -2903,6 +2948,72 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         fileAccessor.Delete(AiPromptsSyncStatePath);
     }
 
+    public virtual RemoteBindingSnapshot ResetRemoteBindingState(DirectoryPath workspaceFolder)
+    {
+        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var captured = ImmutableArray.CreateBuilder<RemoteBindingFile>();
+
+        if (fileAccessor.Exists(ConnectionDetailsPath))
+        {
+            captured.Add(new RemoteBindingFile(ConnectionDetailsPath, ReadAllBytes(fileAccessor, ConnectionDetailsPath)));
+        }
+
+        foreach (var path in RemoteBindingFilePaths)
+        {
+            if (fileAccessor.Exists(path))
+            {
+                captured.Add(new RemoteBindingFile(path, ReadAllBytes(fileAccessor, path)));
+            }
+        }
+
+        var snapshot = new RemoteBindingSnapshot(captured.ToImmutable());
+
+        try
+        {
+            foreach (var path in RemoteBindingFilePaths)
+            {
+                fileAccessor.Delete(path);
+            }
+        }
+        catch
+        {
+            foreach (var file in snapshot.Files)
+            {
+                WriteAllBytes(fileAccessor, file.Path, file.Content);
+            }
+            throw;
+        }
+
+        return snapshot;
+    }
+
+    public virtual void RestoreRemoteBindingState(DirectoryPath workspaceFolder, RemoteBindingSnapshot snapshot)
+    {
+        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        foreach (var path in RemoteBindingFilePaths)
+        {
+            fileAccessor.Delete(path);
+        }
+        foreach (var file in snapshot.Files)
+        {
+            WriteAllBytes(fileAccessor, file.Path, file.Content);
+        }
+    }
+
+    private static byte[] ReadAllBytes(IFileAccessor fileAccessor, AgentFilePath path)
+    {
+        using var stream = fileAccessor.OpenRead(path);
+        using var memory = new MemoryStream();
+        stream.CopyTo(memory);
+        return memory.ToArray();
+    }
+
+    private static void WriteAllBytes(IFileAccessor fileAccessor, AgentFilePath path, byte[] content)
+    {
+        using var stream = fileAccessor.OpenWrite(path);
+        stream.Write(content, 0, content.Length);
+    }
+
     /// <summary>
     /// Check if the sync info (mcs\conn.json) is available in the workspace folder.
     /// </summary>
@@ -3023,8 +3134,14 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         else if (localDefinition is BotDefinition bot)
         {
             botEntity = bot.Entity ?? throw new InvalidOperationException("Missing bot definition");
-            parentBotId = botEntity.CdsBotId;
             var cloudSnapshotEntity = (cloudSnapshot as BotDefinition)?.Entity;
+            if (botEntity.CdsBotId == default && cloudSnapshotEntity != null && cloudSnapshotEntity.CdsBotId != default)
+            {
+                var entityBuilder = botEntity.ToBuilder();
+                entityBuilder.CdsBotId = cloudSnapshotEntity.CdsBotId;
+                botEntity = entityBuilder.Build();
+            }
+            parentBotId = botEntity.CdsBotId;
             if (cloudSnapshotEntity != null)
             {
                 var leftComparison = cloudSnapshotEntity.WithOnlySettingsYamlProperties();
@@ -3656,7 +3773,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 var (cloudFlowDefinition, _) = GetFlowDefinition(metadata);
                 cloudFlowDefinitions.Add(cloudFlowDefinition);
 
+                var hasConnectionReferences = HasConnectionReferences(metadata);
+
                 if (activationMode != WorkflowActivationMode.ActivateWhenConnectionsBound
+                    && !(activationMode == WorkflowActivationMode.DraftWhenConnectionReferencesExist && hasConnectionReferences)
                     && cachedWorkflowClientData.TryGetValue(workflowId.Value, out var cachedClientData)
                     && string.Equals(cachedClientData, NormalizeWorkflowClientData(clientDataJson), StringComparison.Ordinal)
                     && cachedWorkflowMetadata.TryGetValue(workflowId.Value, out var cachedMetadata)
@@ -3664,7 +3784,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 {
                     if (activationMode == WorkflowActivationMode.DraftWhenConnectionsUnbound
                         && metadata.StateCode == 1
-                        && metadata.ConnectionReferences.Any(n => !string.IsNullOrWhiteSpace(n)))
+                        && hasConnectionReferences)
                     {
                         unchangedActivatedWorkflows.Add(metadata);
                     }
@@ -3681,6 +3801,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 {
                     await ApplyConnectionAwareWorkflowStateAsync(workflowsToUpload, dataverseClient, cancellationToken).ConfigureAwait(false);
                 }
+            }
+            else if (activationMode == WorkflowActivationMode.DraftWhenConnectionReferencesExist)
+            {
+                DraftConnectionReferenceWorkflows(workflowsToUpload);
             }
             else if (activationMode == WorkflowActivationMode.DraftWhenConnectionsUnbound)
             {
@@ -3736,6 +3860,23 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         });
     }
 
+    private static void DraftConnectionReferenceWorkflows(IEnumerable<WorkflowMetadata> workflows)
+    {
+        foreach (var workflow in workflows)
+        {
+            if (!HasConnectionReferences(workflow))
+            {
+                continue;
+            }
+
+            workflow.StateCode = 0;
+            workflow.StatusCode = 1;
+        }
+    }
+
+    private static bool HasConnectionReferences(WorkflowMetadata workflow)
+        => workflow.ConnectionReferences.Any(n => !string.IsNullOrWhiteSpace(n));
+
     private static async Task ApplyConnectionAwareWorkflowStateAsync(
         List<WorkflowMetadata> workflows,
         ISyncDataverseClient dataverseClient,
@@ -3782,7 +3923,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         CancellationToken cancellationToken)
     {
         var activating = workflows
-            .Where(w => w.StateCode == 1 && w.ConnectionReferences.Any(n => !string.IsNullOrWhiteSpace(n)))
+            .Where(w => w.StateCode == 1 && HasConnectionReferences(w))
             .ToList();
         if (activating.Count == 0)
         {

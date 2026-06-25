@@ -5,5 +5,7 @@
     internal class SyncAgentRequest : DataverseRequest, IHasWorkspace
     {
         public required Uri WorkspaceUri { get; set; }
+
+        public bool DraftConnectionReferenceWorkflows { get; set; }
     }
 }

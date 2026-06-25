@@ -11,6 +11,10 @@
 
         public bool IsNewAgent { get; init; } = false;
 
+        public bool RequiresLocalPush { get; init; } = false;
+
+        public bool SchemaConflict { get; init; } = false;
+
         public ImmutableArray<WorkflowResponse> WorkflowResponse { get; init; } = ImmutableArray<WorkflowResponse>.Empty;
 
         public ImmutableArray<SyncDataverseClient.AIPromptResponse> AIPromptResponse { get; init; } = ImmutableArray<SyncDataverseClient.AIPromptResponse>.Empty;

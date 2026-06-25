@@ -88,6 +88,35 @@ describe('virtualKnowledgeFileSystemProvider', () => {
         assert.ok(labels.includes('file2.txt (Root Agent/child)'));
     });
 
+    test('addWorkspace replaces stale workspace so retarget uses new syncInfo', async () => {
+        const lspMod = require('../../services/lspClient');
+        const seenSyncInfos: any[] = [];
+        lspMod.buildLspRequestPayload = async (info: any) => {
+            seenSyncInfos.push(info);
+            return {};
+        };
+
+        await provider.refresh();
+        assert.ok(seenSyncInfos.some(info => info?.agentId === 'agent-123'), 'initial refresh should use the original syncInfo');
+
+        const retargetedWorkspace = {
+            workspaceUri: workspace.workspaceUri,
+            displayName: 'Root Agent',
+            syncInfo: {
+                agentId: 'agent-456',
+                dataverseEndpoint: 'https://my-other-copilotstudio-endpoint'
+            }
+        } as any;
+
+        seenSyncInfos.length = 0;
+        provider.addWorkspace(retargetedWorkspace);
+        await provider.refresh();
+
+        assert.ok(seenSyncInfos.length > 0, 'refresh should issue a list request after retarget');
+        assert.ok(seenSyncInfos.every(info => info?.agentId === 'agent-456'), 'refresh should use the retargeted syncInfo');
+        assert.ok(!seenSyncInfos.some(info => info?.agentId === 'agent-123'), 'refresh must not reuse the stale syncInfo');
+    });
+
     test('stat returns FileStat for known file', async () => {
         await provider.refresh();
         const entry = provider.getEntries().find(e => e.label === 'file1.txt (Root Agent)');
