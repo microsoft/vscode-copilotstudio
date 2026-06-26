@@ -145,6 +145,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private readonly object _connectionsCacheGate = new object();
     private readonly Dictionary<string, long> _connectionsCacheGeneration = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+    private const string FileAttachmentProjectionProbeComponentName = "__projection_probe";
 
     public WorkspaceSynchronizer(
         IMcsFileParser fileParser,
@@ -185,6 +186,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             referenceTracker.MarkDeclaration(collection.GetRootSchemaName(), workspaceFolder);
         }
+
+        await DownloadKnowledgeFilesAsync(workspaceFolder, dataverseClient, schemaNames: null, cancellationToken).ConfigureAwait(false);
 
         // On clone, if there is no GptComponentMetadata (Agent.mcs.yml), write a default one.
         // Skip for CLI agents: agent.mcs.yml is the classic GptComponentMetadata file, and
@@ -801,12 +804,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }
 
             var componentPath = new AgentFilePath(_pathResolver.GetComponentPath(component, snapshot));
-            var relativePath = $"{componentPath.ParentDirectoryName.Replace('\\', '/').TrimEnd('/')}/{component.DisplayName}";
+            var contentPath = GetKnowledgeContentFilePath(componentPath, component.DisplayName!);
             builder.Add(new KnowledgeFileInfo
             {
                 SchemaName = component.SchemaNameString,
-                FileName = component.DisplayName!,
-                RelativePath = relativePath,
+                FileName = KnowledgeFilePath.NormalizeDisplayName(component.DisplayName!),
+                RelativePath = PathHelper.ToInternalCanonicalPath(contentPath.ToString()),
             });
         }
 
@@ -973,19 +976,20 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var componentPath = new AgentFilePath(_pathResolver.GetComponentPath(component, snapshot));
         var parentDirectory = componentPath.ParentDirectoryName;
         var displayName = component.DisplayName!;
+        var localDisplayName = KnowledgeFilePath.NormalizeDisplayName(displayName);
 
         await dataverseClient.DownloadKnowledgeFileAsync(
             Path.Combine(workspaceFolder.ToString(), parentDirectory),
             component.Id,
-            displayName,
+            localDisplayName,
             cancellationToken).ConfigureAwait(false);
 
-        var relativePath = $"{parentDirectory.Replace('\\', '/').TrimEnd('/')}/{displayName}";
+        var contentPath = GetKnowledgeContentFilePath(componentPath, displayName);
         return new KnowledgeFileInfo
         {
             SchemaName = component.SchemaNameString,
-            FileName = displayName,
-            RelativePath = relativePath,
+            FileName = localDisplayName,
+            RelativePath = PathHelper.ToInternalCanonicalPath(contentPath.ToString()),
         };
     }
 
@@ -1339,18 +1343,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 existingNamesByFolder[folder] = names;
             }
 
-            names.Add(existing.DisplayName!);
+            names.Add(KnowledgeFilePath.NormalizeDisplayName(existing.DisplayName!));
         }
 
-        var scopes = new List<(BotComponentId? ParentId, string Folder)>
-        {
-            (null, GetKnowledgeFilesFolder(definition, null)),
-        };
-
-        foreach (var childAgent in definition.Components.OfType<DialogComponent>().Where(d => d.RootElement is AgentDialog))
-        {
-            scopes.Add((childAgent.Id, GetKnowledgeFilesFolder(definition, childAgent.Id)));
-        }
+        var scopes = GetKnowledgeFileScopes(definition);
 
         foreach (var (parentId, folder) in scopes)
         {
@@ -1370,7 +1366,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             foreach (var file in knowledgeFiles)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (existingNames != null && existingNames.Contains(file.FileName))
+                var displayName = KnowledgeFilePath.NormalizeDisplayName(
+                    KnowledgeFilePath.GetDisplayNameFromContentPath(folder, file));
+                if (existingNames != null && existingNames.Contains(displayName))
                 {
                     continue;
                 }
@@ -1383,15 +1381,15 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 var schemaName = SchemaNameGenerator.GenerateSchemaNameForBotComponent(
                     botSchemaPrefix: GetSchemaName(definition),
                     componentPrefix: "file",
-                    componentDisplayName: file.FileName,
+                    componentDisplayName: displayName,
                     existingSchemaNames: existingSchemaNames
                 );
                 existingSchemaNames.Add(schemaName);
 
                 var builder = new FileAttachmentComponent()
                     .WithSchemaName(schemaName)
-                    .WithDisplayName(file.FileName)
-                    .WithDescription($"This knowledge source searches information contained in {file.FileName}")
+                    .WithDisplayName(displayName)
+                    .WithDescription($"This knowledge source searches information contained in {displayName}")
                     .ToBuilder();
                 if (parentId.HasValue)
                 {
@@ -1405,34 +1403,46 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return newComponents;
     }
 
-    private static string GetKnowledgeFilesFolder(DefinitionBase definition, BotComponentId? parentId)
+    private List<(BotComponentId? ParentId, string Folder)> GetKnowledgeFileScopes(DefinitionBase definition)
     {
-        var subPath = (definition is BotDefinition botDef && botDef.Entity != null && IsCliAgentEntity(botDef.Entity))
-            ? CliKnowledgeFilesSubPath
-            : KnowledgeFilesSubPath;
+        var scopes = new List<(BotComponentId? ParentId, string Folder)>();
+        var seenFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        if (parentId.HasValue
-            && definition.TryGetBotComponentById(parentId.Value, out var parent)
-            && parent is DialogComponent dialogComponent
-            && dialogComponent.RootElement is AgentDialog)
+        var rootFolder = GetKnowledgeFilesFolder(definition, null);
+        scopes.Add((null, rootFolder));
+        seenFolders.Add(rootFolder);
+
+        foreach (var parent in definition.Components)
         {
-            var agentName = ExtractSubAgentName(dialogComponent.SchemaNameString ?? string.Empty);
-            return $"agents/{agentName}/{subPath}";
+            if (parent.Id.Value == Guid.Empty)
+            {
+                continue;
+            }
+
+            var folder = GetKnowledgeFilesFolder(definition, parent.Id);
+            if (!string.Equals(folder, rootFolder, StringComparison.OrdinalIgnoreCase) && seenFolders.Add(folder))
+            {
+                scopes.Add((parent.Id, folder));
+            }
         }
 
-        return subPath;
+        return scopes;
     }
 
-    private static string ExtractSubAgentName(string schemaName)
+    private string GetKnowledgeFilesFolder(DefinitionBase definition, BotComponentId? parentId)
     {
-        const string infix = ".agent.";
-        var infixIndex = schemaName.IndexOf(infix, StringComparison.OrdinalIgnoreCase);
-        if (infixIndex >= 0)
+        var builder = new FileAttachmentComponent()
+            .WithSchemaName($"{GetSchemaName(definition)}{LspProjection.FileAttachmentInfix}{FileAttachmentProjectionProbeComponentName}")
+            .WithDisplayName(FileAttachmentProjectionProbeComponentName)
+            .ToBuilder();
+
+        if (parentId.HasValue)
         {
-            return schemaName.Substring(infixIndex + infix.Length);
+            builder.ParentBotComponentId = parentId.Value;
         }
 
-        return string.IsNullOrWhiteSpace(schemaName) ? "Unknown" : schemaName;
+        var componentPath = new AgentFilePath(_pathResolver.GetComponentPath(builder.Build(), definition));
+        return PathHelper.ToInternalCanonicalFolderPath(componentPath.ParentDirectoryName);
     }
 
     private void MaterializeNewKnowledgeFileMetadata(DirectoryPath workspaceFolder, DefinitionBase definition, IReadOnlyList<BotComponentBase> newComponents, CancellationToken cancellationToken)
@@ -5545,9 +5555,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private static AgentFilePath GetKnowledgeContentFilePath(AgentFilePath componentPath, string displayName)
     {
-        var parentDirectory = componentPath.ParentDirectoryName.Replace('\\', '/').TrimEnd('/');
-        var relativePath = string.IsNullOrEmpty(parentDirectory) ? displayName : $"{parentDirectory}/{displayName}";
-        return new AgentFilePath(relativePath);
+        return KnowledgeFilePath.GetContentFilePath(componentPath, displayName);
     }
 
     private bool IsValidFileToUpload(IFileAccessor fileAccessor, AgentFilePath knowledgeFile)

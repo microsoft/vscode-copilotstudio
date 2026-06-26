@@ -942,7 +942,7 @@ public class SyncDataverseClient : ISyncDataverseClient
 
     private static string GetKnowledgeFileLocalPath(string knowledgeFileFolder, string fileName)
     {
-        return Path.Combine(knowledgeFileFolder, fileName);
+        return KnowledgeFilePath.GetLocalPath(knowledgeFileFolder, fileName);
     }
 
     public virtual async Task<AIPromptMetadata[]> DownloadAllAIPromptsForAgentAsync(AgentSyncInfo syncInfo, CancellationToken cancellationToken)

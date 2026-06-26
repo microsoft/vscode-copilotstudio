@@ -83,25 +83,25 @@ internal sealed class LspProjectorService
 
             if (typeof(AdaptiveDialog).IsAssignableFrom(elementType) && LspProjection.IsTranslationSchemaName(schemaName))
             {
-                var translationPath = LspProjection.GetFilePath(typeof(TranslationsComponent), schemaName, context.BotName, context.SubAgentFolder, pathWithoutExtension, shape);
+                var translationPath = LspProjection.GetFilePath(typeof(TranslationsComponent), schemaName, context.BotName, context.SubAgentFolder, pathWithoutExtension, shape, dialogComponent, context.Definition);
                 if (translationPath != null) return translationPath;
             }
 
-            var path = LspProjection.GetFilePath(elementType, schemaName, context.BotName, context.SubAgentFolder, pathWithoutExtension, shape);
+            var path = LspProjection.GetFilePath(elementType, schemaName, context.BotName, context.SubAgentFolder, pathWithoutExtension, shape, dialogComponent, context.Definition);
             if (path != null) return path;
         }
 
         if (component is TranslationsComponent)
         {
-            return LspProjection.GetFilePath(typeof(TranslationsComponent), component.SchemaNameString ?? string.Empty, context.BotName, context.SubAgentFolder, pathWithoutExtension, shape);
+            return LspProjection.GetFilePath(typeof(TranslationsComponent), component.SchemaNameString ?? string.Empty, context.BotName, context.SubAgentFolder, pathWithoutExtension, shape, component, context.Definition);
         }
 
         if (component is GptComponent)
         {
-            return LspProjection.GetFilePath(typeof(GptComponent), component.SchemaNameString ?? string.Empty, context.BotName, context.SubAgentFolder, pathWithoutExtension, shape);
+            return LspProjection.GetFilePath(typeof(GptComponent), component.SchemaNameString ?? string.Empty, context.BotName, context.SubAgentFolder, pathWithoutExtension, shape, component, context.Definition);
         }
 
-        var filePath = LspProjection.GetFilePath(component.GetType(), component.SchemaNameString ?? string.Empty, context.BotName, context.SubAgentFolder, pathWithoutExtension, shape);
+        var filePath = LspProjection.GetFilePath(component.GetType(), component.SchemaNameString ?? string.Empty, context.BotName, context.SubAgentFolder, pathWithoutExtension, shape, component, context.Definition);
         if (filePath != null) return filePath;
 
         var projector = GetProjectorForType(component.GetType());

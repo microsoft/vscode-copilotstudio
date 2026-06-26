@@ -36,6 +36,21 @@ public class CliAgentNodeS4KnowledgeFilePathTests
     }
 
     [Fact]
+    public async Task CliAgent_NewKnowledgeFile_InvalidDisplayNameIsRejectedBeforeDiscovery()
+    {
+        var (_, _, accessor, synchronizer, workspace) =
+            await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
+
+        await accessor.WriteAsync(
+            new AgentFilePath("capabilities/knowledge/files/NewCliDoc.csv:stream"), CsvBytes, CancellationToken.None);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true));
+
+        Assert.Contains("':'", ex.Message);
+    }
+
+    [Fact]
     public async Task CliAgent_NewKnowledgeFile_UnderClassicFolder_IsIgnored()
     {
         // A file placed at the classic knowledge/files/ path must NOT be discovered for a CLI

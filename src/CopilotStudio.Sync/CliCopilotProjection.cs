@@ -18,7 +18,7 @@ public static class CliCopilotProjection
     /// </summary>
     public static IReadOnlyList<string> AuthoredComponentBodyFolders { get; } = Array.AsReadOnly(
         LspProjection.CliRules.Values
-            .Select(r => r.Folder.TrimEnd('/'))
+            .Select(r => PathHelper.ToInternalCanonicalFolderPath(r.Folder))
             .Where(f => f.Length > 0)
             .Distinct(StringComparer.Ordinal)
             .OrderBy(f => f, StringComparer.Ordinal)
@@ -76,7 +76,7 @@ public static class CliCopilotProjection
     }
 
     private static string NormalizeFolder(string folder)
-        => folder.TrimEnd('/', '\\');
+        => PathHelper.ToInternalCanonicalFolderPath(folder);
 
     private static string GetFileNameOnly(string? fileName)
     {
