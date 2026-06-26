@@ -64,6 +64,12 @@ public class AgentSyncInfo
     /// </summary>
     public string EnvironmentId { get; init; } = string.Empty;
 
+    /// <summary>
+    /// Environment display name.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? EnvironmentDisplayName { get; init; }
+
     public AccountInfo? AccountInfo { get; init; }
 
     // Only one of these Ids is set depending on workspace type.
@@ -92,6 +98,31 @@ public class AssetsToClone
     public ImmutableArray<Guid> ComponentCollectionIds { get; set; } = ImmutableArray<Guid>.Empty;
 
     public bool CloneAgent { get; set; }
+}
+
+public sealed class RemoteBindingSnapshot
+{
+    internal ImmutableArray<RemoteBindingFile> Files { get; }
+
+    internal RemoteBindingSnapshot(ImmutableArray<RemoteBindingFile> files)
+    {
+        Files = files;
+    }
+
+    public static RemoteBindingSnapshot Empty { get; } = new RemoteBindingSnapshot(ImmutableArray<RemoteBindingFile>.Empty);
+}
+
+internal readonly struct RemoteBindingFile
+{
+    public RemoteBindingFile(AgentFilePath path, byte[] content)
+    {
+        Path = path;
+        Content = content;
+    }
+
+    public AgentFilePath Path { get; }
+
+    public byte[] Content { get; }
 }
 
 #endregion
@@ -508,6 +539,8 @@ public enum WorkflowActivationMode
     ActivateWhenConnectionsBound,
 
     DraftWhenConnectionsUnbound,
+
+    DraftWhenConnectionReferencesExist,
 }
 
 public class WorkflowResponse

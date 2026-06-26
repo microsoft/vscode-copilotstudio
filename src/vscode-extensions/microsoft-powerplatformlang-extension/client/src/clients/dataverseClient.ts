@@ -18,7 +18,7 @@ export async function getAgentAsync(
   accountId?: string,
   accountHint?: string
 ): Promise<{ agent: AgentInfo; accountId: string; accountEmail?: string }> {
-  const uri = baseEndpoint.with({ path: `api/data/v9.2/bots(${agentId})`, query: '$select=botid,name,iconbase64&$expand=bot_botcomponentcollection($select=schemaname,botcomponentcollectionid,name)' });
+  const uri = baseEndpoint.with({ path: `api/data/v9.2/bots(${agentId})`, query: '$select=botid,name,schemaname,iconbase64&$expand=bot_botcomponentcollection($select=schemaname,botcomponentcollectionid,name)' });
   const { result, tokenInfo } = await getAsync<AgentDetails>(uri, cancellationToken, accountId, accountHint);
   return {
     agent: getAgentInfo(result),
@@ -173,7 +173,7 @@ export async function listAgentsAsync(
   const systemUserId = await whoAmIAsync(baseEndpoint, cancellationToken, accountId, accountHint);
 
   const filter = `ismanaged eq false and _ownerid_value eq ${systemUserId}`;
-  const query = `$select=botid,name,iconbase64&$filter=${filter}&$expand=bot_botcomponentcollection($select=schemaname,botcomponentcollectionid,name)`;
+  const query = `$select=botid,name,schemaname,iconbase64&$filter=${filter}&$expand=bot_botcomponentcollection($select=schemaname,botcomponentcollectionid,name)`;
 
   const uri = baseEndpoint.with({
     path: `api/data/v9.2/bots`,
@@ -211,7 +211,7 @@ export async function listSharedAgentsAsync(
   const filter = `ismanaged eq false and _ownerid_value ne ${systemUserId}`;
   const uri = baseEndpoint.with({
     path: `api/data/v9.2/bots`,
-    query: `$select=botid,name,iconbase64&$filter=${filter}&$expand=bot_botcomponentcollection($select=schemaname,botcomponentcollectionid,name)`
+    query: `$select=botid,name,schemaname,iconbase64&$filter=${filter}&$expand=bot_botcomponentcollection($select=schemaname,botcomponentcollectionid,name)`
   });
   const response = await getAsync<ListResponse<AgentDetails>>(uri, cancellationToken, accountId, accountHint);
   const sharedAgents = projectSharedAgents(response.result.value);
@@ -240,6 +240,7 @@ function getAgentInfo(agentDetails: AgentDetails): AgentInfo {
   return {
     agentId: agentDetails.botid,
     displayName: agentDetails.name,
+    schemaName: agentDetails.schemaname,
     displayComplement: "",
     iconBase64: agentDetails.iconbase64,
     componentCollections: (agentDetails.bot_botcomponentcollection ?? []).map(componentCollection => ({
@@ -275,6 +276,7 @@ interface ListResponse<T> {
 interface AgentDetails {
   botid: string;
   name: string;
+  schemaname: string;
   iconbase64: string;
   bot_botcomponentcollection: ComponentCollectionDetails[];
 }

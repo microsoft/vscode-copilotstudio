@@ -39,5 +39,6 @@ public static class SyncServiceRegistrations
         services.AddSingleton<IWorkspaceSynchronizer>(sp => sp.GetRequiredService<WorkspaceSynchronizer>());
         services.AddSingleton<IConnectionManagementService>(sp => sp.GetRequiredService<WorkspaceSynchronizer>());
         services.AddSingleton<IWorkflowActivationService>(sp => sp.GetRequiredService<WorkspaceSynchronizer>());
+        services.AddSingleton<IWorkspaceRetargetService>(sp => sp.GetRequiredService<WorkspaceSynchronizer>());
     }
 }

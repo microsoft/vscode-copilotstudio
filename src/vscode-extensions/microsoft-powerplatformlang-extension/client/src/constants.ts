@@ -16,6 +16,7 @@ export const LspMethods = {
   LIST_ENVIRONMENTS: "powerplatformls/listEnvironments",
   LIST_WORKSPACES: "workspace/listWorkspaces",
   REATTACH_AGENT: "powerplatformls/reattachAgent",
+  FINALIZE_RETARGET: "powerplatformls/finalizeRetarget",
   SYNC_PULL: "powerplatformls/syncPull",
   SYNC_PUSH: "powerplatformls/syncPush",
   LIST_AGENT_CONNECTIONS: "powerplatformls/listAgentConnections",

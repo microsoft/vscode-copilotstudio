@@ -1,5 +1,21 @@
 import { window } from "vscode";
-import { CopilotStudioWorkspace, getAllWorkspaces } from "./localWorkspaces";
+import { CopilotStudioWorkspace, getAllWorkspaces, getDuplicateDisplayNames } from "./localWorkspaces";
+
+export function buildWorkspaceQuickPickDetail(workspace: CopilotStudioWorkspace, isDuplicate: boolean): { description?: string; detail?: string } {
+    const accountEmail = workspace.syncInfo?.accountInfo?.accountEmail;
+    const environmentId = workspace.syncInfo?.environmentId;
+    const detailParts: string[] = [];
+    if (accountEmail) {
+        detailParts.push(`account: ${accountEmail}`);
+    }
+    if (environmentId) {
+        detailParts.push(`env: ${environmentId}`);
+    }
+    return {
+        description: isDuplicate && workspace.schemaName ? workspace.schemaName : workspace.description,
+        detail: detailParts.length > 0 ? detailParts.join(' · ') : undefined,
+    };
+}
 
 export function selectWorkspace() : Promise<CopilotStudioWorkspace | undefined> {
     return new Promise((resolve) => {
@@ -11,14 +27,20 @@ export function selectWorkspace() : Promise<CopilotStudioWorkspace | undefined> 
             resolve(workspaces[0]);
             return;
         } else {
-            const workspaceItems = workspaces.map(workspace => ({
-                label: workspace.displayName,
-                description: workspace.description,
-                iconPath: workspace.icon,
-                type: workspace.type,
-                info: workspace.syncInfo,
-                data: workspace,
-            }));
+            const duplicateNames = getDuplicateDisplayNames(workspaces);
+            const workspaceItems = workspaces.map(workspace => {
+                const isDuplicate = duplicateNames.has(workspace.displayName.toLowerCase());
+                const { description, detail } = buildWorkspaceQuickPickDetail(workspace, isDuplicate);
+                return {
+                    label: workspace.displayName,
+                    description,
+                    detail,
+                    iconPath: workspace.icon,
+                    type: workspace.type,
+                    info: workspace.syncInfo,
+                    data: workspace,
+                };
+            });
             window.showQuickPick(workspaceItems, { placeHolder: "Select a workspace" }).then(selected => {
                 if (selected) {
                     resolve(selected.data);
