@@ -153,18 +153,18 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 var operationContext = await _operationContextProvider.GetAsync(syncInfo);
 
                 RemoteBindingSnapshot? bindingSnapshot = null;
-                if (isRetarget)
-                {
-                    bindingSnapshot = _retargetService.ResetRemoteBindingState(workspaceFolder);
-                    _retargetService.PersistRetargetBackup(workspaceFolder, bindingSnapshot);
-                }
-                else
-                {
-                    _workspaceSynchronizer.ClearComponentSyncBaselines(workspaceFolder);
-                }
-
                 try
                 {
+                    if (isRetarget)
+                    {
+                        bindingSnapshot = _retargetService.ResetRemoteBindingState(workspaceFolder);
+                        _retargetService.PersistRetargetBackup(workspaceFolder, bindingSnapshot);
+                    }
+                    else
+                    {
+                        _workspaceSynchronizer.ClearComponentSyncBaselines(workspaceFolder);
+                    }
+
                     await ConnectionHelper.ProvisionConnectionsAsync(_workspaceSynchronizer, workspaceFolder, workspace.Definition, _dataverseClient, cancellationToken);
 
                     var (workflowResponse, cloudFlowMetadata) = await _workspaceSynchronizer.UpsertWorkflowForAgentAsync(workspaceFolder, _dataverseClient, agentId, cancellationToken, CopilotStudio.Sync.WorkflowActivationMode.DraftWhenConnectionReferencesExist);

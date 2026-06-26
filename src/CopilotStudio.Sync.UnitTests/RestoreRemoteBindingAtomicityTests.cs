@@ -17,7 +17,7 @@ public class RestoreRemoteBindingAtomicityTests
     [Fact]
     public void RestoreRemoteBindingState_WhenWriteFailsMidway_RollsBackToCurrentState()
     {
-        var factory = new FaultingFileAccessorFactory(ChangeToken);
+        var factory = new FaultingFileAccessorFactory(failWritePath: ChangeToken);
         var synchronizer = new WorkspaceSynchronizer(
             new SyncMcsFileParser(LspProjectorService.Instance),
             factory,
@@ -26,6 +26,36 @@ public class RestoreRemoteBindingAtomicityTests
             new LspComponentPathResolver());
 
         var workspace = new DirectoryPath("c:/test/restore-atomicity/");
+        var inner = factory.Inner(workspace);
+
+        WriteText(inner, BotCache, "target-bot");
+        WriteText(inner, ChangeToken, "target-token");
+        WriteText(inner, ConnDetails, "target-conn");
+
+        var snapshot = new RemoteBindingSnapshot(ImmutableArray.Create(
+            new RemoteBindingFile(new AgentFilePath(BotCache), Encoding.UTF8.GetBytes("source-bot")),
+            new RemoteBindingFile(new AgentFilePath(ChangeToken), Encoding.UTF8.GetBytes("source-token")),
+            new RemoteBindingFile(new AgentFilePath(ConnDetails), Encoding.UTF8.GetBytes("source-conn"))));
+
+        Assert.Throws<IOException>(() => synchronizer.RestoreRemoteBindingState(workspace, snapshot));
+
+        Assert.Equal("target-bot", ReadText(inner, BotCache));
+        Assert.Equal("target-token", ReadText(inner, ChangeToken));
+        Assert.Equal("target-conn", ReadText(inner, ConnDetails));
+    }
+
+    [Fact]
+    public void RestoreRemoteBindingState_WhenDeleteFailsMidway_RollsBackToCurrentState()
+    {
+        var factory = new FaultingFileAccessorFactory(failDeletePath: ChangeToken);
+        var synchronizer = new WorkspaceSynchronizer(
+            new SyncMcsFileParser(LspProjectorService.Instance),
+            factory,
+            new Mock<IIslandControlPlaneService>().Object,
+            new TestSyncProgress(new List<string>()),
+            new LspComponentPathResolver());
+
+        var workspace = new DirectoryPath("c:/test/restore-atomicity-delete/");
         var inner = factory.Inner(workspace);
 
         WriteText(inner, BotCache, "target-bot");
@@ -61,21 +91,36 @@ public class RestoreRemoteBindingAtomicityTests
     private sealed class FaultingFileAccessorFactory : IFileAccessorFactory
     {
         private readonly InMemoryFileAccessorFactory _inner = new();
-        private readonly string _failPath;
+        private readonly string? _failWritePath;
+        private readonly string? _failDeletePath;
+        private bool _writeFailed;
+        private bool _deleteFailed;
 
-        public FaultingFileAccessorFactory(string failPath) => _failPath = failPath;
-
-        public bool Failed { get; private set; }
+        public FaultingFileAccessorFactory(string? failWritePath = null, string? failDeletePath = null)
+        {
+            _failWritePath = failWritePath;
+            _failDeletePath = failDeletePath;
+        }
 
         public IFileAccessor Create(DirectoryPath root) => new FaultingFileAccessor(_inner.Create(root), this);
 
         public InMemoryFileAccessor Inner(DirectoryPath root) => (InMemoryFileAccessor)_inner.Create(root);
 
-        public bool TryConsumeFailure(string path)
+        public bool TryConsumeWriteFailure(string path)
         {
-            if (!Failed && path == _failPath)
+            if (!_writeFailed && path == _failWritePath)
             {
-                Failed = true;
+                _writeFailed = true;
+                return true;
+            }
+            return false;
+        }
+
+        public bool TryConsumeDeleteFailure(string path)
+        {
+            if (!_deleteFailed && path == _failDeletePath)
+            {
+                _deleteFailed = true;
                 return true;
             }
             return false;
@@ -95,7 +140,7 @@ public class RestoreRemoteBindingAtomicityTests
 
         public Stream OpenWrite(AgentFilePath path)
         {
-            if (_owner.TryConsumeFailure(path.ToString()))
+            if (_owner.TryConsumeWriteFailure(path.ToString()))
             {
                 throw new IOException("Simulated write failure");
             }
@@ -106,7 +151,14 @@ public class RestoreRemoteBindingAtomicityTests
 
         public Stream OpenRead(AgentFilePath path) => _inner.OpenRead(path);
 
-        public void Delete(AgentFilePath path) => _inner.Delete(path);
+        public void Delete(AgentFilePath path)
+        {
+            if (_owner.TryConsumeDeleteFailure(path.ToString()))
+            {
+                throw new IOException("Simulated delete failure");
+            }
+            _inner.Delete(path);
+        }
 
         public void CreateHiddenDirectory(AgentFilePath path) => _inner.CreateHiddenDirectory(path);
 

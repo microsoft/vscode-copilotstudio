@@ -3089,13 +3089,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }
         }
 
-        foreach (var path in RemoteBindingFilePaths)
-        {
-            fileAccessor.Delete(path);
-        }
-
         try
         {
+            foreach (var path in RemoteBindingFilePaths)
+            {
+                fileAccessor.Delete(path);
+            }
             foreach (var file in snapshot.Files)
             {
                 WriteAllBytes(fileAccessor, file.Path, file.Content);

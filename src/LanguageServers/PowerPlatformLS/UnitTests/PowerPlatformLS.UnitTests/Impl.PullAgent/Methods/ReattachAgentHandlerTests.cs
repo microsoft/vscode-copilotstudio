@@ -381,6 +381,23 @@
         }
 
         [Fact]
+        public async Task ReattachAgentRetargetPersistBackupFailureRestoresBindingTest()
+        {
+            var context = CreateTestSetup();
+            context.Request.AllowRetarget = true;
+            var synchronizer = new TestWorkspaceSynchronizerThrowingPersistBackup(new InvalidOperationException("persist backup failed"));
+            var handler = TestHandlerFactory.CreateHandler(new MockDataverseClient(), synchronizer, CreateOperationProvider());
+
+            var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
+
+            Assert.NotEqual(200, response.Code);
+            Assert.Equal(1, synchronizer.ResetRemoteBindingStateCount);
+            Assert.Equal(1, synchronizer.RestoreRemoteBindingStateCount);
+            Assert.Equal(1, synchronizer.ClearRetargetBackupCount);
+            Assert.Equal(0, synchronizer.SavedSyncInfoCount);
+        }
+
+        [Fact]
         public async Task FinalizeRetarget_WhenPushFailedAndBackupRestored_ReportsRolledBack()
         {
             var context = CreateTestSetup();
@@ -966,6 +983,19 @@
         }
 
         public override Task<(ImmutableArray<WorkflowResponse>, CloudFlowMetadata)> UpsertWorkflowForAgentAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken, WorkflowActivationMode activationMode = WorkflowActivationMode.PreserveSavedState)
+            => throw _exception;
+    }
+
+    internal class TestWorkspaceSynchronizerThrowingPersistBackup : TestWorkspaceSynchronizerSyncInfoExists
+    {
+        private readonly Exception _exception;
+
+        public TestWorkspaceSynchronizerThrowingPersistBackup(Exception exception)
+        {
+            _exception = exception;
+        }
+
+        public override void PersistRetargetBackup(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, RemoteBindingSnapshot snapshot)
             => throw _exception;
     }
 
