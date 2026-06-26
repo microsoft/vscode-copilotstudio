@@ -1132,6 +1132,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private static bool HasConflictingComponentChanges(PvaComponentChangeSet localChanges, PvaComponentChangeSet remoteChanges)
     {
+        if (HasConflictingBotEntityChange(localChanges, remoteChanges))
+        {
+            return true;
+        }
+
         var (remoteSchemaNames, remoteComponentIds) = GetChangedComponentIdentities(remoteChanges);
         if (remoteSchemaNames.Count == 0 && remoteComponentIds.Count == 0)
         {
@@ -1140,6 +1145,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         var (localSchemaNames, localComponentIds) = GetChangedComponentIdentities(localChanges);
         return localSchemaNames.Overlaps(remoteSchemaNames) || localComponentIds.Overlaps(remoteComponentIds);
+    }
+
+    private static bool HasConflictingBotEntityChange(PvaComponentChangeSet localChanges, PvaComponentChangeSet remoteChanges)
+    {
+        return localChanges.Bot != null && remoteChanges.Bot != null && localChanges.Bot.Version != remoteChanges.Bot.Version;
     }
 
     private static (HashSet<string> SchemaNames, HashSet<string> ComponentIds) GetChangedComponentIdentities(PvaComponentChangeSet changeSet)
@@ -2490,7 +2500,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     {
         var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
         var workflows = cloudFlowMetadata ?? await GetWorkflowsAsync(workspaceFolder, dataverseClient, syncInfo, fileAccessor, cancellationToken).ConfigureAwait(false);
-        var aiPrompts = aiPromptMetadata.IsDefault ? await GetAIPromptsAsync(workspaceFolder, dataverseClient, syncInfo, fileAccessor, cancellationToken).ConfigureAwait(false) : aiPromptMetadata;
+        var aiPrompts = aiPromptMetadata.IsDefaultOrEmpty ? await GetAIPromptsAsync(workspaceFolder, dataverseClient, syncInfo, fileAccessor, cancellationToken).ConfigureAwait(false) : aiPromptMetadata;
         var changeset = await _islandControlPlaneService.GetComponentsAsync(operationContext, changeToken, cancellationToken).ConfigureAwait(false);
 
         DefinitionBase emptyDefinition = operationContext switch
@@ -3068,13 +3078,40 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     public virtual void RestoreRemoteBindingState(DirectoryPath workspaceFolder, RemoteBindingSnapshot snapshot)
     {
         var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+
+        var affectedPaths = RemoteBindingFilePaths.Append(ConnectionDetailsPath).ToArray();
+        var preImage = ImmutableArray.CreateBuilder<RemoteBindingFile>();
+        foreach (var path in affectedPaths)
+        {
+            if (fileAccessor.Exists(path))
+            {
+                preImage.Add(new RemoteBindingFile(path, ReadAllBytes(fileAccessor, path)));
+            }
+        }
+
         foreach (var path in RemoteBindingFilePaths)
         {
             fileAccessor.Delete(path);
         }
-        foreach (var file in snapshot.Files)
+
+        try
         {
-            WriteAllBytes(fileAccessor, file.Path, file.Content);
+            foreach (var file in snapshot.Files)
+            {
+                WriteAllBytes(fileAccessor, file.Path, file.Content);
+            }
+        }
+        catch
+        {
+            foreach (var path in affectedPaths)
+            {
+                fileAccessor.Delete(path);
+            }
+            foreach (var file in preImage)
+            {
+                WriteAllBytes(fileAccessor, file.Path, file.Content);
+            }
+            throw;
         }
     }
 
@@ -3264,7 +3301,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             botEntity = bot.Entity ?? throw new InvalidOperationException("Missing bot definition");
             var cloudSnapshotEntity = (cloudSnapshot as BotDefinition)?.Entity;
-            if (botEntity.CdsBotId == default && cloudSnapshotEntity != null && cloudSnapshotEntity.CdsBotId != default)
+            if (cloudSnapshotEntity != null && cloudSnapshotEntity.CdsBotId != default && botEntity.CdsBotId != cloudSnapshotEntity.CdsBotId)
             {
                 var entityBuilder = botEntity.ToBuilder();
                 entityBuilder.CdsBotId = cloudSnapshotEntity.CdsBotId;

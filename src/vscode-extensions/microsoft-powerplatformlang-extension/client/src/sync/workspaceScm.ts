@@ -183,9 +183,7 @@ export async function pushNewWorkspace(context: ExtensionContext, ws: CopilotStu
 
   const maxAttempts = 4;
   for (let attempt = 1; ; attempt++) {
-    if (attempt > 1) {
-      await synchronizer.pull(virtualKnowledgeProvider);
-    }
+    await synchronizer.pull(virtualKnowledgeProvider);
     try {
       await synchronizer.push(true, true, draftConnectionReferenceWorkflows);
       break;

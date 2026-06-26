@@ -201,4 +201,71 @@ public class PushConcurrencyRetryTests
             x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
             Times.Once);
     }
+
+    [Fact]
+    public async Task PushLocalChanges_WhenRemoteChangedAgentSettingsOrIcon_AbortsWithoutOverwrite()
+    {
+        var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath("c:/test/push-bot-conflict/");
+        var fileAccessor = fileAccessorFactory.Create(workspace);
+        var agentId = Guid.NewGuid();
+
+        var cloudBot = new BotEntity.Builder
+        {
+            SchemaName = new BotEntitySchemaName(AgentSchema),
+            CdsBotId = agentId,
+            Version = 100,
+        }.Build();
+
+        var localBot = new BotEntity.Builder
+        {
+            SchemaName = new BotEntitySchemaName(AgentSchema),
+            CdsBotId = agentId,
+            Version = 100,
+            IconBase64 = "bG9jYWxJY29u",
+        }.Build();
+        var localDefinition = new BotDefinition().WithEntity(localBot);
+
+        WorkspaceSynchronizer.WriteCloudCache(fileAccessor, new BotDefinition().WithEntity(cloudBot));
+        await fileAccessor.WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "token-1", CancellationToken.None);
+
+        mockIsland
+            .Setup(x => x.SaveChangesAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<PvaComponentChangeSet>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(MakeConcurrencyException());
+
+        var remoteBot = new BotEntity.Builder
+        {
+            SchemaName = new BotEntitySchemaName(AgentSchema),
+            CdsBotId = agentId,
+            Version = 101,
+            IconBase64 = "cmVtb3RlSWNvbg==",
+        }.Build();
+
+        mockIsland
+            .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PvaComponentChangeSet(null, remoteBot, "token-2"));
+
+        var syncInfo = new AgentSyncInfo { AgentId = agentId };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => synchronizer.PushLocalChangesAsync(
+            workspace,
+            ComponentWriterDefensiveTests.CreateMockOperationContext(),
+            localDefinition,
+            new Mock<ISyncDataverseClient>().Object,
+            syncInfo,
+            cloudFlowMetadata: null,
+            aiPrompts: ImmutableArray<AIPromptMetadata>.Empty,
+            CancellationToken.None));
+
+        Assert.Contains("Get the latest changes", exception.Message);
+
+        Assert.Equal("token-1", await fileAccessor.ReadStringAsync(new AgentFilePath(".mcs/changetoken.txt"), CancellationToken.None));
+
+        mockIsland.Verify(
+            x => x.SaveChangesAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<PvaComponentChangeSet>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+        mockIsland.Verify(
+            x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
 }

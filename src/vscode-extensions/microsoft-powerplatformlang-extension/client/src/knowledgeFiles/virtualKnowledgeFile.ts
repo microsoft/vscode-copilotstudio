@@ -132,8 +132,8 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
       this.workspaces.push(ws);
       return;
     }
-    this.workspaces[existingIndex] = ws;
     this.clearWorkspaceComponents(ws);
+    this.workspaces[existingIndex] = ws;
   }
 
   private clearWorkspaceComponents(ws: CopilotStudioWorkspace): void {
