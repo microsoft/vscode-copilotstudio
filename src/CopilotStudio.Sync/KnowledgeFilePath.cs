@@ -33,6 +33,11 @@ internal static class KnowledgeFilePath
                 throw new InvalidOperationException($"Knowledge file display name '{displayName}' cannot contain parent directory segments.");
             }
 
+            if (segment.IndexOf(':') >= 0)
+            {
+                throw new InvalidOperationException($"Knowledge file display name '{displayName}' cannot contain ':' characters.");
+            }
+
             segments.Add(segment);
         }
 
