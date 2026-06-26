@@ -37,6 +37,13 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 _ => (null, null, WorkspaceType.Unknown),
             };
 
+            var schemaName = ws.Definition switch
+            {
+                BotDefinition bot => bot.GetRootSchemaName(),
+                BotComponentCollectionDefinition cc => cc.GetRootSchemaName(),
+                _ => null,
+            };
+
             AgentSyncInfo? syncInfo = null;
             try
             {
@@ -69,6 +76,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 WorkspaceUri = new Uri(wsFolderPathValue),
                 IconFilePath = GetIconFilePath(ws),
                 DisplayName = displayName ?? wsFolderPathValue.Split('/').Last(),
+                SchemaName = schemaName,
                 Description = description,
                 Type = workspaceType,
                 SyncInfo = syncInfo,

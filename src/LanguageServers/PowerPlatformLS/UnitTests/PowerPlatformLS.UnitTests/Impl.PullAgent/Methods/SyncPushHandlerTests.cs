@@ -46,6 +46,33 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             Assert.True(synchronizer.PushAttempted);
         }
 
+        [Fact]
+        public async Task SyncPush_Retarget_DraftsConnectionReferenceWorkflows()
+        {
+            var (requestContext, request) = CreateSetup("Workspace/UnrecognizedTemplateWorkspace");
+            request.DraftConnectionReferenceWorkflows = true;
+            var synchronizer = new PushTrackingSynchronizer();
+            var handler = CreateHandler(new MockDataverseClient(), synchronizer);
+
+            var response = await handler.HandleRequestAsync(request, requestContext, CancellationToken.None);
+
+            Assert.Equal(200, response.Code);
+            Assert.Equal(WorkflowActivationMode.DraftWhenConnectionReferencesExist, synchronizer.CapturedActivationMode);
+        }
+
+        [Fact]
+        public async Task SyncPush_DefaultPush_UsesDraftWhenConnectionsUnbound()
+        {
+            var (requestContext, request) = CreateSetup("Workspace/UnrecognizedTemplateWorkspace");
+            var synchronizer = new PushTrackingSynchronizer();
+            var handler = CreateHandler(new MockDataverseClient(), synchronizer);
+
+            var response = await handler.HandleRequestAsync(request, requestContext, CancellationToken.None);
+
+            Assert.Equal(200, response.Code);
+            Assert.Equal(WorkflowActivationMode.DraftWhenConnectionsUnbound, synchronizer.CapturedActivationMode);
+        }
+
         private (RequestContext, SyncAgentRequest) CreateSetup(string workspaceRelativePath)
         {
             var workspacePath = Path.GetFullPath(Path.Combine(TestDataPath, workspaceRelativePath));
@@ -122,10 +149,13 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
     {
         public bool PushAttempted { get; private set; }
 
+        public WorkflowActivationMode? CapturedActivationMode { get; private set; }
+
         public override Task<(ImmutableArray<WorkflowResponse>, CloudFlowMetadata)> UpsertWorkflowForAgentAsync(
             DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken, WorkflowActivationMode activationMode = WorkflowActivationMode.PreserveSavedState)
         {
             PushAttempted = true;
+            CapturedActivationMode = activationMode;
             return base.UpsertWorkflowForAgentAsync(workspaceFolder, dataverseClient, agentId, cancellationToken, activationMode);
         }
     }

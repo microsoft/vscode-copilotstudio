@@ -154,6 +154,49 @@ public class WorkflowDraftPushTests : IDisposable
     }
 
     [Fact]
+    public async Task ReattachDraftsWorkflowWithConnectionReference_EvenWhenConnectionIdPresent()
+    {
+        var synchronizer = CreateSynchronizer();
+        WriteWorkflowFiles(WorkflowJsonWithReference());
+
+        var captured = new WorkflowMetadata?[1];
+        var dataverse = CreateDataverse(captured, new[]
+        {
+            new ConnectionReferenceInfo
+            {
+                ConnectionReferenceLogicalName = RefLogicalName,
+                ConnectorId = "/providers/Microsoft.PowerApps/apis/shared_x",
+                ConnectionId = "stale-or-missing-connection",
+            },
+        });
+
+        await synchronizer.UpsertWorkflowForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None, WorkflowActivationMode.DraftWhenConnectionReferencesExist);
+
+        Assert.NotNull(captured[0]);
+        Assert.Equal(0, captured[0]!.StateCode);
+        Assert.Equal(1, captured[0]!.StatusCode);
+    }
+
+    [Fact]
+    public async Task ReattachWithoutConnectionReference_StaysActivatedUnderDraftMode()
+    {
+        var synchronizer = CreateSynchronizer();
+        WriteWorkflowFiles("{\n  \"properties\": {}\n}");
+
+        var captured = new WorkflowMetadata?[1];
+        var dataverse = CreateDataverse(captured);
+
+        await synchronizer.UpsertWorkflowForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None, WorkflowActivationMode.DraftWhenConnectionReferencesExist);
+
+        Assert.NotNull(captured[0]);
+        Assert.Equal(1, captured[0]!.StateCode);
+        Assert.Equal(2, captured[0]!.StatusCode);
+        dataverse.Verify(
+            c => c.GetConnectionReferencesByLogicalNamesAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task PushPreservesSavedActivatedState()
     {
         var synchronizer = CreateSynchronizer();

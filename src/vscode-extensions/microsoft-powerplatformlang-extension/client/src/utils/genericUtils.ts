@@ -13,7 +13,13 @@ export const getClusterCategory = (accountInfo?: Partial<AccountInfo>): CoreServ
 export const isChildUri = (childUri: string, parentUri: string): boolean => {
   // Normalize both URIs to ensure consistent comparison
   const normalizedChild = unescape(childUri.toLowerCase());
-  const normalizedParent = unescape(parentUri.toLowerCase());
+  let normalizedParent = unescape(parentUri.toLowerCase());
+  if (normalizedChild === normalizedParent) {
+    return true;
+  }
+  if (!normalizedParent.endsWith('/')) {
+    normalizedParent += '/';
+  }
   return normalizedChild.startsWith(normalizedParent);
 };
 

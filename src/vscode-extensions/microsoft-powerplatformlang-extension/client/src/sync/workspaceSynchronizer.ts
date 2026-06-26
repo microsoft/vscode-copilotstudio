@@ -68,7 +68,7 @@ export async function withSyncCommandBusy<T>(workspaceUri: string, body: () => P
 export interface WorkspaceSynchronizer {
     workspace: CopilotStudioWorkspace;
     syncState: SyncState;
-    push: (suppressErrorNotification?: boolean, suppressWorkflowIssues?: boolean) => Promise<SyncResponse | undefined>;
+    push: (suppressErrorNotification?: boolean, suppressWorkflowIssues?: boolean, draftConnectionReferenceWorkflows?: boolean) => Promise<SyncResponse | undefined>;
     pull: (virtualProvider: virtualKnowledgeFileSystemProvider) => Promise<SyncResponse | undefined >;
     fetch: () => Promise<void>;
     subscribe: (listener: SyncStateListener) => () => void;
@@ -87,6 +87,10 @@ export function getOrAddSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynch
   const synchronizer = getSynchronizer(ws);
   map.set(uri, synchronizer);
   return synchronizer;
+}
+
+export function removeSynchronizer(workspaceUri: string): void {
+  map.delete(workspaceUri);
 }
 
 function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
@@ -117,9 +121,9 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
   return {
     workspace: ws,
     get syncState() { return currentState; },
-    push: async (suppressErrorNotification = false, suppressWorkflowIssues = false): Promise<SyncResponse> => {
+    push: async (suppressErrorNotification = false, suppressWorkflowIssues = false, draftConnectionReferenceWorkflows = false): Promise<SyncResponse> => {
       return await executeSyncOperation(async () => {
-        const response = await sync(ws, 'applying changes', LspMethods.SYNC_PUSH, false, suppressErrorNotification, suppressWorkflowIssues);
+        const response = await sync(ws, 'applying changes', LspMethods.SYNC_PUSH, false, suppressErrorNotification, suppressWorkflowIssues, draftConnectionReferenceWorkflows);
         await uploadKnowledgeFiles(ws);
         return response;
       }, SyncState.Pushing);
@@ -159,7 +163,7 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
   };
 }
 
-export async function sync(workspace: CopilotStudioWorkspace, displayText: string, methodName: string, silent: boolean, suppressErrorNotification = false, suppressWorkflowIssues = false): Promise<SyncResponse> {
+export async function sync(workspace: CopilotStudioWorkspace, displayText: string, methodName: string, silent: boolean, suppressErrorNotification = false, suppressWorkflowIssues = false, draftConnectionReferenceWorkflows = false): Promise<SyncResponse> {
   const { syncInfo, workspaceUri } = workspace;
   if (!syncInfo) {
     throw new Error(`${displayText} failed. Connection file .mcs::conn.json is missing, please clone again.`);
@@ -179,6 +183,7 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
   const request: SyncRequest = {
     ...await buildLspRequestPayload(syncInfo),
     workspaceUri,
+    draftConnectionReferenceWorkflows,
   };
 
   try {
@@ -198,7 +203,7 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
       logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Your current account does not have permission. Please sign in with the account <pii>(${accountInfo.accountEmail ?? accountInfo.accountId})</pii> to perform this operation.`);
       try {
         resetAccount();
-        return await sync(workspace, displayText, methodName, silent, suppressErrorNotification, suppressWorkflowIssues);
+        return await sync(workspace, displayText, methodName, silent, suppressErrorNotification, suppressWorkflowIssues, draftConnectionReferenceWorkflows);
       } catch (error) {
         logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Re-authentication failed: ${(error as Error).message}`);
         throw error;

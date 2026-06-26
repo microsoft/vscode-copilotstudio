@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as fs from 'fs';
-import { ExtensionContext, IconPath, ThemeIcon, Uri, window, workspace } from "vscode";
+import { ExtensionContext, IconPath, MarkdownString, ThemeIcon, Uri, window, workspace } from "vscode";
 import { Disposable } from "vscode-languageclient";
 import { lspClient } from '../services/lspClient';
 import { AccountInfo, AgentSyncInfo } from "../types";
@@ -27,6 +27,7 @@ export interface CopilotStudioWorkspace {
   icon: WorkspaceIcon;
   type: WorkspaceType
   syncInfo?: AgentSyncInfo
+  schemaName?: string
 }
 
 interface ListWorkspacesResponse {
@@ -53,15 +54,58 @@ const repairAttempted = new Set<string>();
 
 export const getAllWorkspaces = (): CopilotStudioWorkspace[] => workspaceCache;
 
+export const getDuplicateDisplayNames = (workspaces: CopilotStudioWorkspace[] = workspaceCache): Set<string> => {
+  const counts = new Map<string, number>();
+  for (const ws of workspaces) {
+    const key = ws.displayName.toLowerCase();
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const duplicates = new Set<string>();
+  for (const [key, count] of counts) {
+    if (count > 1) {
+      duplicates.add(key);
+    }
+  }
+  return duplicates;
+};
+
+export const buildAgentIdentityTooltip = (ws: CopilotStudioWorkspace): MarkdownString => {
+  const connected = hasConnectionFileInWorkspace(ws.workspaceUri);
+  const environmentId = ws.syncInfo?.environmentId;
+  const environmentDisplayName = ws.syncInfo?.environmentDisplayName;
+  const tenantId = ws.syncInfo?.accountInfo?.tenantId;
+  const tooltip = new MarkdownString();
+  tooltip.appendMarkdown(`**${ws.displayName}**\n\n`);
+  tooltip.appendMarkdown(`SchemaName: \`${ws.schemaName ?? '—'}\`\n\n`);
+  const environmentText = environmentDisplayName ? `${environmentDisplayName} (\`${environmentId ?? '—'}\`)` : `\`${environmentId ?? '—'}\``;
+  tooltip.appendMarkdown(`Environment: ${environmentText}\n\n`);
+  if (tenantId) {
+    tooltip.appendMarkdown(`Tenant: \`${tenantId}\`\n\n`);
+  }
+  tooltip.appendMarkdown(`Account: ${ws.syncInfo?.accountInfo?.accountEmail ?? '—'}\n\n`);
+  tooltip.appendMarkdown(`Status: ${connected ? 'Connected' : 'Not connected'}`);
+  return tooltip;
+};
+
+// Finds the workspace whose URI most specifically contains the given URI (longest match wins so a
+// nested agent folder is preferred over its parent; isChildUri's boundary check rejects siblings).
+const findLongestMatchingWorkspace = (uriString: string): CopilotStudioWorkspace | undefined => {
+  let best: CopilotStudioWorkspace | undefined;
+  for (const workspace of workspaceCache) {
+    if (isChildUri(uriString, workspace.workspaceUri) && (best === undefined || workspace.workspaceUri.length > best.workspaceUri.length)) {
+      best = workspace;
+    }
+  }
+  return best;
+};
+
 // Finds the matching workspace by checking if the uri is a child of any workspace URI.
-export const findWorkspaceForUri = (uri: string): CopilotStudioWorkspace | undefined => workspaceCache.find(workspace =>
-  isChildUri(uri, workspace.workspaceUri)
-);
+export const findWorkspaceForUri = (uri: string): CopilotStudioWorkspace | undefined => findLongestMatchingWorkspace(uri);
 
 // Finds a workspace that contains the specified URI.
 export const getWorkspaceByUri = (uri: Uri): CopilotStudioWorkspace | undefined => {
   const uriString = uri.scheme === 'mcs' ? decodeURIComponent(uri.query) : uri.toString(true);
-  return workspaceCache.find(workspace => uriString.startsWith(decodeURI(workspace.workspaceUri)));
+  return findLongestMatchingWorkspace(uriString);
 };
 
 export const getActiveAgentAccount = (): AccountInfo | undefined => {
@@ -226,7 +270,13 @@ export async function tryRepairAgentManagementEndpoint(syncInfo: AgentSyncInfo, 
 
   try {
     const clusterCategory = getClusterCategory(syncInfo.accountInfo);
-    const envInfo = await getEnvironmentByIdAsync(clusterCategory, syncInfo.environmentId, null);
+    const envInfo = await getEnvironmentByIdAsync(
+      clusterCategory,
+      syncInfo.environmentId,
+      null,
+      syncInfo.accountInfo.accountId ?? null,
+      syncInfo.accountInfo.accountEmail
+    );
     if (envInfo?.agentManagementUrl) {
       syncInfo.agentManagementEndpoint = envInfo.agentManagementUrl;
 
