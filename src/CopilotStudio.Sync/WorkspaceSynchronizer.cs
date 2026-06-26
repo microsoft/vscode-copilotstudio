@@ -1295,7 +1295,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             && parent is DialogComponent dialogComponent
             && dialogComponent.RootElement is AgentDialog)
         {
-            var agentName = ExtractSubAgentName(dialogComponent.SchemaNameString ?? string.Empty);
+            // Prefer the sub-agent's display name for the folder (agents/TransferFunds/),
+            // falling back to the schema short-name when the display name is unusable.
+            var agentName = SubAgentFolderNaming.FromDisplayName(dialogComponent.DisplayName)
+                ?? ExtractSubAgentName(dialogComponent.SchemaNameString ?? string.Empty);
             return $"agents/{agentName}/{subPath}";
         }
 
