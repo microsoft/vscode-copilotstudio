@@ -64,7 +64,7 @@ internal sealed class LspComponentPathResolver : IComponentPathResolver
             && dialogComponent.RootElement is AgentDialog)
         {
             var agentName = ExtractAgentName(dialogComponent.SchemaNameString ?? string.Empty);
-            return $"agents/{agentName}/";
+            return $"{LspProjection.AgentsFolder}{agentName}/";
         }
 
         return null;
@@ -124,7 +124,7 @@ internal sealed class LspComponentPathResolver : IComponentPathResolver
 
     private static string ExtractAgentName(string schemaName)
     {
-        var infix = ".agent.";
+        var infix = LspProjection.AgentInfix;
         var infixIndex = schemaName.IndexOf(infix, StringComparison.OrdinalIgnoreCase);
         if (infixIndex >= 0)
         {
@@ -133,6 +133,7 @@ internal sealed class LspComponentPathResolver : IComponentPathResolver
 
         return string.IsNullOrWhiteSpace(schemaName) ? "Unknown" : schemaName;
     }
+
 }
 
 /// <summary>

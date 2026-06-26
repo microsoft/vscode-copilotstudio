@@ -45,6 +45,22 @@ internal static class PathHelper
 #endif
     }
 
+    /// <summary>
+    /// Canonicalizes an internal MCS/agent-relative folder path, not an OS filesystem path.
+    /// Internal workspace paths are serialized and compared with URI-style separators, so
+    /// this converts backslashes to forward slashes and removes the trailing folder separator
+    /// to keep equality checks, prefix checks, and path composition stable across platforms.
+    /// </summary>
+    internal static string ToInternalCanonicalFolderPath(string? folderPath)
+    {
+        if (string.IsNullOrEmpty(folderPath))
+        {
+            return string.Empty;
+        }
+
+        return folderPath!.Replace('\\', '/').TrimEnd('/');
+    }
+
 #if NETSTANDARD2_0
     private static string GetRelativePathPolyfill(string relativeTo, string path)
     {
