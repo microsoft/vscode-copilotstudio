@@ -53,12 +53,22 @@ internal static class PathHelper
     /// </summary>
     internal static string ToInternalCanonicalFolderPath(string? folderPath)
     {
-        if (string.IsNullOrEmpty(folderPath))
+        return ToInternalCanonicalPath(folderPath).TrimEnd('/');
+    }
+
+    /// <summary>
+    /// Canonicalizes an internal MCS/agent-relative path, not an OS filesystem path.
+    /// Internal workspace paths are serialized and compared with URI-style separators,
+    /// so this converts backslashes to forward slashes while preserving the path shape.
+    /// </summary>
+    internal static string ToInternalCanonicalPath(string? path)
+    {
+        if (string.IsNullOrEmpty(path))
         {
             return string.Empty;
         }
 
-        return folderPath!.Replace('\\', '/').TrimEnd('/');
+        return path!.Replace('\\', '/');
     }
 
 #if NETSTANDARD2_0

@@ -793,7 +793,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             {
                 SchemaName = component.SchemaNameString,
                 FileName = KnowledgeFilePath.NormalizeDisplayName(component.DisplayName!),
-                RelativePath = contentPath.ToString().Replace('\\', '/'),
+                RelativePath = PathHelper.ToInternalCanonicalPath(contentPath.ToString()),
             });
         }
 
@@ -973,7 +973,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             SchemaName = component.SchemaNameString,
             FileName = localDisplayName,
-            RelativePath = contentPath.ToString().Replace('\\', '/'),
+            RelativePath = PathHelper.ToInternalCanonicalPath(contentPath.ToString()),
         };
     }
 
