@@ -1366,7 +1366,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             foreach (var file in knowledgeFiles)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var displayName = KnowledgeFilePath.GetDisplayNameFromContentPath(folder, file);
+                var displayName = KnowledgeFilePath.NormalizeDisplayName(
+                    KnowledgeFilePath.GetDisplayNameFromContentPath(folder, file));
                 if (existingNames != null && existingNames.Contains(displayName))
                 {
                     continue;
