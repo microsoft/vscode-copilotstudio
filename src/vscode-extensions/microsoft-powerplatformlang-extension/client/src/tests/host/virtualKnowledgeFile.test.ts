@@ -117,6 +117,19 @@ describe('virtualKnowledgeFileSystemProvider', () => {
         assert.ok(!seenSyncInfos.some(info => info?.agentId === 'agent-123'), 'refresh must not reuse the stale syncInfo');
     });
 
+    test('addWorkspace clears cached components for the re-added workspace', async () => {
+        await provider.refresh();
+        assert.ok(provider.getEntries().length > 0, 'refresh should populate components');
+
+        provider.addWorkspace({
+            workspaceUri: workspace.workspaceUri,
+            displayName: 'Root Agent',
+            syncInfo
+        } as any);
+
+        assert.strictEqual(provider.getEntries().length, 0, 're-adding the workspace should clear its cached components');
+    });
+
     test('stat returns FileStat for known file', async () => {
         await provider.refresh();
         const entry = provider.getEntries().find(e => e.label === 'file1.txt (Root Agent)');

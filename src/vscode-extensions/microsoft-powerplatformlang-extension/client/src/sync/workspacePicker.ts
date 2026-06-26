@@ -1,6 +1,22 @@
 import { window } from "vscode";
 import { CopilotStudioWorkspace, getAllWorkspaces, getDuplicateDisplayNames } from "./localWorkspaces";
 
+export function buildWorkspaceQuickPickDetail(workspace: CopilotStudioWorkspace, isDuplicate: boolean): { description?: string; detail?: string } {
+    const accountEmail = workspace.syncInfo?.accountInfo?.accountEmail;
+    const environmentId = workspace.syncInfo?.environmentId;
+    const detailParts: string[] = [];
+    if (accountEmail) {
+        detailParts.push(`account: ${accountEmail}`);
+    }
+    if (environmentId) {
+        detailParts.push(`env: ${environmentId}`);
+    }
+    return {
+        description: isDuplicate && workspace.schemaName ? workspace.schemaName : workspace.description,
+        detail: detailParts.length > 0 ? detailParts.join(' · ') : undefined,
+    };
+}
+
 export function selectWorkspace() : Promise<CopilotStudioWorkspace | undefined> {
     return new Promise((resolve) => {
         const workspaces = getAllWorkspaces();
@@ -14,19 +30,11 @@ export function selectWorkspace() : Promise<CopilotStudioWorkspace | undefined> 
             const duplicateNames = getDuplicateDisplayNames(workspaces);
             const workspaceItems = workspaces.map(workspace => {
                 const isDuplicate = duplicateNames.has(workspace.displayName.toLowerCase());
-                const accountEmail = workspace.syncInfo?.accountInfo?.accountEmail;
-                const environmentId = workspace.syncInfo?.environmentId;
-                const detailParts: string[] = [];
-                if (accountEmail) {
-                    detailParts.push(`account: ${accountEmail}`);
-                }
-                if (environmentId) {
-                    detailParts.push(`env: ${environmentId}`);
-                }
+                const { description, detail } = buildWorkspaceQuickPickDetail(workspace, isDuplicate);
                 return {
                     label: workspace.displayName,
-                    description: isDuplicate && workspace.schemaName ? workspace.schemaName : workspace.description,
-                    detail: detailParts.length > 0 ? detailParts.join(' · ') : undefined,
+                    description,
+                    detail,
                     iconPath: workspace.icon,
                     type: workspace.type,
                     info: workspace.syncInfo,

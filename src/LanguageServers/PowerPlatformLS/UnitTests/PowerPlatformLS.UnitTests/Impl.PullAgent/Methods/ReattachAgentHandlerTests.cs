@@ -380,6 +380,68 @@
             Assert.Equal(0, synchronizer.SavedSyncInfoCount);
         }
 
+        [Fact]
+        public async Task FinalizeRetarget_WhenPushFailedAndBackupRestored_ReportsRolledBack()
+        {
+            var context = CreateTestSetup();
+            var retarget = new Mock<IWorkspaceRetargetService>();
+            retarget.Setup(r => r.FinalizeRetarget(It.IsAny<DirectoryPath>(), It.IsAny<bool>())).Returns(true);
+            var handler = new FinalizeRetargetHandler(retarget.Object, new Mock<ILspLogger>().Object);
+
+            var request = new FinalizeRetargetRequest { WorkspaceUri = context.Request.WorkspaceUri, PushSucceeded = false };
+            var response = await handler.HandleRequestAsync(request, context.RequestContext, CancellationToken.None);
+
+            Assert.Equal(200, response.Code);
+            Assert.True(response.RolledBack);
+            retarget.Verify(r => r.FinalizeRetarget(It.IsAny<DirectoryPath>(), false), Times.Once);
+        }
+
+        [Fact]
+        public async Task FinalizeRetarget_WhenPushSucceeded_DoesNotReportRolledBack()
+        {
+            var context = CreateTestSetup();
+            var retarget = new Mock<IWorkspaceRetargetService>();
+            retarget.Setup(r => r.FinalizeRetarget(It.IsAny<DirectoryPath>(), It.IsAny<bool>())).Returns(true);
+            var handler = new FinalizeRetargetHandler(retarget.Object, new Mock<ILspLogger>().Object);
+
+            var request = new FinalizeRetargetRequest { WorkspaceUri = context.Request.WorkspaceUri, PushSucceeded = true };
+            var response = await handler.HandleRequestAsync(request, context.RequestContext, CancellationToken.None);
+
+            Assert.Equal(200, response.Code);
+            Assert.False(response.RolledBack);
+            retarget.Verify(r => r.FinalizeRetarget(It.IsAny<DirectoryPath>(), true), Times.Once);
+        }
+
+        [Fact]
+        public async Task FinalizeRetarget_WhenNoBackupExists_DoesNotReportRolledBack()
+        {
+            var context = CreateTestSetup();
+            var retarget = new Mock<IWorkspaceRetargetService>();
+            retarget.Setup(r => r.FinalizeRetarget(It.IsAny<DirectoryPath>(), It.IsAny<bool>())).Returns(false);
+            var handler = new FinalizeRetargetHandler(retarget.Object, new Mock<ILspLogger>().Object);
+
+            var request = new FinalizeRetargetRequest { WorkspaceUri = context.Request.WorkspaceUri, PushSucceeded = false };
+            var response = await handler.HandleRequestAsync(request, context.RequestContext, CancellationToken.None);
+
+            Assert.Equal(200, response.Code);
+            Assert.False(response.RolledBack);
+        }
+
+        [Fact]
+        public async Task FinalizeRetarget_WhenServiceThrows_ReturnsErrorResponse()
+        {
+            var context = CreateTestSetup();
+            var retarget = new Mock<IWorkspaceRetargetService>();
+            retarget.Setup(r => r.FinalizeRetarget(It.IsAny<DirectoryPath>(), It.IsAny<bool>())).Throws(new InvalidOperationException("finalize failed"));
+            var handler = new FinalizeRetargetHandler(retarget.Object, new Mock<ILspLogger>().Object);
+
+            var request = new FinalizeRetargetRequest { WorkspaceUri = context.Request.WorkspaceUri, PushSucceeded = false };
+            var response = await handler.HandleRequestAsync(request, context.RequestContext, CancellationToken.None);
+
+            Assert.NotEqual(200, response.Code);
+            Assert.False(response.RolledBack);
+        }
+
         private ReattachAgentTestContext CreateTestSetup(string? customWorkspace = null)
         {
             var workspacePath = Path.GetFullPath(Path.Combine(TestDataPath, customWorkspace ?? WorkspacePath));

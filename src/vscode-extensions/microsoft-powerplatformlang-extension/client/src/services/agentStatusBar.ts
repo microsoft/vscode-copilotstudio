@@ -1,5 +1,17 @@
 import * as vscode from 'vscode';
-import { addWorkspaceChangeSubscription, buildAgentIdentityTooltip, getWorkspaceByUri } from '../sync/localWorkspaces';
+import { addWorkspaceChangeSubscription, buildAgentIdentityTooltip, CopilotStudioWorkspace, getWorkspaceByUri } from '../sync/localWorkspaces';
+
+export const buildAgentStatusBarText = (workspace: CopilotStudioWorkspace): string => {
+  const parts = [workspace.displayName];
+  if (workspace.schemaName) {
+    parts.push(workspace.schemaName);
+  }
+  const environmentId = workspace.syncInfo?.environmentId;
+  if (environmentId) {
+    parts.push(environmentId);
+  }
+  return `$(hexagon) ${parts.join(' · ')}`;
+};
 
 export const registerAgentStatusBar = (context: vscode.ExtensionContext): void => {
   const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
@@ -13,15 +25,7 @@ export const registerAgentStatusBar = (context: vscode.ExtensionContext): void =
       return;
     }
 
-    const parts = [workspace.displayName];
-    if (workspace.schemaName) {
-      parts.push(workspace.schemaName);
-    }
-    const environmentId = workspace.syncInfo?.environmentId;
-    if (environmentId) {
-      parts.push(environmentId);
-    }
-    statusBarItem.text = `$(hexagon) ${parts.join(' · ')}`;
+    statusBarItem.text = buildAgentStatusBarText(workspace);
     statusBarItem.tooltip = buildAgentIdentityTooltip(workspace);
     statusBarItem.show();
   };
