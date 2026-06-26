@@ -115,6 +115,70 @@ public class RemoteBindingSnapshotTests
         }
     }
 
+    [Fact]
+    public async Task PersistThenFinalize_PushFailed_RestoresPreviousBinding()
+    {
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath("c:/test/workspace/");
+        var fileAccessor = fileAccessorFactory.Create(workspace);
+
+        await fileAccessor.WriteAsync(new AgentFilePath(ConnectionDetailsFile), "old-env-binding", CancellationToken.None);
+        foreach (var file in BindingFiles)
+        {
+            await fileAccessor.WriteAsync(new AgentFilePath(file), $"original::{file}", CancellationToken.None);
+        }
+
+        var snapshot = synchronizer.ResetRemoteBindingState(workspace);
+        synchronizer.PersistRetargetBackup(workspace, snapshot);
+
+        await fileAccessor.WriteAsync(new AgentFilePath(ConnectionDetailsFile), "new-env-binding", CancellationToken.None);
+        await fileAccessor.WriteAsync(new AgentFilePath(".mcs/botdefinition.json"), "new-cache", CancellationToken.None);
+
+        var finalized = synchronizer.FinalizeRetarget(workspace, pushSucceeded: false);
+
+        Assert.True(finalized);
+        Assert.Equal("old-env-binding", await fileAccessor.ReadStringAsync(new AgentFilePath(ConnectionDetailsFile), CancellationToken.None));
+        foreach (var file in BindingFiles)
+        {
+            Assert.Equal($"original::{file}", await fileAccessor.ReadStringAsync(new AgentFilePath(file), CancellationToken.None));
+        }
+        Assert.False(fileAccessor.Exists(new AgentFilePath(".mcs/.retarget-backup.json")));
+    }
+
+    [Fact]
+    public async Task PersistThenFinalize_PushSucceeded_DiscardsBackupAndKeepsNewBinding()
+    {
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath("c:/test/workspace/");
+        var fileAccessor = fileAccessorFactory.Create(workspace);
+
+        await fileAccessor.WriteAsync(new AgentFilePath(ConnectionDetailsFile), "old-env-binding", CancellationToken.None);
+        await fileAccessor.WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "old-token", CancellationToken.None);
+
+        var snapshot = synchronizer.ResetRemoteBindingState(workspace);
+        synchronizer.PersistRetargetBackup(workspace, snapshot);
+
+        await fileAccessor.WriteAsync(new AgentFilePath(ConnectionDetailsFile), "new-env-binding", CancellationToken.None);
+        await fileAccessor.WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "new-token", CancellationToken.None);
+
+        var finalized = synchronizer.FinalizeRetarget(workspace, pushSucceeded: true);
+
+        Assert.True(finalized);
+        Assert.Equal("new-env-binding", await fileAccessor.ReadStringAsync(new AgentFilePath(ConnectionDetailsFile), CancellationToken.None));
+        Assert.Equal("new-token", await fileAccessor.ReadStringAsync(new AgentFilePath(".mcs/changetoken.txt"), CancellationToken.None));
+        Assert.False(fileAccessor.Exists(new AgentFilePath(".mcs/.retarget-backup.json")));
+    }
+
+    [Fact]
+    public void FinalizeRetarget_WhenNoBackup_ReturnsFalse()
+    {
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath("c:/test/workspace/");
+
+        Assert.False(synchronizer.FinalizeRetarget(workspace, pushSucceeded: false));
+        Assert.False(synchronizer.FinalizeRetarget(workspace, pushSucceeded: true));
+    }
+
     private sealed class ThrowingDeleteFileAccessorFactory : IFileAccessorFactory
     {
         private readonly string _throwOnDeletePath;

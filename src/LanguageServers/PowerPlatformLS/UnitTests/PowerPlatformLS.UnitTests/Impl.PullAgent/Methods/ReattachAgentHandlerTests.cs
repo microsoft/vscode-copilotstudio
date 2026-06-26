@@ -327,6 +327,7 @@
             Assert.Equal(existingAgentId, response.AgentSyncInfo!.AgentId);
             Assert.False(dataverseClient.CreateNewAgentCalled);
             Assert.Equal(1, synchronizer.ResetRemoteBindingStateCount);
+            Assert.Equal(1, synchronizer.PersistRetargetBackupCount);
         }
 
         [Fact]
@@ -375,6 +376,7 @@
             Assert.NotEqual(200, response.Code);
             Assert.Equal(1, synchronizer.ResetRemoteBindingStateCount);
             Assert.Equal(1, synchronizer.RestoreRemoteBindingStateCount);
+            Assert.Equal(1, synchronizer.ClearRetargetBackupCount);
             Assert.Equal(0, synchronizer.SavedSyncInfoCount);
         }
 
@@ -686,6 +688,31 @@
         public virtual void RestoreRemoteBindingState(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, RemoteBindingSnapshot snapshot)
         {
             RestoreRemoteBindingStateCount++;
+        }
+
+        public int PersistRetargetBackupCount { get; private set; }
+
+        public virtual void PersistRetargetBackup(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, RemoteBindingSnapshot snapshot)
+        {
+            PersistRetargetBackupCount++;
+        }
+
+        public int FinalizeRetargetCount { get; private set; }
+
+        public bool? LastFinalizePushSucceeded { get; private set; }
+
+        public virtual bool FinalizeRetarget(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, bool pushSucceeded)
+        {
+            FinalizeRetargetCount++;
+            LastFinalizePushSucceeded = pushSucceeded;
+            return true;
+        }
+
+        public int ClearRetargetBackupCount { get; private set; }
+
+        public virtual void ClearRetargetBackup(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder)
+        {
+            ClearRetargetBackupCount++;
         }
 
         public Task<(PvaComponentChangeSet, ImmutableArray<Change>)> GetLocalChangesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, DefinitionBase workspaceDefinition, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CancellationToken cancellationToken)

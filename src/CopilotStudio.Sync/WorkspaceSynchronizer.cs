@@ -92,6 +92,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         AiPromptsSyncStatePath,
     };
 
+    private static readonly string EmptyGuidString = Guid.Empty.ToString();
+
+    private static readonly AgentFilePath RetargetBackupPath = new AgentFilePath(HiddenRoot + "/.retarget-backup.json");
+
     /// <summary>
     /// Write the top-level <see cref="BotEntity"/>.
     /// </summary>
@@ -1089,7 +1093,13 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             catch (DataversePreconditionFailedException) when (concurrencyRetries < maxConcurrencyRetries)
             {
                 concurrencyRetries++;
-                await RefreshCloudCacheFromRemoteAsync(workspaceFolder, operationContext, cancellationToken).ConfigureAwait(false);
+                var remoteChangeset = await FetchRemoteChangesetAsync(workspaceFolder, operationContext, cancellationToken).ConfigureAwait(false);
+                if (HasConflictingComponentChanges(changeSet, remoteChangeset))
+                {
+                    throw new InvalidOperationException("The agent was changed in the cloud while you were editing it. Get the latest changes before pushing again.");
+                }
+
+                await CommitRefreshedCloudCacheAsync(workspaceFolder, remoteChangeset, cancellationToken).ConfigureAwait(false);
                 pass--;
                 continue;
             }
@@ -1106,13 +1116,81 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
     }
 
-    private async Task RefreshCloudCacheFromRemoteAsync(DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, CancellationToken cancellationToken)
+    private async Task<PvaComponentChangeSet> FetchRemoteChangesetAsync(DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, CancellationToken cancellationToken)
     {
         var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
         var changeToken = await GetChangeTokenOrNullAsync(fileAccessor, cancellationToken).ConfigureAwait(false);
-        var changeset = await _islandControlPlaneService.GetComponentsAsync(operationContext, changeToken, cancellationToken).ConfigureAwait(false);
-        UpdateCloudCache(fileAccessor, changeset);
-        await WriteChangeTokenAsync(fileAccessor, changeset, cancellationToken).ConfigureAwait(false);
+        return await _islandControlPlaneService.GetComponentsAsync(operationContext, changeToken, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task CommitRefreshedCloudCacheAsync(DirectoryPath workspaceFolder, PvaComponentChangeSet remoteChangeset, CancellationToken cancellationToken)
+    {
+        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        UpdateCloudCache(fileAccessor, remoteChangeset);
+        await WriteChangeTokenAsync(fileAccessor, remoteChangeset, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static bool HasConflictingComponentChanges(PvaComponentChangeSet localChanges, PvaComponentChangeSet remoteChanges)
+    {
+        var (remoteSchemaNames, remoteComponentIds) = GetChangedComponentIdentities(remoteChanges);
+        if (remoteSchemaNames.Count == 0 && remoteComponentIds.Count == 0)
+        {
+            return false;
+        }
+
+        var (localSchemaNames, localComponentIds) = GetChangedComponentIdentities(localChanges);
+        return localSchemaNames.Overlaps(remoteSchemaNames) || localComponentIds.Overlaps(remoteComponentIds);
+    }
+
+    private static (HashSet<string> SchemaNames, HashSet<string> ComponentIds) GetChangedComponentIdentities(PvaComponentChangeSet changeSet)
+    {
+        var schemaNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var componentIds = new HashSet<string>(StringComparer.Ordinal);
+        if (changeSet.BotComponentChanges.IsDefaultOrEmpty)
+        {
+            return (schemaNames, componentIds);
+        }
+
+        foreach (var change in changeSet.BotComponentChanges)
+        {
+            switch (change)
+            {
+                case BotComponentUpsert upsert:
+                    AddComponentIdentity(upsert.Component, schemaNames, componentIds);
+                    break;
+                case BotComponentDelete delete:
+                    AddComponentId(delete.BotComponentId.ToString(), componentIds);
+                    break;
+            }
+        }
+
+        return (schemaNames, componentIds);
+    }
+
+    private static void AddComponentIdentity(BotComponentBase? component, HashSet<string> schemaNames, HashSet<string> componentIds)
+    {
+        if (component is null)
+        {
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(component.SchemaNameString))
+        {
+            schemaNames.Add(component.SchemaNameString);
+        }
+
+        if (component.Id.HasValue)
+        {
+            AddComponentId(component.Id.ToString(), componentIds);
+        }
+    }
+
+    private static void AddComponentId(string? componentId, HashSet<string> componentIds)
+    {
+        if (!string.IsNullOrEmpty(componentId) && componentId != EmptyGuidString)
+        {
+            componentIds.Add(componentId!);
+        }
     }
 
     public virtual async Task ProvisionConnectionReferencesAsync(
@@ -2998,6 +3076,57 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             WriteAllBytes(fileAccessor, file.Path, file.Content);
         }
+    }
+
+    public virtual void PersistRetargetBackup(DirectoryPath workspaceFolder, RemoteBindingSnapshot snapshot)
+    {
+        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        fileAccessor.CreateHiddenDirectory(new AgentFilePath(HiddenRoot));
+        var entries = snapshot.Files.Select(file => new RetargetBackupEntry
+        {
+            Path = file.Path.ToString(),
+            Content = Convert.ToBase64String(file.Content),
+        }).ToArray();
+
+        using var stream = fileAccessor.OpenWrite(RetargetBackupPath);
+        JsonSerializer.Serialize(stream, entries);
+    }
+
+    public virtual bool FinalizeRetarget(DirectoryPath workspaceFolder, bool pushSucceeded)
+    {
+        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        if (!fileAccessor.Exists(RetargetBackupPath))
+        {
+            return false;
+        }
+
+        if (!pushSucceeded)
+        {
+            var entries = JsonSerializer.Deserialize<RetargetBackupEntry[]>(ReadAllBytes(fileAccessor, RetargetBackupPath)) ?? Array.Empty<RetargetBackupEntry>();
+            var snapshot = new RemoteBindingSnapshot(entries
+                .Select(entry => new RemoteBindingFile(new AgentFilePath(entry.Path), Convert.FromBase64String(entry.Content)))
+                .ToImmutableArray());
+            RestoreRemoteBindingState(workspaceFolder, snapshot);
+        }
+
+        fileAccessor.Delete(RetargetBackupPath);
+        return true;
+    }
+
+    public virtual void ClearRetargetBackup(DirectoryPath workspaceFolder)
+    {
+        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        if (fileAccessor.Exists(RetargetBackupPath))
+        {
+            fileAccessor.Delete(RetargetBackupPath);
+        }
+    }
+
+    private sealed class RetargetBackupEntry
+    {
+        public string Path { get; set; } = string.Empty;
+
+        public string Content { get; set; } = string.Empty;
     }
 
     private static byte[] ReadAllBytes(IFileAccessor fileAccessor, AgentFilePath path)

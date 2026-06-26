@@ -156,6 +156,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 if (isRetarget)
                 {
                     bindingSnapshot = _retargetService.ResetRemoteBindingState(workspaceFolder);
+                    _retargetService.PersistRetargetBackup(workspaceFolder, bindingSnapshot);
                 }
                 else
                 {
@@ -186,6 +187,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 catch when (bindingSnapshot != null)
                 {
                     _retargetService.RestoreRemoteBindingState(workspaceFolder, bindingSnapshot!);
+                    _retargetService.ClearRetargetBackup(workspaceFolder);
                     throw;
                 }
             }

@@ -24,6 +24,12 @@ public interface IWorkspaceRetargetService
     /// <param name="snapshot">The binding snapshot to restore.</param>
     void RestoreRemoteBindingState(DirectoryPath workspaceFolder, RemoteBindingSnapshot snapshot);
 
+    void PersistRetargetBackup(DirectoryPath workspaceFolder, RemoteBindingSnapshot snapshot);
+
+    bool FinalizeRetarget(DirectoryPath workspaceFolder, bool pushSucceeded);
+
+    void ClearRetargetBackup(DirectoryPath workspaceFolder);
+
     /// <summary>
     /// Sync workspace using AI prompt metadata already upserted to the target environment during retarget.
     /// </summary>

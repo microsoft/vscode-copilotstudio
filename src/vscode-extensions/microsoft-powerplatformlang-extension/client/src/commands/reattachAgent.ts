@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { AccountInfo, EnvironmentInfo, ReattachAgentRequest, ReattachAgentResponse, RetargetConflictResolution } from '../types';
+import { AccountInfo, EnvironmentInfo, ReattachAgentRequest, ReattachAgentResponse, RetargetConflictResolution, FinalizeRetargetResponse } from '../types';
 import { DefaultCoreServicesClusterCategory, LspMethods, TelemetryEventsKeys } from '../constants';
 import { listEnvironmentsAsync } from '../clients/bapClient';
 import { switchAccount, getPreferredTreeAccount, listStoredAccounts } from '../clients/account';
@@ -224,7 +224,29 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
               };
 
               if (reattachResult.requiresLocalPush) {
-                await pushNewWorkspace(context, reattachedWorkspace, isAttached);
+                try {
+                  await pushNewWorkspace(context, reattachedWorkspace, isAttached);
+                } catch (pushError) {
+                  if (isAttached) {
+                    try {
+                      await lspClient.sendRequest<FinalizeRetargetResponse>(LspMethods.FINALIZE_RETARGET, { workspaceUri, pushSucceeded: false });
+                      logger.logError(TelemetryEventsKeys.ReattachAgentError, `Retarget push failed; reverted to its previous environment: <pii>${(pushError as Error).message}</pii>`);
+                      void vscode.window.showErrorMessage(`Retargeting failed while uploading content. The agent was reverted to its previous environment. Please try again.`);
+                    } catch (rollbackError) {
+                      logger.logError(TelemetryEventsKeys.ReattachAgentError, `Retarget push failed and rollback to the previous environment failed: <pii>${(rollbackError as Error).message}</pii>`);
+                    }
+                    return;
+                  }
+                  throw pushError;
+                }
+
+                if (isAttached) {
+                  try {
+                    await lspClient.sendRequest<FinalizeRetargetResponse>(LspMethods.FINALIZE_RETARGET, { workspaceUri, pushSucceeded: true });
+                  } catch (finalizeError) {
+                    logger.logWarning(TelemetryEventsKeys.ReattachAgentError, `Retarget succeeded but clearing the retarget backup failed; the agent remains on its new environment: <pii>${(finalizeError as Error).message}</pii>`);
+                  }
+                }
               }
               logger.logInfo(TelemetryEventsKeys.ReattachAgentInfo, `Agent <pii>${reattachResult.agentSyncInfo.agentId}</pii> ${isAttached ? 'retargeted' : 'reattached'} successfully.`);
 

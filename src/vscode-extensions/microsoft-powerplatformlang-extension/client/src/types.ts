@@ -183,6 +183,15 @@ export interface ReattachAgentResponse extends RemoteApiResponse {
   aiPromptResponse?: AIPromptResponse[];
 }
 
+export interface FinalizeRetargetRequest {
+  workspaceUri: string;
+  pushSucceeded: boolean;
+}
+
+export interface FinalizeRetargetResponse extends RemoteApiResponse {
+  rolledBack?: boolean;
+}
+
 export interface ConnectionNeeded {
   connectionReferenceLogicalName: string;
   connectorId: string;

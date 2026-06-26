@@ -87,15 +87,25 @@ export const buildAgentIdentityTooltip = (ws: CopilotStudioWorkspace): MarkdownS
   return tooltip;
 };
 
+// Finds the workspace whose URI most specifically contains the given URI (longest match wins so a
+// nested agent folder is preferred over its parent; isChildUri's boundary check rejects siblings).
+const findLongestMatchingWorkspace = (uriString: string): CopilotStudioWorkspace | undefined => {
+  let best: CopilotStudioWorkspace | undefined;
+  for (const workspace of workspaceCache) {
+    if (isChildUri(uriString, workspace.workspaceUri) && (best === undefined || workspace.workspaceUri.length > best.workspaceUri.length)) {
+      best = workspace;
+    }
+  }
+  return best;
+};
+
 // Finds the matching workspace by checking if the uri is a child of any workspace URI.
-export const findWorkspaceForUri = (uri: string): CopilotStudioWorkspace | undefined => workspaceCache.find(workspace =>
-  isChildUri(uri, workspace.workspaceUri)
-);
+export const findWorkspaceForUri = (uri: string): CopilotStudioWorkspace | undefined => findLongestMatchingWorkspace(uri);
 
 // Finds a workspace that contains the specified URI.
 export const getWorkspaceByUri = (uri: Uri): CopilotStudioWorkspace | undefined => {
   const uriString = uri.scheme === 'mcs' ? decodeURIComponent(uri.query) : uri.toString(true);
-  return workspaceCache.find(workspace => uriString.startsWith(decodeURI(workspace.workspaceUri)));
+  return findLongestMatchingWorkspace(uriString);
 };
 
 export const getActiveAgentAccount = (): AccountInfo | undefined => {
@@ -260,7 +270,13 @@ export async function tryRepairAgentManagementEndpoint(syncInfo: AgentSyncInfo, 
 
   try {
     const clusterCategory = getClusterCategory(syncInfo.accountInfo);
-    const envInfo = await getEnvironmentByIdAsync(clusterCategory, syncInfo.environmentId, null);
+    const envInfo = await getEnvironmentByIdAsync(
+      clusterCategory,
+      syncInfo.environmentId,
+      null,
+      syncInfo.accountInfo.accountId ?? null,
+      syncInfo.accountInfo.accountEmail
+    );
     if (envInfo?.agentManagementUrl) {
       syncInfo.agentManagementEndpoint = envInfo.agentManagementUrl;
 
