@@ -285,7 +285,7 @@ public class WorkflowDraftPushTests : IDisposable
     }
 
     [Fact]
-    public async Task PushUnchangedActivatedWorkflow_ConnectionBecameUnbound_DowngradesToDraft()
+    public async Task PushUnchangedActivatedWorkflow_ConnectionBecameUnbound_LeavesWorkflowUntouched()
     {
         var synchronizer = CreateSynchronizer();
         WriteWorkflowFiles(WorkflowJsonWithReference());
@@ -320,8 +320,140 @@ public class WorkflowDraftPushTests : IDisposable
 
         await synchronizer.UpsertWorkflowForAgentAsync(_workspace, unboundDataverse.Object, Guid.NewGuid(), CancellationToken.None, WorkflowActivationMode.DraftWhenConnectionsUnbound);
 
-        Assert.NotNull(capturedUnbound[0]);
-        Assert.Equal(0, capturedUnbound[0]!.StateCode);
-        Assert.Equal(1, capturedUnbound[0]!.StatusCode);
+        Assert.Null(capturedUnbound[0]);
+    }
+
+    [Fact]
+    public async Task PushWithUnboundConnection_WritesDraftStateToLocalMetadata()
+    {
+        var synchronizer = CreateSynchronizer();
+        WriteWorkflowFiles(WorkflowJsonWithReference());
+
+        var dataverse = CreateDataverse(new WorkflowMetadata?[1], new[]
+        {
+            new ConnectionReferenceInfo
+            {
+                ConnectionReferenceLogicalName = RefLogicalName,
+                ConnectorId = "/providers/Microsoft.PowerApps/apis/shared_x",
+                ConnectionId = string.Empty,
+            },
+        });
+
+        await synchronizer.UpsertWorkflowForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None, WorkflowActivationMode.DraftWhenConnectionsUnbound);
+
+        var content = File.ReadAllText(Path.Combine(_workflowFolder, "metadata.yml"));
+        Assert.Contains("stateCode: 0", content);
+        Assert.Contains("statusCode: 1", content);
+    }
+
+    [Fact]
+    public async Task PushWithBoundConnection_LeavesLocalMetadataActivated()
+    {
+        var synchronizer = CreateSynchronizer();
+        WriteWorkflowFiles(WorkflowJsonWithReference());
+
+        var dataverse = CreateDataverse(new WorkflowMetadata?[1], new[]
+        {
+            new ConnectionReferenceInfo
+            {
+                ConnectionReferenceLogicalName = RefLogicalName,
+                ConnectorId = "/providers/Microsoft.PowerApps/apis/shared_x",
+                ConnectionId = "shared-x-connection",
+            },
+        });
+
+        await synchronizer.UpsertWorkflowForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None, WorkflowActivationMode.DraftWhenConnectionsUnbound);
+
+        var content = File.ReadAllText(Path.Combine(_workflowFolder, "metadata.yml"));
+        Assert.Contains("stateCode: 1", content);
+        Assert.Contains("statusCode: 2", content);
+    }
+
+    [Fact]
+    public async Task PushDraftConnectionReferenceMode_WritesDraftStateToLocalMetadata()
+    {
+        var synchronizer = CreateSynchronizer();
+        WriteWorkflowFiles(WorkflowJsonWithReference());
+
+        var dataverse = CreateDataverse(new WorkflowMetadata?[1], new[]
+        {
+            new ConnectionReferenceInfo
+            {
+                ConnectionReferenceLogicalName = RefLogicalName,
+                ConnectorId = "/providers/Microsoft.PowerApps/apis/shared_x",
+                ConnectionId = "stale-or-missing-connection",
+            },
+        });
+
+        await synchronizer.UpsertWorkflowForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None, WorkflowActivationMode.DraftWhenConnectionReferencesExist);
+
+        var content = File.ReadAllText(Path.Combine(_workflowFolder, "metadata.yml"));
+        Assert.Contains("stateCode: 0", content);
+        Assert.Contains("statusCode: 1", content);
+    }
+
+    [Fact]
+    public async Task PushDowngradedWorkflow_SubsequentPushDetectsNoChange()
+    {
+        var synchronizer = CreateSynchronizer();
+        WriteWorkflowFiles(WorkflowJsonWithReference());
+
+        var capturedFirst = new WorkflowMetadata?[1];
+        var firstDataverse = CreateDataverse(capturedFirst, new[]
+        {
+            new ConnectionReferenceInfo
+            {
+                ConnectionReferenceLogicalName = RefLogicalName,
+                ConnectorId = "/providers/Microsoft.PowerApps/apis/shared_x",
+                ConnectionId = string.Empty,
+            },
+        });
+
+        var (_, cloudFlowMetadata) = await synchronizer.UpsertWorkflowForAgentAsync(_workspace, firstDataverse.Object, Guid.NewGuid(), CancellationToken.None, WorkflowActivationMode.DraftWhenConnectionsUnbound);
+
+        Assert.Equal(0, capturedFirst[0]!.StateCode);
+        Assert.Contains("stateCode: 0", File.ReadAllText(Path.Combine(_workflowFolder, "metadata.yml")));
+
+        var fileAccessor = new FileAccessorFactory().Create(_workspace);
+        WorkspaceSynchronizer.WriteCloudCache(fileAccessor, new BotDefinition().WithFlows(cloudFlowMetadata.Workflows));
+
+        var capturedSecond = new WorkflowMetadata?[1];
+        var secondDataverse = CreateDataverse(capturedSecond, new[]
+        {
+            new ConnectionReferenceInfo
+            {
+                ConnectionReferenceLogicalName = RefLogicalName,
+                ConnectorId = "/providers/Microsoft.PowerApps/apis/shared_x",
+                ConnectionId = string.Empty,
+            },
+        });
+
+        await synchronizer.UpsertWorkflowForAgentAsync(_workspace, secondDataverse.Object, Guid.NewGuid(), CancellationToken.None, WorkflowActivationMode.DraftWhenConnectionsUnbound);
+
+        Assert.Null(capturedSecond[0]);
+        Assert.Contains("stateCode: 0", File.ReadAllText(Path.Combine(_workflowFolder, "metadata.yml")));
+    }
+
+    [Fact]
+    public async Task PushDraftConnectionReferenceMode_KeepsLocalWorkflowFiles()
+    {
+        var synchronizer = CreateSynchronizer();
+        WriteWorkflowFiles(WorkflowJsonWithReference());
+
+        var dataverse = CreateDataverse(new WorkflowMetadata?[1], new[]
+        {
+            new ConnectionReferenceInfo
+            {
+                ConnectionReferenceLogicalName = RefLogicalName,
+                ConnectorId = "/providers/Microsoft.PowerApps/apis/shared_x",
+                ConnectionId = "stale-or-missing-connection",
+            },
+        });
+
+        await synchronizer.UpsertWorkflowForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None, WorkflowActivationMode.DraftWhenConnectionReferencesExist);
+
+        Assert.True(Directory.Exists(_workflowFolder));
+        Assert.True(File.Exists(Path.Combine(_workflowFolder, "metadata.yml")));
+        Assert.True(File.Exists(Path.Combine(_workflowFolder, "workflow.json")));
     }
 }
