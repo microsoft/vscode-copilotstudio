@@ -3895,6 +3895,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     {
         var cloudFlowDefinitions = new List<CloudFlowDefinition>();
         var workflows = new List<WorkflowMetadata>();
+        var successfullyUpsertedWorkflowIds = new HashSet<Guid>();
         var connectionReferences = ImmutableArray<ConnectionReference>.Empty;
         var workflowResponseBuilder = ImmutableArray.CreateBuilder<WorkflowResponse>();
 
@@ -3951,8 +3952,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 workflows.Add(metadata);
                 workflowMetadataRelativePaths[metadata.WorkflowId] = Path.Combine(WorkflowFolder, workflowName, "metadata.yml").Replace("\\", "/");
 
-                var (cloudFlowDefinition, _) = GetFlowDefinition(metadata);
-                cloudFlowDefinitions.Add(cloudFlowDefinition);
+                _ = GetFlowDefinition(metadata);
 
                 var hasConnectionReferences = HasConnectionReferences(metadata);
 
@@ -3994,9 +3994,13 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                     cancellationToken.ThrowIfCancellationRequested();
                     var workflowResponse = await dataverseClient.UpdateWorkflowAsync(agentId, metadata, cancellationToken).ConfigureAwait(false);
                     workflowResponseBuilder.Add(workflowResponse);
+                    if (string.IsNullOrEmpty(workflowResponse.ErrorMessage))
+                    {
+                        successfullyUpsertedWorkflowIds.Add(metadata.WorkflowId);
+                    }
                 }
 #else
-                var workflowResponses = new ConcurrentBag<WorkflowResponse>();
+                var workflowResponses = new ConcurrentBag<(WorkflowMetadata Metadata, WorkflowResponse Response)>();
                 await Parallel.ForEachAsync(workflowsToUpload, new ParallelOptions
                 {
                     MaxDegreeOfParallelism = 5,
@@ -4005,21 +4009,25 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 async (metadata, ct) =>
                 {
                     var workflowResponse = await dataverseClient.UpdateWorkflowAsync(agentId, metadata, ct).ConfigureAwait(false);
-                    workflowResponses.Add(workflowResponse);
+                    workflowResponses.Add((metadata, workflowResponse));
                 }).ConfigureAwait(false);
-                workflowResponseBuilder.AddRange(workflowResponses);
+                foreach (var (metadata, response) in workflowResponses)
+                {
+                    workflowResponseBuilder.Add(response);
+                    if (string.IsNullOrEmpty(response.ErrorMessage))
+                    {
+                        successfullyUpsertedWorkflowIds.Add(metadata.WorkflowId);
+                    }
+                }
 #endif
             }
 
-            WriteWorkflowDraftStateToDisk(workspaceFolder, downgradedWorkflows, workflowMetadataRelativePaths);
+            WriteWorkflowDraftStateToDisk(workspaceFolder, downgradedWorkflows.Where(workflow => successfullyUpsertedWorkflowIds.Contains(workflow.WorkflowId)).ToList(), workflowMetadataRelativePaths);
 
             connectionReferences = await GetConnectionReferenceFromLogicalNamesAsync(GetConnectionReferenceLogicalNamesFromFlows(workflows), dataverseClient, cancellationToken).ConfigureAwait(false);
-
-            if (activationMode != WorkflowActivationMode.PreserveSavedState)
-            {
-                cloudFlowDefinitions = workflows.Select(w => GetFlowDefinition(w).Item1).ToList();
-            }
         }
+
+        cloudFlowDefinitions = BuildProjectedCloudFlows(cloudSnapshot, workflows, successfullyUpsertedWorkflowIds);
 
         return (workflowResponseBuilder.ToImmutable(), new CloudFlowMetadata
         {
@@ -4148,6 +4156,45 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 UpdateWorkflowStateInMetadata(workspaceFolder, metadataPath, activate: false);
             }
         }
+    }
+
+    private static List<CloudFlowDefinition> BuildProjectedCloudFlows(DefinitionBase? cloudSnapshot, List<WorkflowMetadata> localWorkflows, HashSet<Guid> successfullyUpsertedWorkflowIds)
+    {
+        var localWorkflowsById = new Dictionary<Guid, WorkflowMetadata>();
+        foreach (var workflow in localWorkflows)
+        {
+            localWorkflowsById[workflow.WorkflowId] = workflow;
+        }
+
+        var projectedFlows = new List<CloudFlowDefinition>();
+        var projectedWorkflowIds = new HashSet<Guid>();
+        var cachedFlows = cloudSnapshot?.Flows ?? ImmutableArray<CloudFlowDefinition>.Empty;
+        if (!cachedFlows.IsDefaultOrEmpty)
+        {
+            foreach (var cachedFlow in cachedFlows)
+            {
+                var workflowId = cachedFlow.WorkflowId.Value;
+                projectedWorkflowIds.Add(workflowId);
+                if (successfullyUpsertedWorkflowIds.Contains(workflowId) && localWorkflowsById.TryGetValue(workflowId, out var upsertedWorkflow))
+                {
+                    projectedFlows.Add(GetFlowDefinition(upsertedWorkflow).Item1);
+                }
+                else
+                {
+                    projectedFlows.Add(cachedFlow);
+                }
+            }
+        }
+
+        foreach (var workflow in localWorkflows)
+        {
+            if (!projectedWorkflowIds.Contains(workflow.WorkflowId) && successfullyUpsertedWorkflowIds.Contains(workflow.WorkflowId))
+            {
+                projectedFlows.Add(GetFlowDefinition(workflow).Item1);
+            }
+        }
+
+        return projectedFlows;
     }
 
     public async Task<CloudFlowMetadata> GetWorkflowsAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, IFileAccessor fileAccessor, CancellationToken cancellationToken)
