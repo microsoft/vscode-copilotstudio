@@ -1,9 +1,11 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 
 using Microsoft.Agents.ObjectModel;
+using Microsoft.Agents.Platform.Content;
 using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Moq;
+using System.Collections.Immutable;
 using Xunit;
 using static Microsoft.CopilotStudio.Sync.Dataverse.SyncDataverseClient;
 
@@ -38,11 +40,13 @@ public class WorkflowDraftPushTests : IDisposable
         }
     }
 
-    private static WorkspaceSynchronizer CreateSynchronizer()
+    private static WorkspaceSynchronizer CreateSynchronizer() => CreateSynchronizer(out _);
+
+    private static WorkspaceSynchronizer CreateSynchronizer(out Mock<IIslandControlPlaneService> island)
     {
         var fileParser = new SyncMcsFileParser(LspProjectorService.Instance);
         var fileAccessorFactory = new FileAccessorFactory();
-        var island = new Mock<IIslandControlPlaneService>();
+        island = new Mock<IIslandControlPlaneService>();
         var progress = new TestSyncProgress(new List<string>());
         var pathResolver = new LspComponentPathResolver();
 
@@ -455,5 +459,75 @@ public class WorkflowDraftPushTests : IDisposable
         Assert.True(Directory.Exists(_workflowFolder));
         Assert.True(File.Exists(Path.Combine(_workflowFolder, "metadata.yml")));
         Assert.True(File.Exists(Path.Combine(_workflowFolder, "workflow.json")));
+    }
+
+    [Fact]
+    public async Task PushWithUnboundConnection_WhenUploadFails_LeavesLocalMetadataActivated()
+    {
+        var synchronizer = CreateSynchronizer();
+        WriteWorkflowFiles(WorkflowJsonWithReference());
+
+        var dataverse = new Mock<ISyncDataverseClient>();
+        dataverse
+            .Setup(c => c.GetConnectionReferencesByLogicalNamesAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[]
+            {
+                new ConnectionReferenceInfo
+                {
+                    ConnectionReferenceLogicalName = RefLogicalName,
+                    ConnectorId = "/providers/Microsoft.PowerApps/apis/shared_x",
+                    ConnectionId = string.Empty,
+                },
+            });
+        dataverse
+            .Setup(c => c.UpdateWorkflowAsync(It.IsAny<Guid?>(), It.IsAny<WorkflowMetadata>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("upload failed"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            synchronizer.UpsertWorkflowForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None, WorkflowActivationMode.DraftWhenConnectionsUnbound));
+
+        var content = File.ReadAllText(Path.Combine(_workflowFolder, "metadata.yml"));
+        Assert.Contains("stateCode: 1", content);
+        Assert.Contains("statusCode: 2", content);
+    }
+
+    [Fact]
+    public async Task WorkflowOnlyPush_WithoutComponentChanges_ProjectsFlowStateIntoCloudCache()
+    {
+        var synchronizer = CreateSynchronizer(out var island);
+        WriteWorkflowFiles(WorkflowJsonWithReference(), stateCode: 0, statusCode: 1);
+
+        var dataverse = CreateDataverse(new WorkflowMetadata?[1]);
+        var (_, cloudFlowMetadata) = await synchronizer.UpsertWorkflowForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None);
+        Assert.False(cloudFlowMetadata.Workflows.IsDefaultOrEmpty);
+
+        var agentId = Guid.NewGuid();
+        var bot = new BotEntity.Builder { SchemaName = new BotEntitySchemaName("cre98_AgentC1"), CdsBotId = agentId }.Build();
+        var definition = new BotDefinition().WithEntity(bot);
+
+        var fileAccessor = new FileAccessorFactory().Create(_workspace);
+        WorkspaceSynchronizer.WriteCloudCache(fileAccessor, definition);
+        await fileAccessor.WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "token-1", CancellationToken.None);
+
+        var cacheBefore = File.ReadAllText(Path.Combine(_root, ".mcs", "botdefinition.json"));
+        Assert.True(cacheBefore.IndexOf(_workflowId.ToString(), StringComparison.OrdinalIgnoreCase) < 0);
+
+        await synchronizer.PushLocalChangesAsync(
+            _workspace,
+            ComponentWriterDefensiveTests.CreateMockOperationContext(),
+            definition,
+            new Mock<ISyncDataverseClient>().Object,
+            new AgentSyncInfo { AgentId = agentId },
+            cloudFlowMetadata,
+            ImmutableArray<AIPromptMetadata>.Empty,
+            CancellationToken.None);
+
+        island.Verify(
+            x => x.SaveChangesAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<PvaComponentChangeSet>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+
+        var cacheAfter = File.ReadAllText(Path.Combine(_root, ".mcs", "botdefinition.json"));
+        Assert.True(cacheAfter.IndexOf(_workflowId.ToString(), StringComparison.OrdinalIgnoreCase) >= 0);
+        Assert.Contains("stateCode: 0", cacheAfter);
     }
 }

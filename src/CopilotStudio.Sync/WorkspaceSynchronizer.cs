@@ -1072,6 +1072,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                     throw new InvalidOperationException("Unsupported sync operation. A component references a parent agent that could not be created on the cloud.");
                 }
 
+                if (cloudFlowMetadata != null || !aiPrompts.IsDefaultOrEmpty)
+                {
+                    UpdateCloudCache(fileAccessor, changeSet.WithBot(null), cloudFlowMetadata, aiPrompts, syncInfo.AgentId, preserveExistingAIModelDefinitions: true);
+                }
+
                 break;
             }
 
@@ -3964,6 +3969,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 workflowsToUpload.Add(metadata);
             }
 
+            var downgradedWorkflows = (IReadOnlyList<WorkflowMetadata>)Array.Empty<WorkflowMetadata>();
             if (activationMode == WorkflowActivationMode.ActivateWhenConnectionsBound)
             {
                 if (workflowsToUpload.Count > 0)
@@ -3973,13 +3979,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }
             else if (activationMode == WorkflowActivationMode.DraftWhenConnectionReferencesExist)
             {
-                var downgraded = DraftConnectionReferenceWorkflows(workflowsToUpload);
-                WriteWorkflowDraftStateToDisk(workspaceFolder, downgraded, workflowMetadataRelativePaths);
+                downgradedWorkflows = DraftConnectionReferenceWorkflows(workflowsToUpload);
             }
             else if (activationMode == WorkflowActivationMode.DraftWhenConnectionsUnbound)
             {
-                var downgraded = await DraftUnboundWorkflowActivationsAsync(workflowsToUpload, dataverseClient, cancellationToken).ConfigureAwait(false);
-                WriteWorkflowDraftStateToDisk(workspaceFolder, downgraded, workflowMetadataRelativePaths);
+                downgradedWorkflows = await DraftUnboundWorkflowActivationsAsync(workflowsToUpload, dataverseClient, cancellationToken).ConfigureAwait(false);
             }
 
             if (workflowsToUpload.Count > 0)
@@ -4006,6 +4010,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 workflowResponseBuilder.AddRange(workflowResponses);
 #endif
             }
+
+            WriteWorkflowDraftStateToDisk(workspaceFolder, downgradedWorkflows, workflowMetadataRelativePaths);
 
             connectionReferences = await GetConnectionReferenceFromLogicalNamesAsync(GetConnectionReferenceLogicalNamesFromFlows(workflows), dataverseClient, cancellationToken).ConfigureAwait(false);
 
