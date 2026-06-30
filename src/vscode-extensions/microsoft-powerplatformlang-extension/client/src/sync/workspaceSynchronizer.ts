@@ -65,10 +65,16 @@ export async function withSyncCommandBusy<T>(workspaceUri: string, body: () => P
   }
 }
 
+export interface PushOptions {
+    suppressErrorNotification?: boolean;
+    suppressDisabledWorkflowWarnings?: boolean;
+    draftConnectionReferenceWorkflows?: boolean;
+}
+
 export interface WorkspaceSynchronizer {
     workspace: CopilotStudioWorkspace;
     syncState: SyncState;
-    push: (suppressErrorNotification?: boolean, suppressWorkflowIssues?: boolean, draftConnectionReferenceWorkflows?: boolean) => Promise<SyncResponse | undefined>;
+    push: (options?: PushOptions) => Promise<SyncResponse | undefined>;
     pull: (virtualProvider: virtualKnowledgeFileSystemProvider) => Promise<SyncResponse | undefined >;
     fetch: () => Promise<void>;
     subscribe: (listener: SyncStateListener) => () => void;
@@ -121,9 +127,10 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
   return {
     workspace: ws,
     get syncState() { return currentState; },
-    push: async (suppressErrorNotification = false, suppressWorkflowIssues = false, draftConnectionReferenceWorkflows = false): Promise<SyncResponse> => {
+    push: async (options: PushOptions = {}): Promise<SyncResponse> => {
+      const { suppressErrorNotification = false, suppressDisabledWorkflowWarnings = false, draftConnectionReferenceWorkflows = false } = options;
       return await executeSyncOperation(async () => {
-        const response = await sync(ws, 'applying changes', LspMethods.SYNC_PUSH, false, suppressErrorNotification, suppressWorkflowIssues, draftConnectionReferenceWorkflows);
+        const response = await sync(ws, 'applying changes', LspMethods.SYNC_PUSH, false, suppressErrorNotification, suppressDisabledWorkflowWarnings, draftConnectionReferenceWorkflows);
         await uploadKnowledgeFiles(ws);
         return response;
       }, SyncState.Pushing);
@@ -163,7 +170,7 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
   };
 }
 
-export async function sync(workspace: CopilotStudioWorkspace, displayText: string, methodName: string, silent: boolean, suppressErrorNotification = false, suppressWorkflowIssues = false, draftConnectionReferenceWorkflows = false): Promise<SyncResponse> {
+export async function sync(workspace: CopilotStudioWorkspace, displayText: string, methodName: string, silent: boolean, suppressErrorNotification = false, suppressDisabledWorkflowWarnings = false, draftConnectionReferenceWorkflows = false): Promise<SyncResponse> {
   const { syncInfo, workspaceUri } = workspace;
   if (!syncInfo) {
     throw new Error(`${displayText} failed. Connection file .mcs::conn.json is missing, please clone again.`);
@@ -192,9 +199,9 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
       : await vscode.window.withProgress({ location: vscode.ProgressLocation.SourceControl }, async () => {
         return await lspClient.sendRequest<SyncResponse>(methodName, request);
       });
-    logger.logInfo(TelemetryEventsKeys.SyncWorkspaceSuccess, `Successfully completed ${displayText}`);
-    if (!suppressWorkflowIssues) {
-      logWorkflowIssues(result.workflowResponse);
+    const workflowErrorsFound = logWorkflowIssues(result.workflowResponse, suppressDisabledWorkflowWarnings);
+    if (!workflowErrorsFound) {
+      logger.logInfo(TelemetryEventsKeys.SyncWorkspaceSuccess, `Successfully completed ${displayText}`);
     }
     logAIPromptIssues(result.aiPromptResponse);
     return result;
@@ -203,7 +210,7 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
       logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Your current account does not have permission. Please sign in with the account <pii>(${accountInfo.accountEmail ?? accountInfo.accountId})</pii> to perform this operation.`);
       try {
         resetAccount();
-        return await sync(workspace, displayText, methodName, silent, suppressErrorNotification, suppressWorkflowIssues, draftConnectionReferenceWorkflows);
+        return await sync(workspace, displayText, methodName, silent, suppressErrorNotification, suppressDisabledWorkflowWarnings, draftConnectionReferenceWorkflows);
       } catch (error) {
         logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Re-authentication failed: ${(error as Error).message}`);
         throw error;
@@ -218,28 +225,33 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
   }
 }
 
-export function logWorkflowIssues(workflows: WorkflowResponse[] | undefined) {
+export function logWorkflowIssues(workflows: WorkflowResponse[] | undefined, suppressDisabledWarnings = false): boolean {
   if (!workflows?.length) {
-    return;
+    return false;
   }
 
   const disabledWorkflows: string[] = [];
   const failedWorkflows: string[] = [];
 
   for (const w of workflows) {
-    if (w.isDisabled) {
-      disabledWorkflows.push(w.workflowName);
-    }
-    else if (w.errorMessage) {
+    if (w.errorMessage) {
       failedWorkflows.push(`${w.workflowName}: ${w.errorMessage}`);
+    }
+    else if (w.isDisabled) {
+      disabledWorkflows.push(w.workflowName);
     }
   }
 
-  if (disabledWorkflows.length > 0) {
+  if (!suppressDisabledWarnings && disabledWorkflows.length > 0) {
     logger.logWarning(TelemetryEventsKeys.SyncWorkspaceError, `These workflows are disabled. Bind their connections, then enable them from the connection manager: <pii>${disabledWorkflows.join(", ")}</pii>`);
-  } else if (failedWorkflows.length > 0) {
-    logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Workflow errors: <pii>${failedWorkflows.join(", ")}</pii>`);
   }
+
+  if (failedWorkflows.length > 0) {
+    logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Workflow errors: <pii>${failedWorkflows.join(", ")}</pii>`);
+    return true;
+  }
+
+  return false;
 }
 
 export function logAIPromptIssues(prompts: AIPromptResponse[] | undefined) {
