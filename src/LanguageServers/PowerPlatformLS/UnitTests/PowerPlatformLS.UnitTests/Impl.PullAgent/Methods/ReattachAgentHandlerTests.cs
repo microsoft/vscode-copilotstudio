@@ -196,7 +196,7 @@
 
             Assert.Equal(400, response.Code);
             Assert.Contains("BadRequest", response.Message);
-            mockLogger.Verify(l => l.LogError(It.IsAny<string>(), It.IsAny<object[]>()), Times.Once);
+            mockLogger.Verify(l => l.LogSensitiveError(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
         }
 
         [Fact]

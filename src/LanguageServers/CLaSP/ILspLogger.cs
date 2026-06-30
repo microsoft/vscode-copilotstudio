@@ -6,11 +6,22 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
 {
     using System;
 
+    /// <summary>
+    /// Outcome of an LSP request handler execution.
+    /// </summary>
+    public enum HandlerOutcome
+    {
+        Success,
+        Failure,
+        Canceled
+    }
+
     public interface ILspLogger
     {
-        void LogStartContext(string methodName);
-        void LogEndContext(string methodName, long durationMs = -1, bool succeeded = true);
+        void LogStartContext(string methodName, string? agentName = null);
+        void LogEndContext(string methodName, long durationMs = -1, HandlerOutcome outcome = HandlerOutcome.Success, string? agentName = null);
         void LogDebug(string message, params object[] @params);
+        void LogTrace(string message, params object[] @params) { }
         void LogInformation(string message, params object[] @params);
 
         /// <summary>
@@ -18,6 +29,20 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
         /// This will only be logged in debug mode when the logs are only surfaced to the local client.
         /// </summary>
         void LogSensitiveInformation(string message, string? altSafeMessage = null);
+
+        /// <summary>
+        /// Log a warning that may contain sensitive data (file paths, agent names, Dataverse error payloads).
+        /// In Release: the safe message goes to telemetry at Warning level; the full message goes to the output channel at Debug level.
+        /// In Debug: the full message is logged at Warning level (visible locally).
+        /// </summary>
+        void LogSensitiveWarning(string message, string safeMessage) { }
+
+        /// <summary>
+        /// Log an error that may contain sensitive data (exception messages with customer content, OData error bodies).
+        /// In Release: the safe message goes to telemetry at Error level; the full message goes to the output channel at Debug level.
+        /// In Debug: the full message is logged at Error level (visible locally).
+        /// </summary>
+        void LogSensitiveError(string message, string safeMessage) { }
         void LogWarning(string message, params object[] @params);
         void LogError(string message, params object[] @params);
         void LogException(Exception exception, string? message = null, params object[] @params);

@@ -1,4 +1,4 @@
-﻿namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
+namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
 {
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.PowerPlatformLS.Contracts.Internal;
@@ -37,8 +37,10 @@
             await _transport.SendAsync(message, cancellationToken);
         }
 
-        async Task IDiagnosticsPublisher.PublishAllDiagnosticsAsync(RequestContext context, CancellationToken cancellationToken)
+        async Task IDiagnosticsPublisher.PublishAllDiagnosticsAsync(RequestContext context, CancellationToken cancellationToken, bool logDiagnostics)
         {
+            var savedFileUri = context.IsInvalid ? null : context.Document?.Uri;
+
             foreach (var documentDiagnostics in context.Workspace.GetDiagnostics(context))
             {
                 var message = new LspJsonRpcMessage
@@ -48,10 +50,25 @@
                 };
 
                 await _transport.SendAsync(message, cancellationToken);
+
+                // Only log diagnostics for the file that triggered the save, not all workspace files.
+                if (logDiagnostics && savedFileUri != null && documentDiagnostics.Uri == savedFileUri)
+                {
+                    var fileName = Path.GetFileName(documentDiagnostics.Uri.LocalPath);
+                    foreach (var diagnostic in documentDiagnostics.Diagnostics)
+                    {
+                        var line = (diagnostic.Range?.Start.Line ?? 0) + 1;
+                        var col = (diagnostic.Range?.Start.Character ?? 0) + 1;
+                        if (diagnostic.Severity is DiagnosticSeverity.Error or DiagnosticSeverity.Warning)
+                        {
+                            _logger.LogTrace($"textDocument/publishDiagnostics: {fileName}(ln {line}, col {col}): {diagnostic.Message}");
+                        }
+                    }
+                }
             }
         }
 
-        async Task IDiagnosticsPublisher.PublishDiagnosticsForCurrentDocumentAsync<DocType>(RequestContext context, CancellationToken cancellationToken)
+        async Task IDiagnosticsPublisher.PublishDiagnosticsForCurrentDocumentAsync<DocType>(RequestContext context, CancellationToken cancellationToken, bool logDiagnostics)
         {
             var diagnosticsProvider = _lspServices.GetService<IDiagnosticsProvider<DocType>>();
             if (diagnosticsProvider == null)
@@ -76,20 +93,23 @@
 
             await _transport.SendAsync(message, cancellationToken);
 
-            var fileName = Path.GetFileName(context.Document.Uri.LocalPath);
-            foreach (var diagnostic in diagnostics)
+            if (logDiagnostics)
             {
-                var line = (diagnostic.Range?.Start.Line ?? 0) + 1;
-                var col = (diagnostic.Range?.Start.Character ?? 0) + 1;
-
-                switch (diagnostic.Severity)
+                var fileName = Path.GetFileName(context.Document.Uri.LocalPath);
+                foreach (var diagnostic in diagnostics)
                 {
-                    case DiagnosticSeverity.Error:
-                        _logger.LogDebug($"textDocument/publishDiagnostics: {fileName}(ln {line}, col {col}): {diagnostic.Message}");
-                        break;
-                    case DiagnosticSeverity.Warning:
-                        _logger.LogDebug($"textDocument/publishDiagnostics: {fileName}(ln {line}, col {col}): {diagnostic.Message}");
-                        break;
+                    var line = (diagnostic.Range?.Start.Line ?? 0) + 1;
+                    var col = (diagnostic.Range?.Start.Character ?? 0) + 1;
+
+                    switch (diagnostic.Severity)
+                    {
+                        case DiagnosticSeverity.Error:
+                            _logger.LogTrace($"textDocument/publishDiagnostics: {fileName}(ln {line}, col {col}): {diagnostic.Message}");
+                            break;
+                        case DiagnosticSeverity.Warning:
+                            _logger.LogTrace($"textDocument/publishDiagnostics: {fileName}(ln {line}, col {col}): {diagnostic.Message}");
+                            break;
+                    }
                 }
             }
         }

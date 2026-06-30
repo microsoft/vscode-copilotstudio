@@ -240,7 +240,7 @@
 
         private class FakeLogger : ILspLogger
         {
-            public void LogEndContext(string methodName, long durationMs = -1) { }
+            public void LogEndContext(string methodName, long durationMs = -1, HandlerOutcome outcome = HandlerOutcome.Success, string? agentName = null) { }
 
             public void LogError(string message) { }
 
@@ -256,7 +256,7 @@
 
             public void LogSensitiveInformation(string message, string? altSafeMessage = null) { }
 
-            public void LogStartContext(string methodName) { }
+            public void LogStartContext(string methodName, string? agentName = null) { }
 
             public void LogWarning(string message) { }
 

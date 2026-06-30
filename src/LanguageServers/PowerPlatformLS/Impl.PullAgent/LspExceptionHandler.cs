@@ -10,56 +10,54 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     /// <summary>
     /// Classifies exceptions and logs them at the appropriate level.
     /// Provides consistent error handling across all LSP request handlers.
+    /// Each error includes [ExceptionType] and source location (at File.cs:Line) for traceability.
+    /// Exceptions already logged by instrumented layers (HTTP, Sync) are not duplicated.
     /// </summary>
     internal static class LspExceptionHandler
     {
         /// <summary>
         /// Classifies the exception, logs it at the appropriate severity, and returns
         /// a status code and user-facing message suitable for the LSP response.
-        /// All failures are logged at Error level (matching the UI's failure display)
-        /// but only unexpected exceptions include the full stack trace.
         /// </summary>
-        /// <param name="ex">The caught exception.</param>
-        /// <param name="logger">The LSP logger instance.</param>
-        /// <param name="cancellationToken">The request's cancellation token, used to distinguish user cancellation from timeouts.</param>
         public static (int Code, string Message) Handle(Exception ex, ILspLogger logger, CancellationToken cancellationToken = default)
         {
             return ex switch
             {
+                // HTTP failures: already logged at Error by LoggingHttpHandler — don't duplicate.
+                HttpRequestException hre =>
+                    NoLog(MapHttpStatusCode(hre), hre.Message),
+
                 // User-recoverable: the user can fix this by performing an action (resync, reclone, etc.).
-                // Log at Error (message only, no stack trace) to match failure indicators in the UI.
                 FileNotFoundException fnf =>
-                    LogErrorMessage(logger, 400, fnf.Message),
+                    LogTypedError(logger, 400, fnf),
 
                 DirectoryNotFoundException dnf =>
-                    LogErrorMessage(logger, 400, dnf.Message),
+                    LogTypedError(logger, 400, dnf),
 
                 // Connection binding failed during reattach (e.g., missing connector config).
                 ConnectionBindingException cbe =>
-                    LogErrorMessage(logger, 400, cbe.Message),
+                    LogTypedError(logger, 400, cbe),
 
                 // User validation: caller explicitly threw to signal bad input.
                 InvalidOperationException ioe =>
-                    LogErrorMessage(logger, 400, ioe.Message),
+                    LogTypedError(logger, 400, ioe),
 
                 // Service rejected the request (known Dataverse error with status code).
+                // Message may contain customer data — use safe telemetry message.
                 DataverseBadRequestException dbre =>
-                    LogErrorMessage(logger, dbre.StatusCode, dbre.Message),
+                    LogTypedSensitiveError(logger, dbre.StatusCode, dbre, $"Dataverse request failed with status {dbre.StatusCode}."),
 
                 // Service temporarily unavailable.
-                DataverseServiceUnavailableException =>
-                    LogErrorMessage(logger, 503, "The Copilot Studio service is temporarily unavailable. Please try again in a moment."),
-
-                // Network/HTTP failures.
-                HttpRequestException hre =>
-                    LogErrorMessage(logger, MapHttpStatusCode(hre), $"Network error: {hre.Message}"),
+                DataverseServiceUnavailableException dsue =>
+                    LogTypedError(logger, 503, dsue,
+                        "The Copilot Studio service is temporarily unavailable. Please try again in a moment."),
 
                 // Cancellation: distinguish user-initiated from timeout.
                 OperationCanceledException when cancellationToken.IsCancellationRequested =>
-                    LogErrorMessage(logger, 499, "Operation was cancelled."),
+                    NoLog(499, "Operation was cancelled."),
 
-                OperationCanceledException oce =>
-                    LogErrorMessage(logger, 504, $"Operation timed out: {oce.Message}"),
+                OperationCanceledException =>
+                    NoLog(504, "Operation timed out."),
 
                 // Unexpected: genuine bugs or unhandled conditions.
                 // Log at Error WITH full stack trace for diagnostics.
@@ -67,15 +65,55 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             };
         }
 
-        private static (int Code, string Message) LogErrorMessage(ILspLogger logger, int code, string message)
+        /// <summary>
+        /// Returns code/message without logging (exception was already logged by an instrumented layer).
+        /// </summary>
+        private static (int Code, string Message) NoLog(int code, string message)
         {
-            logger.LogError(message);
+            return (code, message);
+        }
+
+        /// <summary>
+        /// Logs error with [ExceptionType], message, and source location.
+        /// </summary>
+        private static (int Code, string Message) LogTypedError(ILspLogger logger, int code, Exception ex)
+        {
+            string message = ex.Message;
+            string typeName = ex.GetType().Name;
+            var source = ExceptionSourceExtractor.FormatSource(ex);
+            logger.LogError($"[{typeName}] {message}{source}");
+            return (code, message);
+        }
+
+        /// <summary>
+        /// Logs error with explicit override message (for cases where the exception message isn't user-facing).
+        /// </summary>
+        private static (int Code, string Message) LogTypedError(ILspLogger logger, int code, Exception ex, string displayMessage)
+        {
+            string typeName = ex.GetType().Name;
+            var source = ExceptionSourceExtractor.FormatSource(ex);
+            logger.LogError($"[{typeName}] {displayMessage}{source}");
+            return (code, displayMessage);
+        }
+
+        /// <summary>
+        /// Logs error with [ExceptionType] and source. The exception message may contain customer data,
+        /// so the safe message goes to telemetry and the full message stays in the output channel.
+        /// </summary>
+        private static (int Code, string Message) LogTypedSensitiveError(ILspLogger logger, int code, Exception ex, string safeMessage)
+        {
+            string message = ex.Message;
+            string typeName = ex.GetType().Name;
+            var source = ExceptionSourceExtractor.FormatSource(ex);
+            logger.LogSensitiveError($"[{typeName}] {message}{source}", $"[{typeName}] {safeMessage}{source}");
             return (code, message);
         }
 
         private static (int Code, string Message) LogErrorWithTrace(ILspLogger logger, Exception ex)
         {
-            logger.LogException(ex);
+            string typeName = ex.GetType().Name;
+            var source = ExceptionSourceExtractor.FormatSource(ex);
+            logger.LogException(ex, $"[{typeName}] {ex.Message}{source}");
             return (500, ex.Message);
         }
 

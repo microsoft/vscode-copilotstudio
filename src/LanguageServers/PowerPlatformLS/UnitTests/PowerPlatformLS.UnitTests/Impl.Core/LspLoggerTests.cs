@@ -1,5 +1,6 @@
 namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
 {
+    using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Impl.Core.Lsp;
     using Microsoft.PowerPlatformLS.UnitTests.TestUtilities;
@@ -95,6 +96,28 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
 
             var infoLog = Assert.Single(_testLogger.Info);
             Assert.Contains("[Req: 19] Completed handler for: powerplatformls/syncPull, duration=17ms", infoLog);
+        }
+
+        [Fact]
+        public void LogEndContext_Logs_Failed_When_Succeeded_Is_False()
+        {
+            LspRequestContext.CurrentRequestId = 19;
+
+            _logger.LogEndContext("powerplatformls/syncPull", 42, HandlerOutcome.Failure);
+
+            var infoLog = Assert.Single(_testLogger.Info);
+            Assert.Contains("[Req: 19] Failed handler for: powerplatformls/syncPull, duration=42ms", infoLog);
+        }
+
+        [Fact]
+        public void LogEndContext_Logs_Canceled_When_Canceled_Is_True()
+        {
+            LspRequestContext.CurrentRequestId = 21;
+
+            _logger.LogEndContext("powerplatformls/syncPull", 15, HandlerOutcome.Canceled);
+
+            var infoLog = Assert.Single(_testLogger.Info);
+            Assert.Contains("[Req: 21] Canceled handler for: powerplatformls/syncPull, duration=15ms", infoLog);
         }
 
         [Theory]

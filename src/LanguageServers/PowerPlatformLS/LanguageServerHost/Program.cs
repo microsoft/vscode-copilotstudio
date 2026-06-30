@@ -115,5 +115,5 @@ bool ParseTelemetryEnabledFromArgs(string[] args)
 // VS Code's LogOutputChannel adds its own timestamp and level prefix.
 void ConsoleLog(string message)
 {
-    Console.WriteLine(message);
+    Console.Write(message);
 }

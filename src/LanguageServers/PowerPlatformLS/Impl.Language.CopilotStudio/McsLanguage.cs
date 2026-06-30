@@ -235,8 +235,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
 
             if (rootFiles.Count > 0)
             {
-                LogAgentResolvingDebugEvent($"{rootFiles.Count} files ({string.Join(", ", rootFiles)}) added to root directory for {agentName}");
-            }
+                LogAgentResolvingDebugEvent($"{rootFiles.Count} files added to root directory for {agentName}: {string.Join(", ", rootFiles)}");            }
 
             agentDirectory.BuildCompilationModel();
             return totalDocumentCount;

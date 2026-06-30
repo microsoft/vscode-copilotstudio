@@ -1,4 +1,4 @@
-﻿namespace Microsoft.PowerPlatformLS.Impl.PullAgent
+namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 {
     using Microsoft.Agents.ObjectModel.Telemetry;
     using Microsoft.Extensions.Logging;
@@ -10,8 +10,8 @@
     using System.Threading.Tasks;
 
     /// <summary>
-    /// Logs SDK operation timings at Information level with consistent format.
-    /// Failures are always logged at Error level.
+    /// Logs SDK operation timings with consistent format.
+    /// Failures are logged at Error level with exception message and source location.
     /// </summary>
     internal class LspOperationLogger : IOperationLogger
     {
@@ -35,7 +35,8 @@
             }
             catch(Exception ex)
             {
-                _logger.LogError(ex, "[Req: {ReqId}] Sync operation failed: {Operation}, duration={Duration}ms", reqId, operation, stopwatch.ElapsedMilliseconds);
+                var source = ExceptionSourceExtractor.FormatSource(ex);
+                _logger.LogError("[Req: {ReqId}] Sync operation failed: {Operation}, duration={Duration}ms, error=[{ExType}] {Error}{Source}", reqId, operation, stopwatch.ElapsedMilliseconds, ex.GetType().Name, ex.Message, source);
                 throw;
             }
         }
@@ -53,7 +54,8 @@
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[Req: {ReqId}] Sync operation failed: {Activity}, duration={Duration}ms", reqId, activity, stopwatch.ElapsedMilliseconds);
+                var source = ExceptionSourceExtractor.FormatSource(ex);
+                _logger.LogError("[Req: {ReqId}] Sync operation failed: {Activity}, duration={Duration}ms, error=[{ExType}] {Error}{Source}", reqId, activity, stopwatch.ElapsedMilliseconds, ex.GetType().Name, ex.Message, source);
                 throw;
             }
         }
@@ -71,7 +73,8 @@
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[Req: {ReqId}] Sync operation failed: {Activity}, duration={Duration}ms", reqId, activity, stopwatch.ElapsedMilliseconds);
+                var source = ExceptionSourceExtractor.FormatSource(ex);
+                _logger.LogError("[Req: {ReqId}] Sync operation failed: {Activity}, duration={Duration}ms, error=[{ExType}] {Error}{Source}", reqId, activity, stopwatch.ElapsedMilliseconds, ex.GetType().Name, ex.Message, source);
                 throw;
             }
         }
@@ -89,7 +92,8 @@
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[Req: {ReqId}] Sync operation failed: {Activity}, duration={Duration}ms", reqId, activity, stopwatch.ElapsedMilliseconds);
+                var source = ExceptionSourceExtractor.FormatSource(ex);
+                _logger.LogError("[Req: {ReqId}] Sync operation failed: {Activity}, duration={Duration}ms, error=[{ExType}] {Error}{Source}", reqId, activity, stopwatch.ElapsedMilliseconds, ex.GetType().Name, ex.Message, source);
                 throw;
             }
         }
