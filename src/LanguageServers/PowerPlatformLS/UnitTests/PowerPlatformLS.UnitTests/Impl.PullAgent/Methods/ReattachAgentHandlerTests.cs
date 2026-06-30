@@ -671,6 +671,12 @@
             CancellationToken cancellationToken)
             => Task.FromResult(Array.Empty<CustomConnectorMetadata>());
 
+        public virtual Task<CustomConnectorMetadata[]> GetConnectorVersionsByInternalIdsAsync(
+            IEnumerable<string> connectorInternalIds,
+            bool isManaged,
+            CancellationToken cancellationToken)
+            => Task.FromResult(Array.Empty<CustomConnectorMetadata>());
+
         public virtual Task<CustomConnectorMetadata[]> GetConnectorsByInternalIdPrefixAsync(
             string connectorInternalIdPrefix,
             CancellationToken cancellationToken)
@@ -680,6 +686,9 @@
             => Task.FromResult(false);
 
         public virtual Task<AIPromptMetadata[]> DownloadAllAIPromptsForAgentAsync(AgentSyncInfo syncInfo, CancellationToken cancellationToken)
+            => Task.FromResult(Array.Empty<AIPromptMetadata>());
+
+        public virtual Task<AIPromptMetadata[]> DownloadAIPromptsByModelIdsAsync(IReadOnlyCollection<Guid> aiModelIds, CancellationToken cancellationToken)
             => Task.FromResult(Array.Empty<AIPromptMetadata>());
 
         public virtual Task<AIPromptResponse> UpsertAIPromptAsync(Guid? agentId, AIPromptMetadata? promptMetadata, CancellationToken cancellationToken)

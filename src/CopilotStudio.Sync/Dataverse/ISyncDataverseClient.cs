@@ -84,6 +84,14 @@ public interface ISyncDataverseClient
     Task<CustomConnectorMetadata[]> DownloadConnectorsByInternalIdsAsync(IEnumerable<string> connectorInternalIds, bool isManaged, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Get connector versions by connector internal ids from Dataverse.
+    /// </summary>
+    /// <param name="connectorInternalIds">Connector internal ids to look up.</param>
+    /// <param name="isManaged">connector is managed or not.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task<CustomConnectorMetadata[]> GetConnectorVersionsByInternalIdsAsync(IEnumerable<string> connectorInternalIds, bool isManaged, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Find connectors whose connectorinternalid starts with the given prefix.
     /// </summary>
     /// <param name="connectorInternalIdPrefix">The stable connectorinternalid prefix to match.</param>
@@ -132,6 +140,11 @@ public interface ISyncDataverseClient
     /// Download all AI Builder prompt models.
     /// </summary>
     Task<AIPromptMetadata[]> DownloadAllAIPromptsForAgentAsync(AgentSyncInfo syncInfo, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Download AI Builder prompt models for the model ids.
+    /// </summary>
+    Task<AIPromptMetadata[]> DownloadAIPromptsByModelIdsAsync(IReadOnlyCollection<Guid> aiModelIds, CancellationToken cancellationToken);
 
     /// <summary>
     /// Upsert an AI Builder prompt or creates new if they do not yet exist in Dataverse.

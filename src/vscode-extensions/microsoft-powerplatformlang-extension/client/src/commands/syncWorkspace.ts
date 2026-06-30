@@ -197,7 +197,7 @@ const registerSyncCommand = (
           if (errors.count === 0) {
             const synchronizer = getOrAddSynchronizer(selectedWorkspace);
             if (id === 'microsoft-copilot-studio.applyChanges') {
-              await synchronizer.push(false, true);
+              await synchronizer.push({ suppressDisabledWorkflowWarnings: true });
             } else {
               await action(synchronizer);
             }
