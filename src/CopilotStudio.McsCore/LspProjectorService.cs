@@ -81,12 +81,13 @@ internal sealed class LspProjectorService
             var elementType = dialogComponent.Dialog?.GetType() ?? typeof(AdaptiveDialog);
             var schemaName = dialogComponent.SchemaNameString ?? string.Empty;
 
-            // Sub-agent: project the friendly display name (e.g. agents/TransferFunds/agent.mcs.yml)
-            // instead of the machine-generated schema short-name (agents/Agent_7_8/). When the
-            // display name yields nothing usable, fall through to the schema-based projection below.
+            // Sub-agent: project the friendly display name (e.g. agents/Transfer Funds/agent.mcs.yml)
+            // instead of the machine-generated schema short-name (agents/Agent_7_8/). The on-disk
+            // folder keeps blank spaces for readability; when the display name yields nothing usable,
+            // fall through to the schema-based projection below.
             if (typeof(AgentDialog).IsAssignableFrom(elementType))
             {
-                var folderName = SubAgentFolderNaming.FromDisplayName(dialogComponent.DisplayName);
+                var folderName = SubAgentFolderNaming.FromDisplayName(dialogComponent.DisplayName, keepSpaces: true);
                 if (folderName != null)
                 {
                     var prefix = context.SubAgentFolder ?? string.Empty;

@@ -1,6 +1,5 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 
-using System.Collections.Frozen;
 using System.Text;
 
 namespace Microsoft.CopilotStudio.McsCore;
@@ -14,13 +13,15 @@ namespace Microsoft.CopilotStudio.McsCore;
 /// schema name such as <c>{bot}.agent.Agent_7_8</c>. Projecting that schema short-name
 /// onto disk produces unfriendly folders like <c>agents/Agent_7_8/</c>. Instead we
 /// project the (sanitized) <b>display name</b>, e.g. "Transfer Funds" =&gt;
-/// <c>agents/TransferFunds/</c>, matching the authoring layout used by the CLI.</para>
-/// <para>The result must be safe both as a path segment and as a schema short-name,
-/// because for locally-authored sub-agents the folder name is what
-/// <see cref="LspProjection"/> derives the schema name from. The sanitizer is built to
-/// produce a name that is valid on Windows, Linux, and macOS:</para>
+/// <c>agents/Transfer Funds/</c> for the on-disk folder, matching the authoring layout
+/// used by the CLI.</para>
+/// <para>The result must be safe as a path segment on Windows, Linux, and macOS. The
+/// space-stripping default (<c>keepSpaces: false</c>) additionally yields a valid schema
+/// short-name, which is what <see cref="LspProjection"/> derives from the folder for
+/// locally-authored sub-agents. The sanitizer is built to:</para>
 /// <list type="bullet">
-/// <item>Strips whitespace and control characters.</item>
+/// <item>Strip control characters and (unless <c>keepSpaces</c> is set) blank spaces;
+/// other whitespace such as tabs and newlines is always stripped.</item>
 /// <item>Keeps only alphanumerics, <c>_</c>, <c>-</c>, and printable non-ASCII letters
 /// (so localized names survive, consistent with the root-agent folder sanitizer). Every
 /// character Windows/Linux/macOS forbid in a path segment - <c>&lt; &gt; : " / \ | ? *</c>,
@@ -42,21 +43,69 @@ internal static class SubAgentFolderNaming
     // names stay safe and the folder remains a valid schema short-name for local authoring.
     private const int MaxFolderNameLength = 100;
 
-    // Windows reserves these device names at every path level, with or without an
-    // extension (e.g. "CON", "con", "COM1"). Compared case-insensitively.
-    private static readonly FrozenSet<string> WindowsReservedNames = new[]
+    /// <summary>
+    /// Returns <see langword="true"/> if <paramref name="name"/> is a Windows reserved
+    /// device name. Reserved at every path level, case-insensitively, with or without an
+    /// extension: <c>CON</c>, <c>PRN</c>, <c>AUX</c>, <c>NUL</c>, and <c>COM</c>/<c>LPT</c>
+    /// followed by a single port digit <c>0-9</c> or its superscript form
+    /// (<c>\u00B9 \u00B2 \u00B3</c>, i.e. <c>COM\u00B9</c> which resolves to <c>COM1</c>).
+    /// </summary>
+    /// <remarks>
+    /// Enumerating the COM/LPT ranges by pattern (rather than a hardcoded literal set) keeps
+    /// the check small and covers the full official list - including <c>COM0</c>/<c>LPT0</c>
+    /// and the superscript variants, which survive sanitization because they are non-ASCII.
+    /// The check is purely logical so the outcome is deterministic across Windows/Linux/macOS
+    /// (a name sanitized on one OS must be safe on Windows), rather than relying on the host
+    /// filesystem, whose device-name handling differs by OS and .NET version.
+    /// </remarks>
+    private static bool IsWindowsReservedName(string name)
     {
-        "CON", "PRN", "AUX", "NUL",
-        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
-        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
-    }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+        if (name.Length == 3)
+        {
+            return name.Equals("CON", StringComparison.OrdinalIgnoreCase)
+                || name.Equals("PRN", StringComparison.OrdinalIgnoreCase)
+                || name.Equals("AUX", StringComparison.OrdinalIgnoreCase)
+                || name.Equals("NUL", StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (name.Length == 4
+            && (name.StartsWith("COM", StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith("LPT", StringComparison.OrdinalIgnoreCase)))
+        {
+            var portChar = name[3];
+            return portChar is (>= '0' and <= '9') or '\u00B9' or '\u00B2' or '\u00B3';
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// Returns a cross-platform-safe folder name derived from <paramref name="displayName"/>,
     /// or <see langword="null"/> when the display name is empty or contains no usable
     /// characters (caller should fall back to the schema-derived short name).
     /// </summary>
-    public static string? FromDisplayName(string? displayName)
+    /// <remarks>
+    /// This overload strips every blank space (along with other non-schema-safe
+    /// characters), so the result is safe as both a folder segment and a schema
+    /// short-name. Use <see cref="FromDisplayName(string?, bool)"/> with
+    /// <c>keepSpaces: true</c> when projecting the human-readable on-disk folder name.
+    /// </remarks>
+    public static string? FromDisplayName(string? displayName) => FromDisplayName(displayName, keepSpaces: false);
+
+    /// <summary>
+    /// Returns a cross-platform-safe folder name derived from <paramref name="displayName"/>,
+    /// or <see langword="null"/> when the display name is empty or contains no usable
+    /// characters (caller should fall back to the schema-derived short name).
+    /// </summary>
+    /// <param name="displayName">The sub-agent display name to project.</param>
+    /// <param name="keepSpaces">
+    /// When <see langword="true"/>, internal blank spaces are preserved so the on-disk
+    /// folder stays human-readable (e.g. <c>Transfer Funds</c>); leading and trailing
+    /// spaces are still trimmed because Windows silently drops them from a path segment.
+    /// When <see langword="false"/> (used for schema short-names) every space is removed
+    /// along with the other non-schema-safe characters.
+    /// </param>
+    public static string? FromDisplayName(string? displayName, bool keepSpaces)
     {
         if (string.IsNullOrWhiteSpace(displayName))
         {
@@ -66,6 +115,14 @@ internal static class SubAgentFolderNaming
         var builder = new StringBuilder(displayName!.Length);
         foreach (var c in displayName)
         {
+            // Preserve the regular space character only when requested; every other
+            // whitespace character and all control characters are always stripped.
+            if (keepSpaces && c == ' ')
+            {
+                builder.Append(c);
+                continue;
+            }
+
             if (char.IsWhiteSpace(c) || char.IsControl(c))
             {
                 continue;
@@ -81,22 +138,25 @@ internal static class SubAgentFolderNaming
             }
         }
 
-        if (builder.Length == 0)
-        {
-            return null;
-        }
-
         if (builder.Length > MaxFolderNameLength)
         {
             builder.Length = MaxFolderNameLength;
         }
 
-        var result = builder.ToString();
+        // Trim leading/trailing spaces: Windows silently trims them from a path segment,
+        // so a folder name must neither start nor end with one. This is a no-op when
+        // spaces were stripped entirely (keepSpaces == false).
+        var result = builder.ToString().Trim(' ');
+
+        if (result.Length == 0)
+        {
+            return null;
+        }
 
         // A name that collides with a Windows reserved device name cannot be used as a
         // directory on Windows; disambiguate with a trailing underscore (still a valid,
         // deterministic schema short-name).
-        if (WindowsReservedNames.Contains(result))
+        if (IsWindowsReservedName(result))
         {
             result += "_";
         }

@@ -63,9 +63,10 @@ internal sealed class LspComponentPathResolver : IComponentPathResolver
             && parent is DialogComponent dialogComponent
             && dialogComponent.RootElement is AgentDialog)
         {
-            // Prefer the sub-agent's display name for the folder (agents/TransferFunds/),
-            // falling back to the schema short-name when the display name is unusable.
-            var agentName = SubAgentFolderNaming.FromDisplayName(dialogComponent.DisplayName)
+            // Prefer the sub-agent's display name for the folder (agents/Transfer Funds/),
+            // keeping blank spaces for readability and falling back to the schema short-name
+            // when the display name is unusable.
+            var agentName = SubAgentFolderNaming.FromDisplayName(dialogComponent.DisplayName, keepSpaces: true)
                 ?? ExtractAgentName(dialogComponent.SchemaNameString ?? string.Empty);
             return $"agents/{agentName}/";
         }

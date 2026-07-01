@@ -1295,9 +1295,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             && parent is DialogComponent dialogComponent
             && dialogComponent.RootElement is AgentDialog)
         {
-            // Prefer the sub-agent's display name for the folder (agents/TransferFunds/),
-            // falling back to the schema short-name when the display name is unusable.
-            var agentName = SubAgentFolderNaming.FromDisplayName(dialogComponent.DisplayName)
+            // Prefer the sub-agent's display name for the folder (agents/Transfer Funds/),
+            // keeping blank spaces for readability and falling back to the schema short-name
+            // when the display name is unusable.
+            var agentName = SubAgentFolderNaming.FromDisplayName(dialogComponent.DisplayName, keepSpaces: true)
                 ?? ExtractSubAgentName(dialogComponent.SchemaNameString ?? string.Empty);
             return $"agents/{agentName}/{subPath}";
         }
@@ -1315,6 +1316,69 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
 
         return string.IsNullOrWhiteSpace(schemaName) ? "Unknown" : schemaName;
+    }
+
+    /// <summary>
+    /// Rewrites local child agent (<see cref="AgentDialog"/>) schema names to the real cloud
+    /// schema recorded in each folder's <c>.agent.json</c> link file.
+    /// </summary>
+    /// <remarks>
+    /// The LSP-compiled local definition derives a child agent's schema from its on-disk folder
+    /// (e.g. <c>agents/TransferFunds</c> -&gt; <c>{bot}.agent.TransferFunds</c>), which never
+    /// matches the server-generated machine schema (<c>{bot}.agent.Agent_7_8</c>). The link file
+    /// maps the friendly folder to the real schema; we recompute the folder-derived schema the
+    /// same way the compiler did (via <c>LspProjection.GetSchemaName</c>) and substitute the
+    /// real schema so the local diff correlates local to the existing cloud agent.
+    /// Keeping the component Id untouched lets child components resolve their parent by Id while
+    /// the corrected parent schema flows through. No-op when there are no link files.
+    /// </remarks>
+    private static DefinitionBase RemapLocalChildAgentSchemas(DefinitionBase localDefinition, IFileAccessor fileAccessor)
+    {
+        var botName = (localDefinition as BotDefinition)?.Entity?.SchemaName.Value;
+        if (string.IsNullOrEmpty(botName))
+        {
+            return localDefinition;
+        }
+
+        var links = ChildAgentLinkFile.ReadAll(fileAccessor);
+        if (links.Count == 0)
+        {
+            return localDefinition;
+        }
+
+        var derivedToReal = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var link in links)
+        {
+            // Reproduce the exact folder -> schema derivation the compiler used so the
+            // lookup key matches the local component's schema regardless of folder spaces.
+            var derived = LspProjection.GetSchemaName($"agents/{link.FolderName}/agent", botName, typeof(AgentDialog));
+            if (!string.IsNullOrEmpty(derived) && !derivedToReal.ContainsKey(derived!))
+            {
+                derivedToReal[derived!] = link.SchemaName;
+            }
+        }
+
+        if (derivedToReal.Count == 0)
+        {
+            return localDefinition;
+        }
+
+        var changed = false;
+        var remappedComponents = localDefinition.Components.Select(component =>
+        {
+            if (component is DialogComponent dialogComponent
+                && dialogComponent.RootElement is AgentDialog
+                && derivedToReal.TryGetValue(component.SchemaNameString, out var realSchema)
+                && !string.Equals(realSchema, component.SchemaNameString, StringComparison.Ordinal))
+            {
+                changed = true;
+                return (BotComponentBase)dialogComponent.WithSchemaName(new DialogSchemaName(realSchema));
+            }
+
+            return component;
+        }).ToImmutableArray();
+
+        return changed ? localDefinition.WithComponents(remappedComponents) : localDefinition;
     }
 
     private void MaterializeNewKnowledgeFileMetadata(DirectoryPath workspaceFolder, DefinitionBase definition, IReadOnlyList<BotComponentBase> newComponents, CancellationToken cancellationToken)
@@ -3013,6 +3077,27 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     public (PvaComponentChangeSet, ImmutableArray<Change>) GetLocalChanges(DefinitionBase localDefinition, DefinitionBase cloudSnapshot, IFileAccessor fileAccessor, string? changeToken, bool isRemoteChange, bool deferMissingParents, out bool deferredMissingParent)
     {
         deferredMissingParent = false;
+
+        // Child agents (AgentDialog) only come from cloning; each cloned folder carries a
+        // hidden ".agent.json" link file. On a local (push/preview) diff, validate those
+        // link files up front so a missing link (hand-created folder) or a renamed folder
+        // fails fast with a clear message instead of silently producing delete+insert
+        // churn. Skipped for remote (pull) previews where local folders are about to be
+        // (re)written from the cloud. See ChildAgentLinkFile.
+        if (!isRemoteChange)
+        {
+            ChildAgentLinkFile.ValidateAll(fileAccessor);
+
+            // The LSP-compiled local definition derives each child agent's schema name from
+            // its (friendly) folder name, e.g. agents/TransferFunds -> "{bot}.agent.TransferFunds".
+            // The cloud uses the server-generated machine schema (e.g. "{bot}.agent.Agent_7_8"),
+            // so without remapping every child agent would be mis-matched and flagged as a brand
+            // new component. Use the ".agent.json" link to substitute the real cloud schema before
+            // diffing so local correlates to the existing cloud agent (and child components resolve
+            // their parent correctly).
+            localDefinition = RemapLocalChildAgentSchemas(localDefinition, fileAccessor);
+        }
+
         var changes = ImmutableArray.CreateBuilder<Change>();
         var botComponentBuilderList = new List<BotComponentChange>();
 
@@ -3550,9 +3635,20 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             // body (with mcs.metadata) at that path. The hand-coded CliAgent*
             // writer dispatch (bare-dialog .yaml bodies) is retired (Node Q).
             var path = new AgentFilePath(PathResolver.GetComponentPath(groundedComponent, PathGroundingDefinition ?? Definition));
-            using var stream = FileAccessor.OpenWrite(path);
-            using var textWriter = new StreamWriter(stream);
-            CodeSerializer.SerializeAsMcsYml(textWriter, NormalizeForMcsYml(groundedComponent));
+            using (var stream = FileAccessor.OpenWrite(path))
+            using (var textWriter = new StreamWriter(stream))
+            {
+                CodeSerializer.SerializeAsMcsYml(textWriter, NormalizeForMcsYml(groundedComponent));
+            }
+
+            // Child agents (AgentDialog) are projected as agents/<sanitized folder>/agent.mcs.yml.
+            // Drop a hidden ".agent.json" link file beside the definition so the on-disk folder
+            // name stays linked to the real cloud schema name and folder renames are detectable
+            // on the next sync (see ChildAgentLinkFile).
+            if (groundedComponent is DialogComponent { RootElement: AgentDialog })
+            {
+                ChildAgentLinkFile.WriteLink(FileAccessor, path, groundedComponent.SchemaNameString);
+            }
         }
 
         private static BotComponentBase NormalizeForMcsYml(BotComponentBase component)

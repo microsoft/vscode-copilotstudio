@@ -257,7 +257,8 @@
         "editor.suggest.showIcons": true
       },
       "files.exclude": {
-        "**/.mcs": true
+        "**/.mcs": true,
+        "**/agents/**/.agent.json": true
       }
     },
     "configuration": {

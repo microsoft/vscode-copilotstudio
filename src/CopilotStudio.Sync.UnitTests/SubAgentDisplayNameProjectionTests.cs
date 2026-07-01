@@ -26,7 +26,8 @@ public class SubAgentDisplayNameProjectionTests
 
         var path = resolver.GetComponentPath(agent, definition).Replace('\\', '/');
 
-        Assert.Equal("agents/TransferFunds/agent.mcs.yml", path);
+        // The on-disk folder keeps blank spaces from the display name for readability.
+        Assert.Equal("agents/Transfer Funds/agent.mcs.yml", path);
     }
 
     [Fact]
@@ -40,7 +41,7 @@ public class SubAgentDisplayNameProjectionTests
 
         var path = resolver.GetComponentPath(childTopic, definition).Replace('\\', '/');
 
-        Assert.StartsWith("agents/TransferFunds/", path);
+        Assert.StartsWith("agents/Transfer Funds/", path);
         Assert.EndsWith(".mcs.yml", path);
     }
 
@@ -55,7 +56,7 @@ public class SubAgentDisplayNameProjectionTests
 
         var path = resolver.GetComponentPath(childFile, definition).Replace('\\', '/');
 
-        Assert.StartsWith("agents/LostorStolenCard/knowledge/files/", path);
+        Assert.StartsWith("agents/Lost or Stolen Card/knowledge/files/", path);
     }
 
     [Fact]
@@ -88,9 +89,15 @@ public class SubAgentDisplayNameProjectionTests
     [Theory]
     [InlineData("CON", "CON_")]
     [InlineData("con", "con_")]
+    [InlineData("PRN", "PRN_")]
+    [InlineData("AUX", "AUX_")]
     [InlineData("NUL", "NUL_")]
     [InlineData("COM1", "COM1_")]
     [InlineData("LPT9", "LPT9_")]
+    [InlineData("COM0", "COM0_")] // COM0/LPT0 are reserved per current Windows docs
+    [InlineData("LPT0", "LPT0_")]
+    [InlineData("COM\u00B9", "COM\u00B9_")] // superscript COM1 (kept as non-ASCII, still reserved)
+    [InlineData("LPT\u00B3", "LPT\u00B3_")] // superscript LPT3
     [InlineData("C.O.N", "CON_")] // dots stripped first, then reserved
     public void FromDisplayName_DisambiguatesWindowsReservedNames(string displayName, string expected)
     {
@@ -102,6 +109,9 @@ public class SubAgentDisplayNameProjectionTests
     [InlineData("Control")]
     [InlineData("COM")]
     [InlineData("COM10")]
+    [InlineData("COMA")]  // COM + non-digit -> not reserved
+    [InlineData("LPTX")]  // LPT + non-digit -> not reserved
+    [InlineData("PRN1")]  // only the bare CON/PRN/AUX/NUL are reserved, not PRN+suffix
     [InlineData("Companion")]
     public void FromDisplayName_DoesNotAlterNamesThatMerelyResembleReservedNames(string displayName)
     {
@@ -147,6 +157,77 @@ public class SubAgentDisplayNameProjectionTests
         // Non-ASCII letters are kept (consistent with the root-agent folder sanitizer),
         // so localized sub-agent names survive whitespace stripping.
         Assert.Equal("日本語Agent", SubAgentFolderNaming.FromDisplayName("日本語 Agent"));
+    }
+
+    // ---------------------------------------------------------------------------------
+    // keepSpaces overload: the on-disk folder keeps internal blank spaces for
+    // readability, while every other sanitization guarantee is preserved.
+    // ---------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("Transfer Funds", "Transfer Funds")]
+    [InlineData("Helper Agent", "Helper Agent")]
+    [InlineData("  Balance Agent  ", "Balance Agent")] // leading/trailing spaces trimmed, inner kept
+    [InlineData("My Agent. ", "My Agent")]             // dot dropped, trailing space trimmed, inner kept
+    [InlineData("A/B C", "AB C")]                      // illegal '/' dropped, inner space kept
+    [InlineData("CON", "CON_")]                        // reserved device name still disambiguated
+    [InlineData("   ", null)]                          // only spaces -> nothing usable
+    public void FromDisplayName_KeepSpaces_PreservesInternalSpaces(string displayName, string? expected)
+    {
+        Assert.Equal(expected, SubAgentFolderNaming.FromDisplayName(displayName, keepSpaces: true));
+    }
+
+    [Fact]
+    public void SubAgent_FolderKeepsSpaces_ButSchemaNameStripsThem()
+    {
+        // The on-disk folder keeps blank spaces for readability, but the derived child-agent
+        // schema name must stay space-free (it is pushed to Dataverse).
+        var folder = SubAgentFolderNaming.FromDisplayName("Transfer Funds", keepSpaces: true);
+        var schema = LspProjection.GetSchemaName("agents/Transfer Funds/agent", Bot, typeof(AgentDialog));
+
+        Assert.Equal("Transfer Funds", folder);
+        Assert.Equal($"{Bot}.agent.TransferFunds", schema);
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Path -> schema direction: GetAgentDialogSchemaName (via LspProjection.GetSchemaName)
+    // sanitizes the sub-agent folder segment with the same SubAgentFolderNaming rule the
+    // schema -> folder direction uses, so the on-disk folder name is always a valid,
+    // cross-platform-safe schema short-name.
+    // ---------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("TransferFunds", "crd1c_agent.agent.TransferFunds")]
+    [InlineData("my-agent_v2", "crd1c_agent.agent.my-agent_v2")]
+    [InlineData("日本語Agent", "crd1c_agent.agent.日本語Agent")]
+    public void GetSchemaName_AgentDialog_CleanFolder_IsUnchanged(string folder, string expectedSchema)
+    {
+        // Already-clean folder names round-trip unchanged (FromDisplayName is idempotent),
+        // so existing sub-agents keep their schema short-name.
+        var schema = LspProjection.GetSchemaName($"agents/{folder}/agent", Bot, typeof(AgentDialog));
+        Assert.Equal(expectedSchema, schema);
+    }
+
+    [Theory]
+    [InlineData("My Agent", "crd1c_agent.agent.MyAgent")]        // whitespace stripped
+    [InlineData("Bad<>:|?*Chars", "crd1c_agent.agent.BadChars")] // illegal path characters dropped
+    [InlineData("agent.v1", "crd1c_agent.agent.agentv1")]        // dots dropped (invalid in a folder/schema segment)
+    [InlineData("CON", "crd1c_agent.agent.CON_")]                // Windows reserved device name disambiguated
+    public void GetSchemaName_AgentDialog_SanitizesFolderSegment(string folder, string expectedSchema)
+    {
+        var schema = LspProjection.GetSchemaName($"agents/{folder}/agent", Bot, typeof(AgentDialog));
+        Assert.Equal(expectedSchema, schema);
+    }
+
+    [Theory]
+    [InlineData("@@@")]
+    [InlineData("<>:|?*")]
+    public void GetSchemaName_AgentDialog_UnusableFolder_Throws(string folder)
+    {
+        // A folder that sanitizes to nothing usable cannot yield a valid schema name;
+        // the user must rename it rather than silently producing an invalid schema.
+        Assert.Throws<InvalidOperationException>(
+            () => LspProjection.GetSchemaName($"agents/{folder}/agent", Bot, typeof(AgentDialog)));
     }
 
     private static BotDefinition CreateDefinition(IEnumerable<BotComponentBase> components)
