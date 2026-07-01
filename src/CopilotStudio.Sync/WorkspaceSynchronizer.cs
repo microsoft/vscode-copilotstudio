@@ -1423,14 +1423,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         foreach (var parent in definition.Components)
         {
-<<<<<<< HEAD
-            // Prefer the sub-agent's display name for the folder (agents/Transfer Funds/),
-            // keeping blank spaces for readability and falling back to the schema short-name
-            // when the display name is unusable.
-            var agentName = SubAgentFolderNaming.FromDisplayName(dialogComponent.DisplayName, keepSpaces: true)
-                ?? ExtractSubAgentName(dialogComponent.SchemaNameString ?? string.Empty);
-            return $"agents/{agentName}/{subPath}";
-=======
             if (parent.Id.Value == Guid.Empty)
             {
                 continue;
@@ -1441,7 +1433,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             {
                 scopes.Add((parent.Id, folder));
             }
->>>>>>> origin/main
         }
 
         return scopes;
