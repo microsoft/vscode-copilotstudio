@@ -437,6 +437,8 @@ internal static class WorkspacePath
         return false;
     }
 
+    public static bool IsWorkspaceLayoutMarkerFile(FilePath path) => string.Equals(path.FileName, AgentClassifier.WorkspaceLayoutMarkerFileName, StringComparison.OrdinalIgnoreCase);
+
     public static FilePath RemoveExtension(FilePath path)
     {
         var extension = GetExtension(path);
