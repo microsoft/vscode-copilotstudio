@@ -1,18 +1,8 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 //
-// Hidden per-child-agent link file (".agent.json").
-//
-// Child agents (AgentDialog) are never created locally; they only come from cloning.
-// A child agent is projected onto disk as agents/<sanitized folder>/agent.mcs.yml, where
-// the folder name is a (lossy, non-reversible) sanitization of the agent display name. To
-// keep a durable link between that on-disk folder and the real cloud schema name - and to
-// detect when a user renames the folder - clone/pull writes a hidden ".agent.json" beside
-// every child agent's agent.mcs.yml recording { schemaName, folderName }.
-//
-// On synchronize, ValidateAll re-reads those link files:
-//   - missing link file            -> the folder was hand-created (not cloned); hard-fail.
-//   - folder name != link folder   -> the folder was renamed; hard-fail with the expected
-//                                     (sanitized) folder name so the user can restore it.
+// Hidden per-child-agent link file (".agent.json"). Child agents come only from cloning;
+// their on-disk folder is a lossy sanitization of the display name, so clone records the
+// real cloud schema + folder here to correlate them on sync and detect folder renames.
 
 using System;
 using System.IO;
@@ -25,13 +15,8 @@ namespace Microsoft.CopilotStudio.Sync;
 
 internal static class ChildAgentLinkFile
 {
-    /// <summary>Hidden link file name written into every child agent folder.</summary>
     internal const string LinkFileName = ".agent.json";
-
-    /// <summary>Top-level folder that holds child agent folders.</summary>
     private const string AgentsFolderPrefix = "agents/";
-
-    /// <summary>Per-child-agent definition file name.</summary>
     private const string AgentDefinitionFileName = "agent.mcs.yml";
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
@@ -48,17 +33,11 @@ internal static class ChildAgentLinkFile
         public string FolderName { get; set; } = string.Empty;
     }
 
-    /// <summary>
-    /// Writes (or refreshes) the hidden link file beside a child agent's agent.mcs.yml.
-    /// <paramref name="agentDefinitionPath"/> is the agent.mcs.yml path
-    /// (e.g. <c>agents/Transfer Funds/agent.mcs.yml</c>); the link file lands next to it.
-    /// </summary>
+    /// <summary>Writes the hidden link file beside a child agent's agent.mcs.yml.</summary>
     internal static void WriteLink(IFileAccessor fileAccessor, AgentFilePath agentDefinitionPath, string schemaName)
     {
         if (!TryGetFolder(agentDefinitionPath.ToString(), out var folderName, out var linkPath))
         {
-            // Not under agents/<folder>/ - nothing to link (defensive; the caller only
-            // invokes this for child agents which always project under agents/).
             return;
         }
 
@@ -71,10 +50,9 @@ internal static class ChildAgentLinkFile
     }
 
     /// <summary>
-    /// Validates the hidden link file for every child agent folder on disk. Throws
-    /// <see cref="InvalidOperationException"/> when a link file is missing/unreadable, or
-    /// when the on-disk folder name no longer matches the sanitized name in the link file
-    /// (i.e. the folder was renamed). No-op for workspaces without child agents.
+    /// Validates every child agent folder's link file: throws when a link is missing,
+    /// unreadable, malformed, or its recorded folder no longer matches the on-disk folder
+    /// (a rename). No-op for workspaces without child agents.
     /// </summary>
     internal static void ValidateAll(IFileAccessor fileAccessor)
     {
@@ -82,8 +60,7 @@ internal static class ChildAgentLinkFile
         {
             var pathValue = agentDefinitionPath.ToString();
 
-            // ListFiles uses suffix/prefix matching in some accessors; restrict strictly to
-            // agents/.../agent.mcs.yml so we only validate actual child agent definitions.
+            // ListFiles matches by suffix in some accessors; restrict to real agents/.../agent.mcs.yml.
             if (!pathValue.StartsWith(AgentsFolderPrefix, StringComparison.Ordinal)
                 || !string.Equals(agentDefinitionPath.FileName, AgentDefinitionFileName, StringComparison.OrdinalIgnoreCase))
             {
@@ -139,10 +116,8 @@ internal static class ChildAgentLinkFile
     }
 
     /// <summary>
-    /// Reads every present, well-formed child-agent link file on disk and returns its
-    /// { schemaName, folderName }. Unlike <see cref="ValidateAll"/> this never throws -
-    /// folders without a usable link are simply skipped - so callers can build the
-    /// folder-&gt;real-schema map after validation has already enforced presence.
+    /// Returns every present, well-formed link. Never throws (skips unusable folders);
+    /// call after <see cref="ValidateAll"/> when building the folder-&gt;schema map.
     /// </summary>
     internal static IReadOnlyList<ChildAgentLink> ReadAll(IFileAccessor fileAccessor)
     {
@@ -183,10 +158,8 @@ internal static class ChildAgentLinkFile
     }
 
     /// <summary>
-    /// From an <c>agents/.../&lt;folder&gt;/agent.mcs.yml</c> path, derives the immediate
-    /// folder name (<c>&lt;folder&gt;</c>) and the sibling link file path
-    /// (<c>agents/.../&lt;folder&gt;/.agent.json</c>). Returns false for paths not shaped
-    /// like a child agent definition.
+    /// Splits <c>agents/.../&lt;folder&gt;/agent.mcs.yml</c> into the immediate folder name and
+    /// its sibling <c>.agent.json</c> path. False for paths not shaped like a child agent.
     /// </summary>
     private static bool TryGetFolder(string agentDefinitionPath, out string folderName, out AgentFilePath linkPath)
     {
