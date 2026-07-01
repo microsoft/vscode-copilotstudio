@@ -1512,6 +1512,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                         $"Rename the folder back to '{folder.Link.FolderName}' before syncing.");
                 }
 
+                if (!cloudAgents.Contains(folder.Link.SchemaName))
+                {
+                    throw new InvalidOperationException(
+                        $"The child agent folder 'agents/{folder.FolderName}' has a '{ChildAgentLinkFile.LinkFileName}' link to '{folder.Link.SchemaName}', but no cloud child agent with that schema was found. Re-clone the agent to regenerate the link file.");
+                }
+
                 realSchema = folder.Link.SchemaName;
             }
             else

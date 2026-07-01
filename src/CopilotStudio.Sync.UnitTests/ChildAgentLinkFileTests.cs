@@ -99,6 +99,52 @@ public class ChildAgentLinkFileTests
     }
 
     [Fact]
+    public void GetLocalChanges_ValidLink_SchemaMissingFromCloud_Throws()
+    {
+        // The link points at a schema that is no longer in the cloud cache - e.g. the child
+        // agent was deleted in the cloud, the workspace was reattached to a different agent, or
+        // the link was corrupted. Trusting it would remap to a non-existent component and flag
+        // the child agent as a spurious Create; instead we fail fast with an actionable message.
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/ws-stale-link/"));
+        WriteAgentDefinition(fileAccessor, "agents/TransferFunds/agent.mcs.yml");
+        WriteText(fileAccessor, "agents/TransferFunds/.agent.json",
+            "{ \"schemaName\": \"crd1c_agent.agent.Agent_7_8\", \"folderName\": \"TransferFunds\" }");
+
+        // Cloud still has other child agents, but not the one the link references.
+        var cloud = CreateDefinitionWithChildAgent("crd1c_agent.agent.Agent_Other", "Other Agent");
+        var local = CreateDefinitionWithChildAgent("crd1c_agent.agent.TransferFunds", "Transfer Funds");
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            synchronizer.GetLocalChanges(local, cloud, fileAccessor, "token-1"));
+        Assert.Contains("crd1c_agent.agent.Agent_7_8", ex.Message);
+        Assert.Contains("agents/TransferFunds", ex.Message);
+        Assert.Contains("Re-clone", ex.Message);
+    }
+
+    [Fact]
+    public void GetLocalChanges_StaleLink_DoesNotSilentlySelfHealByDisplayName_Throws()
+    {
+        // A present-but-stale link fails fast even when the folder would otherwise self-heal by
+        // display name: a broken link signals real drift (reattach/corruption) the user must
+        // resolve explicitly (re-clone), so we do not silently rescue it via the self-heal path.
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/ws-stale-link-heal/"));
+        WriteAgentDefinition(fileAccessor, "agents/Transfer Funds/agent.mcs.yml");
+        WriteText(fileAccessor, "agents/Transfer Funds/.agent.json",
+            "{ \"schemaName\": \"crd1c_agent.agent.Agent_STALE\", \"folderName\": \"Transfer Funds\" }");
+
+        // The folder "Transfer Funds" would self-heal to this cloud agent by display name if the
+        // link were absent - but the stale link takes precedence and must throw.
+        var cloud = CreateDefinitionWithChildAgent("crd1c_agent.agent.Agent_7_8", "Transfer Funds");
+        var local = CreateDefinitionWithChildAgent("crd1c_agent.agent.TransferFunds", "Transfer Funds");
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            synchronizer.GetLocalChanges(local, cloud, fileAccessor, "token-1"));
+        Assert.Contains("crd1c_agent.agent.Agent_STALE", ex.Message);
+    }
+
+    [Fact]
     public void GetLocalChanges_MissingLink_SelfHealsByDisplayName_NotFlaggedAsNew()
     {
         // No .agent.json (e.g. cloned before the link file existed). The friendly folder is
