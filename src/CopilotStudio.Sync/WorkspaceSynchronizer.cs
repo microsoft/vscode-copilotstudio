@@ -1455,35 +1455,74 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     }
 
     /// <summary>
-    /// Rewrites local child agent (<see cref="AgentDialog"/>) schema names to the real cloud
-    /// schema from each folder's <c>.agent.json</c>. The LSP compiler derives a child agent's
-    /// schema from its folder (<c>{bot}.agent.TransferFunds</c>), which never matches the cloud
-    /// machine schema (<c>{bot}.agent.Agent_7_8</c>); without this the diff sees every child
-    /// agent as new. The Id is kept so child components still resolve their parent. No-op when
-    /// there are no link files.
+    /// Resolves each on-disk child agent (<see cref="AgentDialog"/>) folder to its real cloud
+    /// schema and remaps the local (LSP-compiled) schema accordingly, so a child agent correlates
+    /// to the existing cloud agent instead of being flagged as new.
     /// </summary>
-    private static DefinitionBase RemapLocalChildAgentSchemas(DefinitionBase localDefinition, IFileAccessor fileAccessor)
+    /// <remarks>
+    /// The LSP compiler derives a child agent's schema from its folder (<c>{bot}.agent.TransferFunds</c>),
+    /// which never matches the cloud machine schema (<c>{bot}.agent.Agent_7_8</c>). The real schema
+    /// comes from the folder's <c>.agent.json</c> when present (authoritative, and a folder rename is
+    /// rejected here). When the link is missing/malformed it is <b>self-healed</b> from the cloud cache
+    /// by matching the folder to a cloud agent (by folder-derived schema or by projected
+    /// display name via <c>SubAgentFolderNaming.FromDisplayName</c>) - so workspaces
+    /// cloned before the link file existed keep working without a re-clone. A folder that matches no
+    /// cloud agent (hand-created or renamed) or matches ambiguously still fails fast. The component Id
+    /// is kept so child components resolve their parent. No-op when there are no child agent folders.
+    /// </remarks>
+    private static DefinitionBase ResolveChildAgentSchemas(DefinitionBase localDefinition, DefinitionBase cloudSnapshot, IFileAccessor fileAccessor)
     {
-        var botName = (localDefinition as BotDefinition)?.Entity?.SchemaName.Value;
+        var folders = ChildAgentLinkFile.ListFolders(fileAccessor);
+        if (folders.Count == 0)
+        {
+            return localDefinition;
+        }
+
+        var botName = (localDefinition as BotDefinition)?.Entity?.SchemaName.Value
+            ?? (cloudSnapshot as BotDefinition)?.Entity?.SchemaName.Value;
         if (string.IsNullOrEmpty(botName))
         {
             return localDefinition;
         }
 
-        var links = ChildAgentLinkFile.ReadAll(fileAccessor);
-        if (links.Count == 0)
+        var cloudAgentDialogs = cloudSnapshot.Components
+            .OfType<DialogComponent>()
+            .Where(c => c.RootElement is AgentDialog && !string.IsNullOrEmpty(c.SchemaNameString))
+            .ToList();
+        var cloudAgents = cloudAgentDialogs
+            .Select(c => c.SchemaNameString!)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        var cloudAgentDisplayNames = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var cloudAgent in cloudAgentDialogs)
         {
-            return localDefinition;
+            cloudAgentDisplayNames[cloudAgent.SchemaNameString!] = cloudAgent.DisplayName;
         }
 
         var derivedToReal = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var link in links)
+        foreach (var folder in folders)
         {
-            // Derive the schema the same way the compiler did so the key matches the local component.
-            var derived = LspProjection.GetSchemaName($"agents/{link.FolderName}/agent", botName, typeof(AgentDialog));
+            string realSchema;
+            if (folder.Link != null)
+            {
+                if (!string.Equals(folder.FolderName, folder.Link.FolderName, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        $"The child agent folder name '{folder.FolderName}' does not match the expected name '{folder.Link.FolderName}'. " +
+                        $"Rename the folder back to '{folder.Link.FolderName}' before syncing.");
+                }
+
+                realSchema = folder.Link.SchemaName;
+            }
+            else
+            {
+                realSchema = SelfHealChildAgentSchema(folder.FolderName, botName!, cloudAgents, cloudAgentDisplayNames);
+            }
+
+            var derived = LspProjection.GetSchemaName($"agents/{folder.FolderName}/agent", botName, typeof(AgentDialog));
             if (!string.IsNullOrEmpty(derived) && !derivedToReal.ContainsKey(derived!))
             {
-                derivedToReal[derived!] = link.SchemaName;
+                derivedToReal[derived!] = realSchema;
             }
         }
 
@@ -1497,6 +1536,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             if (component is DialogComponent dialogComponent
                 && dialogComponent.RootElement is AgentDialog
+                && !string.IsNullOrEmpty(component.SchemaNameString)
                 && derivedToReal.TryGetValue(component.SchemaNameString, out var realSchema)
                 && !string.Equals(realSchema, component.SchemaNameString, StringComparison.Ordinal))
             {
@@ -1508,6 +1548,51 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }).ToImmutableArray();
 
         return changed ? localDefinition.WithComponents(remappedComponents) : localDefinition;
+    }
+
+    /// <summary>
+    /// Reconstructs the real cloud schema for a child agent folder that has no usable
+    /// <c>.agent.json</c>, by matching the folder to a cloud agent - by folder-derived schema
+    /// (schema-name folders from clones predating the link file) or by projected display name.
+    /// Throws when the folder matches no cloud agent or matches ambiguously.
+    /// </summary>
+    private static string SelfHealChildAgentSchema(
+        string folderName,
+        string botName,
+        IReadOnlyList<string> cloudAgentSchemas,
+        IReadOnlyDictionary<string, string?> cloudAgentDisplayNames)
+    {
+        var derived = LspProjection.GetSchemaName($"agents/{folderName}/agent", botName, typeof(AgentDialog));
+
+        var matches = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var schema in cloudAgentSchemas)
+        {
+            var displayFolderKeepSpaces = SubAgentFolderNaming.FromDisplayName(cloudAgentDisplayNames[schema], keepSpaces: true);
+            var displayFolderNoSpaces = SubAgentFolderNaming.FromDisplayName(cloudAgentDisplayNames[schema], keepSpaces: false);
+
+            if (string.Equals(schema, derived, StringComparison.Ordinal)
+                || string.Equals(displayFolderKeepSpaces, folderName, StringComparison.Ordinal)
+                || string.Equals(displayFolderNoSpaces, folderName, StringComparison.Ordinal))
+            {
+                matches.Add(schema);
+            }
+        }
+
+        if (matches.Count == 1)
+        {
+            return matches.First();
+        }
+
+        if (matches.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"The child agent folder 'agents/{folderName}' does not correspond to any cloud agent and has no '{ChildAgentLinkFile.LinkFileName}' link file. " +
+                "If you renamed it, restore the original folder name; otherwise re-clone the agent (child agents cannot be created locally).");
+        }
+
+        throw new InvalidOperationException(
+            $"The child agent folder 'agents/{folderName}' matches multiple cloud agents; cannot resolve its identity. " +
+            $"Re-clone the agent to restore the '{ChildAgentLinkFile.LinkFileName}' link file.");
     }
 
     private void MaterializeNewKnowledgeFileMetadata(DirectoryPath workspaceFolder, DefinitionBase definition, IReadOnlyList<BotComponentBase> newComponents, CancellationToken cancellationToken)
@@ -3434,14 +3519,14 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     {
         deferredMissingParent = false;
 
-        // Local (push/preview) diff only: validate child-agent link files, then remap each
-        // folder-derived child-agent schema to its real cloud schema so it correlates to the
-        // existing cloud agent instead of being flagged as new. Skipped for remote previews,
-        // where local folders are about to be rewritten from the cloud. See ChildAgentLinkFile.
+        // Local (push/preview) diff only: resolve each on-disk child-agent folder to its real
+        // cloud schema (from .agent.json, or self-healed from the cloud cache when the link is
+        // missing) and remap the folder-derived local schema so it correlates to the existing
+        // cloud agent. Skipped for remote previews, where local folders are rewritten from the
+        // cloud. See ChildAgentLinkFile / ResolveChildAgentSchemas.
         if (!isRemoteChange)
         {
-            ChildAgentLinkFile.ValidateAll(fileAccessor);
-            localDefinition = RemapLocalChildAgentSchemas(localDefinition, fileAccessor);
+            localDefinition = ResolveChildAgentSchemas(localDefinition, cloudSnapshot, fileAccessor);
         }
 
         var changes = ImmutableArray.CreateBuilder<Change>();

@@ -3,6 +3,8 @@
 // Hidden per-child-agent link file (".agent.json"). Child agents come only from cloning;
 // their on-disk folder is a lossy sanitization of the display name, so clone records the
 // real cloud schema + folder here to correlate them on sync and detect folder renames.
+// A missing/malformed link is not fatal: WorkspaceSynchronizer self-heals it from the cloud
+// cache (see ResolveChildAgentSchemas), so workspaces cloned before this file existed keep working.
 
 using System;
 using System.IO;
@@ -33,6 +35,9 @@ internal static class ChildAgentLinkFile
         public string FolderName { get; set; } = string.Empty;
     }
 
+    /// <summary>An <c>agents/&lt;FolderName&gt;/</c> child-agent folder and its parsed link (null when missing/malformed).</summary>
+    internal readonly record struct ChildAgentFolder(string FolderName, ChildAgentLink? Link);
+
     /// <summary>Writes the hidden link file beside a child agent's agent.mcs.yml.</summary>
     internal static void WriteLink(IFileAccessor fileAccessor, AgentFilePath agentDefinitionPath, string schemaName)
     {
@@ -45,17 +50,19 @@ internal static class ChildAgentLinkFile
         var json = JsonSerializer.Serialize(link, SerializerOptions);
 
         using var stream = fileAccessor.OpenWrite(linkPath);
-        using var textWriter = new StreamWriter(stream, Encoding.UTF8);
+        using var textWriter = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         textWriter.Write(json);
     }
 
     /// <summary>
-    /// Validates every child agent folder's link file: throws when a link is missing,
-    /// unreadable, malformed, or its recorded folder no longer matches the on-disk folder
-    /// (a rename). No-op for workspaces without child agents.
+    /// Enumerates every <c>agents/.../&lt;folder&gt;/agent.mcs.yml</c> on disk with its parsed
+    /// <c>.agent.json</c> link (<see cref="ChildAgentFolder.Link"/> is null when the link file
+    /// is missing or malformed). No-op for workspaces without child agents.
     /// </summary>
-    internal static void ValidateAll(IFileAccessor fileAccessor)
+    internal static IReadOnlyList<ChildAgentFolder> ListFolders(IFileAccessor fileAccessor)
     {
+        var folders = new List<ChildAgentFolder>();
+
         foreach (var agentDefinitionPath in fileAccessor.ListFiles("agents", AgentDefinitionFileName))
         {
             var pathValue = agentDefinitionPath.ToString();
@@ -72,39 +79,27 @@ internal static class ChildAgentLinkFile
                 continue;
             }
 
-            if (!fileAccessor.Exists(linkPath))
+            ChildAgentLink? link = null;
+            if (fileAccessor.Exists(linkPath))
             {
-                throw new InvalidOperationException(
-                    $"The child agent folder 'agents/{folderName}' is missing its '{LinkFileName}' link file. " +
-                    "Child agents cannot be created locally - they must be cloned. Re-clone the agent to restore the link file.");
+                try
+                {
+                    var parsed = ReadLink(fileAccessor, linkPath);
+                    if (parsed != null && !string.IsNullOrEmpty(parsed.SchemaName) && !string.IsNullOrEmpty(parsed.FolderName))
+                    {
+                        link = parsed;
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    link = null;
+                }
             }
 
-            ChildAgentLink? link;
-            try
-            {
-                link = ReadLink(fileAccessor, linkPath);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                throw new InvalidOperationException(
-                    $"The child agent link file 'agents/{folderName}/{LinkFileName}' could not be read or parsed: {ex.Message}. " +
-                    "Re-clone the agent to restore the link file.");
-            }
-
-            if (link == null || string.IsNullOrEmpty(link.FolderName))
-            {
-                throw new InvalidOperationException(
-                    $"The child agent link file 'agents/{folderName}/{LinkFileName}' is malformed (missing 'folderName'). " +
-                    "Re-clone the agent to restore the link file.");
-            }
-
-            if (!string.Equals(folderName, link.FolderName, StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException(
-                    $"The child agent folder name '{folderName}' does not match the expected name '{link.FolderName}'. " +
-                    $"Rename the folder back to '{link.FolderName}' before syncing.");
-            }
+            folders.Add(new ChildAgentFolder(folderName, link));
         }
+
+        return folders;
     }
 
     private static ChildAgentLink? ReadLink(IFileAccessor fileAccessor, AgentFilePath linkPath)
@@ -113,48 +108,6 @@ internal static class ChildAgentLinkFile
         using var reader = new StreamReader(stream, Encoding.UTF8);
         var json = reader.ReadToEnd();
         return JsonSerializer.Deserialize<ChildAgentLink>(json, SerializerOptions);
-    }
-
-    /// <summary>
-    /// Returns every present, well-formed link. Never throws (skips unusable folders);
-    /// call after <see cref="ValidateAll"/> when building the folder-&gt;schema map.
-    /// </summary>
-    internal static IReadOnlyList<ChildAgentLink> ReadAll(IFileAccessor fileAccessor)
-    {
-        var links = new List<ChildAgentLink>();
-
-        foreach (var agentDefinitionPath in fileAccessor.ListFiles("agents", AgentDefinitionFileName))
-        {
-            var pathValue = agentDefinitionPath.ToString();
-
-            if (!pathValue.StartsWith(AgentsFolderPrefix, StringComparison.Ordinal)
-                || !string.Equals(agentDefinitionPath.FileName, AgentDefinitionFileName, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            if (!TryGetFolder(pathValue, out _, out var linkPath) || !fileAccessor.Exists(linkPath))
-            {
-                continue;
-            }
-
-            ChildAgentLink? link;
-            try
-            {
-                link = ReadLink(fileAccessor, linkPath);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                continue;
-            }
-
-            if (link != null && !string.IsNullOrEmpty(link.SchemaName) && !string.IsNullOrEmpty(link.FolderName))
-            {
-                links.Add(link);
-            }
-        }
-
-        return links;
     }
 
     /// <summary>

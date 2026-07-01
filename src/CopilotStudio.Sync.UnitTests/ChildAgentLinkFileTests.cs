@@ -1,6 +1,7 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 
 using System;
+using System.Linq;
 using System.Text;
 using Microsoft.Agents.ObjectModel;
 using Microsoft.CopilotStudio.McsCore;
@@ -9,8 +10,9 @@ using Xunit;
 namespace Microsoft.CopilotStudio.Sync.UnitTests;
 
 /// <summary>
-/// Covers the hidden ".agent.json" child-agent link file: it is written beside each
-/// cloned child agent's agent.mcs.yml and validated on every local (push/preview) diff.
+/// Covers the hidden ".agent.json" child-agent link file and how a local (push/preview)
+/// diff resolves each child-agent folder to its real cloud schema - from the link when
+/// present, or self-healed from the cloud cache when it is missing.
 /// </summary>
 public class ChildAgentLinkFileTests
 {
@@ -19,10 +21,10 @@ public class ChildAgentLinkFileTests
     private static IFileAccessor CreateAccessor()
         => new InMemoryFileAccessorFactory().Create(new DirectoryPath("c:/test/workspace/"));
 
-    // ---- ChildAgentLinkFile helper, direct ------------------------------------------
+    // ---- ChildAgentLinkFile.WriteLink / ListFolders (file I/O) ----------------------
 
     [Fact]
-    public void WriteLink_ThenValidateAll_RoundTrips()
+    public void WriteLink_WritesNoBom_AndListFoldersRoundTrips()
     {
         var accessor = CreateAccessor();
         WriteAgentDefinition(accessor, "agents/Transfer Funds/agent.mcs.yml");
@@ -32,80 +34,147 @@ public class ChildAgentLinkFileTests
             new AgentFilePath("agents/Transfer Funds/agent.mcs.yml"),
             $"{Bot}.agent.TransferFunds");
 
-        Assert.True(accessor.Exists(new AgentFilePath("agents/Transfer Funds/.agent.json")));
+        // JSON must not start with a UTF-8 BOM.
+        using (var stream = accessor.OpenRead(new AgentFilePath("agents/Transfer Funds/.agent.json")))
+        {
+            Assert.Equal((byte)'{', stream.ReadByte());
+        }
 
-        // The link folderName is the on-disk folder (spaces kept); validation passes.
-        ChildAgentLinkFile.ValidateAll(accessor);
+        var folder = Assert.Single(ChildAgentLinkFile.ListFolders(accessor));
+        Assert.Equal("Transfer Funds", folder.FolderName);
+        Assert.NotNull(folder.Link);
+        Assert.Equal($"{Bot}.agent.TransferFunds", folder.Link!.SchemaName);
+        Assert.Equal("Transfer Funds", folder.Link.FolderName);
     }
 
     [Fact]
-    public void ValidateAll_NoChildAgents_DoesNotThrow()
+    public void ListFolders_NoChildAgents_Empty()
     {
         var accessor = CreateAccessor();
         WriteText(accessor, "topics/Greeting.mcs.yml", "kind: AdaptiveDialog");
 
-        ChildAgentLinkFile.ValidateAll(accessor);
+        Assert.Empty(ChildAgentLinkFile.ListFolders(accessor));
     }
 
-    [Fact]
-    public void ValidateAll_MissingLinkFile_Throws()
-    {
-        var accessor = CreateAccessor();
-        WriteAgentDefinition(accessor, "agents/Transfer Funds/agent.mcs.yml");
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ChildAgentLinkFile.ValidateAll(accessor));
-        Assert.Contains("agents/Transfer Funds", ex.Message);
-        Assert.Contains(".agent.json", ex.Message);
-    }
-
-    [Fact]
-    public void ValidateAll_RenamedFolder_ThrowsWithExpectedFolderName()
-    {
-        var accessor = CreateAccessor();
-        // The folder on disk is "Renamed", but the link file (written at clone time)
-        // recorded the original "Transfer Funds" -> the user renamed the folder.
-        WriteAgentDefinition(accessor, "agents/Renamed/agent.mcs.yml");
-        WriteText(accessor, "agents/Renamed/.agent.json",
-            $"{{ \"schemaName\": \"{Bot}.agent.TransferFunds\", \"folderName\": \"Transfer Funds\" }}");
-
-        var ex = Assert.Throws<InvalidOperationException>(() => ChildAgentLinkFile.ValidateAll(accessor));
-        Assert.Contains("'Renamed'", ex.Message);
-        Assert.Contains("'Transfer Funds'", ex.Message);
-    }
-
-    [Fact]
-    public void ValidateAll_MalformedLinkFile_Throws()
+    [Theory]
+    [InlineData(null)]                 // link file absent
+    [InlineData("{ not valid json")]   // link file malformed
+    [InlineData("{ }")]                // link file present but empty (no schema/folder)
+    public void ListFolders_MissingOrUnusableLink_LinkIsNull(string? linkContent)
     {
         var accessor = CreateAccessor();
         WriteAgentDefinition(accessor, "agents/Foo/agent.mcs.yml");
-        WriteText(accessor, "agents/Foo/.agent.json", "{ this is not json");
+        if (linkContent != null)
+        {
+            WriteText(accessor, "agents/Foo/.agent.json", linkContent);
+        }
 
-        Assert.Throws<InvalidOperationException>(() => ChildAgentLinkFile.ValidateAll(accessor));
+        var folder = Assert.Single(ChildAgentLinkFile.ListFolders(accessor));
+        Assert.Equal("Foo", folder.FolderName);
+        Assert.Null(folder.Link);
     }
 
     // ---- GetLocalChanges wiring (push/preview validates link files) ------------------
 
+    // ---- GetLocalChanges: resolve child-agent schema (link or self-heal), then remap ----
+
     [Fact]
-    public void GetLocalChanges_LocalPush_MissingLinkFile_Throws()
+    public void GetLocalChanges_ValidLink_RemapsSchema_NotFlaggedAsNew()
     {
         var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
-        var workspace = new DirectoryPath("c:/test/ws-missing/");
-        var fileAccessor = fileAccessorFactory.Create(workspace);
-        WriteAgentDefinition(fileAccessor, "agents/Foo/agent.mcs.yml");
+        var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/ws-remap/"));
 
-        var def = CreateDefinition();
+        // On disk: a friendly folder whose link points at the real cloud (machine) schema.
+        WriteAgentDefinition(fileAccessor, "agents/TransferFunds/agent.mcs.yml");
+        WriteText(fileAccessor, "agents/TransferFunds/.agent.json",
+            "{ \"schemaName\": \"crd1c_agent.agent.Agent_7_8\", \"folderName\": \"TransferFunds\" }");
 
-        var ex = Assert.Throws<InvalidOperationException>(() =>
-            synchronizer.GetLocalChanges(def, def, fileAccessor, "token-1"));
-        Assert.Contains(".agent.json", ex.Message);
+        // Cloud carries the server machine schema; the LSP-compiled local derives it from the folder.
+        var cloud = CreateDefinitionWithChildAgent("crd1c_agent.agent.Agent_7_8", "Transfer Funds");
+        var local = CreateDefinitionWithChildAgent("crd1c_agent.agent.TransferFunds", "Transfer Funds");
+
+        var (_, changes) = synchronizer.GetLocalChanges(local, cloud, fileAccessor, "token-1");
+
+        AssertNoChildAgentCreateOrDelete(changes);
     }
 
     [Fact]
-    public void GetLocalChanges_LocalPush_RenamedFolder_Throws()
+    public void GetLocalChanges_MissingLink_SelfHealsByDisplayName_NotFlaggedAsNew()
     {
+        // No .agent.json (e.g. cloned before the link file existed). The friendly folder is
+        // self-healed to the cloud schema by matching the projected cloud display name.
         var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
-        var workspace = new DirectoryPath("c:/test/ws-renamed/");
-        var fileAccessor = fileAccessorFactory.Create(workspace);
+        var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/ws-heal-display/"));
+        WriteAgentDefinition(fileAccessor, "agents/TransferFunds/agent.mcs.yml");
+
+        var cloud = CreateDefinitionWithChildAgent("crd1c_agent.agent.Agent_7_8", "Transfer Funds");
+        var local = CreateDefinitionWithChildAgent("crd1c_agent.agent.TransferFunds", "Transfer Funds");
+
+        var (_, changes) = synchronizer.GetLocalChanges(local, cloud, fileAccessor, "token-1");
+
+        AssertNoChildAgentCreateOrDelete(changes);
+    }
+
+    [Fact]
+    public void GetLocalChanges_MissingLink_OldCloneSchemaFolder_SelfHealsBySchema_NotFlaggedAsNew()
+    {
+        // Clones predating the friendly-folder projection used the machine schema as the folder
+        // name; the folder-derived schema already equals the cloud schema, so self-heal correlates
+        // it without a link file or a re-clone.
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/ws-heal-schema/"));
+        WriteAgentDefinition(fileAccessor, "agents/Agent_7_8/agent.mcs.yml");
+
+        var cloud = CreateDefinitionWithChildAgent("crd1c_agent.agent.Agent_7_8", "Transfer Funds");
+        var local = CreateDefinitionWithChildAgent("crd1c_agent.agent.Agent_7_8", "Transfer Funds");
+
+        var (_, changes) = synchronizer.GetLocalChanges(local, cloud, fileAccessor, "token-1");
+
+        AssertNoChildAgentCreateOrDelete(changes);
+    }
+
+    [Fact]
+    public void GetLocalChanges_MissingLink_NoCloudMatch_Throws()
+    {
+        // A folder that matches no cloud agent (hand-created or renamed) cannot be resolved.
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/ws-orphan/"));
+        WriteAgentDefinition(fileAccessor, "agents/Ghost/agent.mcs.yml");
+
+        var cloud = CreateDefinitionWithChildAgent("crd1c_agent.agent.Agent_7_8", "Transfer Funds");
+        var local = CreateDefinitionWithChildAgent("crd1c_agent.agent.Ghost", "Ghost");
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            synchronizer.GetLocalChanges(local, cloud, fileAccessor, "token-1"));
+        Assert.Contains("Ghost", ex.Message);
+        Assert.Contains("does not correspond", ex.Message);
+    }
+
+    [Fact]
+    public void GetLocalChanges_MissingLink_AmbiguousMatch_Throws()
+    {
+        // Two cloud agents whose display names both project to the folder "Shared" -> ambiguous.
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/ws-ambiguous/"));
+        WriteAgentDefinition(fileAccessor, "agents/Shared/agent.mcs.yml");
+
+        var cloud = CreateDefinitionWithChildAgents(
+            ("crd1c_agent.agent.Agent_1", "Shared"),
+            ("crd1c_agent.agent.Agent_2", "Shared."));
+        var local = CreateDefinitionWithChildAgent("crd1c_agent.agent.Shared", "Shared");
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            synchronizer.GetLocalChanges(local, cloud, fileAccessor, "token-1"));
+        Assert.Contains("Shared", ex.Message);
+        Assert.Contains("multiple", ex.Message);
+    }
+
+    [Fact]
+    public void GetLocalChanges_RenamedFolder_Throws()
+    {
+        // The link file (written at clone time) recorded "Original", but the folder is "Renamed".
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/ws-renamed/"));
         WriteAgentDefinition(fileAccessor, "agents/Renamed/agent.mcs.yml");
         WriteText(fileAccessor, "agents/Renamed/.agent.json",
             $"{{ \"schemaName\": \"{Bot}.agent.Original\", \"folderName\": \"Original\" }}");
@@ -114,32 +183,17 @@ public class ChildAgentLinkFileTests
 
         var ex = Assert.Throws<InvalidOperationException>(() =>
             synchronizer.GetLocalChanges(def, def, fileAccessor, "token-1"));
+        Assert.Contains("'Renamed'", ex.Message);
         Assert.Contains("'Original'", ex.Message);
     }
 
     [Fact]
-    public void GetLocalChanges_LocalPush_ValidLinkFile_DoesNotThrowFromValidation()
+    public void GetLocalChanges_RemotePreview_SkipsResolution()
     {
+        // A missing link would fail a local diff, but remote (pull) previews rewrite local
+        // folders from the cloud, so resolution is skipped and no exception is thrown.
         var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
-        var workspace = new DirectoryPath("c:/test/ws-valid/");
-        var fileAccessor = fileAccessorFactory.Create(workspace);
-        WriteAgentDefinition(fileAccessor, "agents/Foo/agent.mcs.yml");
-        WriteText(fileAccessor, "agents/Foo/.agent.json",
-            $"{{ \"schemaName\": \"{Bot}.agent.Foo\", \"folderName\": \"Foo\" }}");
-
-        var def = CreateDefinition();
-
-        // Validation passes; GetLocalChanges completes without an exception.
-        var (_, _) = synchronizer.GetLocalChanges(def, def, fileAccessor, "token-1");
-    }
-
-    [Fact]
-    public void GetLocalChanges_RemotePreview_SkipsLinkValidation()
-    {
-        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
-        var workspace = new DirectoryPath("c:/test/ws-remote/");
-        var fileAccessor = fileAccessorFactory.Create(workspace);
-        // Missing link file would fail a local diff, but remote (pull) previews skip the check.
+        var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/ws-remote/"));
         WriteAgentDefinition(fileAccessor, "agents/Foo/agent.mcs.yml");
 
         var def = CreateDefinition();
@@ -147,49 +201,10 @@ public class ChildAgentLinkFileTests
         var (_, _) = synchronizer.GetLocalChanges(def, def, fileAccessor, "token-1", isRemoteChange: true);
     }
 
-    // ---- Schema remap: folder-derived local schema -> real cloud schema via .agent.json ----
-
-    [Fact]
-    public void GetLocalChanges_ChildAgent_RemapsSchemaFromLink_NotFlaggedAsNew()
+    private static void AssertNoChildAgentCreateOrDelete(System.Collections.Generic.IEnumerable<Change> changes)
     {
-        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
-        var workspace = new DirectoryPath("c:/test/ws-remap/");
-        var fileAccessor = fileAccessorFactory.Create(workspace);
-
-        // On disk: a friendly folder whose link points at the real cloud (machine) schema.
-        WriteAgentDefinition(fileAccessor, "agents/TransferFunds/agent.mcs.yml");
-        WriteText(fileAccessor, "agents/TransferFunds/.agent.json",
-            "{ \"schemaName\": \"crd1c_agent.agent.Agent_7_8\", \"folderName\": \"TransferFunds\" }");
-
-        // Cloud carries the server-generated machine schema.
-        var cloud = CreateDefinitionWithChildAgent("crd1c_agent.agent.Agent_7_8", "Transfer Funds");
-        // The LSP-compiled local definition derives the schema from the folder name.
-        var local = CreateDefinitionWithChildAgent("crd1c_agent.agent.TransferFunds", "Transfer Funds");
-
-        var (_, changes) = synchronizer.GetLocalChanges(local, cloud, fileAccessor, "token-1");
-
-        // The remap makes local correlate to the existing cloud agent: no Create, no Delete.
         Assert.DoesNotContain(changes, c => c.ChangeType == ChangeType.Create && c.SchemaName.Contains(".agent."));
         Assert.DoesNotContain(changes, c => c.ChangeType == ChangeType.Delete && c.SchemaName.Contains(".agent."));
-    }
-
-    [Fact]
-    public void GetLocalChanges_ChildAgent_NoLink_StillFlaggedAsNew()
-    {
-        // Without the remap a folder-derived schema cannot correlate to the cloud machine
-        // schema; this is the broken behavior the .agent.json link fixes. Here we use a remote
-        // preview (which skips link validation) to exercise the diff without the missing-link
-        // guard, proving the mismatch is what produces the spurious Create.
-        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
-        var workspace = new DirectoryPath("c:/test/ws-nolink/");
-        var fileAccessor = fileAccessorFactory.Create(workspace);
-
-        var cloud = CreateDefinitionWithChildAgent("crd1c_agent.agent.Agent_7_8", "Transfer Funds");
-        var local = CreateDefinitionWithChildAgent("crd1c_agent.agent.TransferFunds", "Transfer Funds");
-
-        var (_, changes) = synchronizer.GetLocalChanges(local, cloud, fileAccessor, "token-1", isRemoteChange: true);
-
-        Assert.Contains(changes, c => c.SchemaName == "crd1c_agent.agent.TransferFunds" && c.ChangeType == ChangeType.Create);
     }
 
     private static BotDefinition CreateDefinition()
@@ -199,16 +214,19 @@ public class ChildAgentLinkFileTests
     }
 
     private static BotDefinition CreateDefinitionWithChildAgent(string agentSchema, string displayName)
+        => CreateDefinitionWithChildAgents((agentSchema, displayName));
+
+    private static BotDefinition CreateDefinitionWithChildAgents(params (string Schema, string DisplayName)[] agents)
     {
         var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: crd1c_agent")!;
-        var agent = new DialogComponent(
-            schemaName: agentSchema,
-            displayName: displayName,
+        var components = agents.Select(a => (BotComponentBase)new DialogComponent(
+            schemaName: a.Schema,
+            displayName: a.DisplayName,
             description: string.Empty,
             id: Guid.NewGuid(),
             parentBotComponentId: default,
-            dialog: new AgentDialog());
-        return new BotDefinition().WithEntity(botEntity).WithComponents(new BotComponentBase[] { agent });
+            dialog: new AgentDialog())).ToArray();
+        return new BotDefinition().WithEntity(botEntity).WithComponents(components);
     }
 
     private static void WriteAgentDefinition(IFileAccessor accessor, string path)
