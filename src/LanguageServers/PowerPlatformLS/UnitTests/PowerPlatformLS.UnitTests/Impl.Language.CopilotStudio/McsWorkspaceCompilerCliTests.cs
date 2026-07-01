@@ -128,6 +128,17 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
             AssertLanguage("settings.mcs.yml", LanguageType.CopilotStudio);
         }
 
+        [Theory]
+        [InlineData("agent.sync.yaml", true)]
+        [InlineData("c:/agent/agent.sync.yaml", true)]
+        [InlineData("infrastructure/connections/shared_x.sync.yaml", false)]
+        [InlineData("topics/Greeting.mcs.yml", false)]
+        [InlineData("settings.yaml", false)]
+        public void WorkspaceLayoutMarker_IsDetected_OnlyForAgentSyncYaml(string relativePath, bool expected)
+        {
+            Assert.Equal(expected, WorkspacePath.IsWorkspaceLayoutMarkerFile(new FilePath(relativePath)));
+        }
+
         [Fact]
         public void ClassicWorkspace_ShapeDetection_AndCompile_Unchanged()
         {
