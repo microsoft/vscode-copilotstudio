@@ -49,6 +49,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             Assert.NotNull(result);
             Assert.Equal(WorkspaceType.Agent, result.Type);
             Assert.NotNull(result.DisplayName);
+            Assert.Equal("cree9_agent", result.SchemaName);
             Assert.Null(result.SyncInfo);
         }
 

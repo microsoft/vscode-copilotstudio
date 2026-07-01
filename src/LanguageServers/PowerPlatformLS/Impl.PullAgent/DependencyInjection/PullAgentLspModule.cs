@@ -92,6 +92,7 @@
             services.AddSingleton<IMethodHandler, GetRemoteFileHandler>();
             services.AddSingleton<IMethodHandler, GetWorkspaceDetailsHandler>();
             services.AddSingleton<IMethodHandler, ReattachAgentHandler>();
+            services.AddSingleton<IMethodHandler, FinalizeRetargetHandler>();
             services.AddSingleton<IMethodHandler, ListKnowledgeFilesHandler>();
             services.AddSingleton<IMethodHandler, DownloadKnowledgeFilesHandler>();
             services.AddSingleton<IMethodHandler, UploadKnowledgeFilesHandler>();

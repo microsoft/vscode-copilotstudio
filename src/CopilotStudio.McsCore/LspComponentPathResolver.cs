@@ -63,12 +63,17 @@ internal sealed class LspComponentPathResolver : IComponentPathResolver
             && parent is DialogComponent dialogComponent
             && dialogComponent.RootElement is AgentDialog)
         {
+<<<<<<< HEAD
             // Prefer the sub-agent's display name for the folder (agents/Transfer Funds/),
             // keeping blank spaces for readability and falling back to the schema short-name
             // when the display name is unusable.
             var agentName = SubAgentFolderNaming.FromDisplayName(dialogComponent.DisplayName, keepSpaces: true)
                 ?? ExtractAgentName(dialogComponent.SchemaNameString ?? string.Empty);
             return $"agents/{agentName}/";
+=======
+            var agentName = ExtractAgentName(dialogComponent.SchemaNameString ?? string.Empty);
+            return $"{LspProjection.AgentsFolder}{agentName}/";
+>>>>>>> origin/main
         }
 
         return null;
@@ -128,7 +133,7 @@ internal sealed class LspComponentPathResolver : IComponentPathResolver
 
     private static string ExtractAgentName(string schemaName)
     {
-        var infix = ".agent.";
+        var infix = LspProjection.AgentInfix;
         var infixIndex = schemaName.IndexOf(infix, StringComparison.OrdinalIgnoreCase);
         if (infixIndex >= 0)
         {
@@ -137,6 +142,7 @@ internal sealed class LspComponentPathResolver : IComponentPathResolver
 
         return string.IsNullOrWhiteSpace(schemaName) ? "Unknown" : schemaName;
     }
+
 }
 
 /// <summary>

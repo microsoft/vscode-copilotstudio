@@ -19,6 +19,11 @@
 
         public IEnumerable<Diagnostic> ComputeDiagnostics(RequestContext requestContext, YamlLspDocument document)
         {
+            if (document.IsWorkspaceLayoutMarker)
+            {
+                return [];
+            }
+
             var semanticModel = document.FileModel;
 
             if (semanticModel == null)

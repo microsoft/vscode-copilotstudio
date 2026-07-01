@@ -18,6 +18,10 @@ namespace Microsoft.CopilotStudio.McsCore;
 /// </remarks>
 internal static class LspProjection
 {
+    internal const string AgentInfix = ".agent.";
+    internal const string FileAttachmentInfix = ".file.";
+    internal const string AgentsFolder = "agents/";
+
     /// <summary>
     /// Conditional projection override for a rule.
     /// </summary>
@@ -28,14 +32,22 @@ internal static class LspProjection
     /// indicate the filename is already qualified and should not be expanded.
     /// </param>
     /// <param name="Predicate">
-    /// Optional function used to determine whether this override applies for a given file or schema.
-    /// It receives:
-    /// - pathWithoutExtension (string?): file path without extension
-    /// - schemaName (string?): full schema name
-    /// Returns true if the override should be used, otherwise false.
-    /// If null, the override always applies.
+    /// Optional legacy function used to determine whether this override applies for a given file or schema.
+    /// It receives the path without extension and schema name.
     /// </param>
-    internal readonly record struct RuleOverride(string Infix, string Folder, string[]? DotInfixBlocklist = null, Func<string?, string?, bool>? Predicate = null);
+    /// <param name="ContextPredicate">
+    /// Optional graph-aware function used to determine whether this override applies for a component.
+    /// </param>
+    /// <param name="FolderResolver">
+    /// Optional graph-aware folder resolver. When present, it replaces <paramref name="Folder"/>.
+    /// </param>
+    internal readonly record struct RuleOverride(
+        string Infix,
+        string Folder,
+        string[]? DotInfixBlocklist = null,
+        Func<string?, string?, bool>? Predicate = null,
+        Func<RuleContext, bool>? ContextPredicate = null,
+        Func<RuleContext, string?>? FolderResolver = null);
 
     /// <summary>
     /// Projection rule for an element type.
@@ -57,6 +69,37 @@ internal static class LspProjection
     /// the CLI knowledge/file three-layer rules (TDD D21).
     /// </param>
     internal readonly record struct Rule(string Infix, string Folder, bool DotPassthrough = false, string[]? DotInfixBlocklist = null, RuleOverride[]? Overrides = null, bool PreserveBotPrefixedFiles = false);
+
+    /// <summary>
+    /// Graph-aware context available to projection rules.
+    /// </summary>
+    internal readonly record struct RuleContext(
+        Type ElementType,
+        string? SchemaName,
+        string? BotName,
+        string? SubAgentFolder,
+        string? PathWithoutExtension,
+        AuthoringShape Shape,
+        BotComponentBase? Component,
+        BotDefinition? Definition)
+    {
+        internal BotComponentBase? ParentComponent
+        {
+            get
+            {
+                if (Definition == null || Component == null || !Component.ParentBotComponentId.HasValue)
+                {
+                    return null;
+                }
+
+                return Definition.TryGetBotComponentById(Component.ParentBotComponentId.Value, out var parent)
+                    ? parent
+                    : null;
+            }
+        }
+
+        internal BotElement? ParentRootElement => (ParentComponent as DialogComponent)?.RootElement;
+    }
 
     /// <summary>
     /// Result for schema name derivation that carries whether qualified names should be preserved.
@@ -87,15 +130,15 @@ internal static class LspProjection
                     {
                         new RuleOverride(
                             ".topic.",
-                            "agents/",
+                            AgentsFolder,
                             new[] { "topic" },
                             (path, schema) => FileNameHasTopicPrefix(path)
                                               || schema?.Contains(".topic.", StringComparison.OrdinalIgnoreCase) == true),
                         new RuleOverride(
                             ".InvokeConnectedAgentTaskAction.",
-                            "agents/",
+                            AgentsFolder,
                             new[] { "InvokeConnectedAgentTaskAction" },
-                            (path, schema) => (path?.StartsWith("agents/", StringComparison.OrdinalIgnoreCase) == true
+                            (path, schema) => (path?.StartsWith(AgentsFolder, StringComparison.OrdinalIgnoreCase) == true
                                                && path?.Contains("/actions/", StringComparison.OrdinalIgnoreCase) != true
                                                && !FileNameHasTopicPrefix(path))
                                               || schema?.Contains(".InvokeConnectedAgentTaskAction.", StringComparison.OrdinalIgnoreCase) == true)
@@ -105,7 +148,7 @@ internal static class LspProjection
             // Agent dialogs
             {
                 typeof(AgentDialog),
-                new Rule(".agent.", "agents/", false)
+                new Rule(AgentInfix, AgentsFolder, false)
             },
 
             // GPT
@@ -135,11 +178,11 @@ internal static class LspProjection
             // File attachments
             {
                 typeof(FileAttachmentComponentMetadata),
-                new Rule(".file.", "knowledge/files/", true, new[] { "file" })
+                new Rule(FileAttachmentInfix, "knowledge/files/", true, new[] { "file" })
             },
             {
                 typeof(FileAttachmentComponent),
-                new Rule(".file.", "knowledge/files/", true, new[] { "file" })
+                new Rule(FileAttachmentInfix, "knowledge/files/", true, new[] { "file" })
             },
 
             // Variables
@@ -277,11 +320,11 @@ internal static class LspProjection
             // this rule relocates metadata + content together.
             {
                 typeof(FileAttachmentComponentMetadata),
-                new Rule(".file.", "capabilities/knowledge/files/", true, new[] { "file" }, PreserveBotPrefixedFiles: true)
+                new Rule(FileAttachmentInfix, "capabilities/knowledge/files/", true, new[] { "file" }, CreateCliFileAttachmentOverrides(), PreserveBotPrefixedFiles: true)
             },
             {
                 typeof(FileAttachmentComponent),
-                new Rule(".file.", "capabilities/knowledge/files/", true, new[] { "file" }, PreserveBotPrefixedFiles: true)
+                new Rule(FileAttachmentInfix, "capabilities/knowledge/files/", true, new[] { "file" }, CreateCliFileAttachmentOverrides(), PreserveBotPrefixedFiles: true)
             },
         }.ToFrozenDictionary();
 
@@ -309,7 +352,7 @@ internal static class LspProjection
             .Where(f => !all.Any(other =>
                 !string.Equals(other, f, StringComparison.Ordinal)
                 && f.StartsWith(other, StringComparison.Ordinal)))
-            .Select(f => f.TrimEnd('/'))
+            .Select(PathHelper.ToInternalCanonicalFolderPath)
             .OrderBy(f => f, StringComparer.Ordinal)
             .ToArray();
     }
@@ -449,7 +492,7 @@ internal static class LspProjection
     /// <param name="schemaName">Full schema name.</param>
     /// <param name="botName">Bot name prefix.</param>
     /// <param name="subAgentFolder">Sub-agent folder prefix (e.g., "agents/MyAgent/").</param>
-    /// <returns>Always returns null. Use <see cref="GetFilePath(Type, string, string?, string?, string?, AuthoringShape)"/> instead.</returns>
+    /// <returns>Always returns null. Use the path-aware <see cref="GetFilePath(Type, string, string?, string?, string?, AuthoringShape, BotComponentBase?, BotDefinition?)"/> overload instead.</returns>
     /// <remarks>
     /// This overload cannot reliably determine the file path because it lacks the original
     /// file path context needed to distinguish between short names and already-qualified names.
@@ -461,7 +504,15 @@ internal static class LspProjection
         return null;
     }
 
-    internal static string? GetFilePath(Type elementType, string schemaName, string? botName, string? subAgentFolder, string? pathWithoutExtension, AuthoringShape shape = AuthoringShape.Classic)
+    internal static string? GetFilePath(
+        Type elementType,
+        string schemaName,
+        string? botName,
+        string? subAgentFolder,
+        string? pathWithoutExtension,
+        AuthoringShape shape = AuthoringShape.Classic,
+        BotComponentBase? component = null,
+        BotDefinition? definition = null)
     {
         var prefix = subAgentFolder ?? string.Empty;
 
@@ -475,12 +526,13 @@ internal static class LspProjection
         // AgentDialog: agents/{agentName}/agent.mcs.yml
         if (typeof(AgentDialog).IsAssignableFrom(elementType))
         {
-            var agentName = DeriveShortName(schemaName, ".agent.", botName);
-            return $"{prefix}agents/{agentName}/agent.mcs.yml";
+            var agentName = DeriveShortName(schemaName, AgentInfix, botName);
+            return $"{prefix}{AgentsFolder}{agentName}/agent.mcs.yml";
         }
 
         // Look up rule
-        if (!TryGetRuleForElementType(elementType, schemaName, pathWithoutExtension, out var rule, shape))
+        var ruleContext = new RuleContext(elementType, schemaName, botName, subAgentFolder, pathWithoutExtension, shape, component, definition);
+        if (!TryGetRuleForElementType(elementType, schemaName, pathWithoutExtension, out var rule, shape, ruleContext))
         {
             return null;
         }
@@ -617,7 +669,7 @@ internal static class LspProjection
 
         if (typeof(AgentDialog).IsAssignableFrom(elementType))
         {
-            return ("agents/", ".agent.");
+            return (AgentsFolder, AgentInfix);
         }
 
         return DefaultDialogProjection;
@@ -625,7 +677,7 @@ internal static class LspProjection
 
     internal static string GetDialogInfixForFolder(string folderPath)
     {
-        var normalized = folderPath.Replace('\\', '/').TrimEnd('/');
+        var normalized = PathHelper.ToInternalCanonicalFolderPath(folderPath);
 
         if (normalized.EndsWith("topics", StringComparison.OrdinalIgnoreCase))
         {
@@ -637,9 +689,9 @@ internal static class LspProjection
             return ".action.";
         }
 
-        if (normalized.IndexOf("agents/", StringComparison.OrdinalIgnoreCase) >= 0)
+        if (normalized.IndexOf(AgentsFolder, StringComparison.OrdinalIgnoreCase) >= 0)
         {
-            return ".agent.";
+            return AgentInfix;
         }
 
         if (normalized.EndsWith("dialogs", StringComparison.OrdinalIgnoreCase))
@@ -676,25 +728,31 @@ internal static class LspProjection
 
     #region Private Helpers
 
-    internal static bool TryGetRuleForElementType(Type elementType, string? schemaName, string? path, out Rule rule, AuthoringShape shape = AuthoringShape.Classic)
+    internal static bool TryGetRuleForElementType(
+        Type elementType,
+        string? schemaName,
+        string? path,
+        out Rule rule,
+        AuthoringShape shape = AuthoringShape.Classic,
+        RuleContext? context = null)
     {
         // CLI agents consult the CLI-specific overrides first; any type not present
         // there falls back to the shared classic Rules. Classic and Unknown shapes
         // never consult CliRules, so classic projection is byte-identical (TDD D20).
         if (shape == AuthoringShape.CliCopilot
-            && TryGetRuleFromMap(CliRules, elementType, schemaName, path, out rule))
+            && TryGetRuleFromMap(CliRules, elementType, schemaName, path, out rule, context))
         {
             return true;
         }
 
-        return TryGetRuleFromMap(Rules, elementType, schemaName, path, out rule);
+        return TryGetRuleFromMap(Rules, elementType, schemaName, path, out rule, context);
     }
 
-    private static bool TryGetRuleFromMap(FrozenDictionary<Type, Rule> map, Type elementType, string? schemaName, string? path, out Rule rule)
+    private static bool TryGetRuleFromMap(FrozenDictionary<Type, Rule> map, Type elementType, string? schemaName, string? path, out Rule rule, RuleContext? context)
     {
         if (map.TryGetValue(elementType, out var exactRule))
         {
-            rule = ResolveRule(exactRule, path, schemaName);
+            rule = ResolveRule(exactRule, path, schemaName, context);
             return true;
         }
 
@@ -711,7 +769,7 @@ internal static class LspProjection
                 if (bestMatch == null || bestMatch.IsAssignableFrom(kvp.Key))
                 {
                     bestMatch = kvp.Key;
-                    bestRule = ResolveRule(kvp.Value, path, schemaName);
+                    bestRule = ResolveRule(kvp.Value, path, schemaName, context);
                 }
             }
         }
@@ -726,7 +784,7 @@ internal static class LspProjection
         return false;
     }
 
-    private static Rule ResolveRule(Rule rule, string? path, string? schemaName)
+    private static Rule ResolveRule(Rule rule, string? path, string? schemaName, RuleContext? context)
     {
         path = path?.Replace('\\', '/');
 
@@ -735,11 +793,20 @@ internal static class LspProjection
         {
             foreach (var ruleOverride in overrides)
             {
-                if (ruleOverride.Predicate == null || ruleOverride.Predicate(path, schemaName))
+                var pathMatches = ruleOverride.Predicate == null || ruleOverride.Predicate(path, schemaName);
+                var contextMatches = ruleOverride.ContextPredicate == null
+                    || (context.HasValue && ruleOverride.ContextPredicate(context.Value));
+                if (pathMatches && contextMatches)
                 {
+                    var folder = ruleOverride.Folder;
+                    if (ruleOverride.FolderResolver != null && context.HasValue)
+                    {
+                        folder = ruleOverride.FolderResolver(context.Value) ?? folder;
+                    }
+
                     return new Rule(
                         ruleOverride.Infix,
-                        ruleOverride.Folder,
+                        folder,
                         rule.DotPassthrough,
                         ruleOverride.DotInfixBlocklist ?? rule.DotInfixBlocklist,
                         PreserveBotPrefixedFiles: rule.PreserveBotPrefixedFiles);
@@ -750,10 +817,50 @@ internal static class LspProjection
         return new Rule(rule.Infix, rule.Folder, rule.DotPassthrough, rule.DotInfixBlocklist, PreserveBotPrefixedFiles: rule.PreserveBotPrefixedFiles);
     }
 
+    private static RuleOverride[] CreateCliFileAttachmentOverrides() =>
+        new[]
+        {
+            new RuleOverride(
+                FileAttachmentInfix,
+                "capabilities/knowledge/files/",
+                new[] { "file" },
+                ContextPredicate: context => context.ParentRootElement is InlineAgentSkill,
+                FolderResolver: GetParentComponentFolder),
+        };
+
+    private static string? GetParentComponentFolder(RuleContext context)
+    {
+        var parent = context.ParentComponent;
+        if (parent == null)
+        {
+            return null;
+        }
+
+        var parentElementType = parent is DialogComponent dialogComponent
+            ? dialogComponent.Dialog?.GetType() ?? typeof(AdaptiveDialog)
+            : parent.GetType();
+
+        var parentPath = GetFilePath(
+            parentElementType,
+            parent.SchemaNameString ?? string.Empty,
+            context.BotName,
+            subAgentFolder: null,
+            pathWithoutExtension: null,
+            context.Shape,
+            parent,
+            context.Definition);
+        if (parentPath == null)
+        {
+            return null;
+        }
+
+        return PathHelper.ToInternalCanonicalFolderPath(new AgentFilePath(parentPath).RemoveExtension().ToString()) + "/";
+    }
+
     private static string? GetAgentDialogSchemaName(string pathWithoutExtension, string? botName)
     {
         // Path should be: agents/{agentName}/agent
-        if (!pathWithoutExtension.StartsWith("agents/", StringComparison.OrdinalIgnoreCase))
+        if (!pathWithoutExtension.StartsWith(AgentsFolder, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(
                 $"AgentDialog schema name derivation is only valid for paths under 'agents/'. Path: {pathWithoutExtension}");
@@ -766,6 +873,7 @@ internal static class LspProjection
                 $"Invalid AgentDialog path format. Expected 'agents/{{agentName}}/...' but got: {pathWithoutExtension}");
         }
 
+<<<<<<< HEAD
         // Sanitize the sub-agent folder segment so the schema short-name is always a
         // valid, cross-platform-safe name. This mirrors the schema->folder direction
         // (LspProjectorService / LspComponentPathResolver), which already projects the
@@ -781,6 +889,10 @@ internal static class LspProjection
         }
 
         return $"{botName}.agent.{agentName}";
+=======
+        var agentName = parts[1];
+        return $"{botName}{AgentInfix}{agentName}";
+>>>>>>> origin/main
     }
 
     /// <summary>
@@ -857,7 +969,7 @@ internal static class LspProjection
 
     private static bool IsAgentsTopicRule(Rule rule)
     {
-        return string.Equals(rule.Infix, ".topic.", StringComparison.OrdinalIgnoreCase) && string.Equals(rule.Folder, "agents/", StringComparison.OrdinalIgnoreCase);
+        return string.Equals(rule.Infix, ".topic.", StringComparison.OrdinalIgnoreCase) && string.Equals(rule.Folder, AgentsFolder, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool FileNameHasTopicPrefix(string? path)
@@ -1011,28 +1123,19 @@ internal static class LspProjection
         }
 
         // Add folder mappings from Rules (legacy element types only)
-        // Topics
         AddToMap(map, "topics/", typeof(AdaptiveDialog));
-        // Actions
         AddToMap(map, "actions/", typeof(TaskDialog));
-        // Connected Agent
         AddToMap(map, "agents/", typeof(TaskDialog));
-        // Translations - uses AdaptiveDialog, not LocalizableContentContainer
         AddToMap(map, "translations/", typeof(AdaptiveDialog));
-        // Variables
         AddToMap(map, "variables/", typeof(VariableBase));
-        // Settings
         AddToMap(map, "settings/", typeof(BotSettingsBase));
-        // Entities - uses EntityWithAnnotatedSamples, not Entity
-        AddToMap(map, "entities/", typeof(EntityWithAnnotatedSamples));
-        // Knowledge - uses KnowledgeSource, not KnowledgeSourceConfiguration
-        AddToMap(map, "knowledge/", typeof(KnowledgeSource));
-        // File attachments - uses FileAttachmentComponent
-        AddToMap(map, "knowledge/files/", typeof(FileAttachmentComponent));
-        // Skills
+        AddToMap(map, "entities/", typeof(EntityWithAnnotatedSamples));        // Entities - uses EntityWithAnnotatedSamples, not Entity
+        AddToMap(map, "knowledge/", typeof(KnowledgeSource));                  // Knowledge - uses KnowledgeSource, not KnowledgeSourceConfiguration
+        AddToMap(map, "knowledge/files/", typeof(FileAttachmentComponent));    // File attachments - uses FileAttachmentComponent
         AddToMap(map, "skills/", typeof(SkillDefinition));
-        // CLI three-layer (D21); folders are disjoint from classic, so the combined
-        // read-side map stays unambiguous. Connected agents -> capabilities/tools/ (D10).
+
+        // CLI three-layer folders are disjoint from classic, so the combined
+        // read-side map stays unambiguous. Connected agents -> capabilities/tools/
         AddToMap(map, "behaviors/", typeof(AgentSkillBase));
         AddToMap(map, "behaviors/", typeof(InlineAgentSkill));
         AddToMap(map, "capabilities/tools/", typeof(AgentToolBase));
@@ -1040,19 +1143,15 @@ internal static class LspProjection
         AddToMap(map, "capabilities/tools/", typeof(WorkflowTool));
         AddToMap(map, "capabilities/tools/", typeof(McpTool));
         AddToMap(map, "capabilities/tools/", typeof(ConnectedAgentTool));
-        // CLI shared types: knowledge + file attachments (D21).
+
+        // CLI shared types: knowledge + file attachments
         AddToMap(map, "capabilities/knowledge/", typeof(KnowledgeSource));
         AddToMap(map, "capabilities/knowledge/files/", typeof(FileAttachmentComponent));
-        // External triggers
-        AddToMap(map, "trigger/", typeof(ExternalTriggerConfiguration));
-        // Test cases
-        AddToMap(map, "testcases/", typeof(TestDefinitionBase));
-        // Custom metric definitions
-        AddToMap(map, "custommetrics/", typeof(CustomMetricDefinition));
-        // Agent skills
-        // https://github.com/microsoft/vscode-copilotstudio/issues/244
-        //AddToMap(map, "agentskills/", typeof(AgentSkillMetadata));
-        // Environment variables
+
+        AddToMap(map, "trigger/", typeof(ExternalTriggerConfiguration)); // External triggers
+        AddToMap(map, "testcases/", typeof(TestDefinitionBase));         // Test cases
+        AddToMap(map, "custommetrics/", typeof(CustomMetricDefinition)); // Custom metric definitions
+        // AddToMap(map, "agentskills/", typeof(AgentSkillMetadata));     // not supported (oldstyle) Agent skills - https://github.com/microsoft/vscode-copilotstudio/issues/244
         AddToMap(map, "environmentvariables/", typeof(EnvironmentVariableDefinition));
 
         return map.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.ToArray()).ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);

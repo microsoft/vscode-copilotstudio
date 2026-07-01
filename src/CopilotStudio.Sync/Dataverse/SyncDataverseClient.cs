@@ -181,17 +181,33 @@ public class SyncDataverseClient : ISyncDataverseClient
 
     public virtual async Task<ConnectionReferenceInfo[]> GetConnectionReferencesByLogicalNamesAsync(IEnumerable<string> logicalNames, CancellationToken cancellationToken)
     {
-        var names = logicalNames?.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Replace("'", "''")).Distinct().ToList();
+        var names = logicalNames?.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (names == null || names.Count == 0)
         {
             return Array.Empty<ConnectionReferenceInfo>();
         }
 
-        var filter = string.Join(" or ", names.Select(n => $"connectionreferencelogicalname eq '{n}'"));
-        var requestUri = $"{DataverseUrl}/api/data/v9.2/connectionreferences?$select=connectionreferenceid,connectionreferencelogicalname,connectorid,connectionid&$filter={Uri.EscapeDataString(filter)}";
+        const string select = "connectionreferenceid,connectionreferencelogicalname,connectorid,connectionid";
+        var results = new List<ConnectionReferenceInfo>();
 
-        var response = await SendAsync<ConnectionReferenceQueryResponse>(HttpMethod.Get, requestUri, null, false, cancellationToken).ConfigureAwait(false);
-        return response?.Value ?? Array.Empty<ConnectionReferenceInfo>();
+        foreach (var batch in names.Chunk(BatchSize))
+        {
+            var filter = string.Join(" or ", batch.Select(n => $"connectionreferencelogicalname eq '{n.Replace("'", "''")}'"));
+            string? next = $"{DataverseUrl}/api/data/v9.2/connectionreferences?$select={select}&$filter={Uri.EscapeDataString(filter)}";
+
+            while (!string.IsNullOrEmpty(next))
+            {
+                var response = await SendAsync<ODataResponse<ConnectionReferenceInfo>>(HttpMethod.Get, next!, null, false, cancellationToken).ConfigureAwait(false);
+                if (response?.Value != null)
+                {
+                    results.AddRange(response.Value);
+                }
+
+                next = response?.NextLink;
+            }
+        }
+
+        return results.ToArray();
     }
 
     public static string? ExtractConnectorInternalId(string? connectorIdPath)
@@ -206,7 +222,24 @@ public class SyncDataverseClient : ISyncDataverseClient
         return string.IsNullOrWhiteSpace(segment) ? null : segment;
     }
 
-    public virtual async Task<CustomConnectorMetadata[]> DownloadConnectorsByInternalIdsAsync(IEnumerable<string> connectorInternalIds, bool isManaged, CancellationToken cancellationToken)
+    public virtual Task<CustomConnectorMetadata[]> DownloadConnectorsByInternalIdsAsync(IEnumerable<string> connectorInternalIds, bool isManaged, CancellationToken cancellationToken)
+    {
+        const string select =
+            "connectorid,name,displayname,description,connectorinternalid," +
+            "openapidefinition,connectionparameters,connectionparametersets," +
+            "policytemplateinstances," +
+            "iconbrandcolor,iconblob,connectortype,statecode,statuscode," +
+            "ismanaged,componentstate,createdon,modifiedon,versionnumber";
+        return QueryConnectorsByInternalIdsAsync(connectorInternalIds, isManaged, select, cancellationToken);
+    }
+
+    public virtual Task<CustomConnectorMetadata[]> GetConnectorVersionsByInternalIdsAsync(IEnumerable<string> connectorInternalIds, bool isManaged, CancellationToken cancellationToken)
+    {
+        const string select = "connectorid,connectorinternalid,ismanaged,modifiedon,versionnumber";
+        return QueryConnectorsByInternalIdsAsync(connectorInternalIds, isManaged, select, cancellationToken);
+    }
+
+    private async Task<CustomConnectorMetadata[]> QueryConnectorsByInternalIdsAsync(IEnumerable<string> connectorInternalIds, bool isManaged, string select, CancellationToken cancellationToken)
     {
         if (connectorInternalIds == null)
         {
@@ -219,13 +252,6 @@ public class SyncDataverseClient : ISyncDataverseClient
         {
             return Array.Empty<CustomConnectorMetadata>();
         }
-
-        const string select =
-            "connectorid,name,displayname,description,connectorinternalid," +
-            "openapidefinition,connectionparameters,connectionparametersets," +
-            "policytemplateinstances," +
-            "iconbrandcolor,iconblob,connectortype,statecode,statuscode," +
-            "ismanaged,componentstate,createdon,modifiedon,versionnumber";
 
         var results = new List<CustomConnectorMetadata>();
         var seenConnectorIds = new HashSet<Guid>();
@@ -942,7 +968,7 @@ public class SyncDataverseClient : ISyncDataverseClient
 
     private static string GetKnowledgeFileLocalPath(string knowledgeFileFolder, string fileName)
     {
-        return Path.Combine(knowledgeFileFolder, fileName);
+        return KnowledgeFilePath.GetLocalPath(knowledgeFileFolder, fileName);
     }
 
     public virtual async Task<AIPromptMetadata[]> DownloadAllAIPromptsForAgentAsync(AgentSyncInfo syncInfo, CancellationToken cancellationToken)
@@ -997,7 +1023,12 @@ public class SyncDataverseClient : ISyncDataverseClient
             nextPageUrl = page.TryGetProperty("@odata.nextLink", out var nextLinkProperty) ? nextLinkProperty.GetString() : null;
         }
 
-        if (aiModelIds.Count == 0)
+        return await DownloadAIPromptsByModelIdsAsync(aiModelIds, cancellationToken).ConfigureAwait(false);
+    }
+
+    public virtual async Task<AIPromptMetadata[]> DownloadAIPromptsByModelIdsAsync(IReadOnlyCollection<Guid> aiModelIds, CancellationToken cancellationToken)
+    {
+        if (aiModelIds == null || aiModelIds.Count == 0)
         {
             return Array.Empty<AIPromptMetadata>();
         }

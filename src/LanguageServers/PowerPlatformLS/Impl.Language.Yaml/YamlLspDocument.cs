@@ -13,12 +13,21 @@
             : base(path, text, Constants.LanguageIds.Yaml, workspacePath)
         {
             IndentationInfo = IndentationInfo.FromText(text);
+            IsWorkspaceLayoutMarker = WorkspacePath.IsWorkspaceLayoutMarkerFile(path);
         }
 
         public IndentationInfo IndentationInfo { get; }
 
+        public bool IsWorkspaceLayoutMarker { get; }
+
         protected override YamlSemanticModel? ComputeModel()
         {
+            if (IsWorkspaceLayoutMarker)
+            {
+                ParsingInfo.Diagnostic = null;
+                return null;
+            }
+
             YamlSemanticModel result;
             try
             {

@@ -153,7 +153,7 @@
         }
 
         [Fact]
-        public async Task ReattachAgentUploadsWorkflowsWithActivateWhenConnectionsBoundModeTest()
+        public async Task ReattachAgentUploadsWorkflowsWithDraftWhenConnectionReferencesExistModeTest()
         {
             var context = CreateTestSetup();
             var synchronizer = new TestWorkspaceSynchronizerRecordingActivation();
@@ -162,7 +162,7 @@
             var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
 
             Assert.Equal(200, response.Code);
-            Assert.Equal(WorkflowActivationMode.ActivateWhenConnectionsBound, synchronizer.CapturedActivationMode);
+            Assert.Equal(WorkflowActivationMode.DraftWhenConnectionReferencesExist, synchronizer.CapturedActivationMode);
         }
 
         [Fact]
@@ -308,6 +308,157 @@
             Assert.True(synchronizer.ReattachCalled);
         }
 
+        [Fact]
+        public async Task ReattachAgentRetargetReuseExistingPushesAndResetsTest()
+        {
+            var context = CreateTestSetup();
+            context.Request.AllowRetarget = true;
+            context.Request.ConflictResolution = RetargetConflictResolution.ReuseExisting;
+            var existingAgentId = Guid.NewGuid();
+            var dataverseClient = new MockDataverseClientWithExistingAgent(existingAgentId);
+            var synchronizer = new TestWorkspaceSynchronizerSyncInfoExists();
+            var handler = TestHandlerFactory.CreateHandler(dataverseClient, synchronizer, CreateOperationProvider());
+
+            var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
+
+            Assert.Equal(200, response.Code);
+            Assert.False(response.IsNewAgent);
+            Assert.True(response.RequiresLocalPush);
+            Assert.Equal(existingAgentId, response.AgentSyncInfo!.AgentId);
+            Assert.False(dataverseClient.CreateNewAgentCalled);
+            Assert.Equal(1, synchronizer.ResetRemoteBindingStateCount);
+            Assert.Equal(1, synchronizer.PersistRetargetBackupCount);
+        }
+
+        [Fact]
+        public async Task ReattachAgentRetargetSchemaConflictReturnsConflictTest()
+        {
+            var context = CreateTestSetup();
+            context.Request.AllowRetarget = true;
+            context.Request.ConflictResolution = RetargetConflictResolution.Prompt;
+            var dataverseClient = new MockDataverseClientWithExistingAgent(Guid.NewGuid());
+            var synchronizer = new TestWorkspaceSynchronizerSyncInfoExists();
+            var handler = TestHandlerFactory.CreateHandler(dataverseClient, synchronizer, CreateOperationProvider());
+
+            var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
+
+            Assert.Equal(200, response.Code);
+            Assert.True(response.SchemaConflict);
+            Assert.False(dataverseClient.CreateNewAgentCalled);
+            Assert.Equal(0, synchronizer.SavedSyncInfoCount);
+            Assert.Equal(0, synchronizer.ResetRemoteBindingStateCount);
+        }
+
+        [Fact]
+        public async Task ReattachAgentUnattachedDoesNotResetTest()
+        {
+            var context = CreateTestSetup();
+            var synchronizer = new TestWorkspaceSynchronizer();
+            var handler = TestHandlerFactory.CreateHandler(new MockDataverseClient(), synchronizer, CreateOperationProvider());
+
+            var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
+
+            Assert.Equal(200, response.Code);
+            Assert.Equal(0, synchronizer.ResetRemoteBindingStateCount);
+            Assert.True(response.RequiresLocalPush);
+        }
+
+        [Fact]
+        public async Task ReattachAgentRetargetFailureRestoresBindingTest()
+        {
+            var context = CreateTestSetup();
+            context.Request.AllowRetarget = true;
+            var synchronizer = new TestWorkspaceSynchronizerThrowingRetarget(new InvalidOperationException("retarget step failed"));
+            var handler = TestHandlerFactory.CreateHandler(new MockDataverseClient(), synchronizer, CreateOperationProvider());
+
+            var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
+
+            Assert.NotEqual(200, response.Code);
+            Assert.Equal(1, synchronizer.ResetRemoteBindingStateCount);
+            Assert.Equal(1, synchronizer.RestoreRemoteBindingStateCount);
+            Assert.Equal(1, synchronizer.ClearRetargetBackupCount);
+            Assert.Equal(0, synchronizer.SavedSyncInfoCount);
+        }
+
+        [Fact]
+        public async Task ReattachAgentRetargetPersistBackupFailureRestoresBindingTest()
+        {
+            var context = CreateTestSetup();
+            context.Request.AllowRetarget = true;
+            var synchronizer = new TestWorkspaceSynchronizerThrowingPersistBackup(new InvalidOperationException("persist backup failed"));
+            var handler = TestHandlerFactory.CreateHandler(new MockDataverseClient(), synchronizer, CreateOperationProvider());
+
+            var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
+
+            Assert.NotEqual(200, response.Code);
+            Assert.Equal(1, synchronizer.ResetRemoteBindingStateCount);
+            Assert.Equal(1, synchronizer.RestoreRemoteBindingStateCount);
+            Assert.Equal(1, synchronizer.ClearRetargetBackupCount);
+            Assert.Equal(0, synchronizer.SavedSyncInfoCount);
+        }
+
+        [Fact]
+        public async Task FinalizeRetarget_WhenPushFailedAndBackupRestored_ReportsRolledBack()
+        {
+            var context = CreateTestSetup();
+            var retarget = new Mock<IWorkspaceRetargetService>();
+            retarget.Setup(r => r.FinalizeRetarget(It.IsAny<DirectoryPath>(), It.IsAny<bool>())).Returns(true);
+            var handler = new FinalizeRetargetHandler(retarget.Object, new Mock<ILspLogger>().Object);
+
+            var request = new FinalizeRetargetRequest { WorkspaceUri = context.Request.WorkspaceUri, PushSucceeded = false };
+            var response = await handler.HandleRequestAsync(request, context.RequestContext, CancellationToken.None);
+
+            Assert.Equal(200, response.Code);
+            Assert.True(response.RolledBack);
+            retarget.Verify(r => r.FinalizeRetarget(It.IsAny<DirectoryPath>(), false), Times.Once);
+        }
+
+        [Fact]
+        public async Task FinalizeRetarget_WhenPushSucceeded_DoesNotReportRolledBack()
+        {
+            var context = CreateTestSetup();
+            var retarget = new Mock<IWorkspaceRetargetService>();
+            retarget.Setup(r => r.FinalizeRetarget(It.IsAny<DirectoryPath>(), It.IsAny<bool>())).Returns(true);
+            var handler = new FinalizeRetargetHandler(retarget.Object, new Mock<ILspLogger>().Object);
+
+            var request = new FinalizeRetargetRequest { WorkspaceUri = context.Request.WorkspaceUri, PushSucceeded = true };
+            var response = await handler.HandleRequestAsync(request, context.RequestContext, CancellationToken.None);
+
+            Assert.Equal(200, response.Code);
+            Assert.False(response.RolledBack);
+            retarget.Verify(r => r.FinalizeRetarget(It.IsAny<DirectoryPath>(), true), Times.Once);
+        }
+
+        [Fact]
+        public async Task FinalizeRetarget_WhenNoBackupExists_DoesNotReportRolledBack()
+        {
+            var context = CreateTestSetup();
+            var retarget = new Mock<IWorkspaceRetargetService>();
+            retarget.Setup(r => r.FinalizeRetarget(It.IsAny<DirectoryPath>(), It.IsAny<bool>())).Returns(false);
+            var handler = new FinalizeRetargetHandler(retarget.Object, new Mock<ILspLogger>().Object);
+
+            var request = new FinalizeRetargetRequest { WorkspaceUri = context.Request.WorkspaceUri, PushSucceeded = false };
+            var response = await handler.HandleRequestAsync(request, context.RequestContext, CancellationToken.None);
+
+            Assert.Equal(200, response.Code);
+            Assert.False(response.RolledBack);
+        }
+
+        [Fact]
+        public async Task FinalizeRetarget_WhenServiceThrows_ReturnsErrorResponse()
+        {
+            var context = CreateTestSetup();
+            var retarget = new Mock<IWorkspaceRetargetService>();
+            retarget.Setup(r => r.FinalizeRetarget(It.IsAny<DirectoryPath>(), It.IsAny<bool>())).Throws(new InvalidOperationException("finalize failed"));
+            var handler = new FinalizeRetargetHandler(retarget.Object, new Mock<ILspLogger>().Object);
+
+            var request = new FinalizeRetargetRequest { WorkspaceUri = context.Request.WorkspaceUri, PushSucceeded = false };
+            var response = await handler.HandleRequestAsync(request, context.RequestContext, CancellationToken.None);
+
+            Assert.NotEqual(200, response.Code);
+            Assert.False(response.RolledBack);
+        }
+
         private ReattachAgentTestContext CreateTestSetup(string? customWorkspace = null)
         {
             var workspacePath = Path.GetFullPath(Path.Combine(TestDataPath, customWorkspace ?? WorkspacePath));
@@ -410,9 +561,12 @@
 
         public bool CreateNewAgentCalled { get; private set; }
 
+        public string? LastCreatedSchemaName { get; private set; }
+
         public virtual Task<AgentInfo> CreateNewAgentAsync(string newAgentName, string schemaName, AuthoringShape authoringShape, CancellationToken cancellationToken)
         {
             CreateNewAgentCalled = true;
+            LastCreatedSchemaName = schemaName;
             var fakeAgent = new AgentInfo
             {
                 AgentId = Guid.NewGuid(),
@@ -517,6 +671,12 @@
             CancellationToken cancellationToken)
             => Task.FromResult(Array.Empty<CustomConnectorMetadata>());
 
+        public virtual Task<CustomConnectorMetadata[]> GetConnectorVersionsByInternalIdsAsync(
+            IEnumerable<string> connectorInternalIds,
+            bool isManaged,
+            CancellationToken cancellationToken)
+            => Task.FromResult(Array.Empty<CustomConnectorMetadata>());
+
         public virtual Task<CustomConnectorMetadata[]> GetConnectorsByInternalIdPrefixAsync(
             string connectorInternalIdPrefix,
             CancellationToken cancellationToken)
@@ -526,6 +686,9 @@
             => Task.FromResult(false);
 
         public virtual Task<AIPromptMetadata[]> DownloadAllAIPromptsForAgentAsync(AgentSyncInfo syncInfo, CancellationToken cancellationToken)
+            => Task.FromResult(Array.Empty<AIPromptMetadata>());
+
+        public virtual Task<AIPromptMetadata[]> DownloadAIPromptsByModelIdsAsync(IReadOnlyCollection<Guid> aiModelIds, CancellationToken cancellationToken)
             => Task.FromResult(Array.Empty<AIPromptMetadata>());
 
         public virtual Task<AIPromptResponse> UpsertAIPromptAsync(Guid? agentId, AIPromptMetadata? promptMetadata, CancellationToken cancellationToken)
@@ -542,6 +705,7 @@
             return new ReattachAgentHandler(
                 new Mock<IIslandControlPlaneService>().Object,
                 workspace,
+                (IWorkspaceRetargetService)workspace,
                 new TestTokenManager(),
                 dataverseClient,
                 accessor,
@@ -557,7 +721,7 @@
         }
     }
 
-    internal class TestWorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManagementService, IWorkflowActivationService
+    internal class TestWorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManagementService, IWorkflowActivationService, IWorkspaceRetargetService
     {
         public bool ReattachCalled { get; private set; } = false;
 
@@ -599,6 +763,46 @@
             ClearComponentSyncBaselinesCount++;
         }
 
+        public int ResetRemoteBindingStateCount { get; private set; }
+
+        public virtual RemoteBindingSnapshot ResetRemoteBindingState(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder)
+        {
+            ResetRemoteBindingStateCount++;
+            return RemoteBindingSnapshot.Empty;
+        }
+
+        public int RestoreRemoteBindingStateCount { get; private set; }
+
+        public virtual void RestoreRemoteBindingState(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, RemoteBindingSnapshot snapshot)
+        {
+            RestoreRemoteBindingStateCount++;
+        }
+
+        public int PersistRetargetBackupCount { get; private set; }
+
+        public virtual void PersistRetargetBackup(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, RemoteBindingSnapshot snapshot)
+        {
+            PersistRetargetBackupCount++;
+        }
+
+        public int FinalizeRetargetCount { get; private set; }
+
+        public bool? LastFinalizePushSucceeded { get; private set; }
+
+        public virtual bool FinalizeRetarget(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, bool pushSucceeded)
+        {
+            FinalizeRetargetCount++;
+            LastFinalizePushSucceeded = pushSucceeded;
+            return true;
+        }
+
+        public int ClearRetargetBackupCount { get; private set; }
+
+        public virtual void ClearRetargetBackup(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder)
+        {
+            ClearRetargetBackupCount++;
+        }
+
         public Task<(PvaComponentChangeSet, ImmutableArray<Change>)> GetLocalChangesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, DefinitionBase workspaceDefinition, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CancellationToken cancellationToken)
         {
             return Task.FromResult((new PvaComponentChangeSet(Enumerable.Empty<BotComponentChange>(), null, "token"), ImmutableArray<Change>.Empty));
@@ -634,6 +838,9 @@
             => Task.FromResult(ImmutableArray<string>.Empty);
 
         public Task<WorkspaceSyncInfo> SyncWorkspaceAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, string? changeToken, bool updateWorkspaceDirectory, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken)
+            => SyncWorkspaceAsync(workspaceFolder, operationContext, changeToken, updateWorkspaceDirectory, dataverseClient, syncInfo, cloudFlowMetadata, cancellationToken, default);
+
+        public Task<WorkspaceSyncInfo> SyncWorkspaceAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, string? changeToken, bool updateWorkspaceDirectory, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken, ImmutableArray<AIPromptMetadata> aiPromptMetadata, bool syncCustomConnectors = true)
         {
             ReattachCalled = true;
             return Task.FromResult(new WorkspaceSyncInfo
@@ -772,6 +979,32 @@
         }
 
         public override Task<(ImmutableArray<WorkflowResponse>, CloudFlowMetadata)> UpsertWorkflowForAgentAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken, WorkflowActivationMode activationMode = WorkflowActivationMode.PreserveSavedState)
+            => throw _exception;
+    }
+
+    internal class TestWorkspaceSynchronizerThrowingRetarget : TestWorkspaceSynchronizerSyncInfoExists
+    {
+        private readonly Exception _exception;
+
+        public TestWorkspaceSynchronizerThrowingRetarget(Exception exception)
+        {
+            _exception = exception;
+        }
+
+        public override Task<(ImmutableArray<WorkflowResponse>, CloudFlowMetadata)> UpsertWorkflowForAgentAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken, WorkflowActivationMode activationMode = WorkflowActivationMode.PreserveSavedState)
+            => throw _exception;
+    }
+
+    internal class TestWorkspaceSynchronizerThrowingPersistBackup : TestWorkspaceSynchronizerSyncInfoExists
+    {
+        private readonly Exception _exception;
+
+        public TestWorkspaceSynchronizerThrowingPersistBackup(Exception exception)
+        {
+            _exception = exception;
+        }
+
+        public override void PersistRetargetBackup(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, RemoteBindingSnapshot snapshot)
             => throw _exception;
     }
 

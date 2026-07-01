@@ -63,7 +63,7 @@ export const registerSyncCommands = (context: ExtensionContext) => {
 };
 
 // Checks .mcs.yml/.mcs.yaml files in the workspace and returns any diagnostics errors found
-const getDiagnosticsErrors = async (workspace: CopilotStudioWorkspace) => {
+export const getDiagnosticsErrors = async (workspace: CopilotStudioWorkspace) => {
   let files = 0;
   let count = 0;
   const workspaceUri = Uri.parse(workspace.workspaceUri);
@@ -197,7 +197,7 @@ const registerSyncCommand = (
           if (errors.count === 0) {
             const synchronizer = getOrAddSynchronizer(selectedWorkspace);
             if (id === 'microsoft-copilot-studio.applyChanges') {
-              await synchronizer.push(false, true);
+              await synchronizer.push({ suppressDisabledWorkflowWarnings: true });
             } else {
               await action(synchronizer);
             }

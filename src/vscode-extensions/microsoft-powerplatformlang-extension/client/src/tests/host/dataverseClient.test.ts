@@ -30,9 +30,9 @@ describe('projectSharedAgents', () => {
 	// were filtered out. The three entries below stand in for those captured non-owned
 	// agents; the ids are anonymized placeholders (no real records or secrets are stored).
 	const nonOwnedBots = [
-		{ botid: '00000000-0000-0000-0000-000000000001', name: 'Shared Agent A', iconbase64: '', bot_botcomponentcollection: [] },
-		{ botid: '00000000-0000-0000-0000-000000000002', name: 'Shared Agent B', iconbase64: '', bot_botcomponentcollection: [] },
-		{ botid: '00000000-0000-0000-0000-000000000003', name: 'Shared Agent C', iconbase64: '', bot_botcomponentcollection: [] },
+		{ botid: '00000000-0000-0000-0000-000000000001', name: 'Shared Agent A', schemaname: 'cr00_sharedagenta', iconbase64: '', bot_botcomponentcollection: [] },
+		{ botid: '00000000-0000-0000-0000-000000000002', name: 'Shared Agent B', schemaname: 'cr00_sharedagentb', iconbase64: '', bot_botcomponentcollection: [] },
+		{ botid: '00000000-0000-0000-0000-000000000003', name: 'Shared Agent C', schemaname: 'cr00_sharedagentc', iconbase64: '', bot_botcomponentcollection: [] },
 	];
 
 	test('returns every non-owned agent (no access-based filtering)', () => {

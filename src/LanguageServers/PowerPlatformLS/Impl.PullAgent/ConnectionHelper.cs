@@ -24,6 +24,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             AgentId = Guid.Empty,
             DataverseEndpoint = new Uri(request.EnvironmentInfo.DataverseUrl),
             EnvironmentId = request.EnvironmentInfo.EnvironmentId,
+            EnvironmentDisplayName = request.EnvironmentInfo.DisplayName,
             AccountInfo = request.AccountInfo,
             SolutionVersions = request.SolutionVersions,
             AgentManagementEndpoint = new Uri(request.EnvironmentInfo.AgentManagementUrl)

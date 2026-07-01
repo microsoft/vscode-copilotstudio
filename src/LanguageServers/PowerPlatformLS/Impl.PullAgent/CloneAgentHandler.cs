@@ -137,6 +137,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                             ComponentCollectionId = cc.BotComponentCollectionReference.CdsId,
                             DataverseEndpoint = syncInfo.DataverseEndpoint,
                             EnvironmentId = syncInfo.EnvironmentId,
+                            EnvironmentDisplayName = syncInfo.EnvironmentDisplayName,
                             SolutionVersions = syncInfo.SolutionVersions,
                             AccountInfo = syncInfo.AccountInfo,
                             AgentManagementEndpoint = syncInfo.AgentManagementEndpoint,
