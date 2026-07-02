@@ -44,6 +44,15 @@ internal class FileAccessorFactory : IFileAccessorFactory
             }
         }
 
+        public void DeleteDirectory(AgentFilePath path)
+        {
+            var fullPath = _root.GetChildDirectoryPath(path.ToString()).ToString();
+            if (Directory.Exists(fullPath))
+            {
+                Directory.Delete(fullPath, recursive: true);
+            }
+        }
+
         public bool Exists(AgentFilePath path) => File.Exists(FullPath(path).ToString());
 
         public Stream OpenRead(AgentFilePath path)

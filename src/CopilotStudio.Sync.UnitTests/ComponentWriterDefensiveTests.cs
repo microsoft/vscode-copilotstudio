@@ -202,6 +202,15 @@ internal class InMemoryFileAccessor : IFileAccessor
         _files.Remove(path.ToString());
     }
 
+    public void DeleteDirectory(AgentFilePath path)
+    {
+        var prefix = path.ToString().Replace('\\', '/').TrimEnd('/') + "/";
+        foreach (var key in _files.Keys.Where(k => k.Replace('\\', '/').StartsWith(prefix, StringComparison.Ordinal)).ToList())
+        {
+            _files.Remove(key);
+        }
+    }
+
     public void CreateHiddenDirectory(AgentFilePath path) { }
 
     public void Replace(AgentFilePath sourcePath, AgentFilePath targetPath)

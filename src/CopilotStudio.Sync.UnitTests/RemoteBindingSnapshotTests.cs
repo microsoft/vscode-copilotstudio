@@ -232,5 +232,7 @@ public class RemoteBindingSnapshotTests
             }
             _inner.Delete(path);
         }
+
+        public void DeleteDirectory(AgentFilePath path) => _inner.DeleteDirectory(path);
     }
 }

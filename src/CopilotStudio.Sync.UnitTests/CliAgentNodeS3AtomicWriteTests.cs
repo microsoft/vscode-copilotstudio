@@ -187,6 +187,8 @@ public class CliAgentNodeS3AtomicWriteTests
             Inner.Delete(path);
         }
 
+        public void DeleteDirectory(AgentFilePath path) => Inner.DeleteDirectory(path);
+
         public void Replace(AgentFilePath sourcePath, AgentFilePath targetPath) => Inner.Replace(sourcePath, targetPath);
 
         public IEnumerable<AgentFilePath> ListFiles(string? relativeFolder = null, string filePattern = "*.*")
