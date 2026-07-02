@@ -1386,11 +1386,6 @@ beginDialog:
         [Fact]
         public async Task GetWorkflowsAsync_FileInputWithNestedProperties_BuildsRecordType()
         {
-            using var tempWorkspace = new TempDirectory();
-            var workspaceFolder = new DirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
-            var workflowId = Guid.NewGuid();
-            var agentId = Guid.NewGuid();
-
             var clientData = @"
             {
                 ""properties"": {
@@ -1419,13 +1414,99 @@ beginDialog:
                 }
             }";
 
+            var workflow = await GetSingleWorkflowFromClientDataAsync(clientData, "FileWorkflow");
+
+            Assert.NotNull(workflow.InputType);
+
+            var fileType = workflow.InputType!.Properties["file"].Type;
+            var fileRecord = Assert.IsAssignableFrom<RecordDataType>(fileType);
+            Assert.Equal(DataType.String, fileRecord.GetPropertyType("name"));
+            Assert.Equal(DataType.File, fileRecord.GetPropertyType("contentBytes"));
+        }
+
+        [Fact]
+        public async Task GetWorkflowsAsync_NonFileObjectWithNestedContentBytes_KeepsStringType()
+        {
+            var clientData = @"
+            {
+                ""properties"": {
+                    ""definition"": {
+                        ""triggers"": {
+                            ""manual"": {
+                                ""inputs"": {
+                                    ""schema"": {
+                                        ""properties"": {
+                                            ""metadata"": {
+                                                ""type"": ""object"",
+                                                ""title"": ""Metadata"",
+                                                ""properties"": {
+                                                    ""contentBytes"": { ""type"": ""string"", ""format"": ""byte"", ""title"": ""Content Bytes"" }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        ""actions"": {}
+                    }
+                }
+            }";
+
+            var workflow = await GetSingleWorkflowFromClientDataAsync(clientData, "MetadataWorkflow");
+            var metadataRecord = Assert.IsAssignableFrom<RecordDataType>(workflow.InputType!.Properties["metadata"].Type);
+            Assert.Equal(DataType.String, metadataRecord.GetPropertyType("contentBytes"));
+        }
+
+        [Fact]
+        public async Task GetWorkflowsAsync_FileInputContentBytesWithoutByteFormat_KeepsStringType()
+        {
+            var clientData = @"
+            {
+                ""properties"": {
+                    ""definition"": {
+                        ""triggers"": {
+                            ""manual"": {
+                                ""inputs"": {
+                                    ""schema"": {
+                                        ""properties"": {
+                                            ""file"": {
+                                                ""type"": ""object"",
+                                                ""x-ms-content-hint"": ""FILE"",
+                                                ""title"": ""File Input"",
+                                                ""properties"": {
+                                                    ""contentBytes"": { ""type"": ""string"", ""title"": ""File Content"" },
+                                                    ""name"": { ""type"": ""string"", ""title"": ""File Name"" }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        ""actions"": {}
+                    }
+                }
+            }";
+
+            var workflow = await GetSingleWorkflowFromClientDataAsync(clientData, "FileWorkflow");
+            var fileRecord = Assert.IsAssignableFrom<RecordDataType>(workflow.InputType!.Properties["file"].Type);
+            Assert.Equal(DataType.String, fileRecord.GetPropertyType("contentBytes"));
+        }
+
+        private static async Task<CloudFlowDefinition> GetSingleWorkflowFromClientDataAsync(string clientData, string workflowName)
+        {
+            using var tempWorkspace = new TempDirectory();
+            var workspaceFolder = new DirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
+            var workflowId = Guid.NewGuid();
+            var agentId = Guid.NewGuid();
             var mockDataverse = new MockDataverseClient();
             mockDataverse.SetWorkflowsForAgent(new[]
             {
                 new WorkflowMetadata
                 {
                     WorkflowId = workflowId,
-                    Name = "FileWorkflow",
+                    Name = workflowName,
                     ClientData = clientData,
                     StateCode = 1
                 }
@@ -1441,14 +1522,7 @@ beginDialog:
 
             var workflows = await synchronizer.GetWorkflowsAsync(workspaceFolder, mockDataverse, new AgentSyncInfo { AgentId = agentId }, filesystem, CancellationToken.None);
 
-            var workflow = Assert.Single(workflows.Workflows);
-
-            Assert.NotNull(workflow.InputType);
-
-            var fileType = workflow.InputType!.Properties["file"].Type;
-            var fileRecord = Assert.IsAssignableFrom<RecordDataType>(fileType);
-            Assert.Equal(DataType.String, fileRecord.GetPropertyType("name"));
-            Assert.Equal(DataType.String, fileRecord.GetPropertyType("contentBytes"));
+            return Assert.Single(workflows.Workflows);
         }
 
         [Fact]

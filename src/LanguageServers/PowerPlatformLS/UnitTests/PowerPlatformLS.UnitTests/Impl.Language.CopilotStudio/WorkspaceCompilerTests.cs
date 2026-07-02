@@ -17,6 +17,11 @@
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.DependencyInjection;
+    using Microsoft.CopilotStudio.Sync;
+    using Microsoft.CopilotStudio.Sync.Dataverse;
+    using Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent;
+    using Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods;
+    using Microsoft.PowerPlatformLS.UnitTests.TestUtilities;
     using Moq;
     using System;
     using System.Collections.Generic;
@@ -24,6 +29,8 @@
     using System.IO;
     using System.Linq;
     using System.Text.Json;
+    using System.Threading;
+    using System.Threading.Tasks;
     using Xunit;
 
     public class WorkspaceCompilerTests
@@ -282,6 +289,151 @@
                 var diagnostics = element.Diagnostics.ToArray();
                 Assert.Empty(diagnostics);
             }
+        }
+
+        [Fact]
+        public async Task InvokeFlowAction_BindsMatchingFileRecord_DoesNotReportInvalidBindingError()
+        {
+            var flow = await BuildFileInputFlowAsync(FlowId);
+            var errorCodes = CompileTopicBindingFlowAndGetErrorCodes(flow, BuildFileBindingTopicYaml(contentBytesKind: "File"));
+            Assert.DoesNotContain("InvalidBindingInvokeAction", errorCodes);
+        }
+
+        [Fact]
+        public async Task InvokeFlowAction_BindsMismatchedContentBytes_ReportsInvalidBindingError()
+        {
+            var flow = await BuildFileInputFlowAsync(FlowId);
+            var errorCodes = CompileTopicBindingFlowAndGetErrorCodes(flow, BuildFileBindingTopicYaml(contentBytesKind: "String"));
+            Assert.Contains("InvalidBindingInvokeAction", errorCodes);
+        }
+
+        private const string FlowIdString = "12345678-1234-1234-1234-123456789abc";
+        private static readonly Guid FlowId = new Guid(FlowIdString);
+
+        private static async Task<CloudFlowDefinition> BuildFileInputFlowAsync(Guid workflowId)
+        {
+            var clientData = @"
+            {
+                ""properties"": {
+                    ""definition"": {
+                        ""triggers"": {
+                            ""manual"": {
+                                ""inputs"": {
+                                    ""schema"": {
+                                        ""properties"": {
+                                            ""file"": {
+                                                ""type"": ""object"",
+                                                ""x-ms-content-hint"": ""FILE"",
+                                                ""title"": ""File content 1"",
+                                                ""properties"": {
+                                                    ""name"": { ""type"": ""string"", ""title"": ""File Name"" },
+                                                    ""contentBytes"": { ""type"": ""string"", ""format"": ""byte"", ""title"": ""File Content"" }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        ""actions"": {}
+                    }
+                }
+            }";
+
+            var mockDataverse = new MockDataverseClient();
+            mockDataverse.SetWorkflowsForAgent(new[]
+            {
+                new SyncDataverseClient.WorkflowMetadata { WorkflowId = workflowId, Name = "FileFlow", ClientData = clientData, StateCode = 1 }
+            });
+
+            using var tempWorkspace = new TempDirectory();
+            var workspaceFolder = new DirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
+            var filesystem = new InMemoryFileWriter();
+            var synchronizer = new WorkspaceSynchronizer(
+                new SyncMcsFileParser(LspProjectorService.Instance),
+                (IFileAccessorFactory)filesystem,
+                Mock.Of<IIslandControlPlaneService>(),
+                Mock.Of<ISyncProgress>(),
+                new LspComponentPathResolver());
+
+            var workflows = await synchronizer.GetWorkflowsAsync(workspaceFolder, mockDataverse, new AgentSyncInfo { AgentId = Guid.NewGuid() }, filesystem, CancellationToken.None);
+            return workflows.Workflows[0];
+        }
+
+        private static string BuildFileBindingTopicYaml(string contentBytesKind) => $@"kind: AdaptiveDialog
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent:
+    triggerQueries:
+      - test
+  actions:
+    - kind: InvokeFlowAction
+      id: invokeFlowAction_file
+      flowId: {FlowIdString}
+      input:
+        binding:
+          file: =Topic.uploadedFile
+inputType:
+  properties:
+    uploadedFile:
+      displayName: uploadedFile
+      type:
+        kind: Record
+        properties:
+          name:
+            displayName: name
+            type: String
+          contentBytes:
+            displayName: contentBytes
+            type:
+              kind: {contentBytesKind}
+";
+
+        private static IReadOnlyList<string> CompileTopicBindingFlowAndGetErrorCodes(CloudFlowDefinition flow, string topicYaml)
+        {
+            return CompileTopicBindingFlow(flow, topicYaml).Model.DescendantsAndSelf()
+                .SelectMany(element => element.Diagnostics)
+                .Select(diagnostic => (diagnostic as BindingIncorrectTypeError)?.ErrorCode?.Value.ToString()
+                    ?? (diagnostic as PropertyError)?.ErrorCode?.Value.ToString()
+                    ?? string.Empty)
+                .ToArray();
+        }
+
+        private static Compilation<DefinitionBase> CompileTopicBindingFlow(CloudFlowDefinition flow, string topicYaml)
+        {
+            var entity = new BotEntity.Builder
+            {
+                SchemaName = "cr123_agent",
+                CdsBotId = Guid.Parse("00000000-0000-0000-0000-000000000010"),
+                AuthenticationMode = BotAuthenticationMode.Integrated,
+            }.Build();
+            var botDefinition = new BotDefinition.Builder { Entity = entity, Flows = { flow } }.Build();
+            var botDefinitionJson = JsonSerializer.Serialize(botDefinition, ElementSerializer.CreateOptions());
+
+            var services = new ServiceCollection();
+            services.Install(new McsLspModule());
+            MockCoreWorkspaceBuilder(services);
+            var serviceProvider = services.BuildServiceProvider();
+            var compiler = serviceProvider.GetRequiredService<IWorkspaceCompiler<DefinitionBase>>();
+            var language = serviceProvider.GetRequiredService<ILanguageAbstraction>();
+
+            var workspacePath = new DirectoryPath("c:/agent/");
+            var documents = new Dictionary<FilePath, LspDocument>();
+
+            void AddDocument(string relativePath, string text)
+            {
+                var documentPath = new FilePath("c:/agent/" + relativePath);
+                documents[documentPath] = language.CreateDocument(documentPath, text, CultureInfo.InvariantCulture, workspacePath);
+            }
+
+            AddDocument(".mcs/botdefinition.json", botDefinitionJson);
+            AddDocument("settings.mcs.yml", "schemaName: cr123_agent\ncdsBotId: 00000000-0000-0000-0000-000000000010");
+            AddDocument("topics/InvokeFlowTopic.mcs.yml", topicYaml);
+
+            var compilation = compiler.Compile(documents, workspacePath);
+
+            return compilation;
         }
 
         private static FilePath SystemToAgentFilePath(string path)
