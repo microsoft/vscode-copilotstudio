@@ -873,7 +873,17 @@ internal static class LspProjection
                 $"Invalid AgentDialog path format. Expected 'agents/{{agentName}}/...' but got: {pathWithoutExtension}");
         }
 
-        var agentName = parts[1];
+        // Sanitize the folder segment so the schema short-name is valid/cross-platform-safe,
+        // mirroring the schema->folder direction (FromDisplayName is idempotent for clean names).
+        var rawAgentName = parts[1];
+        var agentName = SubAgentFolderNaming.FromDisplayName(rawAgentName);
+        if (agentName == null)
+        {
+            throw new InvalidOperationException(
+                $"Sub-agent folder '{rawAgentName}' contains no characters usable in a schema name. " +
+                "Rename the folder to a cross-platform-safe name (letters, digits, '_' or '-').");
+        }
+
         return $"{botName}{AgentInfix}{agentName}";
     }
 

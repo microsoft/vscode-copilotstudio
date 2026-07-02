@@ -35,6 +35,12 @@ public interface IFileAccessor
     void Delete(AgentFilePath path);
 
     /// <summary>
+    /// Recursively delete the directory and all of its contents.
+    /// nop if the directory doesn't exist.
+    /// </summary>
+    void DeleteDirectory(AgentFilePath path);
+
+    /// <summary>
     /// Replace file content from sourcePath to targetPath.
     /// </summary>
     void Replace(AgentFilePath sourcePath, AgentFilePath targetPath);
