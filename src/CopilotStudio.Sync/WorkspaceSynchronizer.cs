@@ -2922,21 +2922,49 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             updatedDefinition = updatedDefinition.WithComponents(updatedDefinition.Components.Where(c => !deletedComponents.Any(d => d.SchemaNameString == c.SchemaNameString)));
         }
 
+        // Deleted components are resolved against a grounding that still contains the deleted
+        // components themselves. A child component (e.g. a sub-agent's knowledge file) is
+        // projected under its parent sub-agent's folder, which requires that parent to be
+        // resolvable - but the parent agent is itself being deleted and is absent from
+        // groundingDefinition. Re-adding the deleted components lets each delete path resolve to
+        // its real on-disk location (agents/<child>/...) instead of falling back to the main folder.
+        var deleteGroundingDefinition = deletedComponents.Count == 0
+            ? groundingDefinition
+            : groundingDefinition.WithComponents(groundingDefinition.Components.Concat(deletedComponents));
+
+        var deletedChildAgentFolders = new List<string>();
         foreach (var deleted in deletedComponents)
         {
             // Shape-aware single source of truth (D20/D30): the delete target is
             // the same .mcs.yml path the writer/reader use, so a server-deleted
             // component is removed from the workspace at its projected location.
-            var path = new AgentFilePath(_pathResolver.GetComponentPath(deleted, groundingDefinition));
+            var path = new AgentFilePath(_pathResolver.GetComponentPath(deleted, deleteGroundingDefinition));
             fileAccessor.Delete(path);
 
-            if (deleted is FileAttachmentComponent fileComponent && !string.IsNullOrEmpty(fileComponent.DisplayName))
+            if (deleted is DialogComponent { RootElement: AgentDialog })
+            {
+                // A child agent (sub-agent folder) was removed in the cloud: drop its hidden
+                // .agent.json link too, and remember the folder to prune once emptied below.
+                ChildAgentLinkFile.DeleteLink(fileAccessor, path);
+                deletedChildAgentFolders.Add(path.ParentDirectoryName);
+            }
+            else if (deleted is FileAttachmentComponent fileComponent && !string.IsNullOrEmpty(fileComponent.DisplayName))
             {
                 var contentPath = GetKnowledgeContentFilePath(path, fileComponent.DisplayName!);
                 if (fileAccessor.Exists(contentPath))
                 {
                     fileAccessor.Delete(contentPath);
                 }
+            }
+        }
+
+        // Remove sub-agent folders whose components were all deleted, so a cloud-side child-agent
+        // deletion doesn't leave an empty folder (with an orphaned .agent.json) behind on pull.
+        foreach (var folder in deletedChildAgentFolders.Distinct(StringComparer.Ordinal))
+        {
+            if (!fileAccessor.ListFiles(folder).Any())
+            {
+                fileAccessor.DeleteDirectory(new AgentFilePath(folder.TrimEnd('/')));
             }
         }
 

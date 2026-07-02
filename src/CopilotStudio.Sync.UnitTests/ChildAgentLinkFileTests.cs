@@ -74,6 +74,46 @@ public class ChildAgentLinkFileTests
         Assert.Null(folder.Link);
     }
 
+    [Fact]
+    public void DeleteLink_RemovesSidecar_LeavesAgentDefinition()
+    {
+        var accessor = CreateAccessor();
+        WriteAgentDefinition(accessor, "agents/Transfer Funds/agent.mcs.yml");
+        ChildAgentLinkFile.WriteLink(
+            accessor,
+            new AgentFilePath("agents/Transfer Funds/agent.mcs.yml"),
+            $"{Bot}.agent.TransferFunds");
+        Assert.True(accessor.Exists(new AgentFilePath("agents/Transfer Funds/.agent.json")));
+
+        ChildAgentLinkFile.DeleteLink(accessor, new AgentFilePath("agents/Transfer Funds/agent.mcs.yml"));
+
+        Assert.False(accessor.Exists(new AgentFilePath("agents/Transfer Funds/.agent.json")));
+        // The agent definition itself is untouched (it is deleted separately as a component).
+        Assert.True(accessor.Exists(new AgentFilePath("agents/Transfer Funds/agent.mcs.yml")));
+    }
+
+    [Fact]
+    public void DeleteLink_NoSidecar_DoesNotThrow()
+    {
+        var accessor = CreateAccessor();
+        WriteAgentDefinition(accessor, "agents/Foo/agent.mcs.yml");
+
+        // No .agent.json present - Delete is a no-op, not an error.
+        ChildAgentLinkFile.DeleteLink(accessor, new AgentFilePath("agents/Foo/agent.mcs.yml"));
+    }
+
+    [Fact]
+    public void DeleteLink_NonChildAgentPath_NoOp()
+    {
+        var accessor = CreateAccessor();
+        WriteText(accessor, "topics/Greeting.mcs.yml", "kind: AdaptiveDialog");
+
+        // A top-level (non agents/.../) path has no link sidecar to remove.
+        ChildAgentLinkFile.DeleteLink(accessor, new AgentFilePath("topics/Greeting.mcs.yml"));
+
+        Assert.True(accessor.Exists(new AgentFilePath("topics/Greeting.mcs.yml")));
+    }
+
     // ---- GetLocalChanges wiring (push/preview validates link files) ------------------
 
     // ---- GetLocalChanges: resolve child-agent schema (link or self-heal), then remap ----

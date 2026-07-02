@@ -160,6 +160,8 @@ public class RestoreRemoteBindingAtomicityTests
             _inner.Delete(path);
         }
 
+        public void DeleteDirectory(AgentFilePath path) => _inner.DeleteDirectory(path);
+
         public void CreateHiddenDirectory(AgentFilePath path) => _inner.CreateHiddenDirectory(path);
 
         public void Replace(AgentFilePath sourcePath, AgentFilePath targetPath) => _inner.Replace(sourcePath, targetPath);

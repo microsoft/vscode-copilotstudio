@@ -55,6 +55,19 @@ internal static class ChildAgentLinkFile
     }
 
     /// <summary>
+    /// Deletes the hidden link file beside a child agent's agent.mcs.yml. No-op when the path
+    /// isn't shaped like a child agent or the link file is absent. Call when the child agent is
+    /// removed so the sidecar doesn't outlive it.
+    /// </summary>
+    internal static void DeleteLink(IFileAccessor fileAccessor, AgentFilePath agentDefinitionPath)
+    {
+        if (TryGetFolder(agentDefinitionPath.ToString(), out _, out var linkPath))
+        {
+            fileAccessor.Delete(linkPath);
+        }
+    }
+
+    /// <summary>
     /// Enumerates every <c>agents/.../&lt;folder&gt;/agent.mcs.yml</c> on disk with its parsed
     /// <c>.agent.json</c> link (<see cref="ChildAgentFolder.Link"/> is null when the link file
     /// is missing or malformed). No-op for workspaces without child agents.

@@ -56,6 +56,15 @@ namespace Microsoft.PowerPlatformLS.UnitTests.TestUtilities
             _files.Remove(path);
         }
 
+        public void DeleteDirectory(AgentFilePath path)
+        {
+            var prefix = path.ToString().Replace('\\', '/').TrimEnd('/') + "/";
+            foreach (var key in _files.Keys.Where(k => k.ToString().Replace('\\', '/').StartsWith(prefix, StringComparison.Ordinal)).ToList())
+            {
+                _files.Remove(key);
+            }
+        }
+
         public bool Exists(AgentFilePath path)
         {
             return _files.ContainsKey(path);
