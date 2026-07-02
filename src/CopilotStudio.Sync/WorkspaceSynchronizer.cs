@@ -6331,15 +6331,21 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
     }
 
-    private static PropertyInfo CreatePropertyInfoFromJson(JsonElement propValue, string propName)
+    private static PropertyInfo CreatePropertyInfoFromJson(JsonElement propValue, string propName, bool isFileRecordField = false)
     {
         DataType type = DataType.String;
 
         var schemaType = propValue.TryGetProperty("type", out var typeNode) ? typeNode.GetString() : null;
+        var hasFileContentHint = propValue.TryGetProperty("x-ms-content-hint", out var hintNode) && string.Equals(hintNode.GetString(), "FILE", StringComparison.OrdinalIgnoreCase);
 
         if (schemaType != null)
         {
             type = MapFlowType(schemaType);
+        }
+
+        if (isFileRecordField && IsContentBytesField(propName, schemaType, propValue))
+        {
+            type = DataType.File;
         }
 
         if (string.Equals(schemaType, "object", StringComparison.OrdinalIgnoreCase) && propValue.TryGetProperty("properties", out var nestedProps) && nestedProps.ValueKind == JsonValueKind.Object)
@@ -6347,12 +6353,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             var fields = new Dictionary<string, PropertyInfo>(StringComparer.OrdinalIgnoreCase);
             foreach (var nested in nestedProps.EnumerateObject())
             {
-                fields[nested.Name] = CreatePropertyInfoFromJson(nested.Value, nested.Name);
+                fields[nested.Name] = CreatePropertyInfoFromJson(nested.Value, nested.Name, hasFileContentHint);
             }
 
             type = fields.Count == 0 ? DataType.EmptyRecord : new RecordDataType(fields.ToImmutableDictionary(StringComparer.OrdinalIgnoreCase));
         }
-        else if (propValue.TryGetProperty("x-ms-content-hint", out var hintNode) && string.Equals(hintNode.GetString(), "FILE", StringComparison.OrdinalIgnoreCase))
+        else if (hasFileContentHint)
         {
             type = DataType.File;
         }
@@ -6365,6 +6371,14 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         );
 
         return property;
+    }
+
+    private static bool IsContentBytesField(string propName, string? schemaType, JsonElement propValue)
+    {
+        return string.Equals(propName, "contentBytes", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(schemaType, "string", StringComparison.OrdinalIgnoreCase)
+            && propValue.TryGetProperty("format", out var formatNode)
+            && string.Equals(formatNode.GetString(), "byte", StringComparison.OrdinalIgnoreCase);
     }
 
     private static DataType MapFlowType(string jsonType)
