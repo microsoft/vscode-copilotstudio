@@ -158,8 +158,23 @@ public class ChildAgentLinkFileTests
         var ex = Assert.Throws<InvalidOperationException>(() =>
             synchronizer.GetLocalChanges(local, cloud, fileAccessor, "token-1"));
         Assert.Contains("crd1c_agent.agent.Agent_7_8", ex.Message);
-        Assert.Contains("agents/TransferFunds", ex.Message);
-        Assert.Contains("Re-clone", ex.Message);
+    }
+
+    [Fact]
+    public void GetLocalChanges_ValidLink_EmptyCloudCache_DoesNotThrow()
+    {
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/ws-link-empty-cache/"));
+        WriteAgentDefinition(fileAccessor, "agents/TransferFunds/agent.mcs.yml");
+        WriteText(fileAccessor, "agents/TransferFunds/.agent.json",
+            "{ \"schemaName\": \"crd1c_agent.agent.Agent_7_8\", \"folderName\": \"TransferFunds\" }");
+
+        var cloud = CreateDefinitionWithChildAgents();
+        var local = CreateDefinitionWithChildAgent("crd1c_agent.agent.TransferFunds", "Transfer Funds");
+
+        var exception = Record.Exception(() => synchronizer.GetLocalChanges(local, cloud, fileAccessor, "token-1"));
+
+        Assert.Null(exception);
     }
 
     [Fact]
@@ -217,6 +232,21 @@ public class ChildAgentLinkFileTests
         var (_, changes) = synchronizer.GetLocalChanges(local, cloud, fileAccessor, "token-1");
 
         AssertNoChildAgentCreateOrDelete(changes);
+    }
+
+    [Fact]
+    public void GetLocalChanges_MissingLink_SchemaNameFolder_EmptyCloudCache_DoesNotThrow()
+    {
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/ws-reattach-nolink/"));
+        WriteAgentDefinition(fileAccessor, "agents/Agent/agent.mcs.yml");
+
+        var cloud = CreateDefinitionWithChildAgents();
+        var local = CreateDefinitionWithChildAgent("crd1c_agent.agent.Agent", "Agent Child 1");
+
+        var exception = Record.Exception(() => synchronizer.GetLocalChanges(local, cloud, fileAccessor, "token-1"));
+
+        Assert.Null(exception);
     }
 
     [Fact]

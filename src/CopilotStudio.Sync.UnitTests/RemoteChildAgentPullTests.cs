@@ -79,6 +79,23 @@ public class RemoteChildAgentPullTests
         Assert.Contains(changes, change => change.SchemaName == orphanedFile.SchemaNameString && change.ChangeType == ChangeType.Create);
     }
 
+    [Fact]
+    public void GetLocalChanges_PostPull_FreshSubAgentChildWithCloudParentId_DoesNotThrowAndReportsNoChange()
+    {
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath("c:/test/workspace/");
+        var fileAccessor = fileAccessorFactory.Create(workspace);
+
+        var cloudParentId = new BotComponentId(Guid.NewGuid());
+        var child = CreateDialogComponent("cre98_AgentC1.tool.TeamsGetSection", Guid.NewGuid(), cloudParentId, new AdaptiveDialog());
+        var localDefinition = CreateDefinition(new[] { child });
+        var cloudSnapshot = CreateDefinition(new[] { child });
+
+        var (_, changes) = synchronizer.GetLocalChanges(localDefinition, cloudSnapshot, fileAccessor, "token-1", isRemoteChange: false, deferMissingParents: true, out _);
+
+        Assert.DoesNotContain(changes, c => c.SchemaName == child.SchemaNameString);
+    }
+
     private static BotDefinition CreateDefinition(IEnumerable<BotComponentBase> components)
     {
         var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!;

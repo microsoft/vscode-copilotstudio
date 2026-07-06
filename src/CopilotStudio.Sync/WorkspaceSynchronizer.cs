@@ -354,6 +354,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         if (downloadAllKnowledgeFiles && newSnapshot != null)
         {
             var fileComponents = newSnapshot.Components.OfType<FileAttachmentComponent>().Where(c => !string.IsNullOrEmpty(c.DisplayName)).ToList();
+            var knowledgeFolderOverrides = BuildChildAgentFolderOverrides(fileAccessor, newSnapshot);
             // #if kept: net10 uses Parallel.ForEachAsync with MaxDegreeOfParallelism=5
             // for concurrent knowledge-file downloads. netstandard2.0 has no equivalent
             // and the LCD foreach loses ~5x throughput when the agent has many knowledge
@@ -362,7 +363,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             foreach (var localComponent in fileComponents)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var componentPath = new AgentFilePath(_pathResolver.GetComponentPath(localComponent, newSnapshot));
+                var componentPath = GetStickyComponentPath(localComponent, newSnapshot, knowledgeFolderOverrides);
                 await dataverseClient.DownloadKnowledgeFileAsync(
                     Path.Combine(workspaceFolder.ToString(), componentPath.ParentDirectoryName),
                     localComponent.Id,
@@ -377,7 +378,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 CancellationToken = cancellationToken
             }, async (localComponent, cancellationToken) =>
             {
-                var componentPath = new AgentFilePath(_pathResolver.GetComponentPath(localComponent, newSnapshot));
+                var componentPath = GetStickyComponentPath(localComponent, newSnapshot, knowledgeFolderOverrides);
                 await dataverseClient.DownloadKnowledgeFileAsync(
                     Path.Combine(workspaceFolder.ToString(), componentPath.ParentDirectoryName),
                     localComponent.Id,
@@ -387,7 +388,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }).ConfigureAwait(false);
 #endif
 
-            RecordKnowledgeFilesBaseline(fileAccessor, newSnapshot, fileComponents);
+            RecordKnowledgeFilesBaseline(fileAccessor, newSnapshot, fileComponents, knowledgeFolderOverrides);
         }
 
         // persist updated change set on directory
@@ -649,12 +650,22 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             throw new ArgumentException($"Unable to merge local and remote changes");
         }
 
-        return component.WithId(
+        var mergedComponent = component.WithId(
             remoteChange?.Id.HasValue == true
             ? remoteChange.Id
             : originalComponent?.Id.HasValue == true
                 ? originalComponent.Id
                 : Guid.Empty).WithVersion(remoteChange?.Version ?? localChange?.Version ?? 0);
+
+        var mergedParentBotComponentId = remoteChange?.ParentBotComponentId ?? originalComponent?.ParentBotComponentId ?? localChange?.ParentBotComponentId;
+        if (mergedParentBotComponentId.HasValue)
+        {
+            var mergedBuilder = mergedComponent.ToBuilder();
+            mergedBuilder.ParentBotComponentId = mergedParentBotComponentId.Value;
+            mergedComponent = mergedBuilder.Build();
+        }
+
+        return mergedComponent;
     }
 
     internal ImmutableArray<string> GetConflicts(ImmutableArray<Change> local, ImmutableArray<Change> remote)
@@ -751,6 +762,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }
 
             var baseline = ReadKnowledgeSyncState(fileAccessor);
+            var folderOverrides = BuildChildAgentFolderOverrides(fileAccessor, snapshot);
             var newHashes = new ConcurrentDictionary<string, string>(baseline, StringComparer.OrdinalIgnoreCase);
             var uploaded = new ConcurrentBag<string>();
 
@@ -762,7 +774,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             foreach (var newFileComponent in newFileComponents)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                await UploadKnowledgeFileIfChangedAsync(fileAccessor, workspaceFolder, snapshot, newFileComponent, baseline, newHashes, uploaded, dataverseClient, cancellationToken).ConfigureAwait(false);
+                await UploadKnowledgeFileIfChangedAsync(fileAccessor, workspaceFolder, snapshot, newFileComponent, baseline, newHashes, uploaded, dataverseClient, folderOverrides, cancellationToken).ConfigureAwait(false);
             }
 #else
             await Parallel.ForEachAsync(newFileComponents, new ParallelOptions
@@ -772,7 +784,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             },
             async (newFileComponent, cancellationToken) =>
             {
-                await UploadKnowledgeFileIfChangedAsync(fileAccessor, workspaceFolder, snapshot, newFileComponent, baseline, newHashes, uploaded, dataverseClient, cancellationToken).ConfigureAwait(false);
+                await UploadKnowledgeFileIfChangedAsync(fileAccessor, workspaceFolder, snapshot, newFileComponent, baseline, newHashes, uploaded, dataverseClient, folderOverrides, cancellationToken).ConfigureAwait(false);
             }).ConfigureAwait(false);
 #endif
 
@@ -798,6 +810,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             return Task.FromResult(ImmutableArray<KnowledgeFileInfo>.Empty);
         }
 
+        var folderOverrides = BuildChildAgentFolderOverrides(fileAccessor, snapshot);
         var builder = ImmutableArray.CreateBuilder<KnowledgeFileInfo>();
         foreach (var component in snapshot.Components.OfType<FileAttachmentComponent>())
         {
@@ -807,7 +820,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 continue;
             }
 
-            var componentPath = new AgentFilePath(_pathResolver.GetComponentPath(component, snapshot));
+            var componentPath = GetStickyComponentPath(component, snapshot, folderOverrides);
             var contentPath = GetKnowledgeContentFilePath(componentPath, component.DisplayName!);
             builder.Add(new KnowledgeFileInfo
             {
@@ -834,6 +847,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
 
         var requestedSchemaNames = schemaNames != null && schemaNames.Count > 0 ? new HashSet<string>(schemaNames, StringComparer.OrdinalIgnoreCase) : null;
+        var folderOverrides = BuildChildAgentFolderOverrides(fileAccessor, snapshot);
 
         var fileComponents = snapshot.Components
             .OfType<FileAttachmentComponent>()
@@ -850,7 +864,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                var info = await DownloadSingleKnowledgeFileAsync(workspaceFolder, dataverseClient, component, snapshot, cancellationToken).ConfigureAwait(false);
+                var info = await DownloadSingleKnowledgeFileAsync(workspaceFolder, dataverseClient, component, snapshot, folderOverrides, cancellationToken).ConfigureAwait(false);
                 downloaded.Add(info);
             }
             catch (DataverseRequestException ex) when (skipMissingAttachments && IsMissingFileAttachment(ex))
@@ -867,7 +881,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             try
             {
-                var info = await DownloadSingleKnowledgeFileAsync(workspaceFolder, dataverseClient, component, snapshot, ct).ConfigureAwait(false);
+                var info = await DownloadSingleKnowledgeFileAsync(workspaceFolder, dataverseClient, component, snapshot, folderOverrides, ct).ConfigureAwait(false);
                 downloaded.Add(info);
             }
             catch (DataverseRequestException ex) when (skipMissingAttachments && IsMissingFileAttachment(ex))
@@ -877,7 +891,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }).ConfigureAwait(false);
 #endif
 
-        RecordKnowledgeFilesBaseline(fileAccessor, snapshot, fileComponents);
+        RecordKnowledgeFilesBaseline(fileAccessor, snapshot, fileComponents, folderOverrides);
 
         return downloaded.ToImmutableArray();
     }
@@ -897,6 +911,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             .ToList();
 
         var baseline = ReadKnowledgeSyncState(fileAccessor);
+        var folderOverrides = BuildChildAgentFolderOverrides(fileAccessor, snapshot);
         var newHashes = new ConcurrentDictionary<string, string>(baseline, StringComparer.OrdinalIgnoreCase);
         var uploaded = new ConcurrentBag<string>();
 
@@ -904,7 +919,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         foreach (var component in fileComponents)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await UploadKnowledgeFileIfChangedAsync(fileAccessor, workspaceFolder, snapshot, component, baseline, newHashes, uploaded, dataverseClient, cancellationToken).ConfigureAwait(false);
+            await UploadKnowledgeFileIfChangedAsync(fileAccessor, workspaceFolder, snapshot, component, baseline, newHashes, uploaded, dataverseClient, folderOverrides, cancellationToken).ConfigureAwait(false);
         }
 #else
         await Parallel.ForEachAsync(fileComponents, new ParallelOptions
@@ -913,7 +928,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             CancellationToken = cancellationToken
         }, async (component, ct) =>
         {
-            await UploadKnowledgeFileIfChangedAsync(fileAccessor, workspaceFolder, snapshot, component, baseline, newHashes, uploaded, dataverseClient, ct).ConfigureAwait(false);
+            await UploadKnowledgeFileIfChangedAsync(fileAccessor, workspaceFolder, snapshot, component, baseline, newHashes, uploaded, dataverseClient, folderOverrides, ct).ConfigureAwait(false);
         }).ConfigureAwait(false);
 
 #endif
@@ -935,6 +950,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         ConcurrentDictionary<string, string> newHashes,
         ConcurrentBag<string> uploaded,
         ISyncDataverseClient dataverseClient,
+        IReadOnlyDictionary<string, string> folderOverrides,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrEmpty(component.DisplayName))
@@ -942,7 +958,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             return;
         }
 
-        var componentPath = new AgentFilePath(_pathResolver.GetComponentPath(component, snapshot));
+        var componentPath = GetStickyComponentPath(component, snapshot, folderOverrides);
         var contentPath = GetKnowledgeContentFilePath(componentPath, component.DisplayName!);
         if (!IsValidFileToUpload(fileAccessor, contentPath))
         {
@@ -975,9 +991,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         ISyncDataverseClient dataverseClient,
         FileAttachmentComponent component,
         DefinitionBase snapshot,
+        IReadOnlyDictionary<string, string> folderOverrides,
         CancellationToken cancellationToken)
     {
-        var componentPath = new AgentFilePath(_pathResolver.GetComponentPath(component, snapshot));
+        var componentPath = GetStickyComponentPath(component, snapshot, folderOverrides);
         var parentDirectory = componentPath.ParentDirectoryName;
         var displayName = component.DisplayName!;
         var localDisplayName = KnowledgeFilePath.NormalizeDisplayName(displayName);
@@ -1336,6 +1353,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     private List<BotComponentBase> ScanForNewKnowledgeFiles(IFileAccessor fileAccessor, DefinitionBase definition, HashSet<string> existingSchemaNames, CancellationToken cancellationToken)
     {
         var newComponents = new List<BotComponentBase>();
+        var folderOverrides = BuildChildAgentFolderOverrides(fileAccessor, definition);
 
         var existingNamesByFolder = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var existing in definition.Components.OfType<FileAttachmentComponent>())
@@ -1345,7 +1363,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 continue;
             }
 
-            var folder = GetKnowledgeFilesFolder(definition, existing.ParentBotComponentId);
+            var folder = GetKnowledgeFilesFolder(definition, existing.ParentBotComponentId, folderOverrides);
             if (!existingNamesByFolder.TryGetValue(folder, out var names))
             {
                 names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1355,7 +1373,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             names.Add(KnowledgeFilePath.NormalizeDisplayName(existing.DisplayName!));
         }
 
-        var scopes = GetKnowledgeFileScopes(definition);
+        var scopes = GetKnowledgeFileScopes(definition, folderOverrides);
 
         foreach (var (parentId, folder) in scopes)
         {
@@ -1412,12 +1430,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return newComponents;
     }
 
-    private List<(BotComponentId? ParentId, string Folder)> GetKnowledgeFileScopes(DefinitionBase definition)
+    private List<(BotComponentId? ParentId, string Folder)> GetKnowledgeFileScopes(DefinitionBase definition, IReadOnlyDictionary<string, string> folderOverrides)
     {
         var scopes = new List<(BotComponentId? ParentId, string Folder)>();
         var seenFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        var rootFolder = GetKnowledgeFilesFolder(definition, null);
+        var rootFolder = GetKnowledgeFilesFolder(definition, null, folderOverrides);
         scopes.Add((null, rootFolder));
         seenFolders.Add(rootFolder);
 
@@ -1428,7 +1446,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 continue;
             }
 
-            var folder = GetKnowledgeFilesFolder(definition, parent.Id);
+            var folder = GetKnowledgeFilesFolder(definition, parent.Id, folderOverrides);
             if (!string.Equals(folder, rootFolder, StringComparison.OrdinalIgnoreCase) && seenFolders.Add(folder))
             {
                 scopes.Add((parent.Id, folder));
@@ -1438,7 +1456,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return scopes;
     }
 
-    private string GetKnowledgeFilesFolder(DefinitionBase definition, BotComponentId? parentId)
+    private string GetKnowledgeFilesFolder(DefinitionBase definition, BotComponentId? parentId, IReadOnlyDictionary<string, string> folderOverrides)
     {
         var builder = new FileAttachmentComponent()
             .WithSchemaName($"{GetSchemaName(definition)}{LspProjection.FileAttachmentInfix}{FileAttachmentProjectionProbeComponentName}")
@@ -1450,7 +1468,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             builder.ParentBotComponentId = parentId.Value;
         }
 
-        var componentPath = new AgentFilePath(_pathResolver.GetComponentPath(builder.Build(), definition));
+        var componentPath = GetStickyComponentPath(builder.Build(), definition, folderOverrides);
         return PathHelper.ToInternalCanonicalFolderPath(componentPath.ParentDirectoryName);
     }
 
@@ -1505,20 +1523,21 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             string realSchema;
             if (folder.Link != null)
             {
-                if (!string.Equals(folder.FolderName, folder.Link.FolderName, StringComparison.Ordinal))
-                {
-                    throw new InvalidOperationException(
-                        $"The child agent folder name '{folder.FolderName}' does not match the expected name '{folder.Link.FolderName}'. " +
-                        $"Rename the folder back to '{folder.Link.FolderName}' before syncing.");
-                }
+                ValidateChildAgentLinkFolderName(folder);
 
-                if (!cloudAgents.Contains(folder.Link.SchemaName))
+                if (cloudAgents.Contains(folder.Link.SchemaName))
+                {
+                    realSchema = folder.Link.SchemaName;
+                }
+                else if (cloudAgents.Count == 0)
+                {
+                    realSchema = folder.Link.SchemaName;
+                }
+                else
                 {
                     throw new InvalidOperationException(
                         $"The child agent folder 'agents/{folder.FolderName}' has a '{ChildAgentLinkFile.LinkFileName}' link to '{folder.Link.SchemaName}', but no cloud child agent with that schema was found. Re-clone the agent to regenerate the link file.");
                 }
-
-                realSchema = folder.Link.SchemaName;
             }
             else
             {
@@ -1562,28 +1581,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     /// (schema-name folders from clones predating the link file) or by projected display name.
     /// Throws when the folder matches no cloud agent or matches ambiguously.
     /// </summary>
-    private static string SelfHealChildAgentSchema(
-        string folderName,
-        string botName,
-        IReadOnlyList<string> cloudAgentSchemas,
-        IReadOnlyDictionary<string, string?> cloudAgentDisplayNames)
+    private static string SelfHealChildAgentSchema(string folderName, string botName, IReadOnlyList<string> cloudAgentSchemas, IReadOnlyDictionary<string, string?> cloudAgentDisplayNames)
     {
-        var derived = LspProjection.GetSchemaName($"agents/{folderName}/agent", botName, typeof(AgentDialog));
-
-        var matches = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var schema in cloudAgentSchemas)
-        {
-            var displayFolderKeepSpaces = SubAgentFolderNaming.FromDisplayName(cloudAgentDisplayNames[schema], keepSpaces: true);
-            var displayFolderNoSpaces = SubAgentFolderNaming.FromDisplayName(cloudAgentDisplayNames[schema], keepSpaces: false);
-
-            if (string.Equals(schema, derived, StringComparison.Ordinal)
-                || string.Equals(displayFolderKeepSpaces, folderName, StringComparison.Ordinal)
-                || string.Equals(displayFolderNoSpaces, folderName, StringComparison.Ordinal))
-            {
-                matches.Add(schema);
-            }
-        }
-
+        var matches = MatchChildAgentFolderToCloudSchemas(folderName, botName, cloudAgentSchemas, cloudAgentDisplayNames);
         if (matches.Count == 1)
         {
             return matches.First();
@@ -1591,14 +1591,185 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         if (matches.Count == 0)
         {
-            throw new InvalidOperationException(
-                $"The child agent folder 'agents/{folderName}' does not correspond to any cloud agent and has no '{ChildAgentLinkFile.LinkFileName}' link file. " +
+            var derived = LspProjection.GetSchemaName($"agents/{folderName}/agent", botName, typeof(AgentDialog));
+            if (cloudAgentSchemas.Count == 0 && !string.IsNullOrEmpty(derived))
+            {
+                return derived!;
+            }
+
+            throw new InvalidOperationException($"The child agent folder 'agents/{folderName}' does not correspond to any cloud agent and has no '{ChildAgentLinkFile.LinkFileName}' link file. " +
                 "If you renamed it, restore the original folder name; otherwise re-clone the agent (child agents cannot be created locally).");
         }
 
-        throw new InvalidOperationException(
-            $"The child agent folder 'agents/{folderName}' matches multiple cloud agents; cannot resolve its identity. " +
+        throw new InvalidOperationException($"The child agent folder 'agents/{folderName}' matches multiple cloud agents; cannot resolve its identity. " +
             $"Re-clone the agent to restore the '{ChildAgentLinkFile.LinkFileName}' link file.");
+    }
+
+    private static HashSet<string> MatchChildAgentFolderToCloudSchemas(string folderName, string botName, IReadOnlyList<string> cloudAgentSchemas, IReadOnlyDictionary<string, string?> cloudAgentDisplayNames)
+    {
+        var derived = LspProjection.GetSchemaName($"agents/{folderName}/agent", botName, typeof(AgentDialog));
+        var matches = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var schema in cloudAgentSchemas)
+        {
+            var displayFolderKeepSpaces = SubAgentFolderNaming.FromDisplayName(cloudAgentDisplayNames[schema], keepSpaces: true);
+            var displayFolderNoSpaces = SubAgentFolderNaming.FromDisplayName(cloudAgentDisplayNames[schema], keepSpaces: false);
+            if (string.Equals(schema, derived, StringComparison.Ordinal) || string.Equals(displayFolderKeepSpaces, folderName, StringComparison.Ordinal) || string.Equals(displayFolderNoSpaces, folderName, StringComparison.Ordinal))
+            {
+                matches.Add(schema);
+            }
+        }
+
+        return matches;
+    }
+
+    private static void ValidateChildAgentLinkFolderName(ChildAgentLinkFile.ChildAgentFolder folder)
+    {
+        if (folder.Link != null && !string.Equals(folder.FolderName, folder.Link.FolderName, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"The child agent folder name '{folder.FolderName}' does not match the expected name '{folder.Link.FolderName}'. " +
+                $"Rename the folder back to '{folder.Link.FolderName}' before syncing.");
+        }
+    }
+
+    private List<ChildAgentFolderCorrelation> CorrelateChildAgentFolders(IFileAccessor fileAccessor, BotDefinition botDefinition)
+    {
+        var result = new List<ChildAgentFolderCorrelation>();
+        var botName = botDefinition.Entity!.SchemaName.Value;
+        if (string.IsNullOrEmpty(botName))
+        {
+            return result;
+        }
+
+        var folders = ChildAgentLinkFile.ListFolders(fileAccessor);
+        if (folders.Count == 0)
+        {
+            return result;
+        }
+
+        var cloudAgentDialogs = botDefinition.Components.OfType<DialogComponent>().Where(c => c.RootElement is AgentDialog && !string.IsNullOrEmpty(c.SchemaNameString)).ToList();
+        if (cloudAgentDialogs.Count == 0)
+        {
+            return result;
+        }
+
+        var targetFolderBySchema = new Dictionary<string, string>(StringComparer.Ordinal);
+        var displayNameBySchema = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var dialog in cloudAgentDialogs)
+        {
+            var agentPath = new AgentFilePath(_pathResolver.GetComponentPath(dialog, botDefinition));
+            targetFolderBySchema[dialog.SchemaNameString!] = PathHelper.ToInternalCanonicalFolderPath(agentPath.ParentDirectoryName);
+            displayNameBySchema[dialog.SchemaNameString!] = dialog.DisplayName;
+        }
+
+        var ambiguousTargetFolders = targetFolderBySchema.Values.GroupBy(f => f, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var cloudAgentSchemas = targetFolderBySchema.Keys.ToList();
+        foreach (var folder in folders)
+        {
+            ValidateChildAgentLinkFolderName(folder);
+
+            string? schema;
+            if (folder.Link != null && targetFolderBySchema.ContainsKey(folder.Link.SchemaName))
+            {
+                schema = folder.Link.SchemaName;
+            }
+            else
+            {
+                var matches = MatchChildAgentFolderToCloudSchemas(folder.FolderName, botName, cloudAgentSchemas, displayNameBySchema);
+                schema = matches.Count == 1 ? matches.First() : null;
+            }
+
+            if (schema == null || !targetFolderBySchema.TryGetValue(schema, out var targetFolder))
+            {
+                continue;
+            }
+
+            result.Add(new ChildAgentFolderCorrelation
+            {
+                FolderName = folder.FolderName,
+                Schema = schema,
+                CurrentFolder = $"{LspProjection.AgentsFolder}{folder.FolderName}",
+                TargetFolder = targetFolder,
+                AmbiguousTarget = ambiguousTargetFolders.Contains(targetFolder),
+            });
+        }
+
+        return result;
+    }
+
+    private Dictionary<string, string> BuildChildAgentFolderOverrides(IFileAccessor fileAccessor, DefinitionBase definition)
+    {
+        var overrides = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (definition is not BotDefinition botDefinition || botDefinition.Entity == null)
+        {
+            return overrides;
+        }
+
+        foreach (var correlation in CorrelateChildAgentFolders(fileAccessor, botDefinition))
+        {
+            if (!correlation.AmbiguousTarget && !string.Equals(correlation.CurrentFolder, correlation.TargetFolder, StringComparison.OrdinalIgnoreCase))
+            {
+                overrides[correlation.Schema] = correlation.FolderName;
+            }
+        }
+
+        return overrides;
+    }
+
+    private static string? GetParentSubAgentSchema(BotComponentBase component, DefinitionBase definition)
+    {
+        if (component is DialogComponent { RootElement: AgentDialog } && !string.IsNullOrEmpty(component.SchemaNameString))
+        {
+            return component.SchemaNameString;
+        }
+
+        if (component.ParentBotComponentId.HasValue
+            && definition.TryGetBotComponentById(component.ParentBotComponentId.Value, out var parent)
+            && parent is DialogComponent { RootElement: AgentDialog }
+            && !string.IsNullOrEmpty(parent.SchemaNameString))
+        {
+            return parent.SchemaNameString;
+        }
+
+        return null;
+    }
+
+    private static AgentFilePath ApplyChildAgentFolderOverride(AgentFilePath path, BotComponentBase component, DefinitionBase definition, IReadOnlyDictionary<string, string> folderOverrides)
+    {
+        if (folderOverrides.Count == 0)
+        {
+            return path;
+        }
+
+        var schema = GetParentSubAgentSchema(component, definition);
+        if (schema == null || !folderOverrides.TryGetValue(schema, out var actualFolder) || !path.TryGetSubAgentName(out _, out var subPath))
+        {
+            return path;
+        }
+
+        return new AgentFilePath($"{LspProjection.AgentsFolder}{actualFolder}/{subPath}");
+    }
+
+    private AgentFilePath GetStickyComponentPath(BotComponentBase component, DefinitionBase definition, IReadOnlyDictionary<string, string> folderOverrides)
+        => ApplyChildAgentFolderOverride(new AgentFilePath(_pathResolver.GetComponentPath(component, definition)), component, definition, folderOverrides);
+
+    private static string? FindChildAgentFolderBySchema(IFileAccessor fileAccessor, string schema, string botName)
+    {
+        foreach (var folder in ChildAgentLinkFile.ListFolders(fileAccessor))
+        {
+            if (folder.Link != null && string.Equals(folder.Link.SchemaName, schema, StringComparison.Ordinal))
+            {
+                return $"{LspProjection.AgentsFolder}{folder.FolderName}";
+            }
+
+            var derived = LspProjection.GetSchemaName($"agents/{folder.FolderName}/agent", botName, typeof(AgentDialog));
+            if (string.Equals(derived, schema, StringComparison.Ordinal))
+            {
+                return $"{LspProjection.AgentsFolder}{folder.FolderName}";
+            }
+        }
+
+        return null;
     }
 
     private void MaterializeNewKnowledgeFileMetadata(DirectoryPath workspaceFolder, DefinitionBase definition, IReadOnlyList<BotComponentBase> newComponents, CancellationToken cancellationToken)
@@ -1609,10 +1780,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
 
         var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var folderOverrides = BuildChildAgentFolderOverrides(fileAccessor, definition);
         foreach (var newComponent in newComponents)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var componentPath = new AgentFilePath(_pathResolver.GetComponentPath(newComponent, definition));
+            var componentPath = GetStickyComponentPath(newComponent, definition, folderOverrides);
             if (fileAccessor.Exists(componentPath))
             {
                 continue;
@@ -2874,6 +3046,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var groundingDefinition = pathGroundingDefinition != null
             ? pathGroundingDefinition.ApplyChanges(changeset)
             : updatedDefinition;
+        var childAgentFolderOverrides = BuildChildAgentFolderOverrides(fileAccessor, groundingDefinition);
         var writer = new ComponentWriter
         {
             FileAccessor = fileAccessor,
@@ -2881,6 +3054,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             PathGroundingDefinition = pathGroundingDefinition != null ? groundingDefinition : null,
             PathResolver = _pathResolver,
             SyncProgress = _syncProgress,
+            ChildAgentFolderOverrides = childAgentFolderOverrides,
         };
 
         // Write connectionreferences.mcs.yml with updated connection references from cloud.
@@ -2933,12 +3107,14 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             : groundingDefinition.WithComponents(groundingDefinition.Components.Concat(deletedComponents));
 
         var deletedChildAgentFolders = new List<string>();
+        var deletedChildAgentSchemas = new List<string>();
         foreach (var deleted in deletedComponents)
         {
             // Shape-aware single source of truth (D20/D30): the delete target is
             // the same .mcs.yml path the writer/reader use, so a server-deleted
             // component is removed from the workspace at its projected location.
             var path = new AgentFilePath(_pathResolver.GetComponentPath(deleted, deleteGroundingDefinition));
+            path = ApplyChildAgentFolderOverride(path, deleted, deleteGroundingDefinition, childAgentFolderOverrides);
             fileAccessor.Delete(path);
 
             if (deleted is DialogComponent { RootElement: AgentDialog })
@@ -2947,6 +3123,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 // .agent.json link too, and remember the folder to prune once emptied below.
                 ChildAgentLinkFile.DeleteLink(fileAccessor, path);
                 deletedChildAgentFolders.Add(path.ParentDirectoryName);
+                if (!string.IsNullOrEmpty(deleted.SchemaNameString))
+                {
+                    deletedChildAgentSchemas.Add(deleted.SchemaNameString!);
+                }
             }
             else if (deleted is FileAttachmentComponent fileComponent && !string.IsNullOrEmpty(fileComponent.DisplayName))
             {
@@ -2965,6 +3145,18 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             if (!fileAccessor.ListFiles(folder).Any())
             {
                 fileAccessor.DeleteDirectory(new AgentFilePath(folder.TrimEnd('/')));
+            }
+        }
+
+        if (!string.IsNullOrEmpty(thisSchema))
+        {
+            foreach (var deletedSchema in deletedChildAgentSchemas.Distinct(StringComparer.Ordinal))
+            {
+                var actualFolder = FindChildAgentFolderBySchema(fileAccessor, deletedSchema, thisSchema);
+                if (actualFolder != null)
+                {
+                    fileAccessor.DeleteDirectory(new AgentFilePath(actualFolder));
+                }
             }
         }
 
@@ -3563,6 +3755,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             localDefinition = ResolveChildAgentSchemas(localDefinition, cloudSnapshot, fileAccessor);
         }
 
+        var childAgentFolderOverrides = BuildChildAgentFolderOverrides(fileAccessor, localDefinition);
+
         var changes = ImmutableArray.CreateBuilder<Change>();
         var botComponentBuilderList = new List<BotComponentChange>();
 
@@ -3643,6 +3837,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }
 
             BotComponentId parentBotComponentId = default;
+            var parentBotComponentIdResolved = !localComponent.ParentBotComponentId.HasValue;
             // Remap local botIds (which were fabricated) to real botIds from the cloud.
             if (localComponent is FileAttachmentComponent)
             {
@@ -3652,10 +3847,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                     if (cloudSnapshot.TryGetComponentBySchemaName(localFileParent.SchemaNameString, out var cloudFileParent))
                     {
                         parentBotComponentId = cloudFileParent.Id;
+                        parentBotComponentIdResolved = true;
                     }
                     else if (isRemoteChange)
                     {
                         parentBotComponentId = localFileParent.Id;
+                        parentBotComponentIdResolved = true;
                     }
                     else if (deferMissingParents)
                     {
@@ -3665,20 +3862,22 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                     else
                     {
                         parentBotComponentId = localFileParent.Id;
+                        parentBotComponentIdResolved = true;
                     }
                 }
             }
-            else if (localComponent.ParentBotComponentId.HasValue)
+            else if (localComponent.ParentBotComponentId.HasValue && localDefinition.TryGetBotComponentById(localComponent.ParentBotComponentId.Value, out var localParentComponent))
             {
-                var localParentComponent = localDefinition.VerifiedGetBotComponentById(localComponent.ParentBotComponentId);
                 var parentSchemaName = localParentComponent.SchemaNameString;
                 if (cloudSnapshot.TryGetComponentBySchemaName(parentSchemaName, out var cloudComponentParent))
                 {
                     parentBotComponentId = cloudComponentParent.Id;
+                    parentBotComponentIdResolved = true;
                 }
                 else if (isRemoteChange)
                 {
                     parentBotComponentId = localParentComponent.Id;
+                    parentBotComponentIdResolved = true;
                 }
                 else if (deferMissingParents)
                 {
@@ -3714,16 +3913,22 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                     b2.Id = cloudComponent.Id;
                     b2.Version = cloudComponent.Version;
                     b2.ParentBotId = parentBotId;
-                    b2.ParentBotComponentId = parentBotComponentId;
+                    b2.ParentBotComponentId = parentBotComponentIdResolved ? parentBotComponentId : cloudComponent.ParentBotComponentId;
                     b2.ParentBotComponentCollectionId = parentCollectionId;
                     b2.DisplayName = localComponent.DisplayName;
                     b2.Description = localComponent.Description;
                     botComponentBuilderList.Add(new BotComponentUpdate(b2.Build()));
-                    changes.Add(new Change() { ChangeType = ChangeType.Update, Name = b2.SchemaNameString, Uri = _pathResolver.GetComponentPath(localComponent, localDefinition), SchemaName = cloudComponent.SchemaNameString, ChangeKind = cloudComponent.Kind.ToString() });
+                    changes.Add(new Change() { ChangeType = ChangeType.Update, Name = b2.SchemaNameString, Uri = GetStickyComponentPath(localComponent, localDefinition, childAgentFolderOverrides).ToString(), SchemaName = cloudComponent.SchemaNameString, ChangeKind = cloudComponent.Kind.ToString() });
                 }
             }
             else
             {
+                if (!parentBotComponentIdResolved && deferMissingParents)
+                {
+                    deferredMissingParent = true;
+                    continue;
+                }
+
                 // In local, but not in cloud . --> Insert to cloud
                 var b2 = localComponent.ToBuilder();
                 b2.ParentBotId = parentBotId;
@@ -3732,7 +3937,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 b2.DisplayName = localComponent.DisplayName;
                 b2.Description = localComponent.Description;
                 botComponentBuilderList.Add(new BotComponentInsert(b2.Build()));
-                changes.Add(new Change() { ChangeType = ChangeType.Create, Name = b2.SchemaNameString, Uri = _pathResolver.GetComponentPath(localComponent, localDefinition), SchemaName = b2.SchemaNameString, ChangeKind = localComponent.Kind.ToString() });
+                changes.Add(new Change() { ChangeType = ChangeType.Create, Name = b2.SchemaNameString, Uri = GetStickyComponentPath(localComponent, localDefinition, childAgentFolderOverrides).ToString(), SchemaName = b2.SchemaNameString, ChangeKind = localComponent.Kind.ToString() });
             }
         }
 
@@ -3746,7 +3951,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 }
 
                 botComponentBuilderList.Add(new BotComponentDelete(cloudComponent.Id, cloudComponent.Version));
-                changes.Add(new Change() { ChangeType = ChangeType.Delete, Name = cloudComponent.SchemaNameString, Uri = _pathResolver.GetComponentPath(cloudComponent, cloudSnapshot), SchemaName = cloudComponent.SchemaNameString, ChangeKind = cloudComponent.Kind.ToString() });
+                changes.Add(new Change() { ChangeType = ChangeType.Delete, Name = cloudComponent.SchemaNameString, Uri = GetStickyComponentPath(cloudComponent, cloudSnapshot, childAgentFolderOverrides).ToString(), SchemaName = cloudComponent.SchemaNameString, ChangeKind = cloudComponent.Kind.ToString() });
             }
         }
 
@@ -4052,6 +4257,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         public ISyncProgress? SyncProgress { get; init; }
 
+        public IReadOnlyDictionary<string, string> ChildAgentFolderOverrides { get; init; } = ImmutableDictionary<string, string>.Empty;
+
         public override void Visit(UnknownBotComponentChange item)
         {
             // ignore unknown changes
@@ -4105,7 +4312,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             // classic locations, and SerializeAsMcsYml emits the full component
             // body (with mcs.metadata) at that path. The hand-coded CliAgent*
             // writer dispatch (bare-dialog .yaml bodies) is retired (Node Q).
-            var path = new AgentFilePath(PathResolver.GetComponentPath(groundedComponent, PathGroundingDefinition ?? Definition));
+            var path = ApplyChildAgentFolderOverride(new AgentFilePath(PathResolver.GetComponentPath(groundedComponent, PathGroundingDefinition ?? Definition)), groundedComponent, PathGroundingDefinition ?? Definition, ChildAgentFolderOverrides);
             using (var stream = FileAccessor.OpenWrite(path))
             using (var textWriter = new StreamWriter(stream))
             {
@@ -7060,7 +7267,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
     }
 
-    private void RecordKnowledgeFilesBaseline(IFileAccessor fileAccessor, DefinitionBase snapshot, IEnumerable<FileAttachmentComponent> components)
+    private void RecordKnowledgeFilesBaseline(IFileAccessor fileAccessor, DefinitionBase snapshot, IEnumerable<FileAttachmentComponent> components, IReadOnlyDictionary<string, string> folderOverrides)
     {
         var state = ReadKnowledgeSyncState(fileAccessor);
         var changed = false;
@@ -7071,7 +7278,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 continue;
             }
 
-            var componentPath = new AgentFilePath(_pathResolver.GetComponentPath(component, snapshot));
+            var componentPath = GetStickyComponentPath(component, snapshot, folderOverrides);
             var contentPath = GetKnowledgeContentFilePath(componentPath, component.DisplayName!);
             if (!fileAccessor.Exists(contentPath))
             {
@@ -7454,5 +7661,18 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             try { Directory.Delete(tempDir, recursive: true); } catch { /* best-effort cleanup */ }
         }
+    }
+
+    private sealed class ChildAgentFolderCorrelation
+    {
+        public string FolderName { get; set; } = string.Empty;
+
+        public string Schema { get; set; } = string.Empty;
+
+        public string CurrentFolder { get; set; } = string.Empty;
+
+        public string TargetFolder { get; set; } = string.Empty;
+
+        public bool AmbiguousTarget { get; set; }
     }
 }
