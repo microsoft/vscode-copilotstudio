@@ -41,6 +41,11 @@
             var path = componentRef.Directory;
             if (string.IsNullOrWhiteSpace(path))
             {
+                if (componentRef.SchemaName.HasValue && !string.IsNullOrWhiteSpace(componentRef.SchemaName.Value))
+                {
+                    throw new BadReferenceException($"Component collection '{componentRef.SchemaName.Value}' is installed on this agent in the cloud but is not available in this workspace. Get or clone the component collection before pushing.", componentRef);
+                }
+
                 throw new BadReferenceException($"Missing directory", componentRef);
             }
 

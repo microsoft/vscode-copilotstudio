@@ -1,6 +1,6 @@
 import { unescape } from "querystring";
 import { CancellationToken, commands, EventEmitter, ExtensionContext, scm, SourceControlResourceGroup, Uri, window } from "vscode";
-import { addWorkspaceChangeSubscription, CopilotStudioWorkspace, getAllWorkspaces, updateWorkspaceCache, hasConnectionFileInWorkspace } from "./localWorkspaces";
+import { addWorkspaceChangeSubscription, CopilotStudioWorkspace, getAllWorkspaces, updateWorkspaceCache, hasConnectionFileInWorkspace, WorkspaceType } from "./localWorkspaces";
 import { LocalChangeResourceCommandResolver, RemoteChangeResourceCommandResolver, Resource, ResourceCommandResolver } from "./changeTracking";
 import { SyncResponse, Change, SyncRequest, DiffRequest } from "../types";
 import { LOCAL_STATE_SCHEME } from "./originalState";
@@ -181,9 +181,13 @@ export async function pushNewWorkspace(context: ExtensionContext, ws: CopilotStu
   const synchronizer = getOrAddSynchronizer(workspace ?? ws);
   const virtualKnowledgeProvider = await registerVirtualKnowledgeProvider(context, workspace ?? ws);
 
+  const isComponentCollectionWorkspace = (workspace ?? ws).type === WorkspaceType.ComponentCollection;
+
   const maxAttempts = 4;
   for (let attempt = 1; ; attempt++) {
-    await synchronizer.pull(virtualKnowledgeProvider);
+    if (!isComponentCollectionWorkspace) {
+      await synchronizer.pull(virtualKnowledgeProvider);
+    }
     try {
       await synchronizer.push({ suppressErrorNotification: true, suppressDisabledWorkflowWarnings: true, draftConnectionReferenceWorkflows });
       break;

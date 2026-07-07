@@ -15,7 +15,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     internal abstract class SyncHandler : IRequestHandler<SyncAgentRequest, SyncAgentResponse, RequestContext>
     {
         private readonly ITokenManager _dataverseTokenManager;
-        private readonly CopilotStudio.Sync.IOperationContextProvider _operationContextProvider;
+        protected readonly CopilotStudio.Sync.IOperationContextProvider _operationContextProvider;
         protected readonly ILspLogger _logger;
         private readonly CopilotStudio.Sync.IIslandControlPlaneService _islandControlPlaneService;
         protected readonly CopilotStudio.Sync.IWorkspaceSynchronizer _synchronizer;

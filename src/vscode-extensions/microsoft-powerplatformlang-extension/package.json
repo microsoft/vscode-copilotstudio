@@ -206,7 +206,7 @@
         },
         {
           "command": "microsoft-copilot-studio.manageConnections",
-          "when": "view == agent-changes && viewItem == agent",
+          "when": "view == agent-changes && (viewItem == agent || viewItem == componentCollection)",
           "group": "inline"
         },
         {

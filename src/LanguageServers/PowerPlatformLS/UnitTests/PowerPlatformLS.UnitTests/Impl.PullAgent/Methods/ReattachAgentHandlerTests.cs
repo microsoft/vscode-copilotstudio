@@ -100,7 +100,9 @@
         public async Task ReattachAgentInvalidDirectoryReturns400Test()
         {
             var context = CreateTestSetup("Workspace/InvalidWorkspace");
-            var handler = TestHandlerFactory.CreateHandler(new MockDataverseClient(), new TestWorkspaceSynchronizer(), CreateOperationProvider());
+            var dataverseClient = new MockDataverseClient();
+            var synchronizer = new TestWorkspaceSynchronizer();
+            var handler = TestHandlerFactory.CreateHandler(dataverseClient, synchronizer, CreateOperationProvider());
 
             var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
 
@@ -257,12 +259,80 @@
                 DataverseAccessToken = DataverseToken
             };
 
-            var handler = TestHandlerFactory.CreateHandler(new MockDataverseClient(), new TestWorkspaceSynchronizer(), CreateOperationProvider());
+            var dataverseClient = new MockDataverseClient();
+            var synchronizer = new TestWorkspaceSynchronizer();
+            var handler = TestHandlerFactory.CreateHandler(dataverseClient, synchronizer, CreateOperationProvider());
 
             var response = await handler.HandleRequestAsync(request, requestContext, CancellationToken.None);
 
             Assert.Equal(200, response.Code);
             Assert.True(response.IsNewAgent);
+            Assert.True(dataverseClient.CreateComponentCollectionCalled);
+            Assert.False(dataverseClient.CreateNewAgentCalled);
+            Assert.Null(response.AgentSyncInfo!.AgentId);
+            Assert.NotNull(response.AgentSyncInfo.ComponentCollectionId);
+            Assert.Equal(0, synchronizer.UpsertWorkflowCallCount);
+            Assert.Equal(0, synchronizer.UpsertAIPromptCallCount);
+        }
+
+        [Fact]
+        public async Task ReattachAgent_ComponentCollectionReusesExistingCloudCollection_StillRequiresLocalPush()
+        {
+            var dir = Path.GetFullPath(Path.Combine(TestDataPath, "WorkspaceWithCC"));
+            var world = new World(dir);
+            var ccDir = Path.Combine(dir, "MyCC333");
+            var workspace = world.GetWorkspace(ccDir);
+            var doc = workspace.GetDocumentOrThrow(new AgentFilePath("collection.mcs.yml"));
+            var requestContext = world.GetRequestContext(doc, 0);
+
+            var request = new ReattachAgentRequest
+            {
+                WorkspaceUri = new Uri(ccDir),
+                AccountInfo = new AccountInfo
+                {
+                    AccountId = AccountId,
+                    TenantId = Guid.NewGuid(),
+                    AccountEmail = AccountEmail
+                },
+                EnvironmentInfo = new EnvironmentInfo
+                {
+                    DataverseUrl = DataverseUrl,
+                    AgentManagementUrl = AgentManagementUrl,
+                    EnvironmentId = EnvironmentId,
+                    DisplayName = "Test Environment"
+                },
+                SolutionVersions = new SolutionInfo
+                {
+                    CopilotStudioSolutionVersion = new Version(1, 0, 0, 0)
+                },
+                CopilotStudioAccessToken = CopilotStudioToken,
+                DataverseAccessToken = DataverseToken
+            };
+
+            var dataverseClient = new ReusedComponentCollectionMockDataverseClient(Guid.NewGuid());
+            var synchronizer = new TestWorkspaceSynchronizer();
+            var handler = TestHandlerFactory.CreateHandler(dataverseClient, synchronizer, CreateOperationProvider());
+
+            var response = await handler.HandleRequestAsync(request, requestContext, CancellationToken.None);
+
+            Assert.Equal(200, response.Code);
+            Assert.False(response.IsNewAgent);
+            Assert.False(dataverseClient.CreateComponentCollectionCalled);
+            Assert.True(response.RequiresLocalPush);
+            Assert.NotNull(response.AgentSyncInfo!.ComponentCollectionId);
+        }
+
+        private sealed class ReusedComponentCollectionMockDataverseClient : MockDataverseClient
+        {
+            private readonly Guid _existingComponentCollectionId;
+
+            public ReusedComponentCollectionMockDataverseClient(Guid existingComponentCollectionId)
+            {
+                _existingComponentCollectionId = existingComponentCollectionId;
+            }
+
+            public override Task<Guid> GetComponentCollectionIdBySchemaNameAsync(string schemaName, CancellationToken cancellationToken)
+                => Task.FromResult(_existingComponentCollectionId);
         }
 
         [Theory]
@@ -542,7 +612,7 @@
     /// <summary>
     /// Create mock Dataverse client that simulates agent creation
     /// </summary>
-    internal class MockDataverseClient : ISyncDataverseClient
+    internal class MockDataverseClient : ISyncDataverseClient, ISyncComponentCollectionDataverseClient
     {
         private WorkflowMetadata[]? _workflowsForAgent;
 
@@ -561,7 +631,11 @@
 
         public bool CreateNewAgentCalled { get; private set; }
 
+        public bool CreateComponentCollectionCalled { get; private set; }
+
         public string? LastCreatedSchemaName { get; private set; }
+
+        public string? LastCreatedComponentCollectionSchemaName { get; private set; }
 
         public virtual Task<AgentInfo> CreateNewAgentAsync(string newAgentName, string schemaName, AuthoringShape authoringShape, CancellationToken cancellationToken)
         {
@@ -576,9 +650,41 @@
             return Task.FromResult(fakeAgent);
         }
 
+        public virtual Task<ComponentCollectionInfo> CreateComponentCollectionAsync(string displayName, string schemaName, CancellationToken cancellationToken)
+        {
+            CreateComponentCollectionCalled = true;
+            LastCreatedComponentCollectionSchemaName = schemaName;
+            return Task.FromResult(new ComponentCollectionInfo
+            {
+                Id = Guid.NewGuid(),
+                DisplayName = displayName,
+                SchemaName = schemaName
+            });
+        }
+
         public virtual Task<Guid> GetAgentIdBySchemaNameAsync(string schemaName, CancellationToken cancellationToken)
         {
             return Task.FromResult(Guid.Empty);
+        }
+
+        public virtual Task<Guid> GetComponentCollectionIdBySchemaNameAsync(string schemaName, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(Guid.Empty);
+        }
+
+        public virtual Task InstallComponentCollectionOnAgentAsync(Guid agentId, Guid componentCollectionId, CancellationToken cancellationToken)
+        {
+            return Task.CompletedTask;
+        }
+
+        public virtual Task UninstallComponentCollectionFromAgentAsync(Guid agentId, Guid componentCollectionId, CancellationToken cancellationToken)
+        {
+            return Task.CompletedTask;
+        }
+
+        public virtual Task<IReadOnlyList<Guid>> GetAgentIdsForComponentCollectionAsync(Guid componentCollectionId, CancellationToken cancellationToken)
+        {
+            return Task.FromResult<IReadOnlyList<Guid>>(new List<Guid>());
         }
 
         public virtual Task<WorkflowMetadata[]> DownloadAllWorkflowsForAgentAsync(AgentSyncInfo syncInfo, CancellationToken cancellationToken)
@@ -697,7 +803,7 @@
 
     internal static class TestHandlerFactory
     {
-        public static ReattachAgentHandler CreateHandler(ISyncDataverseClient dataverseClient, IWorkspaceSynchronizer workspace, IOperationContextProvider opProvider, ILspLogger? logger = null)
+        public static ReattachAgentHandler CreateHandler(ISyncDataverseClient dataverseClient, IWorkspaceSynchronizer workspace, IOperationContextProvider opProvider, ILspLogger? logger = null, ISyncComponentCollectionDataverseClient? componentCollectionDataverseClient = null)
         {
             var mockAuthProvider = new Mock<ISyncAuthProvider>();
             mockAuthProvider.Setup(a => a.AcquireTokenAsync(It.IsAny<Uri>(), It.IsAny<CancellationToken>())).ReturnsAsync("mock-token");
@@ -708,6 +814,7 @@
                 (IWorkspaceRetargetService)workspace,
                 new TestTokenManager(),
                 dataverseClient,
+                componentCollectionDataverseClient ?? dataverseClient as ISyncComponentCollectionDataverseClient ?? Mock.Of<ISyncComponentCollectionDataverseClient>(),
                 accessor,
                 opProvider,
                 logger ?? new Mock<ILspLogger>().Object);
@@ -825,7 +932,7 @@
         public Task<PushChangesetResult> PushChangesetAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, PvaComponentChangeSet localWorkspaceDefinition, ISyncDataverseClient dataverseClient, Guid? agentId, CloudFlowMetadata? cloudFlowMetadata, ImmutableArray<AIPromptMetadata> aiPrompts, CancellationToken cancellationToken, bool uploadAllKnowledgeFiles = false)
             => Task.FromResult(new PushChangesetResult());
 
-        public Task PushLocalChangesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, DefinitionBase workspaceDefinition, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CloudFlowMetadata? cloudFlowMetadata, ImmutableArray<AIPromptMetadata> aiPrompts, CancellationToken cancellationToken)
+        public Task PushLocalChangesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, DefinitionBase workspaceDefinition, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CloudFlowMetadata? cloudFlowMetadata, ImmutableArray<AIPromptMetadata> aiPrompts, CancellationToken cancellationToken, AuthoringOperationContextBase? contentSaveContextOverride = null)
             => Task.CompletedTask;
 
         public Task<ImmutableArray<KnowledgeFileInfo>> ListKnowledgeFilesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, CancellationToken cancellationToken)
@@ -840,7 +947,7 @@
         public Task<WorkspaceSyncInfo> SyncWorkspaceAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, string? changeToken, bool updateWorkspaceDirectory, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken)
             => SyncWorkspaceAsync(workspaceFolder, operationContext, changeToken, updateWorkspaceDirectory, dataverseClient, syncInfo, cloudFlowMetadata, cancellationToken, default);
 
-        public Task<WorkspaceSyncInfo> SyncWorkspaceAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, string? changeToken, bool updateWorkspaceDirectory, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken, ImmutableArray<AIPromptMetadata> aiPromptMetadata, bool syncCustomConnectors = true)
+        public Task<WorkspaceSyncInfo> SyncWorkspaceAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, string? changeToken, bool updateWorkspaceDirectory, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken, ImmutableArray<AIPromptMetadata> aiPromptMetadata, bool syncCustomConnectors = true, bool syncWorkflowsAndPrompts = true)
         {
             ReattachCalled = true;
             return Task.FromResult(new WorkspaceSyncInfo
@@ -852,6 +959,7 @@
 
         public virtual Task<(ImmutableArray<WorkflowResponse>, CloudFlowMetadata)> UpsertWorkflowForAgentAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken, WorkflowActivationMode activationMode = WorkflowActivationMode.PreserveSavedState)
         {
+            UpsertWorkflowCallCount++;
             var emptyMetadata = new CloudFlowMetadata
             {
                 Workflows = ImmutableArray<CloudFlowDefinition>.Empty,
@@ -891,7 +999,14 @@
             => Task.FromResult(ImmutableArray<AIPromptMetadata>.Empty);
 
         public virtual Task<(ImmutableArray<AIPromptResponse>, ImmutableArray<AIPromptMetadata>)> UpsertAIPromptsForAgentAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
-            => Task.FromResult((ImmutableArray<AIPromptResponse>.Empty, ImmutableArray<AIPromptMetadata>.Empty));
+        {
+            UpsertAIPromptCallCount++;
+            return Task.FromResult((ImmutableArray<AIPromptResponse>.Empty, ImmutableArray<AIPromptMetadata>.Empty));
+        }
+
+        public int UpsertWorkflowCallCount { get; private set; }
+
+        public int UpsertAIPromptCallCount { get; private set; }
 
         public Task<DefinitionBase> ReadWorkspaceDefinitionAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, CancellationToken cancellationToken, bool checkKnowledgeFiles = false)
             => Task.FromResult<DefinitionBase>(new BotDefinition());

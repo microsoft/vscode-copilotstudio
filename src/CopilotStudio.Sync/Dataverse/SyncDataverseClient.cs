@@ -12,7 +12,7 @@ using YamlDotNet.Serialization;
 
 namespace Microsoft.CopilotStudio.Sync.Dataverse;
 
-public class SyncDataverseClient : ISyncDataverseClient
+public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectionDataverseClient
 {
     private readonly IDataverseHttpClientAccessor _httpClientAccessor;
     private readonly AsyncLocal<string> _dataverseUrl = new();
@@ -41,7 +41,12 @@ public class SyncDataverseClient : ISyncDataverseClient
     /// <inheritdoc />
     public void SetDataverseUrl(string dataverseUrl)
     {
-        _dataverseUrl.Value = dataverseUrl ?? throw new ArgumentNullException(nameof(dataverseUrl));
+        if (dataverseUrl == null)
+        {
+            throw new ArgumentNullException(nameof(dataverseUrl));
+        }
+
+        _dataverseUrl.Value = dataverseUrl.TrimEnd('/');
     }
 
     public virtual async Task<AgentInfo> CreateNewAgentAsync(string displayName, string schemaName, AuthoringShape authoringShape, CancellationToken cancellationToken)
@@ -63,11 +68,68 @@ public class SyncDataverseClient : ISyncDataverseClient
         return response.ToAgentInfo();
     }
 
+    public virtual async Task<ComponentCollectionInfo> CreateComponentCollectionAsync(string displayName, string schemaName, CancellationToken cancellationToken)
+    {
+        var response = await SendAsync<ComponentCollectionDetail>(HttpMethod.Post, $"{DataverseUrl}/api/data/v9.2/botcomponentcollections", new Dictionary<string, object?>
+        {
+            ["name"] = displayName ?? throw new ArgumentNullException(nameof(displayName)),
+            ["schemaname"] = string.IsNullOrWhiteSpace(schemaName) ? null : schemaName
+        }, expectReturn: true, cancellationToken).ConfigureAwait(false);
+
+        if (response == null || response.BotComponentCollectionId == Guid.Empty)
+        {
+            throw new InvalidOperationException("Dataverse API returned an invalid component collection creation response.");
+        }
+
+        return response.ToComponentCollectionInfo();
+    }
+
     public virtual async Task<Guid> GetAgentIdBySchemaNameAsync(string schemaName, CancellationToken cancellationToken)
     {
         var requestUri = $"{DataverseUrl}/api/data/v9.2/bots?$select=botid&$filter=schemaname eq '{schemaName?.Replace("'", "''")}'";
         var result = await SendAsync<AgentInfoDetail>(HttpMethod.Get, requestUri, null, false, cancellationToken).ConfigureAwait(false);
         return result?.Value?.FirstOrDefault()?.AgentId ?? Guid.Empty;
+    }
+
+    public virtual async Task<Guid> GetComponentCollectionIdBySchemaNameAsync(string schemaName, CancellationToken cancellationToken)
+    {
+        var requestUri = $"{DataverseUrl}/api/data/v9.2/botcomponentcollections?$select=botcomponentcollectionid&$filter=schemaname eq '{schemaName?.Replace("'", "''")}'";
+        var result = await SendAsync<ComponentCollectionInfoDetail>(HttpMethod.Get, requestUri, null, false, cancellationToken).ConfigureAwait(false);
+        return result?.Value?.FirstOrDefault()?.BotComponentCollectionId ?? Guid.Empty;
+    }
+
+    public virtual async Task InstallComponentCollectionOnAgentAsync(Guid agentId, Guid componentCollectionId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await SendAsync<object>(HttpMethod.Post, $"{DataverseUrl}/api/data/v9.2/bots({agentId})/bot_botcomponentcollection/$ref", new Dictionary<string, object?>
+            {
+                ["@odata.id"] = $"{DataverseUrl}/api/data/v9.2/botcomponentcollections({componentCollectionId})"
+            }, expectReturn: false, cancellationToken).ConfigureAwait(false);
+        }
+        catch (DataverseRequestException exception) when (exception.ResponseBody.Contains("DuplicateRecordsFound", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+    }
+
+    public virtual async Task UninstallComponentCollectionFromAgentAsync(Guid agentId, Guid componentCollectionId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await SendAsync<object>(HttpMethod.Delete, $"{DataverseUrl}/api/data/v9.2/bots({agentId})/bot_botcomponentcollection({componentCollectionId})/$ref", null, expectReturn: false, cancellationToken).ConfigureAwait(false);
+        }
+        catch (DataverseRequestException exception) when (exception.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return;
+        }
+    }
+
+    public virtual async Task<IReadOnlyList<Guid>> GetAgentIdsForComponentCollectionAsync(Guid componentCollectionId, CancellationToken cancellationToken)
+    {
+        var requestUri = $"{DataverseUrl}/api/data/v9.2/botcomponentcollections({componentCollectionId})/bot_botcomponentcollection?$select=botid";
+        var result = await SendAsync<AgentInfoDetail>(HttpMethod.Get, requestUri, null, false, cancellationToken).ConfigureAwait(false);
+        return result?.Value?.Select(agent => agent.AgentId).Where(id => id != Guid.Empty).ToList() ?? new List<Guid>();
     }
 
     public virtual async Task<WorkflowMetadata[]> DownloadAllWorkflowsForAgentAsync(AgentSyncInfo syncInfo, CancellationToken cancellationToken)
@@ -1445,6 +1507,19 @@ public class SyncDataverseClient : ISyncDataverseClient
 
             [JsonPropertyName("name")]
             public string Name { get; set; } = string.Empty;
+
+            public ComponentCollectionInfo ToComponentCollectionInfo() => new()
+            {
+                Id = BotComponentCollectionId,
+                SchemaName = SchemaName,
+                DisplayName = Name
+            };
+        }
+
+        internal class ComponentCollectionInfoDetail
+        {
+            [JsonPropertyName("value")]
+            public ComponentCollectionDetail[] Value { get; set; } = Array.Empty<ComponentCollectionDetail>();
         }
 
 #pragma warning restore CA1034

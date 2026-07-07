@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import logger from '../services/logger';
 import { DefaultCoreServicesClusterCategory, TelemetryEventsKeys } from '../constants';
-import { CopilotStudioWorkspace } from '../sync/localWorkspaces';
+import { CopilotStudioWorkspace, WorkspaceType } from '../sync/localWorkspaces';
 import { ConnectionBindingRequest, ConnectionReferenceUsage, AgentConnectionView, WorkflowState, WorkflowStatusView } from '../types';
 import {
   applyConnectionBindings,
@@ -479,15 +479,24 @@ const enableEligibleDraftWorkflows = async (workspace: CopilotStudioWorkspace): 
   return { enabledCount, disabledWorkflowNames };
 };
 
-export const promptManageConnections = async (context: vscode.ExtensionContext, workspace: CopilotStudioWorkspace): Promise<void> => {
+export const promptManageConnectionsForWorkspaces = async (context: vscode.ExtensionContext, workspaces: CopilotStudioWorkspace[]): Promise<void> => {
+  if (workspaces.length === 0) {
+    return;
+  }
+
   const manageNow = 'Manage now';
-  const choice = await vscode.window.showInformationMessage(
-    'This agent has connections that still need to be set up before it can run.',
-    { modal: true },
-    manageNow
-  );
-  if (choice === manageNow) {
+  const message = workspaces.length === 1
+    ? `This ${describeConnectionWorkspaceKind(workspaces[0])} has connections that still need to be set up before it can run.`
+    : `Connections still need to be set up before these can run: ${workspaces.map(workspace => workspace.displayName).join(', ')}. Their connection managers will open one at a time.`;
+  const choice = await vscode.window.showInformationMessage(message, { modal: true }, manageNow);
+  if (choice !== manageNow) {
+    return;
+  }
+
+  for (const workspace of workspaces) {
     await ConnectionManagerController.show(context, workspace);
   }
 };
+
+const describeConnectionWorkspaceKind = (workspace: CopilotStudioWorkspace): string => workspace.type === WorkspaceType.ComponentCollection ? 'component collection' : 'agent';
 

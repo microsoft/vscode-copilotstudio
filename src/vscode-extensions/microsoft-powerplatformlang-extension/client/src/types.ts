@@ -21,9 +21,8 @@ export interface AgentSyncInfo {
   agentManagementEndpoint: string;
   environmentId: string;
   environmentDisplayName?: string;
-
-  // TODO: This will break with component collections.
-  agentId: string;
+  agentId?: string;
+  componentCollectionId?: string;
 
   accountInfo: AccountInfo;
   solutionVersions: SolutionInfo;

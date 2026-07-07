@@ -1,5 +1,5 @@
 import { commands, EventEmitter, ExtensionContext, ThemeColor, ThemeIcon, TreeDataProvider, TreeItem, TreeItemCollapsibleState, TreeView, window, workspace } from "vscode";
-import { addWorkspaceChangeSubscription, CopilotStudioWorkspace, getAllWorkspaces, getDuplicateDisplayNames, buildAgentIdentityTooltip, hasConnectionFileInWorkspace } from "./localWorkspaces";
+import { addWorkspaceChangeSubscription, CopilotStudioWorkspace, getAllWorkspaces, getDuplicateDisplayNames, buildAgentIdentityTooltip, hasConnectionFileInWorkspace, WorkspaceType } from "./localWorkspaces";
 import { Resource } from "./changeTracking";
 import { getWorkspaceChanges } from "./workspaceScm";
 import { ChangeType } from "../types";
@@ -63,7 +63,7 @@ class AgentChangesTreeDataProvider implements TreeDataProvider<AgentChangesTreeI
         const isDuplicate = duplicateNames.has(element.workspace.displayName.toLowerCase());
         item.description = isDuplicate && element.workspace.schemaName ? element.workspace.schemaName : element.workspace.description;
         item.tooltip = buildAgentIdentityTooltip(element.workspace);
-        item.contextValue = 'agent';
+        item.contextValue = element.workspace.type === WorkspaceType.ComponentCollection ? 'componentCollection' : 'agent';
         return item;
       }
       case AgentChangesItemKind.ChangeGroup: {

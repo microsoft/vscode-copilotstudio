@@ -54,5 +54,6 @@ public interface IWorkspaceRetargetService
         CloudFlowMetadata? cloudFlowMetadata,
         CancellationToken cancellationToken,
         ImmutableArray<AIPromptMetadata> aiPromptMetadata,
-        bool syncCustomConnectors = true);
+        bool syncCustomConnectors = true,
+        bool syncWorkflowsAndPrompts = true);
 }
