@@ -4154,7 +4154,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             botEntity = bot.Entity ?? throw new InvalidOperationException("Missing bot definition");
             var cloudSnapshotEntity = (cloudSnapshot as BotDefinition)?.Entity;
-            AddBotComponentCollectionChanges(bot, cloudSnapshot as BotDefinition, botComponentCollectionChangeList, changes);
+            AddBotComponentCollectionChanges(bot, cloudSnapshot as BotDefinition, fileAccessor, isRemoteChange, botComponentCollectionChangeList, changes);
             if (cloudSnapshotEntity != null && cloudSnapshotEntity.CdsBotId != default && botEntity.CdsBotId != cloudSnapshotEntity.CdsBotId)
             {
                 var entityBuilder = botEntity.ToBuilder();
@@ -4384,7 +4384,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return (changeset, changes.ToImmutable());
     }
 
-    private static void AddBotComponentCollectionChanges(BotDefinition localDefinition, BotDefinition? cloudSnapshot, List<BotComponentCollectionChange> botComponentCollectionChanges, ImmutableArray<Change>.Builder changes)
+    private static void AddBotComponentCollectionChanges(BotDefinition localDefinition, BotDefinition? cloudSnapshot, IFileAccessor fileAccessor, bool isRemoteChange, List<BotComponentCollectionChange> botComponentCollectionChanges, ImmutableArray<Change>.Builder changes)
     {
         var cloudCollectionsBySchemaName = GetComponentCollectionsOrEmpty(cloudSnapshot).Where(collection => !string.IsNullOrWhiteSpace(collection.SchemaName.Value)).GroupBy(collection => collection.SchemaName.Value, StringComparer.OrdinalIgnoreCase).ToDictionary(group => group.Key, group => group.Last(), StringComparer.OrdinalIgnoreCase);
         var localCollectionsBySchemaName = GetComponentCollectionsOrEmpty(localDefinition).Where(collection => !string.IsNullOrWhiteSpace(collection.SchemaName.Value)).GroupBy(collection => collection.SchemaName.Value, StringComparer.OrdinalIgnoreCase).ToDictionary(group => group.Key, group => group.Last(), StringComparer.OrdinalIgnoreCase);
@@ -4398,14 +4398,35 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }
         }
 
+        var declaredCollectionSchemaNames = isRemoteChange ? null : ReadDeclaredComponentCollectionSchemaNames(fileAccessor);
         foreach (var cloudCollection in cloudCollectionsBySchemaName.Values)
         {
-            if (!localCollectionsBySchemaName.ContainsKey(cloudCollection.SchemaName.Value))
+            if (!localCollectionsBySchemaName.ContainsKey(cloudCollection.SchemaName.Value) && (declaredCollectionSchemaNames == null || !declaredCollectionSchemaNames.Contains(cloudCollection.SchemaName.Value)))
             {
                 botComponentCollectionChanges.Add(new BotComponentCollectionDelete(cloudCollection.Id, cloudCollection.Version));
                 changes.Add(CreateComponentCollectionChange(ChangeType.Delete, cloudCollection));
             }
         }
+    }
+
+    private static HashSet<string> ReadDeclaredComponentCollectionSchemaNames(IFileAccessor fileAccessor)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var references = ReadReferencesOrNull(fileAccessor);
+        if (references == null)
+        {
+            return result;
+        }
+
+        foreach (var item in references.ComponentCollections)
+        {
+            if (item.SchemaName.HasValue && !string.IsNullOrWhiteSpace(item.SchemaName.Value))
+            {
+                result.Add(item.SchemaName.Value);
+            }
+        }
+
+        return result;
     }
 
     private static Change CreateComponentCollectionChange(ChangeType changeType, BotComponentCollection collection) => new()

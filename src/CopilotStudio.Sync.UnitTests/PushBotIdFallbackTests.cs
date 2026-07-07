@@ -369,4 +369,23 @@ public class PushBotIdFallbackTests
         Assert.NotEqual(Guid.Empty, delete.BotComponentCollectionId.Value);
     }
 
+    [Fact]
+    public async Task GetLocalChanges_SchemaOnlyReferenceForInstalledCollection_DoesNotEmitDelete()
+    {
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/workspace-collection-schemaonly/"));
+        var collectionId = Guid.NewGuid();
+        var cachedCollection = CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_my_cc_333\ndisplayName: MyCC333")!.WithId(new BotComponentCollectionId(collectionId));
+        var cloudSnapshot = new BotDefinition()
+            .WithEntity(CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!)
+            .WithComponentCollections(new[] { cachedCollection });
+        var localWithoutCollection = new BotDefinition().WithEntity(CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!);
+
+        await fileAccessor.WriteAsync(new AgentFilePath("references.mcs.yml"), "componentCollections:\n  - schemaName: bot_componentcollection_my_cc_333\n", CancellationToken.None);
+
+        var (changeSet, _) = synchronizer.GetLocalChanges(localWithoutCollection, cloudSnapshot, fileAccessor, "token-1");
+
+        Assert.Empty(changeSet.ComponentCollectionChanges.OfType<BotComponentCollectionDelete>());
+    }
+
 }
