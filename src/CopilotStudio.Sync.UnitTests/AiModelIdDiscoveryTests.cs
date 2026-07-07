@@ -48,6 +48,33 @@ public class AiModelIdDiscoveryTests
     }
 
     [Fact]
+    public void ExtractAiModelIds_MainAgent_SkipsCollectionOwnedComponentModelIds()
+    {
+        var agentModelId = Guid.Parse("3b5436b4-d7b4-4389-96e8-107446c9094a");
+        var collectionModelId = Guid.Parse("f3b64fe5-5c03-401f-b4b6-56ff7efbc8bb");
+        var agentOwnedComponent = MakeDialogComponentWithModel("cre98_Agent.topic.AgentOwned", agentModelId);
+        var collectionOwnedComponent = WithParentCollection(MakeDialogComponentWithModel("cre98_Agent.topic.CollectionOwned", collectionModelId), Guid.NewGuid());
+        var definition = new BotDefinition().WithComponents(new BotComponentBase[] { agentOwnedComponent, collectionOwnedComponent });
+
+        var ids = WorkspaceSynchronizer.ExtractAiModelIds(definition);
+
+        Assert.Contains(agentModelId, ids);
+        Assert.DoesNotContain(collectionModelId, ids);
+    }
+
+    [Fact]
+    public void ExtractAiModelIds_ComponentCollection_IncludesItsOwnComponentModelIds()
+    {
+        var collectionModelId = Guid.Parse("f3b64fe5-5c03-401f-b4b6-56ff7efbc8bb");
+        var collectionOwnedComponent = WithParentCollection(MakeDialogComponentWithModel("cre98_Agent.topic.CollectionOwned", collectionModelId), Guid.NewGuid());
+        var definition = new BotComponentCollectionDefinition().WithComponents(new BotComponentBase[] { collectionOwnedComponent });
+
+        var ids = WorkspaceSynchronizer.ExtractAiModelIds(definition);
+
+        Assert.Contains(collectionModelId, ids);
+    }
+
+    [Fact]
     public async Task Clone_WhenComponentReferencesModel_UsesByIdFetchNotServerScan()
     {
         var (synchronizer, _, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
@@ -115,6 +142,13 @@ public class AiModelIdDiscoveryTests
             "      aIModelId: " + modelId + "\n";
         var definition = MakeDefinitionWithDialog(schemaName, dialogYaml);
         return definition.Components.OfType<DialogComponent>().Single();
+    }
+
+    private static DialogComponent WithParentCollection(DialogComponent component, Guid parentCollectionId)
+    {
+        var builder = component.ToBuilder();
+        builder.ParentBotComponentCollectionId = new BotComponentCollectionId(parentCollectionId);
+        return builder.Build();
     }
 
     private static BotDefinition MakeDefinitionWithDialog(string schemaName, string dialogYaml)

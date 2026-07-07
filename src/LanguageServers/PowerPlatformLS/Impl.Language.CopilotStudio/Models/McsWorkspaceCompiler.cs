@@ -191,7 +191,7 @@
                         }
                     }
 
-                    baseAgentDefinition.WithComponentCollections(componentCollections);
+                    result = ((BotDefinition)result).WithComponentCollections(componentCollections);
                 }                
             }
 

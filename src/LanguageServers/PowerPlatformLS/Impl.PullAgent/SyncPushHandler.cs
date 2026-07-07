@@ -35,12 +35,73 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             await ConnectionHelper.ProvisionConnectionsAsync(_synchronizer, workspace.FolderPath, workspace.Definition, dataverseClient, cancellationToken);
 
             var activationMode = request.DraftConnectionReferenceWorkflows ? CopilotStudio.Sync.WorkflowActivationMode.DraftWhenConnectionReferencesExist : CopilotStudio.Sync.WorkflowActivationMode.DraftWhenConnectionsUnbound;
-            var (workflowResponse, cloudFlowMetadata) = await _synchronizer.UpsertWorkflowForAgentAsync(workspace.FolderPath, dataverseClient, syncInfo.AgentId, cancellationToken, activationMode);
+            var (workflowResponse, cloudFlowMetadata, aiPromptResponse, aiPromptMetadata) = operationContext is BotComponentCollectionAuthoringOperationContext
+                ? await UpsertComponentCollectionScopedAssetsAsync(workspace.FolderPath, dataverseClient, syncInfo.ComponentCollectionId, activationMode, cancellationToken)
+                : await ConnectionHelper.UpsertAgentScopedAssetsAsync(_synchronizer, workspace.FolderPath, workspace.Definition, dataverseClient, syncInfo.AgentId, activationMode, cancellationToken);
 
-            var (aiPromptResponse, aiPromptMetadata) = await _synchronizer.UpsertAIPromptsForAgentAsync(workspace.FolderPath, dataverseClient, syncInfo.AgentId, cancellationToken);
+            var contentSaveContextOverride = await TryBuildComponentCollectionHostContextAsync(workspace, operationContext, dataverseClient, syncInfo, cancellationToken);
 
-            await _synchronizer.PushLocalChangesAsync(workspace.FolderPath, operationContext, workspace.Definition, dataverseClient, syncInfo, cloudFlowMetadata, aiPromptMetadata, cancellationToken);
+            await _synchronizer.PushLocalChangesAsync(workspace.FolderPath, operationContext, workspace.Definition, dataverseClient, syncInfo, cloudFlowMetadata, aiPromptMetadata, cancellationToken, contentSaveContextOverride);
             return (workspace.Definition, workflowResponse, aiPromptResponse);
+        }
+
+        private async Task<(ImmutableArray<WorkflowResponse>, CloudFlowMetadata?, ImmutableArray<SyncDataverseClient.AIPromptResponse>, ImmutableArray<SyncDataverseClient.AIPromptMetadata>)> UpsertComponentCollectionScopedAssetsAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? componentCollectionId, CopilotStudio.Sync.WorkflowActivationMode activationMode, CancellationToken cancellationToken)
+        {
+            var (workflowResponse, cloudFlowMetadata) = await _synchronizer.UpsertWorkflowForAgentAsync(workspaceFolder, dataverseClient, componentCollectionId, cancellationToken, activationMode);
+            var (aiPromptResponse, aiPromptMetadata) = await _synchronizer.UpsertAIPromptsForAgentAsync(workspaceFolder, dataverseClient, componentCollectionId, cancellationToken);
+            return (workflowResponse, cloudFlowMetadata, aiPromptResponse, aiPromptMetadata);
+        }
+
+        private async Task<AuthoringOperationContextBase?> TryBuildComponentCollectionHostContextAsync(IMcsWorkspace workspace, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CancellationToken cancellationToken)
+        {
+            if (operationContext is not BotComponentCollectionAuthoringOperationContext || syncInfo.ComponentCollectionId is not Guid componentCollectionId)
+            {
+                return null;
+            }
+
+            if (!workspace.Definition.Components.Any(ComponentReferencesWorkflowOrModel))
+            {
+                return null;
+            }
+
+            if (dataverseClient is not ISyncComponentCollectionDataverseClient componentCollectionDataverseClient)
+            {
+                return null;
+            }
+
+            var hostAgentIds = await componentCollectionDataverseClient.GetAgentIdsForComponentCollectionAsync(componentCollectionId, cancellationToken);
+            if (hostAgentIds.Count == 0)
+            {
+                return null;
+            }
+
+            var hostSyncInfo = new AgentSyncInfo
+            {
+                DataverseEndpoint = syncInfo.DataverseEndpoint,
+                EnvironmentId = syncInfo.EnvironmentId,
+                EnvironmentDisplayName = syncInfo.EnvironmentDisplayName,
+                AccountInfo = syncInfo.AccountInfo,
+                AgentId = hostAgentIds[0],
+                ComponentCollectionId = null,
+                SolutionVersions = syncInfo.SolutionVersions,
+                AgentManagementEndpoint = syncInfo.AgentManagementEndpoint,
+            };
+
+            return await _operationContextProvider.GetAsync(hostSyncInfo);
+        }
+
+        internal static bool ComponentReferencesWorkflowOrModel(BotComponentBase component)
+        {
+            if (component.RootElement is null)
+            {
+                return false;
+            }
+
+            var serialized = CodeSerializer.Serialize(component.RootElement);
+            return serialized.IndexOf("InvokeFlowTaskAction", StringComparison.OrdinalIgnoreCase) >= 0
+                || serialized.IndexOf("flowId", StringComparison.OrdinalIgnoreCase) >= 0
+                || serialized.IndexOf("InvokeAIBuilderModelTaskAction", StringComparison.OrdinalIgnoreCase) >= 0
+                || serialized.IndexOf("aIModelId", StringComparison.OrdinalIgnoreCase) >= 0;
         }
     }
 }

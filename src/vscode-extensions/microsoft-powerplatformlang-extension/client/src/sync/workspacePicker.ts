@@ -17,9 +17,9 @@ export function buildWorkspaceQuickPickDetail(workspace: CopilotStudioWorkspace,
     };
 }
 
-export function selectWorkspace() : Promise<CopilotStudioWorkspace | undefined> {
+export function selectWorkspace(filter?: (workspace: CopilotStudioWorkspace) => boolean) : Promise<CopilotStudioWorkspace | undefined> {
     return new Promise((resolve) => {
-        const workspaces = getAllWorkspaces();
+        const workspaces = filter ? getAllWorkspaces().filter(filter) : getAllWorkspaces();
         if (workspaces.length === 0) {
             resolve(undefined);
             return;

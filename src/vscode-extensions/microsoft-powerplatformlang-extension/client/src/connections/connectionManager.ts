@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import logger from '../services/logger';
 import { DefaultCoreServicesClusterCategory, TelemetryEventsKeys } from '../constants';
-import { CopilotStudioWorkspace } from '../sync/localWorkspaces';
+import { CopilotStudioWorkspace, getWorkspaceKindLabel } from '../sync/localWorkspaces';
 import { ConnectionBindingRequest, ConnectionReferenceUsage, AgentConnectionView, WorkflowState, WorkflowStatusView } from '../types';
 import {
   applyConnectionBindings,
@@ -218,7 +218,7 @@ export class ConnectionManagerController {
     const locations = usages.map(u => u.displayName || u.filePath).filter(Boolean);
     const preview = locations.slice(0, 5).join(', ');
     const more = locations.length > 5 ? `, and ${locations.length - 5} more` : '';
-    const detail = locations.length > 0 ? `It is still used by: ${preview}${more}.` : 'It is still used in this agent.';
+    const detail = locations.length > 0 ? `It is still used by: ${preview}${more}.` : `It is still used in this ${getWorkspaceKindLabel(this.workspace)}.`;
     const remove = 'Remove anyway';
     const choice = await vscode.window.showWarningMessage(
       `Connection reference '${logicalName}' is still in use. ${detail}`,
@@ -479,14 +479,21 @@ const enableEligibleDraftWorkflows = async (workspace: CopilotStudioWorkspace): 
   return { enabledCount, disabledWorkflowNames };
 };
 
-export const promptManageConnections = async (context: vscode.ExtensionContext, workspace: CopilotStudioWorkspace): Promise<void> => {
+export const promptManageConnectionsForWorkspaces = async (context: vscode.ExtensionContext, workspaces: CopilotStudioWorkspace[]): Promise<void> => {
+  if (workspaces.length === 0) {
+    return;
+  }
+
   const manageNow = 'Manage now';
-  const choice = await vscode.window.showInformationMessage(
-    'This agent has connections that still need to be set up before it can run.',
-    { modal: true },
-    manageNow
-  );
-  if (choice === manageNow) {
+  const message = workspaces.length === 1
+    ? `This ${getWorkspaceKindLabel(workspaces[0])} has connections that still need to be set up before it can run.`
+    : `Connections still need to be set up before these can run: ${workspaces.map(workspace => workspace.displayName).join(', ')}. Their connection managers will open one at a time.`;
+  const choice = await vscode.window.showInformationMessage(message, { modal: true }, manageNow);
+  if (choice !== manageNow) {
+    return;
+  }
+
+  for (const workspace of workspaces) {
     await ConnectionManagerController.show(context, workspace);
   }
 };

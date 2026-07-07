@@ -49,5 +49,15 @@
 
             Assert.Throws<BadReferenceException>(() => _resolver.ResolveComponentCollectionOrThrow(_workspacePath, ccRef));
         }
+
+        [Fact]
+        public void SchemaOnlyReference_NotAvailableLocally_ThrowsWithClearMessage()
+        {
+            var ccRef = new ReferenceItemSourceFile(schemaName: "bot_componentcollection_installed", directory: string.Empty);
+
+            var exception = Assert.Throws<BadReferenceException>(() => _resolver.ResolveComponentCollectionOrThrow(_workspacePath, ccRef));
+
+            Assert.Contains("not available in this workspace", exception.Message, System.StringComparison.OrdinalIgnoreCase);
+        }
     }
 }

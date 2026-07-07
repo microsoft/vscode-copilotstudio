@@ -289,6 +289,9 @@
                 var diagnostics = element.Diagnostics.ToArray();
                 Assert.Empty(diagnostics);
             }
+
+            var definition = Assert.IsType<BotDefinition>(workspace.Definition);
+            Assert.Contains(definition.ComponentCollections, collection => collection.SchemaName.Value == "bot_componentcollection_my_cc_333");
         }
 
         [Fact]

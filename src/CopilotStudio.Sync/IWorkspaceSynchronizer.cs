@@ -154,7 +154,8 @@ public interface IWorkspaceSynchronizer
         AgentSyncInfo syncInfo,
         CloudFlowMetadata? cloudFlowMetadata,
         ImmutableArray<AIPromptMetadata> aiPrompts,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        AuthoringOperationContextBase? contentSaveContextOverride = null);
 
     /// <summary>
     /// Lists the agent's knowledge files from the local cloud-cache snapshot.

@@ -128,6 +128,173 @@
         }
 
         [Fact]
+        public async Task CreateComponentCollectionAsyncWithValidResponse()
+        {
+            var collectionId = Guid.NewGuid();
+            string? requestUrl = null;
+            string? requestBody = null;
+            var client = CreateClientWithHandler(async (req, index) =>
+            {
+                requestUrl = req.RequestUri?.ToString();
+                requestBody = req.Content == null ? string.Empty : await req.Content.ReadAsStringAsync();
+                return new HttpResponseMessage
+                {
+                    StatusCode = HttpStatusCode.OK,
+                    Content = new StringContent(JsonSerializer.Serialize(new { botcomponentcollectionid = collectionId, name = DisplayName, schemaname = SchemaName }), Encoding.UTF8, "application/json")
+                };
+            });
+
+            var result = await client.CreateComponentCollectionAsync(DisplayName, SchemaName, CancellationToken.None);
+
+            Assert.EndsWith("/api/data/v9.2/botcomponentcollections", requestUrl);
+            Assert.Contains("\"name\":\"NewAgent\"", requestBody);
+            Assert.Contains("\"schemaname\":\"SchemaName\"", requestBody);
+            Assert.Equal(collectionId, result.Id);
+            Assert.Equal(DisplayName, result.DisplayName);
+            Assert.Equal(SchemaName, result.SchemaName);
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task GetComponentCollectionIdBySchemaNameAsync(bool exists)
+        {
+            var collectionId = Guid.NewGuid();
+            var collectionValue = exists ? new[] { new { botcomponentcollectionid = collectionId, name = DisplayName, schemaname = SchemaName } } : Array.Empty<object>();
+            var client = CreateClientWithHandler((req, index) => Task.FromResult(new HttpResponseMessage
+            {
+                StatusCode = HttpStatusCode.OK,
+                Content = new StringContent(JsonSerializer.Serialize(new { value = collectionValue }), Encoding.UTF8, "application/json")
+            }));
+
+            var result = await client.GetComponentCollectionIdBySchemaNameAsync(SchemaName, CancellationToken.None);
+
+            Assert.Equal(exists ? collectionId : Guid.Empty, result);
+        }
+
+        [Fact]
+        public async Task InstallComponentCollectionOnAgentAsync_PostsRelationshipReference()
+        {
+            var agentId = Guid.NewGuid();
+            var collectionId = Guid.NewGuid();
+            string? requestUrl = null;
+            string? requestBody = null;
+            var client = CreateClientWithHandler(async (req, index) =>
+            {
+                requestUrl = req.RequestUri?.ToString();
+                requestBody = req.Content == null ? string.Empty : await req.Content.ReadAsStringAsync();
+                return new HttpResponseMessage(HttpStatusCode.NoContent);
+            });
+
+            await client.InstallComponentCollectionOnAgentAsync(agentId, collectionId, CancellationToken.None);
+
+            Assert.Equal($"{DataverseUrl}/api/data/v9.2/bots({agentId})/bot_botcomponentcollection/$ref", requestUrl);
+            Assert.Contains($"{DataverseUrl}/api/data/v9.2/botcomponentcollections({collectionId})", requestBody);
+        }
+
+        [Fact]
+        public async Task InstallComponentCollectionOnAgentAsync_DataverseUrlHasTrailingSlash_ProducesNoDoubleSlash()
+        {
+            var agentId = Guid.NewGuid();
+            var collectionId = Guid.NewGuid();
+            string? requestUrl = null;
+            string? requestBody = null;
+            var client = CreateClientWithHandler(async (req, index) =>
+            {
+                requestUrl = req.RequestUri?.ToString();
+                requestBody = req.Content == null ? string.Empty : await req.Content.ReadAsStringAsync();
+                return new HttpResponseMessage(HttpStatusCode.NoContent);
+            });
+            client.SetDataverseUrl(DataverseUrl + "/");
+
+            await client.InstallComponentCollectionOnAgentAsync(agentId, collectionId, CancellationToken.None);
+
+            Assert.NotNull(requestUrl);
+            Assert.DoesNotContain(".com//api", requestUrl);
+            Assert.NotNull(requestBody);
+            Assert.DoesNotContain(".com//api", requestBody);
+            Assert.Contains($"{DataverseUrl}/api/data/v9.2/botcomponentcollections({collectionId})", requestBody);
+        }
+
+        [Fact]
+        public async Task InstallComponentCollectionOnAgentAsync_DuplicateRelationshipIsSuccess()
+        {
+            var client = CreateClientWithHandler((req, index) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.PreconditionFailed)
+            {
+                Content = new StringContent("DuplicateRecordsFound", Encoding.UTF8, "application/json")
+            }));
+
+            await client.InstallComponentCollectionOnAgentAsync(Guid.NewGuid(), Guid.NewGuid(), CancellationToken.None);
+        }
+
+        [Fact]
+        public async Task UninstallComponentCollectionFromAgentAsync_DeletesRelationshipReference()
+        {
+            var agentId = Guid.NewGuid();
+            var collectionId = Guid.NewGuid();
+            string? requestUrl = null;
+            HttpMethod? method = null;
+            var client = CreateClientWithHandler((req, index) =>
+            {
+                requestUrl = req.RequestUri?.ToString();
+                method = req.Method;
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NoContent));
+            });
+
+            await client.UninstallComponentCollectionFromAgentAsync(agentId, collectionId, CancellationToken.None);
+
+            Assert.Equal(HttpMethod.Delete, method);
+            Assert.Equal($"{DataverseUrl}/api/data/v9.2/bots({agentId})/bot_botcomponentcollection({collectionId})/$ref", requestUrl);
+        }
+
+        [Fact]
+        public async Task UninstallComponentCollectionFromAgentAsync_MissingRelationshipIsSuccess()
+        {
+            var client = CreateClientWithHandler((req, index) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
+            {
+                Content = new StringContent("Does Not Exist", Encoding.UTF8, "application/json")
+            }));
+
+            await client.UninstallComponentCollectionFromAgentAsync(Guid.NewGuid(), Guid.NewGuid(), CancellationToken.None);
+        }
+
+        [Fact]
+        public async Task GetAgentIdsForComponentCollectionAsync_ReturnsNonEmptyHostAgentIds()
+        {
+            var collectionId = Guid.NewGuid();
+            var hostAgentId = Guid.NewGuid();
+            string? requestUrl = null;
+            var client = CreateClientWithHandler((req, index) =>
+            {
+                requestUrl = req.RequestUri?.ToString();
+                return Task.FromResult(new HttpResponseMessage
+                {
+                    StatusCode = HttpStatusCode.OK,
+                    Content = new StringContent(JsonSerializer.Serialize(new { value = new[] { new { botid = hostAgentId }, new { botid = Guid.Empty } } }), Encoding.UTF8, "application/json")
+                });
+            });
+
+            var result = await client.GetAgentIdsForComponentCollectionAsync(collectionId, CancellationToken.None);
+
+            Assert.Equal($"{DataverseUrl}/api/data/v9.2/botcomponentcollections({collectionId})/bot_botcomponentcollection?$select=botid", requestUrl);
+            Assert.Equal(new[] { hostAgentId }, result);
+        }
+
+        [Fact]
+        public async Task GetAgentIdsForComponentCollectionAsync_NoHostAgents_ReturnsEmpty()
+        {
+            var client = CreateClientWithHandler((req, index) => Task.FromResult(new HttpResponseMessage
+            {
+                StatusCode = HttpStatusCode.OK,
+                Content = new StringContent(JsonSerializer.Serialize(new { value = Array.Empty<object>() }), Encoding.UTF8, "application/json")
+            }));
+
+            var result = await client.GetAgentIdsForComponentCollectionAsync(Guid.NewGuid(), CancellationToken.None);
+
+            Assert.Empty(result);
+        }
+
+        [Fact]
         public async Task DownloadAllWorkflowsForAgentForValidWorkflow()
         {
             var workflowId = Guid.NewGuid();

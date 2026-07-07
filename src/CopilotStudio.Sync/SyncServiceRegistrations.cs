@@ -29,8 +29,9 @@ public static class SyncServiceRegistrations
                 isIslandPreauthorized,
                 sp.GetService<IHttpClientFactory>()));
         services.AddSingleton<IOperationContextProvider, OperationContextProvider>();
-        services.AddSingleton<ISyncDataverseClient>(sp =>
-            new SyncDataverseClient(sp.GetRequiredService<IDataverseHttpClientAccessor>(), userAgent));
+        services.AddSingleton(sp => new SyncDataverseClient(sp.GetRequiredService<IDataverseHttpClientAccessor>(), userAgent));
+        services.AddSingleton<ISyncDataverseClient>(sp => sp.GetRequiredService<SyncDataverseClient>());
+        services.AddSingleton<ISyncComponentCollectionDataverseClient>(sp => sp.GetRequiredService<SyncDataverseClient>());
         services.AddSingleton<IFileAccessorFactory, FileAccessorFactory>();
         services.AddSingleton(LspProjectorService.Instance);
         services.AddSingleton<IMcsFileParser, SyncMcsFileParser>();
