@@ -43,6 +43,7 @@ public interface IWorkspaceRetargetService
     /// <param name="cancellationToken">Cancellation token to cancel the operation.</param>
     /// <param name="aiPromptMetadata">AI prompt metadata already upserted to the target environment.</param>
     /// <param name="syncCustomConnectors">When false, skips custom connector folder reconciliation.</param>
+    /// <param name="syncWorkflowsAndPrompts">When false, skips workflow and AI prompt reconciliation so a pre-push retarget sync does not delete local workflow or prompt content before it is pushed.</param>
     /// <returns>Workspace sync result.</returns>
     Task<WorkspaceSyncInfo> SyncWorkspaceAsync(
         DirectoryPath workspaceFolder,

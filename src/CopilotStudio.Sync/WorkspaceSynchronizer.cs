@@ -1242,6 +1242,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     /// <param name="cloudFlowMetadata">Cloud flow metadata to project into the cloud cache.</param>
     /// <param name="aiPrompts">AI Builder prompt metadata to project into the cloud cache.</param>
     /// <param name="cancellationToken">Used to cancel the request.</param>
+    /// <param name="contentSaveContextOverride">When set, the authoring context used for the content save.</param>
     public async Task PushLocalChangesAsync(
         DirectoryPath workspaceFolder,
         AuthoringOperationContextBase operationContext,
@@ -3083,6 +3084,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     /// <param name="cancellationToken">Cancellation token to cancel the operation.</param>
     /// <param name="aiPromptMetadata">AI prompt metadata already upserted to the target environment.</param>
     /// <param name="syncCustomConnectors">When false, skips custom connector folder reconciliation so a pre-push retarget sync does not delete local connector content before it is pushed.</param>
+    /// <param name="syncWorkflowsAndPrompts">When false, skips workflow and AI prompt reconciliation so a pre-push retarget sync does not delete local workflow or prompt content before it is pushed.</param>
     /// <returns>Workspace sync result.</returns>
     public async Task<WorkspaceSyncInfo> SyncWorkspaceAsync(DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, string? changeToken, bool updateWorkspaceDirectory, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken, ImmutableArray<AIPromptMetadata> aiPromptMetadata, bool syncCustomConnectors = true, bool syncWorkflowsAndPrompts = true)
     {
