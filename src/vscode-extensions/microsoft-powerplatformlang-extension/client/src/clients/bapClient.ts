@@ -152,10 +152,12 @@ export async function listEnvironmentsAsync(
         SKU_LOAD_ORDER.map(sku =>
             listEnvironmentsBySkuAsync(clusterCategory, sku, cancellationToken, accountId, accountHint)
                 .catch(error => {
-                    logger.logError(
-                        TelemetryEventsKeys.LoadEnvironmentError,
-                        `[ListEnvironments] Failed to load ${sku} environments: <pii>${(error as Error)?.message || error}</pii>`
-                    );
+                    if (!(error instanceof Error && error.name === 'AbortError')) {
+                        logger.logError(
+                            TelemetryEventsKeys.LoadEnvironmentError,
+                            `[ListEnvironments] Failed to load ${sku} environments: <pii>${(error as Error)?.message || error}</pii>`
+                        );
+                    }
                     return [] as EnvironmentInfo[];
                 })
         )

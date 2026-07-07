@@ -9,6 +9,7 @@ import logger from '../services/logger';
 import { logAIPromptIssues, withSyncCommandBusy, getActiveSyncUri } from '../sync/workspaceSynchronizer';
 import { hasConnectionFileInWorkspace, WorkspaceType, CopilotStudioWorkspace } from '../sync/localWorkspaces';
 import { selectWorkspace } from '../sync/workspacePicker';
+import { getDiagnosticsErrors } from './syncWorkspace';
 import { autoBindAgentConnections, promptManageConnections } from '../connections/connectionManager';
 
 type ReattachEnvironmentPickItem = vscode.QuickPickItem & {
@@ -159,6 +160,17 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
         const retarget = 'Retarget';
         const choice = await vscode.window.showWarningMessage(`Retarget this agent (${agentDisplayName}) to '${targetEnvironmentName}'? Your local content will be uploaded to '${targetEnvironmentName}' and the agent will be connected there.`, { modal: true }, retarget);
         if (choice !== retarget) {
+          return;
+        }
+
+        const diagnostics = await getDiagnosticsErrors(currentWorkspace);
+        if (diagnostics.count > 0) {
+          const errorMessage = `Cannot retarget agent: found ${diagnostics.count} error(s) in ${diagnostics.files} file(s). Fix the errors and try again.`;
+          logger.logWarning(TelemetryEventsKeys.ReattachAgentError, undefined, { message: errorMessage });
+          const detailView = await vscode.window.showErrorMessage(errorMessage, 'View Details');
+          if (detailView === 'View Details') {
+            await vscode.commands.executeCommand('workbench.actions.view.problems');
+          }
           return;
         }
       }
