@@ -108,4 +108,13 @@ describe('buildReattachPlanCore', () => {
 			assert.deepStrictEqual(plan.missingCollectionDirectories, [path.resolve(hostFolder, '../mycc333')]);
 		}
 	});
+
+	test('prefers an exact-case candidate over a case-insensitive one when both are present', () => {
+		const agent = makeWorkspace({});
+		const exactCandidate = makeCollectionCandidate('../MyCC');
+		const otherCasingCandidate: CollectionCandidate = { workspace: makeWorkspace({ type: WorkspaceType.ComponentCollection, displayName: 'other' }), folderPath: path.resolve(hostFolder, '../mycc') };
+		const plan = buildReattachPlanCore(agent, hostFolder, '  - directory: ../MyCC/\n', [otherCasingCandidate, exactCandidate]);
+		assert.deepStrictEqual(plan.workspaces, [agent, exactCandidate.workspace]);
+		assert.deepStrictEqual(plan.missingCollectionDirectories, []);
+	});
 });

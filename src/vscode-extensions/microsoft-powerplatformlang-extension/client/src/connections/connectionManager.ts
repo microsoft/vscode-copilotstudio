@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import logger from '../services/logger';
 import { DefaultCoreServicesClusterCategory, TelemetryEventsKeys } from '../constants';
-import { CopilotStudioWorkspace, WorkspaceType } from '../sync/localWorkspaces';
+import { CopilotStudioWorkspace, getWorkspaceKindLabel } from '../sync/localWorkspaces';
 import { ConnectionBindingRequest, ConnectionReferenceUsage, AgentConnectionView, WorkflowState, WorkflowStatusView } from '../types';
 import {
   applyConnectionBindings,
@@ -218,7 +218,7 @@ export class ConnectionManagerController {
     const locations = usages.map(u => u.displayName || u.filePath).filter(Boolean);
     const preview = locations.slice(0, 5).join(', ');
     const more = locations.length > 5 ? `, and ${locations.length - 5} more` : '';
-    const detail = locations.length > 0 ? `It is still used by: ${preview}${more}.` : 'It is still used in this agent.';
+    const detail = locations.length > 0 ? `It is still used by: ${preview}${more}.` : `It is still used in this ${getWorkspaceKindLabel(this.workspace)}.`;
     const remove = 'Remove anyway';
     const choice = await vscode.window.showWarningMessage(
       `Connection reference '${logicalName}' is still in use. ${detail}`,
@@ -486,7 +486,7 @@ export const promptManageConnectionsForWorkspaces = async (context: vscode.Exten
 
   const manageNow = 'Manage now';
   const message = workspaces.length === 1
-    ? `This ${describeConnectionWorkspaceKind(workspaces[0])} has connections that still need to be set up before it can run.`
+    ? `This ${getWorkspaceKindLabel(workspaces[0])} has connections that still need to be set up before it can run.`
     : `Connections still need to be set up before these can run: ${workspaces.map(workspace => workspace.displayName).join(', ')}. Their connection managers will open one at a time.`;
   const choice = await vscode.window.showInformationMessage(message, { modal: true }, manageNow);
   if (choice !== manageNow) {
@@ -497,6 +497,4 @@ export const promptManageConnectionsForWorkspaces = async (context: vscode.Exten
     await ConnectionManagerController.show(context, workspace);
   }
 };
-
-const describeConnectionWorkspaceKind = (workspace: CopilotStudioWorkspace): string => workspace.type === WorkspaceType.ComponentCollection ? 'component collection' : 'agent';
 

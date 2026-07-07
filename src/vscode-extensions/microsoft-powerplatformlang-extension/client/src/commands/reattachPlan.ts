@@ -12,9 +12,11 @@ export type CollectionCandidate = {
 };
 
 export const normalizePathForComparison = (value: string): string => {
-  const normalized = path.normalize(value).replace(/[\\/]+$/, '');
+  const normalized = stripTrailingSeparators(value);
   return process.platform === 'win32' || process.platform === 'darwin' ? normalized.toLowerCase() : normalized;
 };
+
+const stripTrailingSeparators = (value: string): string => path.normalize(value).replace(/[\\/]+$/, '');
 
 export const parseReferencedDirectories = (referencesContent: string): string[] => {
   const directoryPattern = /^[ \t]*-?[ \t]*directory:[ \t]*(.+?)[ \t]*$/gm;
@@ -36,14 +38,17 @@ export const buildReattachPlanCore = (workspace: CopilotStudioWorkspace, workspa
   const collectionWorkspaces: CopilotStudioWorkspace[] = [];
   const missingCollectionDirectories: string[] = [];
   const seenDirectories = new Set<string>();
+  const findCollection = (matches: (folderPath: string) => boolean): CollectionCandidate | undefined => candidateCollections.find(candidate => candidate.workspace.type === WorkspaceType.ComponentCollection && matches(candidate.folderPath));
   for (const referencedDirectory of parseReferencedDirectories(referencesContent)) {
     const resolvedDirectory = path.resolve(workspaceFolder, referencedDirectory);
+    const exactResolvedDirectory = stripTrailingSeparators(resolvedDirectory);
     const normalizedResolvedDirectory = normalizePathForComparison(resolvedDirectory);
     if (seenDirectories.has(normalizedResolvedDirectory)) {
       continue;
     }
     seenDirectories.add(normalizedResolvedDirectory);
-    const collectionCandidate = candidateCollections.find(candidate => candidate.workspace.type === WorkspaceType.ComponentCollection && normalizePathForComparison(candidate.folderPath) === normalizedResolvedDirectory);
+    const collectionCandidate = findCollection(folderPath => stripTrailingSeparators(folderPath) === exactResolvedDirectory)
+      ?? findCollection(folderPath => normalizePathForComparison(folderPath) === normalizedResolvedDirectory);
     if (collectionCandidate) {
       collectionWorkspaces.push(collectionCandidate.workspace);
     } else {

@@ -9,7 +9,7 @@ import { pushNewWorkspace } from '../sync/workspaceScm';
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import logger from '../services/logger';
 import { logAIPromptIssues, withSyncCommandBusy, getActiveSyncUri } from '../sync/workspaceSynchronizer';
-import { getAllWorkspaces, hasConnectionFileInWorkspace, WorkspaceType, CopilotStudioWorkspace } from '../sync/localWorkspaces';
+import { getAllWorkspaces, hasConnectionFileInWorkspace, WorkspaceType, CopilotStudioWorkspace, getWorkspaceKindLabel } from '../sync/localWorkspaces';
 import { selectWorkspace } from '../sync/workspacePicker';
 import { getDiagnosticsErrors } from './syncWorkspace';
 import { autoBindAgentConnections, promptManageConnectionsForWorkspaces } from '../connections/connectionManager';
@@ -38,8 +38,6 @@ type DiagnosticsErrorMessage = {
 const getWorkspaceFolderPath = (workspace: CopilotStudioWorkspace): string => vscode.Uri.parse(workspace.workspaceUri).fsPath;
 
 const getWorkspaceIdentity = (workspace: CopilotStudioWorkspace): string => workspace.syncInfo?.agentId ?? workspace.syncInfo?.componentCollectionId ?? workspace.displayName;
-
-const getWorkspaceKindLabel = (workspace: CopilotStudioWorkspace): string => workspace.type === WorkspaceType.ComponentCollection ? 'component collection' : 'agent';
 
 const buildReattachPlan = (workspace: CopilotStudioWorkspace): ReattachPlan => {
   const workspaceFolder = getWorkspaceFolderPath(workspace);

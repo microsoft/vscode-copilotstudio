@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CopilotStudioWorkspace, getWorkspaceByUri } from '../sync/localWorkspaces';
+import { CopilotStudioWorkspace, getWorkspaceByUri, getWorkspaceKindLabel } from '../sync/localWorkspaces';
 import { selectWorkspace } from '../sync/workspacePicker';
 import { ConnectionManagerController } from '../connections/connectionManager';
 import { declareConnectionReferences } from '../connections/connectionCatalog';
@@ -42,11 +42,12 @@ export const registerManageConnectionsCommand = (context: vscode.ExtensionContex
     async (arg?: ManageConnectionsArg) => {
       const workspace = await resolveWorkspace(arg);
       if (!workspace) {
-        void vscode.window.showInformationMessage('Open or select a connected agent to manage its connections.');
+        void vscode.window.showInformationMessage('Open or select a connected agent or component collection to manage its connections.');
         return;
       }
       if (!workspace.syncInfo) {
-        void vscode.window.showWarningMessage('This agent is not connected to an environment. Reattach the agent before managing connections.');
+        const kindLabel = getWorkspaceKindLabel(workspace);
+        void vscode.window.showWarningMessage(`This ${kindLabel} is not connected to an environment. Reattach the ${kindLabel} before managing connections.`);
         return;
       }
 

@@ -30,6 +30,8 @@ export interface CopilotStudioWorkspace {
   schemaName?: string
 }
 
+export const getWorkspaceKindLabel = (workspace: CopilotStudioWorkspace): string => workspace.type === WorkspaceType.ComponentCollection ? 'component collection' : 'agent';
+
 interface ListWorkspacesResponse {
   workspaceUris: string[];
 }
