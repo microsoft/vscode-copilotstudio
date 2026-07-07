@@ -38,5 +38,6 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Agents.ObjectModel.NodeGenerators"/>
     <PackageReference Include="Microsoft.Agents.ObjectModel.Dataverse" />
+    <PackageReference Include="Microsoft.Bot.Schema" />
   </ItemGroup>
 </Project>
