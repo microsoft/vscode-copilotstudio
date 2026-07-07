@@ -148,55 +148,35 @@ export async function listEnvironmentsAsync(
     accountId: string | null,
     accountHint?: string
 ): Promise<EnvironmentInfo[]> {
-    const response = await getAsync<EnvironmentResponse>(
-        clusterCategory,
-        'environments',
-        "$filter=properties/environmentSku ne 'Platform'&$expand=properties.permissions",
-        cancellationToken,
-        accountId,
-        false,
-        accountHint
+    const perSkuResults = await Promise.all(
+        SKU_LOAD_ORDER.map(sku =>
+            listEnvironmentsBySkuAsync(clusterCategory, sku, cancellationToken, accountId, accountHint)
+                .catch(error => {
+                    logger.logError(
+                        TelemetryEventsKeys.LoadEnvironmentError,
+                        `[ListEnvironments] Failed to load ${sku} environments: <pii>${(error as Error)?.message || error}</pii>`
+                    );
+                    return [] as EnvironmentInfo[];
+                })
+        )
     );
 
-    const candidateEnvs = response.result.value.filter(env => hasEditPermission(env));
+    return mergeEnvironmentsBySku(perSkuResults);
+}
 
-    // Sort environments: Developer first, then Default, Sandbox, Production, Teams
-    // Within each SKU: hasAdmin first, then alphabetical
-    const skuPriority: Record<string, number> = {
-        'Developer': 0,
-        'Default': 1,
-        'Sandbox': 2,
-        'Production': 3,
-        'Teams': 4
-    };
-
-    const sortedEnvs = candidateEnvs.sort((a, b) => {
-        const skuA = a.properties?.environmentSku || 'Unknown';
-        const skuB = b.properties?.environmentSku || 'Unknown';
-        const priorityA = skuPriority[skuA] ?? 5;
-        const priorityB = skuPriority[skuB] ?? 5;
-
-        // First sort by SKU priority
-        if (priorityA !== priorityB) {
-            return priorityA - priorityB;
+export function mergeEnvironmentsBySku(perSkuResults: EnvironmentInfo[][]): EnvironmentInfo[] {
+    const seen = new Set<string>();
+    const merged: EnvironmentInfo[] = [];
+    for (const envs of perSkuResults) {
+        for (const env of envs) {
+            if (seen.has(env.environmentId)) {
+                continue;
+            }
+            seen.add(env.environmentId);
+            merged.push(env);
         }
-
-        // Within same SKU: hasAdmin first
-        const hasAdminA = !!a.properties?.permissions?.UpdateEnvironment;
-        const hasAdminB = !!b.properties?.permissions?.UpdateEnvironment;
-        if (hasAdminA !== hasAdminB) {
-            return hasAdminA ? -1 : 1;
-        }
-
-        // Finally alphabetical
-        const nameA = a.properties?.displayName || '';
-        const nameB = b.properties?.displayName || '';
-        return nameA.localeCompare(nameB);
-    });
-
-    return sortedEnvs
-        .map(toEnvironmentInfo)
-        .filter(envInfo => envInfo !== null) as EnvironmentInfo[];
+    }
+    return merged;
 }
 
 function hasEditPermission(env: EnvironmentDetails): boolean {
