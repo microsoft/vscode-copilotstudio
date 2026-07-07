@@ -145,6 +145,7 @@ public interface IWorkspaceSynchronizer
     /// <param name="cloudFlowMetadata">Cloud flow metadata to project into the cloud cache.</param>
     /// <param name="aiPrompts">AI Builder prompt metadata to project into the cloud cache.</param>
     /// <param name="cancellationToken">Used to cancel the request.</param>
+    /// <param name="contentSaveContextOverride">When set, the authoring context used for the content save.</param>
     /// <returns>A task representing the asynchronous operation.</returns>
     Task PushLocalChangesAsync(
         DirectoryPath workspaceFolder,
