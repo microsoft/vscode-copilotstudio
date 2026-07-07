@@ -25,6 +25,7 @@
     <PackageReference Update="Azure.Identity" Version="1.19.0" />
     <PackageReference Update="Microsoft.Identity.Client" Version="4.71.1" />
     <PackageReference Update="Microsoft.Identity.Client.Extensions.Msal" Version="4.71.1" />
+    <PackageReference Update="Microsoft.Bot.Schema" Version="4.17.0" />
     <PackageReference Update="Microsoft.PowerFx.Interpreter" Version="$(PowerFxPackageVersion)" />
     <PackageReference Update="Microsoft.PowerFx.LanguageServerProtocol" Version="$(PowerFxPackageVersion)" />
     <PackageReference Update="Microsoft.VisualStudio.Threading" Version="17.13.2" />
