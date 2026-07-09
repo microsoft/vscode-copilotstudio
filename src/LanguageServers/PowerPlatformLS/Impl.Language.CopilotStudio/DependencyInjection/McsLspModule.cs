@@ -29,6 +29,7 @@
             services.AddValidationRulesProcessor<McsLspDocument>();
             services.AddSingleton<IAgentFilesAnalyzer, AgentFilesAnalyzer>();
             services.AddSingleton<IValidationRule<McsLspDocument>, BotElementDiagnosticsValidationRule>();
+            services.AddSingleton<IValidationRule<McsLspDocument>, InlineCommentValidationRule>();
             services.TryAddSingleton<IFileAccessorFactory, FileAccessorFactory>();
             services.AddSingleton<IValidationRule<McsLspDocument>, ConnectionReferenceValidationRule>();
             services.AddSingleton<ILanguageAbstraction, McsLanguage>();
