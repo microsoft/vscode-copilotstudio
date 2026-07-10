@@ -67,7 +67,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
         }
 
         [Fact]
-        public async Task Pull_WritesMcsMetadataIntoComponentFile()
+        public async Task Clone_WritesMcsMetadataIntoComponentFile()
         {
             var filesystem = new InMemoryFileWriter();
             var cancel = CancellationToken.None;
