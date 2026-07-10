@@ -140,6 +140,29 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
         }
 
         [Fact]
+        public void CliWorkspace_FileAttachmentMetadata_CompilesWithQualifiedSchemaName()
+        {
+            var (compiler, language) = BuildCompiler();
+            var entity = ReadEntity(CliBotDefinitionJson);
+
+            var metadataYaml = "mcs.metadata:\n  componentName: File 22.txt\n  description: This knowledge source searches information contained in File 22.txt\n";
+
+            var documents = new Dictionary<FilePath, LspDocument>();
+            AddDocument(documents, language, "settings.mcs.yml", CodeSerializer.Serialize(entity));
+            AddDocument(documents, language, "capabilities/knowledge/files/file22txt_dBKwq.mcs.yml", metadataYaml);
+
+            var compilation = compiler.Compile(documents, new DirectoryPath("c:/agent"));
+
+            Assert.NotNull(compilation.Model);
+            Assert.Empty(compilation.Errors);
+
+            Assert.Contains(compilation.Model.Components,
+                c => c.SchemaNameString == $"{CliBotSchemaName}.file.file22txt_dBKwq");
+            Assert.DoesNotContain(compilation.Model.Components,
+                c => c.SchemaNameString == "file22txt_dBKwq");
+        }
+
+        [Fact]
         public void ClassicWorkspace_ShapeDetection_AndCompile_Unchanged()
         {
             var (compiler, language) = BuildCompiler();

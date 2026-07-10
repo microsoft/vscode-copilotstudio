@@ -474,6 +474,7 @@ internal static class LspProjection
         // CLI knowledge/file rules also preserve underscore-bearing display-name files
         // that are not bot-prefixed (no dot, no infix to expand against).
         if (rule.PreserveBotPrefixedFiles
+            && !string.Equals(rule.Infix, FileAttachmentInfix, StringComparison.Ordinal)
             && fileName.IndexOf('_') > 0
             && (string.IsNullOrEmpty(botName)
                 || !fileName.StartsWith(botName + "_", StringComparison.OrdinalIgnoreCase)))
