@@ -184,6 +184,7 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
                     // the requests this could happen for.  However, this assumption may not hold in the future.
                     // If that turns out to be the case, we could defer to the individual handler to decide
                     // what to do.
+                    outcome = HandlerOutcome.Failure;
                     _requestTelemetryScope?.RecordWarning($"Could not get request context for {MethodName}");
                     _logger.LogWarning($"Could not get request context for {MethodName}");
 

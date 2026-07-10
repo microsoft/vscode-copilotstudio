@@ -7,7 +7,7 @@ namespace Microsoft.PowerPlatformLS.LanguageServerHost
 
     /// <summary>
     /// Defense-in-depth telemetry initializer that scrubs known PII patterns
-    /// (GUIDs, file paths, email addresses) from trace messages and custom properties
+    /// (file paths, email addresses) from trace messages and custom properties
     /// before they leave the process. This is a safety net — call-site-level protection
     /// via LogSensitiveInformation/LogSensitiveError is preferred for intentional redaction.
     /// </summary>
@@ -35,7 +35,10 @@ namespace Microsoft.PowerPlatformLS.LanguageServerHost
             }
 
             // Scrub Windows file paths (e.g., C:\Users\...\agent.mcs.yml)
-            message = FilePathRegex().Replace(message, "<path>");
+            message = WindowsPathRegex().Replace(message, "<path>");
+
+            // Scrub Unix file paths (e.g., /home/user/agents/MyBot/)
+            message = UnixPathRegex().Replace(message, "<path>");
 
             // Scrub email addresses
             message = EmailRegex().Replace(message, "<email>");
@@ -46,7 +49,7 @@ namespace Microsoft.PowerPlatformLS.LanguageServerHost
         private static void ScrubProperties(IDictionary<string, string> properties)
         {
             // Scrub known property keys that may contain PII
-            string[] sensitiveKeys = ["FormattedMessage", "Message", "{OriginalFormat}"];
+            string[] sensitiveKeys = ["FormattedMessage", "Message", "{OriginalFormat}", "Agent"];
             foreach (var key in sensitiveKeys)
             {
                 if (properties.TryGetValue(key, out var value) && !string.IsNullOrEmpty(value))
@@ -58,7 +61,11 @@ namespace Microsoft.PowerPlatformLS.LanguageServerHost
 
         // Matches Windows paths like C:\Users\username\... or D:\folder\file.ext
         [GeneratedRegex(@"[A-Za-z]:\\(?:[\w\-.]+\\)*[\w\-.]+")]
-        private static partial Regex FilePathRegex();
+        private static partial Regex WindowsPathRegex();
+
+        // Matches Unix paths starting with /home/, /Users/, or /tmp/ (common user-specific roots)
+        [GeneratedRegex(@"(?:/home/|/Users/|/tmp/)[\w\-./]+")]
+        private static partial Regex UnixPathRegex();
 
         // Matches email addresses
         [GeneratedRegex(@"[\w.+-]+@[\w-]+\.[\w.-]+")]

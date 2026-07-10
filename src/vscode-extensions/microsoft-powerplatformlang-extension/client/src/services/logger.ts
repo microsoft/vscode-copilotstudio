@@ -80,6 +80,7 @@ const eventCategoryMap: Partial<Record<TelemetryEventType, LogCategory>> = {
   // Reattach
   [TelemetryEventsKeys.ReattachAgentClick]: LogCategory.Reattach,
   [TelemetryEventsKeys.ReattachAgentError]: LogCategory.Reattach,
+  [TelemetryEventsKeys.ReattachAgentInfo]: LogCategory.Reattach,
   [TelemetryEventsKeys.ReattachAgentSuccess]: LogCategory.Reattach,
 
   // Environment / Tree
@@ -180,9 +181,22 @@ class Logger {
     // The message for telemetry with potential PII tags
     const rawMessage = properties?.message as string || message;
 
-    // A redacted version for telemetry where PII content is replaced with [REDACTED]
+    // Redact all string properties that contain <pii> tags before sending to telemetry
+    const redactedProperties: Record<string, string> = {};
+    if (properties) {
+      for (const [key, value] of Object.entries(properties)) {
+        if (typeof value === 'string') {
+          redactedProperties[key] = value.replace(/<pii>.*?<\/pii>/g, '[REDACTED]');
+        } else if (value !== undefined) {
+          redactedProperties[key] = String(value);
+        }
+      }
+    }
+    // Ensure the message property uses the raw message source for redaction
     const redactedMessage = rawMessage?.replace(/<pii>.*?<\/pii>/g, '[REDACTED]');
-    const updatedProperties = redactedMessage ? { ...properties, message: redactedMessage } : properties;
+    const updatedProperties = redactedMessage
+      ? { ...redactedProperties, message: redactedMessage }
+      : redactedProperties;
 
     const canSendTelemetry = isTelemetryEnabled();
     this.writeToOutputChannel(logLevel, eventName, displayMessage, properties);
@@ -317,8 +331,6 @@ class Logger {
           properties[key] = value;
         } else if (typeof value === 'number') {
           measurements[key] = value;
-        } else {
-          properties[key] = JSON.stringify(value);
         }
       }
     }

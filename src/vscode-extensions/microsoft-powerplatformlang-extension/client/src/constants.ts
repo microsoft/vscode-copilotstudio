@@ -87,6 +87,7 @@ export const TelemetryEventsKeys = {
   GetLocalFileError: "GetLocalFileError",
   ReattachAgentClick: "ReattachAgentClick",
   ReattachAgentSuccess: "ReattachAgentSuccess",
+  ReattachAgentInfo: "ReattachAgentInfo",
   ReattachAgentError: "ReattachAgentError",
   ConnectionCreationInfo: "ConnectionCreationInfo",
   ConnectionCreationError: "ConnectionCreationError",

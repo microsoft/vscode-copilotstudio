@@ -216,6 +216,28 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
         }
 
         [Fact]
+        public void LogEndContext_Failure_With_Agent_Name_Logs_Failed()
+        {
+            LspRequestContext.CurrentRequestId = 9;
+
+            _logger.LogEndContext("powerplatformls/syncPush", 100, HandlerOutcome.Failure, "My Agent");
+
+            var infoLog = Assert.Single(_testLogger.Info);
+            Assert.Contains("Failed handler for: powerplatformls/syncPush, agent='My Agent', duration=100ms", infoLog);
+        }
+
+        [Fact]
+        public void LogEndContext_Canceled_With_Agent_Name_Logs_Canceled()
+        {
+            LspRequestContext.CurrentRequestId = 10;
+
+            _logger.LogEndContext("powerplatformls/getRemoteChanges", 50, HandlerOutcome.Canceled, "Bot X");
+
+            var infoLog = Assert.Single(_testLogger.Info);
+            Assert.Contains("Canceled handler for: powerplatformls/getRemoteChanges, agent='Bot X', duration=50ms", infoLog);
+        }
+
+        [Fact]
         public void LogSensitiveInformation_Logs_Full_Message_For_TestLogger()
         {
             _logger.LogSensitiveInformation("Valid agent: 'c:/Users/john/agents/MyBot/'", "Valid agent: 'MyBot'");

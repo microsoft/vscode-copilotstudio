@@ -293,7 +293,7 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
               try {
                 await finalizeRetargets(completedRetargets, true);
               } catch (finalizeError) {
-                logger.logWarning(TelemetryEventsKeys.ReattachAgentError, `Retarget succeeded but clearing the retarget backup failed; the workspaces remain on the new environment: <pii>${(finalizeError as Error).message}</pii>`);
+                logger.logWarning(TelemetryEventsKeys.ReattachAgentInfo, `Retarget succeeded but clearing the retarget backup failed; the workspaces remain on the new environment: <pii>${(finalizeError as Error).message}</pii>`);
               }
 
               const primaryResult = completedRetargets.find(result => result.workspace.workspaceUri === currentWorkspace.workspaceUri);
@@ -312,7 +312,7 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
                 anyConnectionsBound = anyConnectionsBound || autoBindResult.boundCount > 0;
                 workflowsEnabledTotal += autoBindResult.enabledWorkflowCount;
                 if (autoBindResult.disabledWorkflowNames.length > 0) {
-                  logger.logWarning(TelemetryEventsKeys.ReattachAgentError, `These workflows are disabled. Bind their connections, then enable them from the connection manager: <pii>${autoBindResult.disabledWorkflowNames.join(', ')}</pii>`);
+                  logger.logWarning(TelemetryEventsKeys.ReattachAgentInfo, `These workflows are disabled. Bind their connections, then enable them from the connection manager: <pii>${autoBindResult.disabledWorkflowNames.join(', ')}</pii>`);
                 }
               }
 
