@@ -57,15 +57,20 @@
 
                     if (!WorkspacePath.TryGetLanguageType(filePath, out _))
                     {
-                        _logger.LogInformation(
-                            $"Client notified '{changeFileEvent.Type}' event on watched files that has no language definition: {filePath.FileName}. Change won't be tracked.");
+                        // File name may be an agent/component name (EUII); redact it from telemetry.
+                        _logger.LogSensitiveInformation(
+                            $"Client notified '{changeFileEvent.Type}' event on watched files that has no language definition: {filePath.FileName}. Change won't be tracked.",
+                            $"Client notified '{changeFileEvent.Type}' event on watched files that has no language definition. Change won't be tracked.");
                         continue;
                     }
 
                     var context = _contextResolver.Resolve(new TextDocumentIdentifier { Uri = changeFileEvent.Uri });
                     if (context.IsInvalid)
                     {
-                        _logger.LogInformation($"File is not tracked. File is not found in workspace: '{filePath.FileName}'");
+                        // File name may be an agent/component name (EUII); redact it from telemetry.
+                        _logger.LogSensitiveInformation(
+                            $"File is not tracked. File is not found in workspace: '{filePath.FileName}'",
+                            "File is not tracked. File is not found in workspace.");
                     }
                     else
                     {
@@ -81,8 +86,10 @@
 
                 if (!WorkspacePath.TryGetLanguageType(filePath, out _))
                 {
-                    _logger.LogInformation(
-                        $"Client notified '{changeFileEvent.Type}' event on watched files that has no language definition: {filePath.FileName}. Change won't be tracked.");
+                    // File name may be an agent/component name (EUII); redact it from telemetry.
+                    _logger.LogSensitiveInformation(
+                        $"Client notified '{changeFileEvent.Type}' event on watched files that has no language definition: {filePath.FileName}. Change won't be tracked.",
+                        $"Client notified '{changeFileEvent.Type}' event on watched files that has no language definition. Change won't be tracked.");
                     continue;
                 }
 
@@ -91,7 +98,12 @@
                     var fileInfo = _fileProvider.GetFileInfo(filePath);
                     if (!fileInfo.Exists)
                     {
+                        // File name may be an agent/component name (EUII); keep it out of telemetry
+                        // (preserved for local debugging via LogSensitiveInformation).
                         _logger.LogWarning(
+                            $"Can't process '{changeFileEvent.Type}' event for a watched file: " +
+                            "The file does not exist.");
+                        _logger.LogSensitiveInformation(
                             $"Can't process '{changeFileEvent.Type}' event for '{filePath.FileName}': " +
                             "The file does not exist.");
                         continue;

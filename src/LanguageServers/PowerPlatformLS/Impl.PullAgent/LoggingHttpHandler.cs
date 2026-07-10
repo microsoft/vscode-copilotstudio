@@ -4,6 +4,7 @@
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using System;
     using System.Diagnostics;
+    using System.Text.RegularExpressions;
     using System.Threading.Tasks;
 
     /// <summary>
@@ -19,6 +20,11 @@
         }
 
         private static int _requestId;
+
+        // Environment/bot identifiers (GUIDs) in request paths are PII; redact them from telemetry.
+        private static readonly Regex GuidPattern = new(
+            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+            RegexOptions.Compiled);
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -45,7 +51,7 @@
         private static string GetPathAndQuery(Uri? uri)
         {
             if (uri == null) return string.Empty;
-            return uri.PathAndQuery;
+            return GuidPattern.Replace(uri.PathAndQuery, "{id}");
         }
     }
 }

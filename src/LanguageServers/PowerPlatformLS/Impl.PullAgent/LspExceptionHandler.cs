@@ -28,11 +28,12 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             {
                 // User-recoverable: the user can fix this by performing an action (resync, reclone, etc.).
                 // Log at Error (message only, no stack trace) to match failure indicators in the UI.
+                // The exception message embeds a filesystem path (EUII); keep it out of telemetry.
                 FileNotFoundException fnf =>
-                    LogErrorMessage(logger, 400, fnf.Message),
+                    LogSensitiveErrorMessage(logger, 400, fnf.Message, "File not found."),
 
                 DirectoryNotFoundException dnf =>
-                    LogErrorMessage(logger, 400, dnf.Message),
+                    LogSensitiveErrorMessage(logger, 400, dnf.Message, "Directory not found."),
 
                 // User validation: caller explicitly threw to signal bad input.
                 InvalidOperationException ioe =>
@@ -67,6 +68,18 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         {
             logger.LogError(message);
             return (code, message);
+        }
+
+        /// <summary>
+        /// Logs a PII-free message at Error level for telemetry while routing the full
+        /// (path-bearing) message through <see cref="ILspLogger.LogSensitiveInformation"/>
+        /// so it is only surfaced locally. The full message is still returned to the client.
+        /// </summary>
+        private static (int Code, string Message) LogSensitiveErrorMessage(ILspLogger logger, int code, string fullMessage, string safeMessage)
+        {
+            logger.LogError(safeMessage);
+            logger.LogSensitiveInformation(fullMessage);
+            return (code, fullMessage);
         }
 
         private static (int Code, string Message) LogErrorWithTrace(ILspLogger logger, Exception ex)

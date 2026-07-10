@@ -95,6 +95,20 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
         }
 
         [Fact]
+        public void GetPathAndQuery_Redacts_Guids_In_Path()
+        {
+            var method = typeof(LoggingHttpHandler).GetMethod("GetPathAndQuery", BindingFlags.NonPublic | BindingFlags.Static);
+
+            Assert.NotNull(method);
+            var uri = new Uri("https://contoso.api.crm.dynamics.com/api/botmanagement/v1/environments/00b0eda3-d061-ea9f-b86f-0fd3f5628590/bots/09031e3d-436d-f111-ab0e-7ced8dfef2b5/content/botcomponents");
+            var result = (string)method!.Invoke(null, [uri])!;
+
+            Assert.Equal("/api/botmanagement/v1/environments/{id}/bots/{id}/content/botcomponents", result);
+            Assert.DoesNotContain("00b0eda3", result);
+            Assert.DoesNotContain("09031e3d", result);
+        }
+
+        [Fact]
         public async Task SendAsync_Includes_RequestId_From_LspRequestContext()
         {
             LspRequestContext.CurrentRequestId = 42;

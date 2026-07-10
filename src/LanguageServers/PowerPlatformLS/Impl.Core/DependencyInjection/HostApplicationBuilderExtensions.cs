@@ -108,12 +108,12 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.DependencyInjection
 
                 if (useNamedPipes)
                 {
-                    logger.LogInformation($"Creating IPC: namedpipe={namedPipeInfo}");
+                    logger.LogInformation("Creating IPC: namedpipe");
                     transport = new NamedPipeIpc(namedPipeInfo, logger);
                 }
                 else
                 {
-                    logger.LogInformation($"Creating IPC: unixdomainsockets={namedPipeInfo}");
+                    logger.LogInformation("Creating IPC: unixdomainsockets");
                     transport = new UnixDomainSocketsIPC(namedPipeInfo, logger);
                 }
             }

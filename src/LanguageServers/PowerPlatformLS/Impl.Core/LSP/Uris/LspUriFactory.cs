@@ -141,7 +141,10 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp.Uris
                 {
                     // Truncate sample for logging
                     var truncatedSample = sampleRaw.Length > 100 ? sampleRaw[..97] + "..." : sampleRaw;
-                    logger.LogInformation($"UnsupportedSchemeObserved: scheme='{scheme}', sample='{truncatedSample}'");
+                    // The sample may be a full file path or URI (EUII); only the scheme is safe for telemetry.
+                    logger.LogSensitiveInformation(
+                        $"UnsupportedSchemeObserved: scheme='{scheme}', sample='{truncatedSample}'",
+                        $"UnsupportedSchemeObserved: scheme='{scheme}'");
                 }
             }
         }

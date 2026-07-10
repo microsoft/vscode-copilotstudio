@@ -70,7 +70,9 @@
                 }
                 else
                 {
-                    Assert.Single(logs.Warning.Where(x => x == $"Can't process 'Changed' event for '{entry.filepath.Split('/')[^1]}': The file does not exist."));
+                    // The full message (with file name) is routed through LogSensitiveInformation,
+                    // which surfaces at Info level in Debug/test builds; the Warning is now file-name-free.
+                    Assert.Single(logs.Info.Where(x => x == $"Can't process 'Changed' event for '{entry.filepath.Split('/')[^1]}': The file does not exist."));
                 }
             }
         }

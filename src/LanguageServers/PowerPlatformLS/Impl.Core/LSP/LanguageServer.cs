@@ -64,7 +64,10 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
 
             if (!lspWorkspaceManager.TryGetLanguageForDocument(typedLspUri, out var languageObject))
             {
-                Logger.LogError($"Failed to get language for {typedLspUri.Raw}");
+                // The raw URI is a full file path (EUII); keep it out of telemetry while
+                // preserving the full detail for local debugging.
+                Logger.LogError("Failed to get language for document.");
+                Logger.LogSensitiveInformation($"Failed to get language for {typedLspUri.Raw}");
                 language = null;
                 return false;
             }
