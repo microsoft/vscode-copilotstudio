@@ -120,9 +120,19 @@ namespace Microsoft.PowerPlatformLS.Tools.LspJournalCli.Commands
             // Snapshot original expected values for material-change detection
             var originalExpected = SnapshotExpected(journal.Steps);
 
-            // Resolve workspace URI and expand ${workspace} → absolute URIs in params
-            var resolvedWorkspaceUri = ResolveWorkspaceUri(journal, journalPath);
+            // Run the server against a throwaway COPY of the fixture workspace. The server
+            // rewrites files while indexing them (e.g. migrating legacy "# Name:" headers into
+            // "mcs.metadata:" blocks), so pointing it at the committed fixture would dirty the
+            // working tree and let one journal's rewrites break a later journal's text-hash check
+            // during --all. Text-hash validation (resolvedWorkspacePath) stays bound to the
+            // pristine committed fixture so recorded hashes remain stable across runs.
             var resolvedWorkspacePath = ResolveWorkspacePath(journal, journalPath);
+            using var workspaceSandbox = resolvedWorkspacePath is null
+                ? null
+                : TempWorkspaceCopy.Create(resolvedWorkspacePath);
+            var resolvedWorkspaceUri = workspaceSandbox?.Uri;
+
+            // Expand ${workspace} → absolute (sandbox) URIs in params
             if (resolvedWorkspaceUri is not null)
             {
                 foreach (var step in journal.Steps)
@@ -308,16 +318,20 @@ namespace Microsoft.PowerPlatformLS.Tools.LspJournalCli.Commands
                 // Promote actual → expected for baseline
                 foreach (var step in journal.Steps)
                 {
-                    // Relativize params back to ${workspace} form before writing
-                    if (resolvedWorkspacePath is not null && step.Params.HasValue)
-                    {
-                        step.Params = DocumentTextPolicy.ScrubParamsForStorage(step.Params.Value, resolvedWorkspacePath);
-                    }
-
+                    // Relativize absolute (sandbox) URIs back to ${workspace} FIRST, so scrubbing
+                    // maps each document to its committed-fixture-relative path and hashes the
+                    // pristine committed file — not the sandbox copy the server rewrote on load.
                     if (resolvedWorkspaceUri is not null && step.Params.HasValue)
                     {
                         var relParams = UriPlaceholder.Relativize(step.Params.Value.GetRawText(), resolvedWorkspaceUri);
                         step.Params = JsonDocument.Parse(relParams).RootElement.Clone();
+                    }
+
+                    // Replace inline document text with a ${file:...} reference + hash of the
+                    // committed fixture for storage.
+                    if (resolvedWorkspacePath is not null && step.Params.HasValue)
+                    {
+                        step.Params = DocumentTextPolicy.ScrubParamsForStorage(step.Params.Value, resolvedWorkspacePath);
                     }
 
                     step.Expected = step.Actual;
@@ -600,20 +614,10 @@ namespace Microsoft.PowerPlatformLS.Tools.LspJournalCli.Commands
         }
 
         /// <summary>
-        /// Compute the absolute file:/// URI for the workspace root described by
+        /// Resolve the absolute path to the committed fixture workspace described by
         /// <see cref="JournalMetadata.WorkspaceRoot"/> relative to the journal file.
         /// Returns null when the journal has no workspace root.
         /// </summary>
-        private static string? ResolveWorkspaceUri(Journal journal, string journalFilePath)
-        {
-            var workspaceRoot = journal.Metadata.WorkspaceRoot;
-            if (string.IsNullOrEmpty(workspaceRoot)) return null;
-
-            var journalDir = Path.GetDirectoryName(Path.GetFullPath(journalFilePath)) ?? ".";
-            var resolvedRoot = Path.GetFullPath(Path.Combine(journalDir, workspaceRoot));
-            return new Uri(resolvedRoot).ToString().TrimEnd('/');
-        }
-
         private static string? ResolveWorkspacePath(Journal journal, string journalFilePath)
         {
             var workspaceRoot = journal.Metadata.WorkspaceRoot;

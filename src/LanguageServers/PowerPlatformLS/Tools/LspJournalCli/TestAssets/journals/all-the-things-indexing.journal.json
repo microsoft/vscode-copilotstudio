@@ -3,11 +3,11 @@
     "description": "All-the-things: open every document type, check diagnostics and completions across the full surface area.",
     "workspaceRoot": "../fixtures/all-the-things-clean-workspace",
     "classification": "recorded",
-    "branch": "dev/stevesteiner/testcli.2",
-    "commit": "fa6143602",
-    "timestamp": "2026-02-10T22:45:06.0036837Z",
-    "branchBase": "27b3c27f3",
-    "branchDepth": 5
+    "branch": "main",
+    "commit": "6348142",
+    "timestamp": "2026-07-09T21:56:52.2762893Z",
+    "branchBase": "6348142",
+    "branchDepth": 0
   },
   "steps": [
     {
@@ -645,22 +645,7 @@
           "params": {
             "uri": "${workspace}/knowledge/files/ProductGuide.mcs.yml",
             "version": 0,
-            "diagnostics": [
-              {
-                "range": {
-                  "start": {
-                    "line": 0,
-                    "character": 0
-                  },
-                  "end": {
-                    "line": 0,
-                    "character": 0
-                  }
-                },
-                "severity": 3,
-                "message": "Document was not compiled under the current Agent Definition."
-              }
-            ]
+            "diagnostics": []
           }
         }
       ]

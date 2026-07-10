@@ -3,11 +3,11 @@
     "description": "All-the-things: request completions on every document type at meaningful positions.",
     "workspaceRoot": "../fixtures/all-the-things-clean-workspace",
     "classification": "recorded",
-    "branch": "dev/stevesteiner/testcli.2",
-    "commit": "fa6143602",
-    "timestamp": "2026-02-10T22:44:58.2574758Z",
-    "branchBase": "27b3c27f3",
-    "branchDepth": 5
+    "branch": "main",
+    "commit": "6348142",
+    "timestamp": "2026-07-09T21:58:01.3898893Z",
+    "branchBase": "6348142",
+    "branchDepth": 0
   },
   "steps": [
     {
@@ -1029,6 +1029,44 @@
             }
           },
           {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "ipa: ",
+            "sortText": "3ipa",
+            "textEdit": {
+              "newText": "ipa",
+              "range": {
+                "end": {
+                  "character": 6,
+                  "line": 4
+                },
+                "start": {
+                  "character": 4,
+                  "line": 4
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "soundsLike: ",
+            "sortText": "3soundsLike",
+            "textEdit": {
+              "newText": "soundsLike",
+              "range": {
+                "end": {
+                  "character": 6,
+                  "line": 4
+                },
+                "start": {
+                  "character": 4,
+                  "line": 4
+                }
+              }
+            }
+          },
+          {
             "detail": "DTMF Key",
             "insertTextMode": 2,
             "kind": 9,
@@ -1353,6 +1391,44 @@
                 }
               }
             }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "sharedConnectionParameters: ",
+            "sortText": "3sharedConnectionParameters",
+            "textEdit": {
+              "newText": "sharedConnectionParameters",
+              "range": {
+                "end": {
+                  "character": 34,
+                  "line": 1
+                },
+                "start": {
+                  "character": 4,
+                  "line": 1
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "allowSharing: ",
+            "sortText": "3allowSharing",
+            "textEdit": {
+              "newText": "allowSharing",
+              "range": {
+                "end": {
+                  "character": 34,
+                  "line": 1
+                },
+                "start": {
+                  "character": 4,
+                  "line": 1
+                }
+              }
+            }
           }
         ]
       }
@@ -1536,6 +1612,25 @@
             "sortText": "3note",
             "textEdit": {
               "newText": "note",
+              "range": {
+                "end": {
+                  "character": 32,
+                  "line": 60
+                },
+                "start": {
+                  "character": 17,
+                  "line": 16
+                }
+              }
+            }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "sensitivityLevel: ",
+            "sortText": "3sensitivityLevel",
+            "textEdit": {
+              "newText": "sensitivityLevel",
               "range": {
                 "end": {
                   "character": 32,

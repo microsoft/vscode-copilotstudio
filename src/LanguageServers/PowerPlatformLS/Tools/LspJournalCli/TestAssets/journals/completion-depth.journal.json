@@ -3,11 +3,11 @@
     "description": "Completion depth: property-key in nested contexts, enum-value after change, and all four trigger-character variants.",
     "workspaceRoot": "../fixtures/all-the-things-clean-workspace",
     "classification": "recorded",
-    "branch": "dev/stevesteiner/migrate.4",
-    "commit": "292d97d68",
-    "timestamp": "2026-02-13T04:46:01.6524784Z",
-    "branchBase": "2d59832ef",
-    "branchDepth": 2
+    "branch": "main",
+    "commit": "6348142",
+    "timestamp": "2026-07-09T21:58:13.6797588Z",
+    "branchBase": "6348142",
+    "branchDepth": 0
   },
   "steps": [
     {
@@ -381,6 +381,25 @@
                 }
               }
             }
+          },
+          {
+            "insertTextMode": 2,
+            "kind": 9,
+            "label": "sensitivityLevel: ",
+            "sortText": "3sensitivityLevel",
+            "textEdit": {
+              "newText": "sensitivityLevel",
+              "range": {
+                "end": {
+                  "character": 8,
+                  "line": 14
+                },
+                "start": {
+                  "character": 6,
+                  "line": 14
+                }
+              }
+            }
           }
         ]
       },
@@ -477,6 +496,11 @@
             "detail": "Connector action",
             "documentation": "Invokes a connector\u0027s operation, possibly with inputs and outputs.",
             "label": "InvokeConnectorAction"
+          },
+          {
+            "detail": "MCP tool",
+            "documentation": "Invokes an MCP tool from an MCP server, possibly with inputs and outputs.",
+            "label": "InvokeMcpToolAction"
           },
           {
             "detail": "Action",
