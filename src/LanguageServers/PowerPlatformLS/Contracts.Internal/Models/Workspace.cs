@@ -92,26 +92,7 @@ namespace Microsoft.PowerPlatformLS.Contracts.Internal.Models
         }
 
         public virtual LspDocument UpsertDocumentFromFile(FilePath documentPath, IFileInfo fileInfo, ILanguageAbstraction language, CultureInfo cultureInfo)
-        {
-            var originalText = fileInfo.ReadAllText();
-            var updatedText = originalText;
-            var tempPath = documentPath + ".tmp";
-            try
-            {
-                updatedText = CodeSerializer.DeserializeWithMetadata(originalText);
-                if (!string.Equals(originalText, updatedText, StringComparison.Ordinal))
-                {
-                    File.WriteAllText(tempPath, updatedText);
-                    File.Move(tempPath, documentPath.ToString(), true);
-                }
-            }
-            catch
-            {
-                // No op
-            }
-
-            return GetOrCreateDocument(documentPath, updatedText, language, cultureInfo);
-        }
+            => GetOrCreateDocument(documentPath, fileInfo.ReadAllText(), language, cultureInfo);
 
         public bool RemoveDocumentsUnderFolder(FilePath folderPath)
         {
