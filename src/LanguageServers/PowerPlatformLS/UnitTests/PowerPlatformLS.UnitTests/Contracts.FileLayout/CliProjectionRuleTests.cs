@@ -76,6 +76,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
         [Theory]
         [InlineData(typeof(KnowledgeSourceConfiguration), "capabilities/knowledge/Weather", "Default_draft_ECaOPZ.knowledge.Weather")]
         [InlineData(typeof(FileAttachmentComponent), "capabilities/knowledge/files/MyLedger.xlsx_hyG", "Default_draft_ECaOPZ.file.MyLedger.xlsx_hyG")]
+        [InlineData(typeof(FileAttachmentComponent), "capabilities/knowledge/files/file22txt_dBKwq", "Default_draft_ECaOPZ.file.file22txt_dBKwq")]
         public void GetSchemaName_CliSharedType_ProducesExpectedSchema(System.Type elementType, string pathWithoutExt, string expectedSchema)
         {
             var result = LspProjection.GetSchemaName(pathWithoutExt, Bot, elementType, Cli);
@@ -85,6 +86,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
         [Theory]
         [InlineData(typeof(KnowledgeSourceConfiguration), "Default_draft_ECaOPZ.knowledge.Weather", "capabilities/knowledge/Weather.mcs.yml")]
         [InlineData(typeof(FileAttachmentComponent), "Default_draft_ECaOPZ.file.MyLedger.xlsx_hyG", "capabilities/knowledge/files/MyLedger.xlsx_hyG.mcs.yml")]
+        [InlineData(typeof(FileAttachmentComponent), "Default_draft_ECaOPZ.file.file22txt_dBKwq", "capabilities/knowledge/files/file22txt_dBKwq.mcs.yml")]
         public void GetFilePath_CliSharedType_ProducesExpectedPath(System.Type elementType, string schema, string expectedPath)
         {
             var result = LspProjection.GetFilePath(elementType, schema, Bot, subAgentFolder: null, pathWithoutExtension: null, Cli);
