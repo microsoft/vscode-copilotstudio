@@ -2,6 +2,7 @@ import { Uri } from "vscode";
 import { FetchAccessToken, TokenInfo } from "./account";
 import { AgentInfo, SolutionInfo } from "../types";
 import { solutionList } from "../generated/schema";
+import { coalesceRequest } from "../utils/coalesceRequest";
 import logger from "../services/logger";
 
 const PowerVirtualAgentsSolutionName = "PowerVirtualAgents";
@@ -31,12 +32,13 @@ export async function getSolutionVersionsAsync(
   baseEndpoint: Uri,
   cancellationToken: AbortSignal | null,
   accountId?: string,
-  accountHint?: string
+  accountHint?: string,
+  interactive: boolean = false
 ): Promise<SolutionInfo> {
   const solutions = solutionList.concat(additionalSolutions);
   const filterQuery = `$select=uniquename,version&$filter=${solutions.map(solution => `uniquename eq '${solution}'`).join(' or ')}`;
   const uri = baseEndpoint.with({ path: `api/data/v9.2/solutions`, query: filterQuery });
-  const result = await getAsync<ListResponse<SolutionData>>(uri, cancellationToken, accountId, accountHint).then(response => response.result.value);
+  const result = await getAsync<ListResponse<SolutionData>>(uri, cancellationToken, accountId, accountHint, interactive).then(response => response.result.value);
   const solutionVersions: Record<string, string> = {};
 
   // Basing the default version on the PAC CLI default solution version.
@@ -83,7 +85,8 @@ export async function whoAmIAsync(
   baseEndpoint: Uri,
   cancellationToken: AbortSignal | null,
   accountId?: string,
-  accountHint?: string
+  accountHint?: string,
+  interactive: boolean = false
 ): Promise<string> {
   const cacheKey = `${accountId ?? ''}|${baseEndpoint.authority}`;
 
@@ -99,37 +102,20 @@ export async function whoAmIAsync(
     throw new Error(`WhoAmI previously failed: ${failReason}`);
   }
 
-  // If there's already a pending request for this environment, wait for it
-  const pending = whoAmIPending.get(cacheKey);
-  if (pending) {
-    return pending;
-  }
+    return coalesceRequest(whoAmIPending, cacheKey, async () => {
 
-  // Make the request and cache the promise
-  const uri = baseEndpoint.with({ path: `api/data/v9.2/WhoAmI` });
+    // Make the request and cache the promise
+    const uri = baseEndpoint.with({ path: `api/data/v9.2/WhoAmI` });
 
-  // Create timeout abort controller
-  const timeoutController = new AbortController();
-  const timeoutId = setTimeout(() => timeoutController.abort(), WHOAMI_TIMEOUT_MS);
-
-  // Combine with caller's cancellation token if provided
-  const combinedSignal = cancellationToken
-    ? combineAbortSignals(cancellationToken, timeoutController.signal)
-    : timeoutController.signal;
-
-  const requestPromise = getAsync<WhoAmIResponse>(uri, combinedSignal, accountId, accountHint)
-    .then(({ result }) => {
-      clearTimeout(timeoutId);
+    // Create timeout abort controller
+    const timeoutController = new AbortController();
+    const timeoutId = setTimeout(() => timeoutController.abort(), WHOAMI_TIMEOUT_MS);
+    try {
+      const { result } = await getAsync<WhoAmIResponse>(uri, timeoutController.signal, accountId, accountHint, interactive);
       const userId = result.UserId;
       whoAmICache.set(cacheKey, userId);
-      whoAmIPending.delete(cacheKey);
       return userId;
-    })
-    .catch((error) => {
-      clearTimeout(timeoutId);
-      whoAmIPending.delete(cacheKey);
-
-      // Only cache 403/access denied failures - timeouts may be temporary
+    } catch (error: any) {
       const is403 = error?.message?.includes('403') || error?.message?.includes('not a member');
       if (is403) {
         const failureReason = error?.message?.includes('not a member')
@@ -137,25 +123,11 @@ export async function whoAmIAsync(
           : 'access denied (403)';
         whoAmIFailed.set(cacheKey, failureReason);
       }
-
       throw error;
-    });
-
-  whoAmIPending.set(cacheKey, requestPromise);
-  return requestPromise;
-}
-
-/** Combines multiple abort signals into one */
-function combineAbortSignals(...signals: AbortSignal[]): AbortSignal {
-  const controller = new AbortController();
-  for (const signal of signals) {
-    if (signal.aborted) {
-      controller.abort();
-      break;
+    } finally {
+      clearTimeout(timeoutId);
     }
-    signal.addEventListener('abort', () => controller.abort(), { once: true });
-  }
-  return controller.signal;
+  }, cancellationToken);
 }
 
 /** Pre-warm the WhoAmI cache for an environment. Call this early to avoid blocking later. */
@@ -167,10 +139,11 @@ export async function listAgentsAsync(
   baseEndpoint: Uri,
   cancellationToken: AbortSignal | null,
   accountId?: string,
-  accountHint?: string
+  accountHint?: string,
+  interactive: boolean = false
 ): Promise<AgentInfo[]> {
   logger.debug('Dataverse', `Listing owned agents from: ${baseEndpoint.authority}`);
-  const systemUserId = await whoAmIAsync(baseEndpoint, cancellationToken, accountId, accountHint);
+  const systemUserId = await whoAmIAsync(baseEndpoint, cancellationToken, accountId, accountHint, interactive);
 
   const filter = `ismanaged eq false and _ownerid_value eq ${systemUserId}`;
   const query = `$select=botid,name,schemaname,iconbase64&$filter=${filter}&$expand=bot_botcomponentcollection($select=schemaname,botcomponentcollectionid,name)`;
@@ -180,7 +153,7 @@ export async function listAgentsAsync(
     query: query
   });
 
-  const response = await getAsync<ListResponse<AgentDetails>>(uri, cancellationToken, accountId, accountHint);
+  const response = await getAsync<ListResponse<AgentDetails>>(uri, cancellationToken, accountId, accountHint, interactive);
   logger.trace('Dataverse', `Found ${response.result.value.length} owned agent(s)`);
   return response.result.value.map(getAgentInfo);
 }
@@ -202,10 +175,11 @@ export async function listSharedAgentsAsync(
   baseEndpoint: Uri,
   cancellationToken: AbortSignal | null,
   accountId?: string,
-  accountHint?: string
+  accountHint?: string,
+  interactive: boolean = false
 ): Promise<AgentInfo[]> {
   logger.debug('Dataverse', `Listing shared agents from: ${baseEndpoint.authority}`);
-  const systemUserId = await whoAmIAsync(baseEndpoint, cancellationToken, accountId, accountHint);
+  const systemUserId = await whoAmIAsync(baseEndpoint, cancellationToken, accountId, accountHint, interactive);
 
   // Get all unmanaged bots the user can see, excluding ones they own
   const filter = `ismanaged eq false and _ownerid_value ne ${systemUserId}`;
@@ -213,7 +187,7 @@ export async function listSharedAgentsAsync(
     path: `api/data/v9.2/bots`,
     query: `$select=botid,name,schemaname,iconbase64&$filter=${filter}&$expand=bot_botcomponentcollection($select=schemaname,botcomponentcollectionid,name)`
   });
-  const response = await getAsync<ListResponse<AgentDetails>>(uri, cancellationToken, accountId, accountHint);
+  const response = await getAsync<ListResponse<AgentDetails>>(uri, cancellationToken, accountId, accountHint, interactive);
   const sharedAgents = projectSharedAgents(response.result.value);
   logger.trace('Dataverse', `Found ${sharedAgents.length} shared agent(s)`);
   return sharedAgents;
@@ -223,9 +197,10 @@ async function getAsync<TResult>(
   uri: Uri,
   cancellationToken: AbortSignal | null,
   accountId?: string,
-  accountHint?: string
+  accountHint?: string,
+  interactive: boolean = false
 ): Promise<{ result: TResult; tokenInfo: TokenInfo }> {
-  const { response, tokenInfo } = await FetchAccessToken(uri, uri, accountId ?? null, cancellationToken, true, accountHint);
+  const { response, tokenInfo } = await FetchAccessToken(uri, uri, accountId ?? null, cancellationToken, true, accountHint, interactive);
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null);

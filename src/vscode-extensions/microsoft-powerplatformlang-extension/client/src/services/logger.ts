@@ -15,6 +15,12 @@ type TelemetryEventProps = {
  */
 type TelemetryEventData = TelemetryEventProperties | TelemetryEventMeasurements;
 
+const NOOP_REPORTER = {
+  sendTelemetryEvent: () => { },
+  sendTelemetryErrorEvent: () => { },
+  dispose: () => Promise.resolve(),
+} as unknown as TelemetryReporter;
+
 /**
  * Service for sending telemetry events to Application Insights via the VS Code extension telemetry API.
  * 
@@ -29,7 +35,7 @@ type TelemetryEventData = TelemetryEventProperties | TelemetryEventMeasurements;
  */
 class Logger {
   private static instance: Logger;
-  private reporter!: TelemetryReporter;
+  private reporter: TelemetryReporter = NOOP_REPORTER;
   private sessionId!: string;
   private outputChannel: vscode.LogOutputChannel | undefined;
 

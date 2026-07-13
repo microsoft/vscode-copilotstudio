@@ -4,6 +4,8 @@ import { selectWorkspace } from "../sync/workspacePicker";
 import { getOrAddSynchronizer, withSyncCommandBusy, WorkspaceSynchronizer } from "../sync/workspaceSynchronizer";
 import { registerVirtualKnowledgeProvider } from "../knowledgeFiles/virtualKnowledgeFile";
 import { getWorkspaceChanges, refreshAgentChangesAfterFetch } from "../sync/workspaceScm";
+import { handleSyncAuthError } from "../sync/authFailureNotification";
+import { clearSuppressedAuthState } from "../clients/account";
 import { isKnowledgeFileChangeKind, TelemetryEventsKeys } from "../constants";
 import logger from "../services/logger";
 
@@ -109,6 +111,7 @@ const registerSyncCommand = (
   { id, displayName, action }: SyncCommand
 ) => {
   const syncCommand = commands.registerCommand(id, async (workspace?: Workspace) => {
+    let workspaceForCatch: CopilotStudioWorkspace | undefined;
     try {
       logger.logInfo(TelemetryEventsKeys.SyncWorkspaceClick);
       const selectedWorkspace = workspace && typeof workspace === 'object' && 'ws' in workspace && workspace.ws
@@ -132,6 +135,11 @@ const registerSyncCommand = (
           logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Cannot perform ${displayName} operation: connection file .mcs::conn.json is missing, please clone again.`);
         }
         return;
+      }
+
+      workspaceForCatch = selectedWorkspace;
+      if (selectedWorkspace.syncInfo?.accountInfo) {
+        clearSuppressedAuthState(selectedWorkspace.syncInfo.accountInfo.accountId, selectedWorkspace.syncInfo.accountInfo.accountEmail);
       }
 
       let errors = { files: 0, count: 0 };
@@ -216,6 +224,9 @@ const registerSyncCommand = (
         }
       }
     } catch (error) {
+      if (workspaceForCatch && await handleSyncAuthError(workspaceForCatch, error, async () => { await commands.executeCommand(id, workspaceForCatch); })) {
+        return;
+      }
       logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Failed to execute ${displayName} operation: ${(error as Error).message}`);
     }
   });

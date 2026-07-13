@@ -71,8 +71,8 @@ export const getDuplicateDisplayNames = (workspaces: CopilotStudioWorkspace[] = 
   return duplicates;
 };
 
-export const buildAgentIdentityTooltip = (ws: CopilotStudioWorkspace): MarkdownString => {
-  const connected = hasConnectionFileInWorkspace(ws.workspaceUri);
+export const buildAgentIdentityTooltip = (ws: CopilotStudioWorkspace, connectedOverride?: boolean, statusDetail?: string): MarkdownString => {
+  const connected = connectedOverride ?? hasConnectionFileInWorkspace(ws.workspaceUri);
   const environmentId = ws.syncInfo?.environmentId;
   const environmentDisplayName = ws.syncInfo?.environmentDisplayName;
   const tenantId = ws.syncInfo?.accountInfo?.tenantId;
@@ -86,6 +86,9 @@ export const buildAgentIdentityTooltip = (ws: CopilotStudioWorkspace): MarkdownS
   }
   tooltip.appendMarkdown(`Account: ${ws.syncInfo?.accountInfo?.accountEmail ?? '—'}\n\n`);
   tooltip.appendMarkdown(`Status: ${connected ? 'Connected' : 'Not connected'}`);
+  if (!connected && statusDetail) {
+    tooltip.appendMarkdown(` — ${statusDetail}`);
+  }
   return tooltip;
 };
 

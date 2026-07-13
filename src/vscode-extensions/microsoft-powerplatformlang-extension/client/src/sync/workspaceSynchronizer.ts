@@ -81,7 +81,7 @@ export interface WorkspaceSynchronizer {
 }
 
 interface SyncStateListener {
-  (state: SyncState): void;
+  (state: SyncState): void | Promise<void>;
 }
 
 export function getOrAddSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
@@ -103,9 +103,16 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
   let currentState = SyncState.Idle;
   const listeners: SyncStateListener[] = [];
 
-  function updateSyncState(newState: SyncState) {
+  async function updateSyncState(newState: SyncState) {
     currentState = newState;
-    listeners.forEach(listener => listener(newState));
+    const results = await Promise.allSettled(listeners.map(listener => listener(newState)));
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
+          message: `syncStateListenerError: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`
+        });
+      }
+    }
     _onAnySyncStateChanged.fire();
   }
 
@@ -116,11 +123,11 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
     }
 
     try {
-      updateSyncState(newState);
+      await updateSyncState(newState);
       const result = await operation();
       return result;
     } finally {
-      updateSyncState(SyncState.Idle);
+      await updateSyncState(SyncState.Idle);
     }
   }
 
@@ -170,7 +177,7 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
   };
 }
 
-export async function sync(workspace: CopilotStudioWorkspace, displayText: string, methodName: string, silent: boolean, suppressErrorNotification = false, suppressDisabledWorkflowWarnings = false, draftConnectionReferenceWorkflows = false): Promise<SyncResponse> {
+export async function sync(workspace: CopilotStudioWorkspace, displayText: string, methodName: string, silent: boolean, suppressErrorNotification = false, suppressDisabledWorkflowWarnings = false, draftConnectionReferenceWorkflows = false, retryOnUserNotMember = true): Promise<SyncResponse> {
   const { syncInfo, workspaceUri } = workspace;
   if (!syncInfo) {
     throw new Error(`${displayText} failed. Connection file .mcs::conn.json is missing, please clone again.`);
@@ -188,7 +195,7 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
   }
 
   const request: SyncRequest = {
-    ...await buildLspRequestPayload(syncInfo),
+    ...await buildLspRequestPayload(syncInfo, undefined, undefined, true),
     workspaceUri,
     draftConnectionReferenceWorkflows,
   };
@@ -206,11 +213,11 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
     logAIPromptIssues(result.aiPromptResponse);
     return result;
   } catch (error) {
-    if ((error as Error).message?.includes("UserNotMemberOfOrg")) {
+    if (retryOnUserNotMember && (error as Error).message?.includes("UserNotMemberOfOrg")) {
       logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Your current account does not have permission. Please sign in with the account <pii>(${accountInfo.accountEmail ?? accountInfo.accountId})</pii> to perform this operation.`);
       try {
         resetAccount();
-        return await sync(workspace, displayText, methodName, silent, suppressErrorNotification, suppressDisabledWorkflowWarnings, draftConnectionReferenceWorkflows);
+        return await sync(workspace, displayText, methodName, silent, suppressErrorNotification, suppressDisabledWorkflowWarnings, draftConnectionReferenceWorkflows, false);
       } catch (error) {
         logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Re-authentication failed: ${(error as Error).message}`);
         throw error;

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import logger from '../services/logger';
 import { DefaultCoreServicesClusterCategory, TelemetryEventsKeys } from '../constants';
 import { cloneAgentToLocalFolder, getAgentInfo } from '../clone/getAgent';
+import { pickAccount } from '../services/accountEnvPicker';
 import { isCopilotStudioTreeItem, TreeItemKind } from '../clone/tree';
 import { IdentifyAgentResponse } from '../types';
 
@@ -32,7 +33,16 @@ export const registerCloneAgentCommand = (context: vscode.ExtensionContext) => {
           ? clipboardContent
           : undefined;
 
-        agent = await getAgentInfo(potentialAgentUrl, context);
+        let preselectedAccount: { accountId?: string; accountEmail?: string } | undefined;
+        if (!potentialAgentUrl) {
+          const picked = await pickAccount('Choose the account to browse for agents');
+          if (picked === 'cancelled') {
+            return;
+          }
+          preselectedAccount = picked;
+        }
+
+        agent = await getAgentInfo(potentialAgentUrl, context, preselectedAccount);
       }
       await cloneAgentToLocalFolder(agent, context);
     } catch (error) {

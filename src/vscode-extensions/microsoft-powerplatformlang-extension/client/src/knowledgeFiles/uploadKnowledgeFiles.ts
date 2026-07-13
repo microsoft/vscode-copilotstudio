@@ -18,7 +18,7 @@ export async function uploadKnowledgeFiles(ws: CopilotStudioWorkspace): Promise<
   }
 
   const request: UploadKnowledgeFilesRequest = {
-    ...(await buildLspRequestPayload(syncInfo)),
+    ...(await buildLspRequestPayload(syncInfo, undefined, undefined, true)),
     workspaceUri
   };
 

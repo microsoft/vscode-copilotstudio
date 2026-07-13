@@ -6,6 +6,7 @@ import { knowledgeTreeDataProvider } from './knowledgeFileTree';
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import logger from '../services/logger';
 import { LspMethods, TelemetryEventsKeys } from '../constants';
+import { AuthError } from '../clients/account';
 import {
   DownloadKnowledgeFilesRequest,
   DownloadKnowledgeFilesResponse,
@@ -158,7 +159,9 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
         await this.refreshWorkspace(ws);
       } catch (err) {
         logger.error('KnowledgeFiles', `Failed to refresh workspace ${ws.workspaceUri.toString()}: ${err}`);
-        logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `Failed to refresh workspace <pii>${ws.workspaceUri.toString()}</pii>: ${err}`);
+        if (!(err instanceof AuthError)) {
+          logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `Failed to refresh workspace <pii>${ws.workspaceUri.toString()}</pii>: ${err}`);
+        }
       }
     }
 
@@ -221,7 +224,7 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
     }
 
     const request: DownloadKnowledgeFilesRequest = {
-      ...(await buildLspRequestPayload(syncInfo)),
+      ...(await buildLspRequestPayload(syncInfo, undefined, undefined, true)),
       workspaceUri,
       schemaNames
     };

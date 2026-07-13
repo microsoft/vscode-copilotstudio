@@ -4,6 +4,9 @@ import { Resource } from "./changeTracking";
 import { getWorkspaceChanges } from "./workspaceScm";
 import { ChangeType } from "../types";
 import { getActiveSyncUri, getSyncStateFor, onAnySyncStateChanged, SyncState } from "./workspaceSynchronizer";
+import { getAccountHealth, onAuthStateChanged, AccountHealth } from "../clients/account";
+import { isAccountTokenUsable } from "../clients/bapClient";
+import { getClusterCategory } from "../utils/genericUtils";
 
 /**
  * Tree item types for the Agent Changes view hierarchy:
@@ -38,6 +41,41 @@ export interface ChangeItemTreeItem {
 
 export type AgentChangesTreeItemUnion = AgentTreeItem | ChangeGroupTreeItem | ChangeItemTreeItem;
 
+export function computeAgentAccountBadge(workspace: CopilotStudioWorkspace, isDuplicate: boolean): { description: string; health: AccountHealth } {
+  const baseDescription = isDuplicate && workspace.schemaName ? workspace.schemaName : undefined;
+  const accountInfo = workspace.syncInfo?.accountInfo;
+  const health: AccountHealth = accountInfo ? getAccountHealth(accountInfo.accountId, accountInfo.accountEmail) : 'ok';
+  const statusSuffix = health === 'terminal' ? 'account unavailable' : (health === 'signedOut' ? 'signed out' : undefined);
+  const description = [baseDescription, accountInfo?.accountEmail, statusSuffix].filter(Boolean).join(' \u00b7 ');
+  return { description, health };
+}
+
+export function isWorkspaceConnected(workspace: CopilotStudioWorkspace): boolean {
+  return !!(workspace.syncInfo && workspace.syncInfo.agentManagementEndpoint && hasConnectionFileInWorkspace(workspace.workspaceUri));
+}
+
+export function describeDisconnection(workspace: CopilotStudioWorkspace): { message: string; action: 'signin' | 'reattach' } {
+  if (!hasConnectionFileInWorkspace(workspace.workspaceUri)) {
+    return { message: 'Not linked to a cloud agent \u2014 reattach to start syncing.', action: 'reattach' };
+  }
+  if (!workspace.syncInfo) {
+    return { message: "Connection details couldn't be read \u2014 reattach to reconnect.", action: 'reattach' };
+  }
+  const account = workspace.syncInfo.accountInfo;
+  const label = account?.accountEmail ?? account?.accountId ?? 'the linked account';
+  const health = getAccountHealth(account?.accountId, account?.accountEmail);
+  if (health === 'terminal') {
+    return { message: `Can't sign in to ${label}.`, action: 'reattach' };
+  }
+  if (health === 'signedOut') {
+    return { message: `Signed out \u2014 sign in to ${label}.`, action: 'signin' };
+  }
+  if (!workspace.syncInfo.agentManagementEndpoint) {
+    return { message: `Not connected to its environment \u2014 sign in to ${label} to load cloud changes.`, action: 'signin' };
+  }
+  return { message: `Can't sign in to ${label}.`, action: 'signin' };
+}
+
 /**
  * Tree data provider for the Agent Changes view.
  * Displays a 3-level hierarchy:
@@ -53,16 +91,64 @@ class AgentChangesTreeDataProvider implements TreeDataProvider<AgentChangesTreeI
     this._onDidChangeTreeData.fire();
   }
 
+  private accountUsable = new Map<string, boolean>();
+
+  private accountKey(workspace: CopilotStudioWorkspace): string {
+    const account = workspace.syncInfo?.accountInfo;
+    return (account?.accountId || account?.accountEmail || '').toLowerCase();
+  }
+
+  private isConnectedForDisplay(workspace: CopilotStudioWorkspace): boolean {
+    if (!isWorkspaceConnected(workspace)) {
+      return false;
+    }
+    const key = this.accountKey(workspace);
+    return key ? (this.accountUsable.get(key) ?? true) : true;
+  }
+
+  async probeAccountConnectivity(): Promise<void> {
+    const seen = new Set<string>();
+    let changed = false;
+    for (const workspace of getAllWorkspaces()) {
+      const account = workspace.syncInfo?.accountInfo;
+      const key = this.accountKey(workspace);
+      if (!account || !key || seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      const usable = await isAccountTokenUsable(account.accountId, account.accountEmail, getClusterCategory(account));
+      if (this.accountUsable.get(key) !== usable) {
+        this.accountUsable.set(key, usable);
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.refresh();
+    }
+  }
+
   getTreeItem(element: AgentChangesTreeItemUnion): TreeItem {
     switch (element.kind) {
       case AgentChangesItemKind.Agent: {
-        const item = new TreeItem(element.workspace.displayName, TreeItemCollapsibleState.Expanded);
+        const isDuplicate = getDuplicateDisplayNames().has(element.workspace.displayName.toLowerCase());
+        const badge = computeAgentAccountBadge(element.workspace, isDuplicate);
+        const connected = this.isConnectedForDisplay(element.workspace);
+        const item = new TreeItem(element.workspace.displayName, connected ? TreeItemCollapsibleState.Expanded : TreeItemCollapsibleState.None);
         item.id = `agent:${element.workspace.workspaceUri}`;
-        item.iconPath = element.workspace.icon;
-        const duplicateNames = getDuplicateDisplayNames();
-        const isDuplicate = duplicateNames.has(element.workspace.displayName.toLowerCase());
-        item.description = isDuplicate && element.workspace.schemaName ? element.workspace.schemaName : element.workspace.description;
-        item.tooltip = buildAgentIdentityTooltip(element.workspace);
+        if (connected) {
+          item.description = badge.description;
+          item.iconPath = badge.health === 'terminal'
+            ? new ThemeIcon('error', new ThemeColor('list.errorForeground'))
+            : badge.health === 'signedOut'
+              ? new ThemeIcon('warning', new ThemeColor('list.warningForeground'))
+              : element.workspace.icon;
+        } else {
+          item.description = [badge.description, 'not connected'].filter(Boolean).join(' \u00b7 ');
+          item.iconPath = badge.health === 'terminal'
+            ? new ThemeIcon('error', new ThemeColor('list.errorForeground'))
+            : new ThemeIcon('debug-disconnect', new ThemeColor('list.warningForeground'));
+        }
+        item.tooltip = buildAgentIdentityTooltip(element.workspace, connected, connected ? undefined : describeDisconnection(element.workspace).message);
         item.contextValue = element.workspace.type === WorkspaceType.ComponentCollection ? 'componentCollection' : 'agent';
         return item;
       }
@@ -168,8 +254,8 @@ class AgentChangesTreeDataProvider implements TreeDataProvider<AgentChangesTreeI
 
   getChildren(element?: AgentChangesTreeItemUnion): AgentChangesTreeItemUnion[] {
     if (!element) {
-      // Root level: return all connected agents
-      return this.getConnectedWorkspaces().map(ws => ({
+      // Root level: return all connected/disconnected agents
+      return getAllWorkspaces().map(ws => ({
         kind: AgentChangesItemKind.Agent,
         workspace: ws,
       }));
@@ -177,6 +263,9 @@ class AgentChangesTreeDataProvider implements TreeDataProvider<AgentChangesTreeI
 
     switch (element.kind) {
       case AgentChangesItemKind.Agent: {
+        if (!this.isConnectedForDisplay(element.workspace)) {
+          return [];
+        }
         // Agent level: return Local and Remote change groups
         return [
           {
@@ -222,11 +311,7 @@ class AgentChangesTreeDataProvider implements TreeDataProvider<AgentChangesTreeI
    * Uses the same criteria as workspaceScm.ts for SCM registration.
    */
   private getConnectedWorkspaces(): CopilotStudioWorkspace[] {
-    return getAllWorkspaces().filter(ws =>
-      ws.syncInfo &&
-      ws.syncInfo.agentManagementEndpoint &&
-      hasConnectionFileInWorkspace(ws.workspaceUri)
-    );
+    return getAllWorkspaces().filter(isWorkspaceConnected);
   }
 
   /**
@@ -277,6 +362,7 @@ export function initializeAgentChangesTree(context: ExtensionContext): void {
   // Subscribe to workspace changes to refresh the tree (with proper disposal)
   const workspaceSubscription = addWorkspaceChangeSubscription(() => {
     treeDataProvider?.refresh();
+    void treeDataProvider?.probeAccountConnectivity();
   });
   context.subscriptions.push(workspaceSubscription);
 
@@ -295,10 +381,17 @@ export function initializeAgentChangesTree(context: ExtensionContext): void {
   });
   context.subscriptions.push(syncStateSubscription);
 
+  const authStateSubscription = onAuthStateChanged(() => {
+    treeDataProvider?.refresh();
+    void treeDataProvider?.probeAccountConnectivity();
+  });
+  context.subscriptions.push(authStateSubscription);
+
   // Initial badge update
   updateViewBadge();
   updateContextKeys();
   updateSyncInProgressContextKey();
+  void treeDataProvider.probeAccountConnectivity();
 }
 
 /**
