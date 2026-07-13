@@ -4,8 +4,8 @@ import { Uri } from 'vscode';
 import {
 	signIn,
 	switchToAccount,
-	clearSignInCancellation,
-	isSignInCancelled,
+	clearRecoverableAuthState,
+	hasRecoverableAuthState,
 	onAccountChange,
 	getPreferredTreeAccount,
 	getAccessTokenByAccountId,
@@ -90,11 +90,11 @@ describe('Account', () => {
 		);
 	});
 
-	test('sticky-cancellation surface starts cleared and clear is idempotent', () => {
-		clearSignInCancellation();
-		assert.strictEqual(isSignInCancelled(), false, 'should start cleared');
-		clearSignInCancellation();
-		assert.strictEqual(isSignInCancelled(), false, 'clear should be idempotent');
+	test('recoverable auth state surface starts cleared and clear is idempotent', () => {
+		clearRecoverableAuthState();
+		assert.strictEqual(hasRecoverableAuthState(), false, 'should start cleared');
+		clearRecoverableAuthState();
+		assert.strictEqual(hasRecoverableAuthState(), false, 'clear should be idempotent');
 		assert.strictEqual(
 			getPreferredTreeAccount(),
 			undefined,

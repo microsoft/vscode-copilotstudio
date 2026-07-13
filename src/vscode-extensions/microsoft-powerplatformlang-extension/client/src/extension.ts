@@ -26,6 +26,7 @@ import { registerTelemetrySettingsListeners } from './services/telemetry';
 import { registerAgentStatusBar } from './services/agentStatusBar';
 import { maybeOpenFileFromPostOpen } from './startup/postOpen';
 import { registerSignInCommand } from './commands/signIn';
+import { registerAuthStateRecovery } from './clients/account';
 import { registerOriginalFileSystemProvider } from './commands/originalFileSystemProvider';
 import { registerRemoteFileSystemProvider } from './commands/remoteFileSystemProvider';
 import { initializeWorkflowFeatures } from './workflows';
@@ -45,6 +46,7 @@ export async function activate(context: vscode.ExtensionContext) {
   registerSignInCommand(context);
   registerResetAccountCommand(context);
   registerReportIssueCommand(context, sessionId);
+  context.subscriptions.push(registerAuthStateRecovery());
 
   // Create output channel for LSP logs.
   // Using `createLogOutputChannel` gives each line a timestamp and a color-coded

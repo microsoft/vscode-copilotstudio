@@ -36,7 +36,7 @@ export const acquireConnectionsAccessToken = async (clusterCategory: number, acc
       scheme: 'https',
       authority: getTokenScopeHostName(clusterCategory)
     });
-    const tokenInfo = await getAccessTokenByAccountId(resource, accountId, accountHint);
+    const tokenInfo = await getAccessTokenByAccountId(resource, accountId, accountHint, true);
     return tokenInfo.accessToken;
   } catch {
     return undefined;
@@ -51,7 +51,7 @@ const acquireWorkspaceConnectionsToken = (syncInfo: AgentSyncInfo): Promise<stri
   );
 
 const baseConnectionRequest = async (syncInfo: AgentSyncInfo, workspaceUri: string) => ({
-  ...await buildLspRequestPayload(syncInfo),
+  ...await buildLspRequestPayload(syncInfo, undefined, undefined, true),
   workspaceUri,
   connectionsAccessToken: await acquireWorkspaceConnectionsToken(syncInfo)
 });
@@ -165,7 +165,7 @@ export const removeConnectionReference = async (workspace: CopilotStudioWorkspac
     return { removed: false, usages: [] };
   }
 
-  const basePayload = await buildLspRequestPayload(syncInfo);
+  const basePayload = await buildLspRequestPayload(syncInfo, undefined, undefined, true);
 
   const request: RemoveConnectionReferenceRequest = {
     ...basePayload,

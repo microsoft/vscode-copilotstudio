@@ -4,7 +4,8 @@ import * as vscode from 'vscode';
 import { AccountInfo, EnvironmentInfo, ReattachAgentRequest, ReattachAgentResponse, RetargetConflictResolution, FinalizeRetargetResponse } from '../types';
 import { DefaultCoreServicesClusterCategory, LspMethods, TelemetryEventsKeys } from '../constants';
 import { listEnvironmentsAsync } from '../clients/bapClient';
-import { switchAccount, getPreferredTreeAccount, listStoredAccounts } from '../clients/account';
+import { buildEnvironmentPickItems } from '../services/accountEnvPicker';
+import { switchAccount, getPreferredTreeAccount, listStoredAccounts, clearAuthAccountState } from '../clients/account';
 import { pushNewWorkspace } from '../sync/workspaceScm';
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import logger from '../services/logger';
@@ -144,30 +145,10 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
           DefaultCoreServicesClusterCategory,
           null,
           account.accountId ?? null,
-          account.accountEmail
+          account.accountEmail,
+          true
         );
-        const seen = new Set<string>();
-        const items: vscode.QuickPickItem[] = [];
-        let lastSku: string | undefined;
-        for (const env of envs) {
-          if (seen.has(env.environmentId)) {
-            continue;
-          }
-          seen.add(env.environmentId);
-          const sku = env.environmentSku || 'Other';
-          if (sku !== lastSku) {
-            items.push({ label: sku, kind: vscode.QuickPickItemKind.Separator });
-            lastSku = sku;
-          }
-          const item: ReattachEnvironmentPickItem = {
-            label: env.displayName,
-            description: env.environmentId,
-            environment: env,
-            sourceAccount: account
-          };
-          items.push(item);
-        }
-        quickPick.items = items;
+        quickPick.items = buildEnvironmentPickItems(envs, account);
       } catch (error: any) {
         logger.logError(TelemetryEventsKeys.LoadEnvironmentError, `[Reattach] Failed to load environments: <pii>${error?.message || error}</pii>`);
         quickPick.items = [];
@@ -292,7 +273,7 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
             const completedRetargets: ReattachWorkspaceResult[] = [];
             try {
               const selectedAccount = pickedEnvironment.sourceAccount ?? getPreferredTreeAccount();
-              const basePayload = await buildLspRequestPayload(undefined, environmentInfo, selectedAccount);
+              const basePayload = await buildLspRequestPayload(undefined, environmentInfo, selectedAccount, true);
 
               for (const workspaceToReattach of reattachPlan.workspaces) {
                 const result = await runReattachForWorkspace(context, workspaceToReattach, basePayload, targetEnvironmentName);
@@ -321,6 +302,7 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
               let anyConnectionsBound = false;
               let workflowsEnabledTotal = 0;
               for (const result of completedRetargets) {
+                clearAuthAccountState(result.workspace.syncInfo?.accountInfo?.accountId, result.workspace.syncInfo?.accountInfo?.accountEmail);
                 const autoBindResult = await autoBindAgentConnections(result.workspace, true);
                 if (autoBindResult.needsNewCount > 0) {
                   workspacesNeedingConnections.push(result.workspace);

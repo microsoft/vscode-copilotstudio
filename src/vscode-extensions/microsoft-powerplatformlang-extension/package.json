@@ -85,13 +85,13 @@
           "id": "agent-changes",
           "name": "Agent Changes",
           "icon": "./icons/copilot-studio.svg",
-          "when": "mcs.hasConnectedAgent"
+          "when": "mcs.hasAgentWorkspace"
         },
         {
           "id": "copilot-studio-overview",
           "name": "Getting started",
           "icon": "./icons/copilot-studio.svg",
-          "when": "!mcs.hasConnectedAgent"
+          "when": "!mcs.hasAgentWorkspace"
         },
         {
           "id": "remote-agents",
@@ -160,11 +160,6 @@
         {
           "command": "microsoft-copilot-studio.downloadAllKnowledgeFiles",
           "when": "view == virtual-knowledge-files",
-          "group": "navigation"
-        },
-        {
-          "command": "microsoft-copilot-studio.switchAccount",
-          "when": "view == remote-agents",
           "group": "navigation"
         },
         {
@@ -349,11 +344,6 @@
         "command": "microsoft-copilot-studio.downloadAllKnowledgeFiles",
         "title": "Copilot Studio: Download All Remote Knowledge Files",
         "icon": "$(cloud-download)"
-      },
-      {
-        "command": "microsoft-copilot-studio.switchAccount",
-        "title": "Copilot Studio: Switch Account",
-        "icon": "$(sign-in)"
       },
       {
         "command": "microsoft-copilot-studio.workflow.visualize",

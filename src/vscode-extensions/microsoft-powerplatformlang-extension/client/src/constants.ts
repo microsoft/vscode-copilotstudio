@@ -90,6 +90,7 @@ export const TelemetryEventsKeys = {
   WorkflowFocusNodeError: "WorkflowFocusNodeError",
   WorkflowEditEmbeddedJsonError: "WorkflowEditEmbeddedJsonError",
   WorkflowVisualizeError: "WorkflowVisualizeError",
+  AuthPromptSuppressed: "AuthPromptSuppressed",
 } as const;
 
 export type TelemetryEventType = typeof TelemetryEventsKeys[keyof typeof TelemetryEventsKeys];
