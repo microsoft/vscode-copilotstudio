@@ -53,25 +53,43 @@ export async function initializeVirtualKnowledgeTree(context: vscode.ExtensionCo
     commandsRegistered = true;
     context.subscriptions.push(
       vscode.commands.registerCommand('microsoft-copilot-studio.refreshKnowledgeFilesTreeView', async () => {
-        await vscode.window.withProgress({
-          location: { viewId: 'virtual-knowledge-files' },
-          title: 'Refreshing remote knowledge files...',
-        }, async () => {
-          if (virtualKnowledgeProvider) {
-            await virtualKnowledgeProvider.refresh();
-          }
-          virtualTreeProvider?.refresh();
-        });
+        logger.logInfo(TelemetryEventsKeys.RefreshKnowledgeFilesClick, undefined, { message: 'Refresh knowledge files initiated' });
+        const startTime = Date.now();
+        try {
+          await vscode.window.withProgress({
+            location: { viewId: 'virtual-knowledge-files' },
+            title: 'Refreshing remote knowledge files...',
+          }, async () => {
+            if (virtualKnowledgeProvider) {
+              await virtualKnowledgeProvider.refresh();
+            }
+            virtualTreeProvider?.refresh();
+          });
+          const durationMs = Date.now() - startTime;
+          logger.logInfo(TelemetryEventsKeys.RefreshKnowledgeFilesSuccess, undefined, { message: `Knowledge files refreshed in ${durationMs}ms`, durationMs });
+        } catch (e: any) {
+          const durationMs = Date.now() - startTime;
+          logger.logError(TelemetryEventsKeys.RefreshKnowledgeFilesError, undefined, { message: `Failed to refresh knowledge files after ${durationMs}ms`, error: e?.message || String(e), durationMs });
+        }
       }),
       vscode.commands.registerCommand('microsoft-copilot-studio.downloadAllKnowledgeFiles', async () => {
-        await vscode.window.withProgress({
-          location: { viewId: 'virtual-knowledge-files' },
-          title: 'Downloading all remote knowledge files...',
-        }, async () => {
-          if (virtualKnowledgeProvider) {
-            await virtualKnowledgeProvider.downloadAll();
-          }
-        });
+        logger.logInfo(TelemetryEventsKeys.DownloadKnowledgeFileClick, undefined, { message: 'Download all knowledge files initiated' });
+        const startTime = Date.now();
+        try {
+          await vscode.window.withProgress({
+            location: { viewId: 'virtual-knowledge-files' },
+            title: 'Downloading all remote knowledge files...',
+          }, async () => {
+            if (virtualKnowledgeProvider) {
+              await virtualKnowledgeProvider.downloadAll();
+            }
+          });
+          const durationMs = Date.now() - startTime;
+          logger.logInfo(TelemetryEventsKeys.DownloadKnowledgeFileSuccess, undefined, { message: `Knowledge files downloaded in ${durationMs}ms`, durationMs });
+        } catch (e: any) {
+          const durationMs = Date.now() - startTime;
+          logger.logError(TelemetryEventsKeys.DownloadKnowledgeFileError, undefined, { message: `Failed to download knowledge files after ${durationMs}ms`, error: e?.message || String(e), durationMs });
+        }
       })
     );
   }
@@ -158,7 +176,6 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
       try {
         await this.refreshWorkspace(ws);
       } catch (err) {
-        logger.error('KnowledgeFiles', `Failed to refresh workspace ${ws.workspaceUri.toString()}: ${err}`);
         if (!(err instanceof AuthError)) {
           logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `Failed to refresh workspace <pii>${ws.workspaceUri.toString()}</pii>: ${err}`);
         }
@@ -174,12 +191,11 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
   }
 
   async downloadAll(): Promise<void> {
-    logger.info('KnowledgeFiles', `Downloading knowledge files for ${this.workspaces.length} workspace(s)`);
+    logger.logTrace('Knowledge', `Downloading knowledge files for ${this.workspaces.length} workspace(s)`);
     for (const ws of this.workspaces) {
       try {
         await this.downloadWorkspaceFiles(ws);
       } catch (err) {
-        logger.error('KnowledgeFiles', `Failed to download knowledge files for ${ws.workspaceUri.toString()}: ${err}`);
         logger.logError(TelemetryEventsKeys.DownloadKnowledgeFileError, `Failed to download knowledge files for <pii>${ws.workspaceUri.toString()}</pii>: ${err}`);
       }
     }
@@ -298,7 +314,6 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
     try {
       await this.downloadWorkspaceFiles(component.ws, [component.schema], this._shutdownCts.token);
     } catch (err) {
-      logger.error('KnowledgeFiles', `Failed to download ${component.fileName}: ${err}`);
       logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `Failed to download <pii>${component.fileName}</pii>: ${err}`);
       throw vscode.FileSystemError.Unavailable();
     }

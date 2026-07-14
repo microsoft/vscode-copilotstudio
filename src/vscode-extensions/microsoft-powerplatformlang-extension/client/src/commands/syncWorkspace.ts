@@ -113,7 +113,7 @@ const registerSyncCommand = (
   const syncCommand = commands.registerCommand(id, async (workspace?: Workspace) => {
     let workspaceForCatch: CopilotStudioWorkspace | undefined;
     try {
-      logger.logInfo(TelemetryEventsKeys.SyncWorkspaceClick);
+      logger.logInfo(TelemetryEventsKeys.SyncWorkspaceClick, undefined, { message: `${displayName} operation initiated`, operation: displayName });
       const selectedWorkspace = workspace && typeof workspace === 'object' && 'ws' in workspace && workspace.ws
         ? workspace.ws
         : await selectWorkspace();

@@ -223,7 +223,7 @@ async function refreshAndNotify() {
   try {
     while (refreshPending) {
       if (iterations++ >= MAX_REFRESH_ITERATIONS) {
-        logger.logInfo(TelemetryEventsKeys.WorkspaceRefreshLoopCap);
+        logger.logDebug('Workspace', `Refresh loop capped at ${MAX_REFRESH_ITERATIONS} iterations`);
         break;
       }
       refreshPending = false;

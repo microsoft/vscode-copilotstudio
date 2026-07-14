@@ -1,6 +1,7 @@
 ﻿namespace Microsoft.PowerPlatformLS.LanguageServerHost
 {
     using Microsoft.ApplicationInsights.Channel;
+    using Microsoft.ApplicationInsights.Extensibility;
     using Microsoft.Extensions.Logging;
 
     internal static class AppInsightsConfiguration
@@ -30,6 +31,7 @@
                         {
                             config.ConnectionString = connectionString;
                             config.TelemetryChannel = channel;
+                            config.TelemetryInitializers.Add(new PiiScrubTelemetryInitializer());
                         },
                         configureApplicationInsightsLoggerOptions: _ => { }
                     );

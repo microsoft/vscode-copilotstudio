@@ -44,7 +44,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
 
             Assert.Equal(200, response.Code);
             diagnosticsPublisher.Verify(
-                p => p.PublishAllDiagnosticsAsync(It.IsAny<RequestContext>(), It.IsAny<CancellationToken>()),
+                p => p.PublishAllDiagnosticsAsync(It.IsAny<RequestContext>(), It.IsAny<CancellationToken>(), It.IsAny<bool>()),
                 Times.Once);
         }
 
@@ -59,7 +59,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
 
             var diagnosticsPublisher = new Mock<IDiagnosticsPublisher>();
             diagnosticsPublisher
-                .Setup(p => p.PublishAllDiagnosticsAsync(It.IsAny<RequestContext>(), It.IsAny<CancellationToken>()))
+                .Setup(p => p.PublishAllDiagnosticsAsync(It.IsAny<RequestContext>(), It.IsAny<CancellationToken>(), It.IsAny<bool>()))
                 .ThrowsAsync(new InvalidOperationException("publish failed"));
             var handler = CreateHandler(new TestWorkspaceSynchronizer(), diagnosticsPublisher.Object);
 

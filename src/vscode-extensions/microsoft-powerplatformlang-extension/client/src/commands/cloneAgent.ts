@@ -8,7 +8,7 @@ import { IdentifyAgentResponse } from '../types';
 
 export const registerCloneAgentCommand = (context: vscode.ExtensionContext) => {
   const cloneAgentCommand = vscode.commands.registerCommand('microsoft-copilot-studio.cloneAgent', async (treeItem?: unknown) => {
-    logger.logInfo(TelemetryEventsKeys.CloneAgentClick);
+    logger.logInfo(TelemetryEventsKeys.CloneAgentClick, undefined, { message: 'Clone agent initiated' });
 
     let agent: IdentifyAgentResponse | undefined;
     try {

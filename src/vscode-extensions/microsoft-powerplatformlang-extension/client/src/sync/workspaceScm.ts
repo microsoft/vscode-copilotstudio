@@ -62,7 +62,7 @@ export function onWorkspaceChange(uri: string): void {
         .then(() => refreshAgentChangesTree())
         .catch(err => {
           logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-            message: `[SCM] onLocalChange failed: ${(err as Error).message}`
+            message: `onLocalChange failed: ${(err as Error).message}`
           });
         });
       return;
@@ -142,7 +142,7 @@ export async function refreshWorkspaces(workspaces: CopilotStudioWorkspace[], co
       if (r.status === 'rejected') {
         const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
         logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-          message: `[SCM] Workspace setup failed: ${reason}`
+          message: `Workspace setup failed: ${reason}`
         });
       }
     }

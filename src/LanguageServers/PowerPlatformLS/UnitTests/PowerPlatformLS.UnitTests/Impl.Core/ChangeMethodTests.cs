@@ -66,7 +66,7 @@
             {
                 if (entry.isFiltered)
                 {
-                    Assert.Single(logs.Info.Where(x => x == $"Client notified 'Changed' event on watched files that has no language definition: {entry.filepath.Split('/')[^1]}. Change won't be tracked."));
+                    Assert.Single(logs.Debug.Where(x => x == $"Client notified 'Changed' event on watched files that has no language definition: {entry.filepath.Split('/')[^1]}. Change won't be tracked."));
                 }
                 else
                 {
@@ -109,7 +109,7 @@
 
             foreach (var entry in testData.Where(x => x.isFiltered))
             {
-                Assert.Single(logs.Info.Where(x => x == $"Client notified 'Deleted' event on watched files that has no language definition: {entry.filepath.Split('/')[^1]}. Change won't be tracked."));
+                Assert.Single(logs.Debug.Where(x => x == $"Client notified 'Deleted' event on watched files that has no language definition: {entry.filepath.Split('/')[^1]}. Change won't be tracked."));
             }
         }
 
@@ -151,12 +151,12 @@
 
                 if (entry.shouldIgnore)
                 {
-                    // Ignored files should not get processed at all - no warning or info logs.
-                    Assert.False(logs.Warning.Any(l => l.Contains(filename)) || logs.Info.Any(l => l.Contains(filename)));
+                    // Ignored files should not get processed at all - no warning, info or debug logs.
+                    Assert.False(logs.Warning.Any(l => l.Contains(filename)) || logs.Info.Any(l => l.Contains(filename)) || logs.Debug.Any(l => l.Contains(filename)));
                 }
                 else
                 {
-                    Assert.True(logs.Info.Any(l => l.Contains(filename)) || logs.Warning.Any(l => l.Contains(filename)));
+                    Assert.True(logs.Info.Any(l => l.Contains(filename)) || logs.Warning.Any(l => l.Contains(filename)) || logs.Debug.Any(l => l.Contains(filename)));
                 }
             }
         }

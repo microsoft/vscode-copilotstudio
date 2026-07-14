@@ -96,7 +96,7 @@ const runReattachForWorkspace = async (context: vscode.ExtensionContext, workspa
     }
   }
 
-  logger.logInfo(TelemetryEventsKeys.ReattachAgentInfo, undefined, { message: `${getWorkspaceKindLabel(workspace)} <pii>${getWorkspaceIdentity(reattachedWorkspace)}</pii> ${wasRetarget ? 'retargeted' : 'reattached'} successfully.` });
+  logger.logInfo(TelemetryEventsKeys.ReattachAgentSuccess, undefined, { message: `${getWorkspaceKindLabel(workspace)} <pii>${getWorkspaceIdentity(reattachedWorkspace)}</pii> ${wasRetarget ? 'retargeted' : 'reattached'} successfully.` });
   return { workspace: reattachedWorkspace, response: reattachResult, wasRetarget };
 };
 
@@ -110,6 +110,8 @@ const finalizeRetargets = async (results: ReattachWorkspaceResult[], pushSucceed
 
 export const registerReattachAgentCommand = (context: vscode.ExtensionContext) => {
   const reattachAgentCommand = vscode.commands.registerCommand('microsoft-copilot-studio.reattachAgent', async (treeItem?: { workspace?: CopilotStudioWorkspace }) => {
+    logger.logInfo(TelemetryEventsKeys.ReattachAgentClick, undefined, { message: 'Reattach agent initiated' });
+
     if (getActiveSyncUri() !== undefined) {
       void vscode.window.showWarningMessage('A sync is already in progress. Please wait for it to finish before retargeting an agent.');
       return;
@@ -291,7 +293,7 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
               try {
                 await finalizeRetargets(completedRetargets, true);
               } catch (finalizeError) {
-                logger.logWarning(TelemetryEventsKeys.ReattachAgentError, `Retarget succeeded but clearing the retarget backup failed; the workspaces remain on the new environment: <pii>${(finalizeError as Error).message}</pii>`);
+                logger.logWarning(TelemetryEventsKeys.ReattachAgentInfo, `Retarget succeeded but clearing the retarget backup failed; the workspaces remain on the new environment: <pii>${(finalizeError as Error).message}</pii>`);
               }
 
               const primaryResult = completedRetargets.find(result => result.workspace.workspaceUri === currentWorkspace.workspaceUri);

@@ -9,6 +9,7 @@ const VISUALIZE_WORKFLOW_COMMAND = 'microsoft-copilot-studio.workflow.visualize'
 export function initializeWorkflowVisualization(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand(VISUALIZE_WORKFLOW_COMMAND, async (resource?: vscode.Uri) => {
+      logger.logInfo(TelemetryEventsKeys.WorkflowVisualizeClick, undefined, { message: 'Workflow visualize initiated' });
       try {
         const uri = resource ?? vscode.window.activeTextEditor?.document.uri;
         if (!uri || !isWorkflowFile(uri.fsPath)) {
@@ -17,6 +18,7 @@ export function initializeWorkflowVisualization(context: vscode.ExtensionContext
         }
         const document = await vscode.workspace.openTextDocument(uri);
         WorkflowVisualizerController.show(context, document);
+        logger.logInfo(TelemetryEventsKeys.WorkflowVisualizeSuccess, undefined, { message: 'Workflow visualizer opened' });
       } catch (error) {
         logger.logError(
           TelemetryEventsKeys.WorkflowVisualizeError,

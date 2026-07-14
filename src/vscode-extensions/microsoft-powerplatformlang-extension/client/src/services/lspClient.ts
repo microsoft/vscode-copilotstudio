@@ -15,6 +15,21 @@ let currentContext: vscode.ExtensionContext | null = null;
 let currentOutputChannel: vscode.OutputChannel | null = null;
 let currentSessionId: string | null = null;
 
+/**
+ * Mirrors the .NET IsBuiltInLspMethod logic.
+ * Built-in LSP methods are standard protocol methods that don't need custom logging.
+ * Custom methods (powerplatformls/*, workspace/listWorkspaces, etc.) are logged.
+ */
+function isBuiltInLspMethod(method: string): boolean {
+  return method.startsWith('textDocument/')
+    || method.startsWith('$/')
+    || method.startsWith('initialize')
+    || method.startsWith('shutdown')
+    || method.startsWith('exit')
+    || method.startsWith('workspace/didChange')
+    || method.startsWith('workspace/didRename');
+}
+
 class LspClientService {
   private static instance: LspClientService | null = null;
   private _client: LanguageClient | null = null;
@@ -99,9 +114,6 @@ class LspClientService {
           },
           sender: {
             sendCancellation(conn, id) {
-              logger.logInfo(TelemetryEventsKeys.LanguageServerInfo, undefined, {
-                message: `[LSP] sendCancellation: ${id}`
-              });
               return Promise.resolve();
             },
             enableCancellation(request) {},
@@ -127,51 +139,60 @@ class LspClientService {
             next(uri, diagnostics);
           } catch (error) {
             logger.logError(TelemetryEventsKeys.LanguageServerError, undefined, {
-              message: `[LSP] Diagnostics error: ${(error as Error).message}`,
+              message: `Diagnostics error: ${(error as Error).message}`,
             });
             throw error;
           }
         },
         sendNotification: async (type, next, params) => {
+          const method = typeof type === 'string' ? type : type.method;
+          const isCustom = !isBuiltInLspMethod(method);
           // Using :: instead of / so it is not flagged as PII in telemetry.
-          const notificationType = JSON.stringify(typeof type === 'string' ? type : type.method).replace(/[./\\]/g, "::");
+          const telemetryMethod = method.replace(/[./\\]/g, "::");
 
-          logger.logInfo(TelemetryEventsKeys.LanguageServerInfo, undefined, {
-            message: `[LSP] Sending notification: ${notificationType}`,
-          });
+          if (isCustom) {
+            logger.logTrace('LSP', `Sending notification: ${method}`);
+          }
 
           try {
             await next(type, params);
-            logger.logInfo(TelemetryEventsKeys.LanguageServerInfo, undefined, {
-              message: `[LSP] Notification ${notificationType} sent successfully`,
-            });
+            if (isCustom) {
+              logger.logInfo(TelemetryEventsKeys.LanguageServerInfo, undefined, {
+                message: `Notification completed: ${telemetryMethod}`,
+              });
+            }
           } catch (error) {
             logger.logError(TelemetryEventsKeys.LanguageServerError, undefined, {
-              message: `[LSP] Notification ${notificationType} failed: ${(error as Error).message}`,
+              message: `Notification ${telemetryMethod} failed: ${(error as Error).message}`,
             });
             throw error;
           }
         },
         sendRequest: async (type, param, token, next) => {
+          const method = typeof type === 'string' ? type : type.method;
+          const isCustom = !isBuiltInLspMethod(method);
           // Using :: instead of / so it is not flagged as PII in telemetry.
-          const requestType = JSON.stringify(typeof type === 'string' ? type : type.method).replace(/[./\\]/g, "::");
-          logger.logInfo(TelemetryEventsKeys.LanguageServerInfo, undefined, {
-            message: `[LSP] Sending request: ${requestType}`,
-          });
+          const telemetryMethod = method.replace(/[./\\]/g, "::");
+
+          if (isCustom) {
+            logger.logTrace('LSP', `Sending request: ${method}`);
+          }
 
           try {
             const result = await next(type, param, token);
             if (result && typeof result === 'object' && 'code' in result && (result as any).code !== 200) {
-              throw new Error((result as any).message ?? `Request ${requestType} failed with code ${result.code}`);
+              throw new Error((result as any).message ?? `Request ${method} failed with code ${(result as any).code}`);
             } else {
-              logger.logInfo(TelemetryEventsKeys.LanguageServerInfo, undefined, {
-                message: `[LSP] Request ${requestType} completed successfully`,
-              });
+              if (isCustom) {
+                logger.logInfo(TelemetryEventsKeys.LanguageServerInfo, undefined, {
+                  message: `Request completed: ${telemetryMethod}`,
+                });
+              }
               return result;
             }
           } catch (error) {
             logger.logError(TelemetryEventsKeys.LanguageServerError, undefined, {
-              message: `[LSP] Request ${requestType} failed: ${(error as Error).message}`
+              message: `Request ${telemetryMethod} failed: ${(error as Error).message}`
             });
             throw error;
           }
@@ -190,7 +211,7 @@ class LspClientService {
     this._client.setTrace(Trace.Verbose);
     this._client.onDidChangeState((event) => {
       logger.logInfo(TelemetryEventsKeys.LanguageServerInfo, undefined, {
-        message: `[LSP] State changed from ${State[event.oldState]} to ${State[event.newState]}`,
+        message: `State changed from ${State[event.oldState]} to ${State[event.newState]}`,
       });
     });
 

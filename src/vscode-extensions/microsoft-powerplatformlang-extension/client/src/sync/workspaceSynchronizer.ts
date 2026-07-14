@@ -201,14 +201,20 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
   };
 
   try {
+    const startTime = Date.now();
     const result = silent
       ? await lspClient.sendRequest<SyncResponse>(methodName, request)
       : await vscode.window.withProgress({ location: vscode.ProgressLocation.SourceControl }, async () => {
         return await lspClient.sendRequest<SyncResponse>(methodName, request);
       });
+    const durationMs = Date.now() - startTime;
     const workflowErrorsFound = logWorkflowIssues(result.workflowResponse, suppressDisabledWorkflowWarnings);
     if (!workflowErrorsFound) {
-      logger.logInfo(TelemetryEventsKeys.SyncWorkspaceSuccess, `Successfully completed ${displayText}`);
+      logger.logInfo(TelemetryEventsKeys.SyncWorkspaceSuccess, `Completed ${displayText} for ${workspace.displayName} in ${durationMs}ms`, {
+        agent: workspace.displayName,
+        operation: displayText,
+        durationMs,
+      });
     }
     logAIPromptIssues(result.aiPromptResponse);
     return result;

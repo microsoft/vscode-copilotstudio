@@ -127,9 +127,17 @@ export async function configureTreeView(context: ExtensionContext) {
     });
 
     const refreshCommand = commands.registerCommand('microsoft-copilot-studio.refreshAgentTreeView', async () => {
-        logger.info('AgentTree', 'Refresh agents requested');
-        treeDataProvider.refresh();
-        void treeDataProvider.probeAccounts();
+        logger.logInfo(TelemetryEventsKeys.RefreshAgentsClick, undefined, { message: 'Agents refresh initiated' });
+        const startTime = Date.now();
+        try {
+            treeDataProvider.refresh();
+            void treeDataProvider.probeAccounts();
+            const durationMs = Date.now() - startTime;
+            logger.logInfo(TelemetryEventsKeys.RefreshAgentsSuccess, undefined, { message: `Agents refreshed in ${durationMs}ms`, durationMs });
+        } catch (error) {
+            const durationMs = Date.now() - startTime;
+            logger.logError(TelemetryEventsKeys.RefreshAgentsError, undefined, { message: `Agents refresh failed after ${durationMs}ms`, error: (error as Error).message, durationMs });
+        }
     });
 
     const retrySignInCommand = commands.registerCommand('microsoft-copilot-studio.treeRetrySignIn', async (account?: AccountInfo) => {
@@ -312,19 +320,24 @@ export class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTree
     private async loadSkuEnvironments(sku: EnvironmentSku, account: AccountInfo): Promise<EnvironmentTreeItem[]> {
         const cacheKey = `${this.accountKey(account)}:${sku}`;
         if (this.loadedAccountSkus.has(cacheKey)) {
-            return this.envsByAccountSku.get(cacheKey) || [];
+            const cached = this.envsByAccountSku.get(cacheKey) || [];
+            logger.logTrace('AgentTree', `Using ${cached.length} cached ${sku} environment(s)`);
+            return cached;
         }
+        logger.logTrace('AgentTree', `Loading ${sku} environments`);
+        const startTime = Date.now();
         try {
             const envs = await listEnvironmentsBySkuAsync(DefaultCoreServicesClusterCategory, sku, null, account.accountId ?? null, account.accountEmail, true);
             const items = envs.map<EnvironmentTreeItem>(env => ({ kind: TreeItemKind.Environment, environment: env, sourceAccount: account }));
             this.envsByAccountSku.set(cacheKey, items);
             this.loadedAccountSkus.add(cacheKey);
-            logger.info('AgentTree', `Loaded ${items.length} ${sku} environment(s) for ${account.accountId}`);
+            const durationMs = Date.now() - startTime;
+            logger.logInfo(TelemetryEventsKeys.LoadEnvironmentSuccess, undefined, { message: `Loaded ${items.length} ${sku} environment(s) in ${durationMs}ms`, sku, environmentCount: items.length, durationMs });
             return items;
         } catch (error) {
-            logger.error('AgentTree', `Failed to load ${sku} environments for ${account.accountId}: ${(error as Error).message}`);
             if (!(error instanceof AuthError)) {
-                logger.logError(TelemetryEventsKeys.LoadEnvironmentError, `[TreeView] Failed to load ${sku} environments for <pii>${account.accountId}</pii>: <pii>${(error as Error).message}</pii>`);
+                const durationMs = Date.now() - startTime;
+                logger.logError(TelemetryEventsKeys.LoadEnvironmentError, `Failed to load ${sku} environments for <pii>${account.accountEmail ?? account.accountId}</pii> after ${durationMs}ms`, { sku, environmentCount: 0, error: `<pii>${(error as Error).message}</pii>`, durationMs });
             }
             this.loadedAccountSkus.add(cacheKey);
             return [];
@@ -481,23 +494,27 @@ export class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTree
 				}
 			} else if (element.kind === TreeItemKind.Environment) {
 				const envItem = element as EnvironmentTreeItem;
+				const sku = envItem.environment.environmentSku ?? 'Unknown';
+				const envName = envItem.environment.displayName;
+				const startTime = Date.now();
                 try {
 					const storeAccount = envItem.sourceAccount ?? await this.resolveSelectedAccount();
-					logger.info('AgentTree', `Loading agents for environment: ${envItem.environment.displayName}`);
+					logger.logTrace('AgentTree', `${sku} > ${envName}: Loading agents`);
 					const [ownedAgents, sharedAgents] = await Promise.all([
                         listAgentsAsync(Uri.parse(envItem.environment.dataverseUrl), null, storeAccount?.accountId, storeAccount?.accountEmail, true),
                         listSharedAgentsAsync(Uri.parse(envItem.environment.dataverseUrl), null, storeAccount?.accountId, storeAccount?.accountEmail, true)
 					]);
 					
 					const allAgents = [...ownedAgents, ...sharedAgents];
-					logger.info('AgentTree', `Loaded ${allAgents.length} agent(s) for environment: ${envItem.environment.displayName}`);
 					const agents: CopilotStudioTreeItem[] = allAgents.map((agent) => {
                         return { kind: TreeItemKind.Agent, environment: envItem.environment, agent: agent, sourceAccount: storeAccount } as AgentTreeItem;
 					});
+                    const durationMs = Date.now() - startTime;
+                    logger.logInfo(TelemetryEventsKeys.LoadAgentsSuccess, undefined, { message: `${sku} > ${envName}: Loaded ${allAgents.length} agent(s) in ${durationMs}ms`, sku, environment: envName, agentCount: allAgents.length, durationMs });
 					resolve(agents);
 				} catch (e: any) {
-					logger.error('AgentTree', `Failed to load agents for environment: ${envItem.environment.displayName}: ${e?.message || e}`);
-					logger.logError(TelemetryEventsKeys.LoadEnvironmentError, `[TreeView] Failed to load agents for <pii>${envItem.environment.displayName}</pii>: <pii>${e?.message || e}</pii>`);
+                    const durationMs = Date.now() - startTime;
+					logger.logError(TelemetryEventsKeys.LoadAgentsError, `${sku} > ${envName}: Failed to load agents after ${durationMs}ms`, { sku, environment: envName, agentCount: 0, error: `<pii>${(e as Error).message}</pii>`, durationMs });
 					const errorMessage = e?.message?.includes('403') || e?.message?.includes('not a member')
 						? "Access denied - not a member of this organization"
 						: e?.message?.includes('timeout') || e?.message?.includes('abort')

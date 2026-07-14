@@ -12,7 +12,10 @@
         /// Useful when a document with diagnostics is deleted.
         /// </summary>
         Task ClearDiagnosticsAsync(Uri documentUri, CancellationToken cancellationToken);
-        Task PublishAllDiagnosticsAsync(RequestContext context, CancellationToken cancellationToken);
-        Task PublishDiagnosticsForCurrentDocumentAsync<DocType>(RequestContext context, CancellationToken cancellationToken) where DocType : LspDocument;
+        /// <summary>Publishes diagnostics for all documents in the workspace.</summary>
+        Task PublishAllDiagnosticsAsync(RequestContext context, CancellationToken cancellationToken, bool logDiagnostics = true);
+
+        /// <summary>Publishes diagnostics for the current document.</summary>
+        Task PublishDiagnosticsForCurrentDocumentAsync<DocType>(RequestContext context, CancellationToken cancellationToken, bool logDiagnostics = true) where DocType : LspDocument;
     }
 }

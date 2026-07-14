@@ -57,7 +57,7 @@
 
                     if (!WorkspacePath.TryGetLanguageType(filePath, out _))
                     {
-                        _logger.LogInformation(
+                        _logger.LogDebug(
                             $"Client notified '{changeFileEvent.Type}' event on watched files that has no language definition: {filePath.FileName}. Change won't be tracked.");
                         continue;
                     }
@@ -65,7 +65,7 @@
                     var context = _contextResolver.Resolve(new TextDocumentIdentifier { Uri = changeFileEvent.Uri });
                     if (context.IsInvalid)
                     {
-                        _logger.LogInformation($"File is not tracked. File is not found in workspace: '{filePath.FileName}'");
+                        _logger.LogDebug($"File is not tracked. File is not found in workspace: '{filePath.FileName}'");
                     }
                     else
                     {
@@ -81,7 +81,7 @@
 
                 if (!WorkspacePath.TryGetLanguageType(filePath, out _))
                 {
-                    _logger.LogInformation(
+                    _logger.LogDebug(
                         $"Client notified '{changeFileEvent.Type}' event on watched files that has no language definition: {filePath.FileName}. Change won't be tracked.");
                     continue;
                 }
@@ -107,7 +107,7 @@
 
             foreach (var workspaceContext in dirtyWorkspaces.Values)
             {
-                await _diagnosticPublisher.PublishAllDiagnosticsAsync(workspaceContext, cancellationToken);
+                await _diagnosticPublisher.PublishAllDiagnosticsAsync(workspaceContext, cancellationToken, logDiagnostics: false);
             }
         }
     }

@@ -1,11 +1,11 @@
 import * as vscode from 'vscode';
 import { TelemetryEventMeasurements, TelemetryEventProperties, TelemetryReporter } from "@vscode/extension-telemetry";
-import { LogLevel, TELEMETRY_CONNECTION_STRING, type TelemetryEventType } from '../constants';
+import { LogLevel, TELEMETRY_CONNECTION_STRING, TelemetryEventsKeys, type TelemetryEventType } from '../constants';
 import { isTelemetryEnabled } from './telemetry';
 
 type TelemetryEventProps = {
   properties: TelemetryEventProperties,
-  measurements?: TelemetryEventMeasurements,
+  measurements: TelemetryEventMeasurements,
 };
 
 /**
@@ -13,7 +13,7 @@ type TelemetryEventProps = {
  * - properties: Record<string, string> (string key-value pairs for event metadata)
  * - measurements: Record<string, number> (string key-number pairs for numeric metrics)
  */
-type TelemetryEventData = TelemetryEventProperties | TelemetryEventMeasurements;
+type TelemetryEventData = Record<string, string | number | undefined>;
 
 const NOOP_REPORTER = {
   sendTelemetryEvent: () => { },
@@ -22,17 +22,98 @@ const NOOP_REPORTER = {
 } as unknown as TelemetryReporter;
 
 /**
- * Service for sending telemetry events to Application Insights via the VS Code extension telemetry API.
- * 
+ * Feature-based categories for output channel log grouping.
+ * Only meaningful features that help users identify the source of a log.
+ */
+export enum LogCategory {
+  LSP = "LSP",
+  Clone = "Clone",
+  Sync = "Sync",
+  Auth = "Auth",
+  Knowledge = "Knowledge",
+  Reattach = "Reattach",
+  AgentTree = "AgentTree",
+  Workflow = "Workflow",
+}
+
+/**
+ * Maps telemetry event names to output channel categories.
+ * Events not in this map display without a category prefix.
+ */
+const eventCategoryMap: Partial<Record<TelemetryEventType, LogCategory>> = {
+  // LSP
+  [TelemetryEventsKeys.LanguageServerInfo]: LogCategory.LSP,
+  [TelemetryEventsKeys.LanguageServerError]: LogCategory.LSP,
+
+  // Clone flow
+  [TelemetryEventsKeys.CloneAgentClick]: LogCategory.Clone,
+  [TelemetryEventsKeys.CloneAgentSuccess]: LogCategory.Clone,
+  [TelemetryEventsKeys.CloneAgentCancel]: LogCategory.Clone,
+  [TelemetryEventsKeys.CloneAgentError]: LogCategory.Clone,
+
+  // Sync flow
+  [TelemetryEventsKeys.SyncWorkspaceClick]: LogCategory.Sync,
+  [TelemetryEventsKeys.SyncWorkspaceSuccess]: LogCategory.Sync,
+  [TelemetryEventsKeys.SyncWorkspaceCancel]: LogCategory.Sync,
+  [TelemetryEventsKeys.SyncWorkspaceError]: LogCategory.Sync,
+  [TelemetryEventsKeys.GetRemoteFileError]: LogCategory.Sync,
+  [TelemetryEventsKeys.GetLocalFileError]: LogCategory.Sync,
+
+  // Auth
+  [TelemetryEventsKeys.SignInError]: LogCategory.Auth,
+  [TelemetryEventsKeys.ResetAccountError]: LogCategory.Auth,
+  [TelemetryEventsKeys.SwitchAccountClick]: LogCategory.Auth,
+  [TelemetryEventsKeys.SwitchAccountSuccess]: LogCategory.Auth,
+  [TelemetryEventsKeys.SwitchAccountCancel]: LogCategory.Auth,
+  [TelemetryEventsKeys.SwitchAccountError]: LogCategory.Auth,
+
+  // Knowledge files
+  [TelemetryEventsKeys.RefreshKnowledgeFilesClick]: LogCategory.Knowledge,
+  [TelemetryEventsKeys.RefreshKnowledgeFilesSuccess]: LogCategory.Knowledge,
+  [TelemetryEventsKeys.RefreshKnowledgeFilesError]: LogCategory.Knowledge,
+  [TelemetryEventsKeys.DownloadKnowledgeFileClick]: LogCategory.Knowledge,
+  [TelemetryEventsKeys.DownloadKnowledgeFileSuccess]: LogCategory.Knowledge,
+  [TelemetryEventsKeys.UploadKnowledgeFileSuccess]: LogCategory.Knowledge,
+  [TelemetryEventsKeys.DownloadKnowledgeFileError]: LogCategory.Knowledge,
+  [TelemetryEventsKeys.OpenKnowledgeFileError]: LogCategory.Knowledge,
+  [TelemetryEventsKeys.VirtualKnowledgeFileError]: LogCategory.Knowledge,
+
+  // Reattach
+  [TelemetryEventsKeys.ReattachAgentClick]: LogCategory.Reattach,
+  [TelemetryEventsKeys.ReattachAgentError]: LogCategory.Reattach,
+  [TelemetryEventsKeys.ReattachAgentInfo]: LogCategory.Reattach,
+  [TelemetryEventsKeys.ReattachAgentSuccess]: LogCategory.Reattach,
+
+  // Environment / Tree
+  [TelemetryEventsKeys.RefreshAgentsClick]: LogCategory.AgentTree,
+  [TelemetryEventsKeys.RefreshAgentsSuccess]: LogCategory.AgentTree,
+  [TelemetryEventsKeys.RefreshAgentsError]: LogCategory.AgentTree,
+  [TelemetryEventsKeys.LoadEnvironmentError]: LogCategory.AgentTree,
+  [TelemetryEventsKeys.LoadEnvironmentSuccess]: LogCategory.AgentTree,
+  [TelemetryEventsKeys.LoadAgentsSuccess]: LogCategory.AgentTree,
+  [TelemetryEventsKeys.LoadAgentsError]: LogCategory.AgentTree,
+
+  // Workflow
+  [TelemetryEventsKeys.WorkflowVisualizeClick]: LogCategory.Workflow,
+  [TelemetryEventsKeys.WorkflowVisualizeSuccess]: LogCategory.Workflow,
+  [TelemetryEventsKeys.WorkflowFocusNodeError]: LogCategory.Workflow,
+  [TelemetryEventsKeys.WorkflowEditEmbeddedJsonError]: LogCategory.Workflow,
+  [TelemetryEventsKeys.WorkflowVisualizeError]: LogCategory.Workflow,
+};
+
+/**
+ * Singleton logger that sends telemetry to Application Insights and writes to the VS Code output channel.
  * Events sent using this service will appear in the "customEvents" table in Application Insights.
- *
  * It also displays messages in the VS Code UI based on the log level (Info, Warning, Error).
+ *
+ * - `logTrace`/`logDebug`: output channel only (no telemetry).
+ * - `logInfo`/`logWarning`/`logError`: telemetry + output channel + optional UI popup.
  *
  * @remarks
  * - Automatically attaches `sessionId` property to all events, `isError` property to error events, and `isWarning` property to warning events.
  * - Supports sending events with just a name, or with additional message and data.
- * - If the message contains Personally Identifiable Information (PII), wrap the PII content in `<pii>...</pii>` tags to ensure it is redacted in telemetry.
- */
+ * - PII: wrap sensitive content in `<pii>...</pii>` tags for automatic redaction in telemetry.
+*/
 class Logger {
   private static instance: Logger;
   private reporter: TelemetryReporter = NOOP_REPORTER;
@@ -54,6 +135,10 @@ class Logger {
     context.subscriptions.push(this.reporter);
   }
 
+  public async dispose() {
+    await this.reporter.dispose();
+  }
+
   /**
    * Sets the output channel for writing diagnostic logs.
    * Must be called after the output channel is created.
@@ -62,65 +147,28 @@ class Logger {
     this.outputChannel = channel;
   }
 
-  // --- Output channel logging (diagnostics only, no telemetry) ---
-  // Log level filtering is handled natively by VS Code's LogOutputChannel.
-  // The user controls visibility via the output panel dropdown (defaults to Info).
-
-  /**
-   * Writes a trace-level message to the output channel.
-   * Use for detailed flow tracking (e.g., HTTP requests, intermediate steps).
-   */
-  public trace(category: string, message: string): void {
+  /** Writes a trace-level message to the output channel only (no telemetry). */
+  public logTrace(category: LogCategory | string, message: string): void {
     this.outputChannel?.trace(`[${category}] ${message}`);
   }
 
-  /**
-   * Writes a debug-level message to the output channel.
-   * Use for debugging context that's slightly more important than trace.
-   */
-  public debug(category: string, message: string): void {
+  /** Writes a debug-level message to the output channel only (no telemetry). */
+  public logDebug(category: LogCategory | string, message: string): void {
     this.outputChannel?.debug(`[${category}] ${message}`);
   }
 
   /**
-   * Writes an info-level message to the output channel.
-   * Use for significant user-initiated actions and outcomes.
-   */
-  public info(category: string, message: string): void {
-    this.outputChannel?.info(`[${category}] ${message}`);
-  }
-
-  /**
-   * Writes a warning-level message to the output channel.
-   * Use for recoverable issues that don't block the user flow.
-   */
-  public warn(category: string, message: string): void {
-    this.outputChannel?.warn(`[${category}] ${message}`);
-  }
-
-  /**
-   * Writes an error-level message to the output channel.
-   * Use for failures that block the current operation.
-   */
-  public error(category: string, message: string): void {
-    this.outputChannel?.error(`[${category}] ${message}`);
-  }
-
-  public async dispose() {
-    await this.reporter.dispose();
-  }
-
-  /**
    * Sends a telemetry event with the given name, message, and data.
+   * Writes to the output channel for diagnostic purposes.
    * If message is provided, shows a message in the VS Code UI based on the log level.
    * PII in the message should be wrapped in `<pii>...</pii>` tags to ensure it is redacted in telemetry.
    *
    * @param logLevel - The level of the log (Info, Warning, Error).
-   * @param eventName - The name of the telemetry event.
+   * @param eventName - Telemetry event name.
    * @param message - Optional message string to display to the user.
    * @param data - Optional telemetry data object (any custom metadata to send with the event).
    */
-  public log(
+  private log(
     logLevel: LogLevel,
     eventName: TelemetryEventType,
     message?: string,
@@ -134,13 +182,25 @@ class Logger {
     // The message for telemetry with potential PII tags
     const rawMessage = properties?.message as string || message;
 
-    // A redacted version for telemetry where PII content is replaced with [REDACTED]
+    // Redact all string properties that contain <pii> tags before sending to telemetry
+    const redactedProperties: Record<string, string> = {};
+    if (properties) {
+      for (const [key, value] of Object.entries(properties)) {
+        if (typeof value === 'string') {
+          redactedProperties[key] = value.replace(/<pii>.*?<\/pii>/g, '[REDACTED]');
+        } else if (value !== undefined) {
+          redactedProperties[key] = String(value);
+        }
+      }
+    }
+    // Ensure the message property uses the raw message source for redaction
     const redactedMessage = rawMessage?.replace(/<pii>.*?<\/pii>/g, '[REDACTED]');
-
-    // Create a new properties object with the redacted message
-    const updatedProperties = redactedMessage ? { ...properties, message: redactedMessage } : properties;
+    const updatedProperties = redactedMessage
+      ? { ...redactedProperties, message: redactedMessage }
+      : redactedProperties;
 
     const canSendTelemetry = isTelemetryEnabled();
+    this.writeToOutputChannel(logLevel, eventName, displayMessage, properties);
 
     switch (logLevel) {
       case LogLevel.Info:
@@ -205,20 +265,54 @@ class Logger {
   }
 
   /**
-   * Sends error-specific telemetry event.
+* Sends error-specific telemetry event.
    * If message is provided, shows an error message to users.
    * PII in the message should be wrapped in `<pii>...</pii>` tags to ensure it is redacted in telemetry.
    *
    * @param eventName - The name of the telemetry event.
    * @param message - Optional message string to display to the user.
    * @param data - Optional telemetry data object (any custom metadata to send with the event).
-   */
+*/
   public logError(
     eventName: TelemetryEventType,
     message?: string,
     data?: TelemetryEventData
   ) {
     this.log(LogLevel.Error, eventName, message, data);
+  }
+
+  /** Writes the event message to the output channel with optional [Category] prefix. */
+  private writeToOutputChannel(
+    logLevel: LogLevel,
+    eventName: TelemetryEventType,
+    displayMessage: string | undefined,
+    properties: TelemetryEventProperties,
+  ): void {
+    if (!this.outputChannel) {
+      return;
+    }
+
+    const category = eventCategoryMap[eventName];
+
+    const mainMessage = displayMessage ?? (properties?.['message'] as string | undefined)?.replace(/<pii>(.*?)<\/pii>/g, '$1');
+    if (!mainMessage) {
+      return;
+    }
+
+    const prefix = category ? `[${category}] ` : '';
+    const outputLine = `${prefix}${mainMessage}`;
+
+    switch (logLevel) {
+      case LogLevel.Info:
+        this.outputChannel.info(outputLine);
+        break;
+      case LogLevel.Warning:
+        this.outputChannel.warn(outputLine);
+        break;
+      case LogLevel.Error:
+        this.outputChannel.error(outputLine);
+        break;
+    }
   }
 
   private parseData(
@@ -238,8 +332,6 @@ class Logger {
           properties[key] = value;
         } else if (typeof value === 'number') {
           measurements[key] = value;
-        } else {
-          properties[key] = JSON.stringify(value);
         }
       }
     }
