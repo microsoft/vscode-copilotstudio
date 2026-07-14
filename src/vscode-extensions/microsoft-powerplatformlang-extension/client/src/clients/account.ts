@@ -490,7 +490,7 @@ export async function switchAccount(clusterCategory: CoreServicesClusterCategory
                     accountId: session.account.id,
                     accountEmail: session.account.label
                 };
-                logger.logInfo(TelemetryEventsKeys.SwitchAccountSuccess, undefined, { message: `Switched account successfully to <Pii>${session.account.label}</Pii>` });
+                logger.logInfo(TelemetryEventsKeys.SwitchAccountSuccess, undefined, { message: `Switched account successfully to <pii>${session.account.label}</pii>` });
                 try {
                     const { clearWhoAmICache } = await import('./dataverseClient.js');
                     clearWhoAmICache();
@@ -500,7 +500,7 @@ export async function switchAccount(clusterCategory: CoreServicesClusterCategory
             return true;
         } catch (error) {
             if (isCancellationError(error)) {
-                logger.logInfo(TelemetryEventsKeys.SwitchAccountError, undefined, { message: 'Switch account cancelled by user.'});
+                logger.logInfo(TelemetryEventsKeys.SwitchAccountCancel, undefined, { message: 'Switch account cancelled by user.'});
             } else {
                 const message = error instanceof Error ? error.message : String(error);
                 logger.logError(TelemetryEventsKeys.SwitchAccountError, `Failed to sign in: <pii>${message}</pii>`);

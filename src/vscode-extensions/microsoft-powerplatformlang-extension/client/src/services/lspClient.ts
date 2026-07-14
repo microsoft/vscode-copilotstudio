@@ -114,7 +114,6 @@ class LspClientService {
           },
           sender: {
             sendCancellation(conn, id) {
-              logger.logTrace('LSP', `Cancellation sent for request: ${id}`);
               return Promise.resolve();
             },
             enableCancellation(request) {},

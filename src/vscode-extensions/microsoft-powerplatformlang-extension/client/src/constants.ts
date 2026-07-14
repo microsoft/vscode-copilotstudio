@@ -65,6 +65,7 @@ export const TelemetryEventsKeys = {
   ResetAccountError: "ResetAccountError",
   SwitchAccountClick: "SwitchAccountClick",
   SwitchAccountSuccess: "SwitchAccountSuccess",
+  SwitchAccountCancel: "SwitchAccountCancel",
   SwitchAccountError: "SwitchAccountError",
   RefreshAgentsClick: "RefreshAgentsClick",
   RefreshAgentsSuccess: "RefreshAgentsSuccess",

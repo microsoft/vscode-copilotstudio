@@ -64,6 +64,7 @@ const eventCategoryMap: Partial<Record<TelemetryEventType, LogCategory>> = {
   [TelemetryEventsKeys.ResetAccountError]: LogCategory.Auth,
   [TelemetryEventsKeys.SwitchAccountClick]: LogCategory.Auth,
   [TelemetryEventsKeys.SwitchAccountSuccess]: LogCategory.Auth,
+  [TelemetryEventsKeys.SwitchAccountCancel]: LogCategory.Auth,
   [TelemetryEventsKeys.SwitchAccountError]: LogCategory.Auth,
 
   // Knowledge files
