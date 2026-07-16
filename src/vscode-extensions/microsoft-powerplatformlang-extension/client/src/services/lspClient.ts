@@ -130,7 +130,8 @@ class LspClientService {
           vscode.workspace.createFileSystemWatcher('**/icon.png'),
           vscode.workspace.createFileSystemWatcher('**/agents/**', false, true, false),          
           vscode.workspace.createFileSystemWatcher('**/workflow.json'),
-          vscode.workspace.createFileSystemWatcher('**/metadata.yml')
+          vscode.workspace.createFileSystemWatcher('**/metadata.yml'),
+          vscode.workspace.createFileSystemWatcher('**/prompt.json')
         ]
       },
       middleware: {

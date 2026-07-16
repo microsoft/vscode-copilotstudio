@@ -42,6 +42,15 @@
                 }
 
                 var filePath = changeFileEvent.Uri.ToFilePath();
+
+                if (IsAiPromptComponentFile(filePath) && _languageProvider.TryGetLanguage(LanguageType.CopilotStudio, out var promptLanguage))
+                {
+                    var promptWorkspace = promptLanguage.ResolveWorkspace(filePath);
+                    promptWorkspace.BuildCompilationModel();
+                    dirtyWorkspaces.TryAdd(promptWorkspace.FolderPath, new RequestContext(promptLanguage, promptWorkspace, null, 0));
+                    continue;
+                }
+
                 if (changeFileEvent.Type == FileChangeType.Deleted)
                 {
                     if (_languageProvider.TryGetLanguage(LanguageType.CopilotStudio, out var language))
@@ -109,6 +118,18 @@
             {
                 await _diagnosticPublisher.PublishAllDiagnosticsAsync(workspaceContext, cancellationToken, logDiagnostics: false);
             }
+        }
+
+        private static bool IsAiPromptComponentFile(FilePath filePath)
+        {
+            var normalizedPath = filePath.ToString().Replace('\\', '/');
+            if (!normalizedPath.Contains("/prompts/"))
+            {
+                return false;
+            }
+
+            var fileName = filePath.FileName.ToLowerInvariant();
+            return fileName == "prompt.json" || fileName == "metadata.yml";
         }
     }
 }

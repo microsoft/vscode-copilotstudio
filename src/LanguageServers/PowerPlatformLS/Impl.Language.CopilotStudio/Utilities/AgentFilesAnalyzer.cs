@@ -45,7 +45,13 @@
 
         IEnumerable<DirectoryPath> EnumerateChildAgentsDirectories(DirectoryPath currentFolderPath);
 
-
+        /// <summary>
+        /// Read new local ai prompt.
+        /// </summary>
+        /// <param name="agentRoot">The root directory of the agent.</param>
+        /// <param name="knownModelIds">A set of known model IDs.</param>
+        /// <returns>An immutable array of AI model definitions.</returns>
+        ImmutableArray<AIModelDefinition> ReadNewLocalAiModelDefinitions(DirectoryPath agentRoot, IReadOnlySet<Guid> knownModelIds);
     }
 
     internal class AgentFilesAnalyzer : IAgentFilesAnalyzer
@@ -239,6 +245,60 @@
                     yield return fileInfo.ToDirectoryPath();
                 }
             }
+        }
+
+        public ImmutableArray<AIModelDefinition> ReadNewLocalAiModelDefinitions(DirectoryPath agentRoot, IReadOnlySet<Guid> knownModelIds)
+        {
+            IDirectoryContents promptsContents;
+            try
+            {
+                promptsContents = _fileProvider.GetDirectoryContents(agentRoot.GetChildDirectoryPath("prompts"));
+            }
+            catch (Exception)
+            {
+                return ImmutableArray<AIModelDefinition>.Empty;
+            }
+
+            if (!promptsContents.Exists)
+            {
+                return ImmutableArray<AIModelDefinition>.Empty;
+            }
+
+            var definitions = ImmutableArray.CreateBuilder<AIModelDefinition>();
+            foreach (var entry in promptsContents)
+            {
+                if (!entry.IsDirectory)
+                {
+                    continue;
+                }
+
+                var modelId = AiPromptProjection.ExtractTrailingGuidFromFileName(entry.Name);
+                if (modelId == null || knownModelIds.Contains(modelId.Value))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    var promptFolder = entry.ToDirectoryPath();
+                    if (!_fileProvider.GetFileInfo(promptFolder.GetChildFilePath("metadata.yml")).Exists)
+                    {
+                        continue;
+                    }
+
+                    var promptJsonInfo = _fileProvider.GetFileInfo(promptFolder.GetChildFilePath("prompt.json"));
+                    var promptJson = promptJsonInfo.Exists ? promptJsonInfo.ReadAllText() : null;
+                    var name = promptJson != null ? AiPromptProjection.TryReadPromptName(promptJson) : null;
+                    var customConfiguration = promptJson != null ? AiPromptProjection.BuildCustomConfigurationFromPromptJson(promptJson) : null;
+                    definitions.Add(AiPromptProjection.Build(modelId.Value, name, customConfiguration));
+                }
+                catch (Exception)
+                {
+                    continue;
+                }
+            }
+
+            return definitions.ToImmutable();
         }
     }
 }

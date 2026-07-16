@@ -1,10 +1,8 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 
-using System;
-using System.IO;
 using System.Text.Json;
 using Microsoft.Agents.ObjectModel;
-using Microsoft.CopilotStudio.Sync;
+using Microsoft.CopilotStudio.McsCore;
 using Xunit;
 
 namespace Microsoft.CopilotStudio.Sync.UnitTests;
@@ -33,7 +31,7 @@ public class AIPromptTests
     [InlineData("ThisisverylongnameandlongasWewant")]
     public void ProcessAIPromptOutputName_ValidIdentifier_ReturnsUnchanged(string name)
     {
-        Assert.Equal(name, WorkspaceSynchronizer.ProcessAIPromptOutputName(name));
+        Assert.Equal(name, AiPromptProjection.ProcessAIPromptOutputName(name));
     }
 
     [Theory]
@@ -43,20 +41,20 @@ public class AIPromptTests
     [InlineData("shiping method", "shiping_588f41922a4dc30d2d1c4654fd7b6fd7")]
     public void ProcessAIPromptOutputName_InvalidIdentifier_MatchesCloudMangling(string raw, string expected)
     {
-        Assert.Equal(expected, WorkspaceSynchronizer.ProcessAIPromptOutputName(raw));
+        Assert.Equal(expected, AiPromptProjection.ProcessAIPromptOutputName(raw));
     }
 
     [Fact]
     public void ProcessAIPromptOutputName_OutputAlwaysPrefix8PlusHash32()
     {
-        var result = WorkspaceSynchronizer.ProcessAIPromptOutputName("hello world");
+        var result = AiPromptProjection.ProcessAIPromptOutputName("hello world");
         Assert.Equal(40, result.Length);
     }
 
     [Fact]
     public void ProcessAIPromptOutputName_NonAlphanumericEncodedAsXmlStyle()
     {
-        var result = WorkspaceSynchronizer.ProcessAIPromptOutputName("A-B");
+        var result = AiPromptProjection.ProcessAIPromptOutputName("A-B");
         Assert.StartsWith("A_002DB_", result);
         Assert.Equal(40, result.Length);
     }
@@ -64,7 +62,7 @@ public class AIPromptTests
     [Fact]
     public void ProcessAIPromptOutputName_LeadingDigit_GetsMangled()
     {
-        var result = WorkspaceSynchronizer.ProcessAIPromptOutputName("1foo");
+        var result = AiPromptProjection.ProcessAIPromptOutputName("1foo");
         Assert.NotEqual("1foo", result);
         Assert.Equal(40, result.Length);
     }
@@ -72,20 +70,20 @@ public class AIPromptTests
     [Fact]
     public void ProcessAIPromptOutputName_EmptyOrNull_ReturnsAsIs()
     {
-        Assert.Equal(string.Empty, WorkspaceSynchronizer.ProcessAIPromptOutputName(string.Empty));
+        Assert.Equal(string.Empty, AiPromptProjection.ProcessAIPromptOutputName(string.Empty));
     }
 
     [Fact]
     public void ProcessAIPromptOutputName_PrefixUsesUppercaseHexForCharCodes()
     {
-        var result = WorkspaceSynchronizer.ProcessAIPromptOutputName("shiping method");
+        var result = AiPromptProjection.ProcessAIPromptOutputName("shiping method");
         Assert.StartsWith("shiping_", result);
     }
 
     [Fact]
     public void ProcessAIPromptOutputName_HashIsLowercase()
     {
-        var result = WorkspaceSynchronizer.ProcessAIPromptOutputName("date description");
+        var result = AiPromptProjection.ProcessAIPromptOutputName("date description");
         var hashPart = result.Substring(8);
         Assert.Matches("^[0-9a-f]{32}$", hashPart);
     }
@@ -93,7 +91,7 @@ public class AIPromptTests
     [Fact]
     public void ExtractTrailingGuidFromFileName_ValidGuidSuffix_Parses()
     {
-        var id = WorkspaceSynchronizer.ExtractTrailingGuidFromFileName(
+        var id = AiPromptProjection.ExtractTrailingGuidFromFileName(
             "Prompt1-2fcc84f9-b852-496a-8b53-f571ccbf74c0");
         Assert.NotNull(id);
         Assert.Equal(Guid.Parse("2fcc84f9-b852-496a-8b53-f571ccbf74c0"), id);
@@ -102,13 +100,13 @@ public class AIPromptTests
     [Fact]
     public void ExtractTrailingGuidFromFileName_NoGuid_ReturnsNull()
     {
-        Assert.Null(WorkspaceSynchronizer.ExtractTrailingGuidFromFileName("Prompt1"));
+        Assert.Null(AiPromptProjection.ExtractTrailingGuidFromFileName("Prompt1"));
     }
 
     [Fact]
     public void ExtractTrailingGuidFromFileName_GuidNotAtEnd_ReturnsNull()
     {
-        Assert.Null(WorkspaceSynchronizer.ExtractTrailingGuidFromFileName(
+        Assert.Null(AiPromptProjection.ExtractTrailingGuidFromFileName(
             "2fcc84f9-b852-496a-8b53-f571ccbf74c0-Prompt1"));
     }
 
@@ -116,26 +114,26 @@ public class AIPromptTests
     public void TryReadPromptName_ReadsTopLevelName()
     {
         var json = ReadFixture("SummarizeDocument1.prompt.json");
-        Assert.Equal("summarize document 1", WorkspaceSynchronizer.TryReadPromptName(json));
+        Assert.Equal("summarize document 1", AiPromptProjection.TryReadPromptName(json));
     }
 
     [Fact]
     public void TryReadPromptName_MissingNameReturnsNull()
     {
-        Assert.Null(WorkspaceSynchronizer.TryReadPromptName("{}"));
+        Assert.Null(AiPromptProjection.TryReadPromptName("{}"));
     }
 
     [Fact]
     public void TryReadPromptName_InvalidJsonReturnsNull()
     {
-        Assert.Null(WorkspaceSynchronizer.TryReadPromptName("not json"));
+        Assert.Null(AiPromptProjection.TryReadPromptName("not json"));
     }
 
     [Fact]
     public void BuildCustomConfigurationFromPromptJson_PortalShape_ProducesRawShape()
     {
         var portal = ReadFixture("SummarizeDocument1.prompt.json");
-        var raw = WorkspaceSynchronizer.BuildCustomConfigurationFromPromptJson(portal);
+        var raw = AiPromptProjection.BuildCustomConfigurationFromPromptJson(portal);
 
         using var doc = JsonDocument.Parse(raw);
         Assert.True(doc.RootElement.TryGetProperty("prompt", out var promptArr));
@@ -150,7 +148,7 @@ public class AIPromptTests
     public void BuildCustomConfigurationFromPromptJson_AlreadyRawShape_PassesThrough()
     {
         var raw = "{\"prompt\":[{\"type\":\"literal\",\"text\":\"hi\"}],\"definitions\":{}}";
-        var result = WorkspaceSynchronizer.BuildCustomConfigurationFromPromptJson(raw);
+        var result = AiPromptProjection.BuildCustomConfigurationFromPromptJson(raw);
         Assert.Equal(raw, result);
     }
 
@@ -158,7 +156,7 @@ public class AIPromptTests
     public void BuildCustomConfigurationFromPromptJson_InstructionPlaceholders_BecomeInputVariables()
     {
         var portal = "{\"instruction\":\"hi {{name}}\",\"model\":\"gpt-41-mini\"}";
-        var raw = WorkspaceSynchronizer.BuildCustomConfigurationFromPromptJson(portal);
+        var raw = AiPromptProjection.BuildCustomConfigurationFromPromptJson(portal);
 
         using var doc = JsonDocument.Parse(raw);
         var prompt = doc.RootElement.GetProperty("prompt");
@@ -177,7 +175,7 @@ public class AIPromptTests
     public void BuildPromptJson_RoundTripFromRawConfig_ProducesPortalShape()
     {
         var portal = ReadFixture("Prompt1.prompt.json");
-        var raw = WorkspaceSynchronizer.BuildCustomConfigurationFromPromptJson(portal);
+        var raw = AiPromptProjection.BuildCustomConfigurationFromPromptJson(portal);
         var portal2 = WorkspaceSynchronizer.BuildPromptJson("Prompt 1", raw);
 
         using var doc = JsonDocument.Parse(portal2);
@@ -200,11 +198,11 @@ public class AIPromptTests
     public void ExtractAIPromptIO_Prompt1Fixture()
     {
         var portal = ReadFixture("Prompt1.prompt.json");
-        var raw = WorkspaceSynchronizer.BuildCustomConfigurationFromPromptJson(portal);
+        var raw = AiPromptProjection.BuildCustomConfigurationFromPromptJson(portal);
 
         Assert.Equal(
             "Containe2e5985a0512b7b685a45b21ef6350c0d",
-            WorkspaceSynchronizer.ProcessAIPromptOutputName("Container 1 Registration Number"));
+            AiPromptProjection.ProcessAIPromptOutputName("Container 1 Registration Number"));
 
         Assert.Contains("Container 1 Registration Number", raw);
     }
@@ -213,8 +211,8 @@ public class AIPromptTests
     public void ExtractAIPromptIO_Prompt1FixtureWithReferences()
     {
         var portal = ReadFixture("Prompt1.prompt.json");
-        var raw = WorkspaceSynchronizer.BuildCustomConfigurationFromPromptJson(portal);
-        var (_, outputType) = WorkspaceSynchronizer.ExtractAIPromptIO(raw);
+        var raw = AiPromptProjection.BuildCustomConfigurationFromPromptJson(portal);
+        var (_, outputType) = AiPromptProjection.ExtractAIPromptIO(raw);
         Assert.NotNull(outputType);
 
         AssertPathExists(outputType!,
@@ -242,21 +240,21 @@ public class AIPromptTests
     public void ExtractAIPromptIO_SummarizeFixture()
     {
         var portal = ReadFixture("SummarizeDocument1.prompt.json");
-        var raw = WorkspaceSynchronizer.BuildCustomConfigurationFromPromptJson(portal);
+        var raw = AiPromptProjection.BuildCustomConfigurationFromPromptJson(portal);
 
         Assert.Contains("shiping method", raw);
         Assert.Contains("date description", raw);
 
-        Assert.Equal("Quality", WorkspaceSynchronizer.ProcessAIPromptOutputName("Quality"));
-        Assert.Equal("Unit_Price", WorkspaceSynchronizer.ProcessAIPromptOutputName("Unit_Price"));
+        Assert.Equal("Quality", AiPromptProjection.ProcessAIPromptOutputName("Quality"));
+        Assert.Equal("Unit_Price", AiPromptProjection.ProcessAIPromptOutputName("Unit_Price"));
     }
 
     [Fact]
     public void ExtractAIPromptIO_SummarizeFixtureWithReferences()
     {
         var portal = ReadFixture("SummarizeDocument1.prompt.json");
-        var raw = WorkspaceSynchronizer.BuildCustomConfigurationFromPromptJson(portal);
-        var (_, outputType) = WorkspaceSynchronizer.ExtractAIPromptIO(raw);
+        var raw = AiPromptProjection.BuildCustomConfigurationFromPromptJson(portal);
+        var (_, outputType) = AiPromptProjection.ExtractAIPromptIO(raw);
         Assert.NotNull(outputType);
 
         AssertPathExists(outputType!,
@@ -268,6 +266,72 @@ public class AIPromptTests
 
         Assert.True(table.Properties.ContainsKey("shiping_588f41922a4dc30d2d1c4654fd7b6fd7"));
         Assert.True(table.Properties.ContainsKey("date_002da27979fcb9686b5b8261c3d2a79ec84"));
+    }
+
+    [Fact]
+    public void ExtractAIPromptIO_NullOrEmptyConfig_ReturnsNulls()
+    {
+        Assert.Equal((null, null), AiPromptProjection.ExtractAIPromptIO(null));
+        Assert.Equal((null, null), AiPromptProjection.ExtractAIPromptIO("   "));
+    }
+
+    [Fact]
+    public void ExtractAIPromptIO_InvalidJson_ReturnsNulls()
+    {
+        Assert.Equal((null, null), AiPromptProjection.ExtractAIPromptIO("not json"));
+    }
+
+    [Fact]
+    public void Build_ValidPromptJson_ProducesDefinitionWithIdAndIO()
+    {
+        var modelId = Guid.Parse("2fcc84f9-b852-496a-8b53-f571ccbf74c0");
+        var portal = ReadFixture("Prompt1.prompt.json");
+        var customConfiguration = AiPromptProjection.BuildCustomConfigurationFromPromptJson(portal);
+
+        var definition = AiPromptProjection.Build(modelId, "Prompt 1", customConfiguration);
+
+        Assert.True(definition.Id.HasValue);
+        Assert.Equal(modelId, definition.Id.Value);
+        Assert.Equal("Prompt 1", definition.Name);
+        Assert.NotNull(definition.OutputType);
+    }
+
+    [Fact]
+    public void Build_NullCustomConfiguration_ProducesDefinitionWithNullIO()
+    {
+        var modelId = Guid.Parse("2fcc84f9-b852-496a-8b53-f571ccbf74c0");
+
+        var definition = AiPromptProjection.Build(modelId, "Prompt 1", null);
+
+        Assert.True(definition.Id.HasValue);
+        Assert.Equal(modelId, definition.Id.Value);
+        Assert.Null(definition.InputType);
+        Assert.Null(definition.OutputType);
+    }
+
+    [Fact]
+    public void ExtractAIPromptIO_DocumentInput_MapsToAny_TextMapsToString()
+    {
+        var portal = "{\"name\":\"p\",\"instruction\":\"x\",\"model\":\"gpt-41-mini\",\"inputs\":[{\"id\":\"invoice\",\"text\":\"invoice\",\"type\":\"document\"},{\"id\":\"due_20date\",\"text\":\"due date\",\"type\":\"text\"}],\"output\":{\"formats\":[\"text\"]}}";
+        var raw = AiPromptProjection.BuildCustomConfigurationFromPromptJson(portal);
+
+        var (inputType, _) = AiPromptProjection.ExtractAIPromptIO(raw);
+
+        Assert.NotNull(inputType);
+        Assert.Equal(DataType.Any, inputType!.Properties["invoice"].Type);
+        Assert.Equal(DataType.String, inputType.Properties["due_20date"].Type);
+    }
+
+    [Fact]
+    public void ExtractAIPromptIO_ObjectShapedDocumentInput_MapsToAny_TextMapsToString()
+    {
+        var raw = "{\"prompt\":[],\"definitions\":{\"inputs\":{\"invoice\":{\"type\":\"document\"},\"due_20date\":{\"type\":\"text\"}}}}";
+
+        var (inputType, _) = AiPromptProjection.ExtractAIPromptIO(raw);
+
+        Assert.NotNull(inputType);
+        Assert.Equal(DataType.Any, inputType!.Properties["invoice"].Type);
+        Assert.Equal(DataType.String, inputType.Properties["due_20date"].Type);
     }
 
     private static void AssertPathExists(RecordDataType root, params string[] path)

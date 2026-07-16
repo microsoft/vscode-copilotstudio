@@ -233,6 +233,13 @@
                 result = result.WithConnectionReferences(mergedRefs);
             }
             
+            var knownAiModelIds = result.AIModelDefinitions.Where(definition => definition.Id.HasValue).Select(definition => definition.Id.Value).ToHashSet();
+            var localAiModelDefinitions = _fileReader.ReadNewLocalAiModelDefinitions(workspacePath, knownAiModelIds);
+            if (!localAiModelDefinitions.IsDefaultOrEmpty)
+            {
+                result = result.WithAIModelDefinitions(result.AIModelDefinitions.AddRange(localAiModelDefinitions));
+            }
+
             return (result, validateAcrossComponents);
 
             T? FirstOrDefaultDocumentOfType<T>() where T : BotElement
