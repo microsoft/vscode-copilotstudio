@@ -45,9 +45,13 @@
 
                 if (IsAiPromptComponentFile(filePath) && _languageProvider.TryGetLanguage(LanguageType.CopilotStudio, out var promptLanguage))
                 {
-                    var promptWorkspace = promptLanguage.ResolveWorkspace(filePath);
-                    promptWorkspace.BuildCompilationModel();
-                    dirtyWorkspaces.TryAdd(promptWorkspace.FolderPath, new RequestContext(promptLanguage, promptWorkspace, null, 0));
+                    if (promptLanguage.IsValidAgentDirectory(filePath.ParentDirectoryPath, out _))
+                    {
+                        var promptWorkspace = promptLanguage.ResolveWorkspace(filePath);
+                        promptWorkspace.BuildCompilationModel();
+                        dirtyWorkspaces.TryAdd(promptWorkspace.FolderPath, new RequestContext(promptLanguage, promptWorkspace, null, 0));
+                    }
+
                     continue;
                 }
 

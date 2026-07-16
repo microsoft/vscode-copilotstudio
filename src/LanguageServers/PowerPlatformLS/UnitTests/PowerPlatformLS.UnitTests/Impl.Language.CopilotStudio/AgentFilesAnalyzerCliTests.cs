@@ -1,5 +1,6 @@
 namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
 {
+    using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.CopilotStudio.McsCore;
     using Microsoft.Extensions.FileProviders;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
@@ -25,7 +26,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
         public void IsStrictAgentDirectory_CliWorkspaceWithSyncMarker_NoAgentMcsYml_ReturnsTrue()
         {
             // CLI agent root: agent.sync.yaml marker present, no agent.mcs.yml (D22/D29).
-            var analyzer = new AgentFilesAnalyzer(FileProviderWith("agent.sync.yaml"));
+            var analyzer = new AgentFilesAnalyzer(FileProviderWith("agent.sync.yaml"), Mock.Of<ILspLogger>());
 
             Assert.True(analyzer.IsStrictAgentDirectory(new DirectoryPath("c:/agent")));
         }
@@ -34,7 +35,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
         public void IsStrictAgentDirectory_NoAgentFileNoMarker_ReturnsFalse()
         {
             // Not an agent root: no agent.mcs.yml, no collection.mcs.yml, no agent.sync.yaml.
-            var analyzer = new AgentFilesAnalyzer(FileProviderWith());
+            var analyzer = new AgentFilesAnalyzer(FileProviderWith(), Mock.Of<ILspLogger>());
 
             Assert.False(analyzer.IsStrictAgentDirectory(new DirectoryPath("c:/agent")));
         }

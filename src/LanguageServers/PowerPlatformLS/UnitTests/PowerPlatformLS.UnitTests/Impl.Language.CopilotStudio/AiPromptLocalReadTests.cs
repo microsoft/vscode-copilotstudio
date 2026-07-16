@@ -5,7 +5,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
     using System;
     using System.Collections.Generic;
     using System.IO;
-    using System.Linq;
+    using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.CopilotStudio.McsCore;
     using Microsoft.Extensions.FileProviders;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
@@ -38,7 +38,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
                     return _physicalProvider.GetFileInfo(ToRelative(path.ToString()));
                 });
 
-            _analyzer = new AgentFilesAnalyzer(fileProvider.Object);
+            _analyzer = new AgentFilesAnalyzer(fileProvider.Object, Mock.Of<ILspLogger>());
         }
 
         [Fact]
@@ -127,6 +127,56 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
             var definitions = _analyzer.ReadNewLocalAiModelDefinitions(AgentRoot(), new HashSet<Guid>());
 
             Assert.True(definitions.IsEmpty);
+        }
+
+        [Fact]
+        public void PromptsDirectoryProviderNotReady_ReturnsEmptyWithoutThrowing()
+        {
+            var fileProvider = new Mock<IClientWorkspaceFileProvider>();
+            fileProvider.Setup(provider => provider.GetDirectoryContents(It.IsAny<DirectoryPath>()))
+                .Throws(new InvalidOperationException("initialize request must complete first"));
+            var analyzer = new AgentFilesAnalyzer(fileProvider.Object, Mock.Of<ILspLogger>());
+
+            var definitions = analyzer.ReadNewLocalAiModelDefinitions(AgentRoot(), new HashSet<Guid>());
+
+            Assert.True(definitions.IsEmpty);
+        }
+
+        [Fact]
+        public void PromptFileUnreadable_IsSkippedAndWarningLogged()
+        {
+            var modelId = Guid.NewGuid();
+
+            var promptEntry = new Mock<IFileInfo>();
+            promptEntry.SetupGet(entry => entry.IsDirectory).Returns(true);
+            promptEntry.SetupGet(entry => entry.Name).Returns($"unreadable-{modelId}");
+            promptEntry.SetupGet(entry => entry.PhysicalPath).Returns($"{_rootForwardPath}/prompts/unreadable-{modelId}");
+
+            var promptsDirectory = new Mock<IDirectoryContents>();
+            promptsDirectory.SetupGet(contents => contents.Exists).Returns(true);
+            promptsDirectory.Setup(contents => contents.GetEnumerator())
+                .Returns(() => new List<IFileInfo> { promptEntry.Object }.GetEnumerator());
+
+            var metadataInfo = new Mock<IFileInfo>();
+            metadataInfo.SetupGet(info => info.Exists).Returns(true);
+
+            var promptJsonInfo = new Mock<IFileInfo>();
+            promptJsonInfo.SetupGet(info => info.Exists).Returns(true);
+            promptJsonInfo.Setup(info => info.CreateReadStream()).Throws(new IOException("file is locked"));
+
+            var fileProvider = new Mock<IClientWorkspaceFileProvider>();
+            fileProvider.Setup(provider => provider.GetDirectoryContents(It.IsAny<DirectoryPath>()))
+                .Returns(promptsDirectory.Object);
+            fileProvider.Setup(provider => provider.GetFileInfo(It.IsAny<FilePath>()))
+                .Returns((FilePath path) => path.FileName.Equals("metadata.yml", StringComparison.OrdinalIgnoreCase) ? metadataInfo.Object : promptJsonInfo.Object);
+
+            var logger = new Mock<ILspLogger>();
+            var analyzer = new AgentFilesAnalyzer(fileProvider.Object, logger.Object);
+
+            var definitions = analyzer.ReadNewLocalAiModelDefinitions(AgentRoot(), new HashSet<Guid>());
+
+            Assert.True(definitions.IsEmpty);
+            logger.Verify(l => l.LogSensitiveWarning(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
         }
 
         private DirectoryPath AgentRoot() => new DirectoryPath(_rootForwardPath);
