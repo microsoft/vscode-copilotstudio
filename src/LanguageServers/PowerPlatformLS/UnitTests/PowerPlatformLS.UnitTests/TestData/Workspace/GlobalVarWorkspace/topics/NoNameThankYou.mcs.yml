@@ -1,4 +1,4 @@
-﻿kind: AdaptiveDialog
+kind: AdaptiveDialog
 beginDialog:
   kind: OnRecognizedIntent
   id: main
