@@ -52,6 +52,19 @@ export async function refreshAgentChangesAfterFetch(workspaceUri: string): Promi
   }
 }
 
+/**
+ * Recompute the local changes for a workspace and refresh the Agent Changes view.
+ * Called by the Discard command after restoring files so the tree/badge update
+ * immediately instead of waiting on debounced file-watcher events.
+ */
+export async function refreshLocalChanges(workspaceUri: string): Promise<void> {
+  const scmInstance = workspaceMap.get(workspaceUri);
+  if (scmInstance) {
+    await scmInstance.onLocalChange();
+    refreshAgentChangesTree();
+  }
+}
+
 export function onWorkspaceChange(uri: string): void {
   // Find the matching workspace by checking if the uri is a child of any workspace uri
   for (const [workspaceUri, scm] of workspaceMap.entries()) {

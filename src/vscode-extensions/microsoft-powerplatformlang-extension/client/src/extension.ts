@@ -18,6 +18,7 @@ import { registerReportIssueCommand } from './commands/reportIssue';
 import { registerOpenKnowledgeFileCommand } from './commands/openKnowledgeFile';
 import { registerResetAccountCommand } from './commands/resetAccount';
 import { registerSyncCommands } from './commands/syncWorkspace';
+import { registerDiscardChangesCommand } from './commands/discardChanges';
 import { registerReattachAgentCommand } from './commands/reattachAgent';
 import { registerManageConnectionsCommand, registerDeclareConnectionReferenceCommand } from './commands/manageConnections';
 import { registerCreateGlobalVariableCommand } from './commands/createGlobalVariable';
@@ -76,6 +77,7 @@ export async function activate(context: vscode.ExtensionContext) {
   initializeAgentChangesTree(context);
   initializeVirtualKnowledgeTree(context);
   registerSyncCommands(context);
+  registerDiscardChangesCommand(context);
   registerCloneAgentCommand(context);
   registerSessionInfoCommand(context, sessionId);
   registerOpenKnowledgeFileCommand(context);

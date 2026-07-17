@@ -176,6 +176,11 @@
           "command": "microsoft-copilot-studio.applyChanges",
           "when": "view == agent-changes",
           "group": "navigation@3"
+        },
+        {
+          "command": "microsoft-copilot-studio.discardChanges",
+          "when": "view == agent-changes",
+          "group": "navigation@4"
         }
       ],
       "view/item/context": [
@@ -299,6 +304,12 @@
         "title": "Copilot Studio: Apply changes",
         "icon": "$(cloud-upload)",
         "enablement": "!mcs.agentChangesView.hasRemoteChanges && !mcs.isSyncing"
+      },
+      {
+        "command": "microsoft-copilot-studio.discardChanges",
+        "title": "Copilot Studio: Discard changes",
+        "icon": "$(discard)",
+        "enablement": "mcs.agentChangesView.hasLocalChanges && !mcs.isSyncing"
       },
       {
         "command": "microsoft-copilot-studio.cloneAgent",
