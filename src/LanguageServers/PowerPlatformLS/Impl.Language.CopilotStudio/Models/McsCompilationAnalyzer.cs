@@ -152,13 +152,31 @@
         private IEnumerable<Diagnostic> FormatDiagnostics(BotElement botElement, BotElement? knownParent = null)
         {
             var parentDocument = FindParentDocument(knownParent ?? botElement);
+            var agentRootUri = GetAgentRootUri(parentDocument);
             foreach (var diagnostic in botElement.Diagnostics)
             {
-                foreach (var lspDiagnostic in diagnostic.ToLspDiagnostics(botElement, parentDocument.MarkResolver))
+                foreach (var lspDiagnostic in diagnostic.ToLspDiagnostics(botElement, parentDocument.MarkResolver, agentRootUri))
                 {
                     yield return lspDiagnostic;
                 }
             }
+        }
+
+        private static System.Uri? GetAgentRootUri(LspDocument document)
+        {
+            if (document is not McsLspDocument mcsDocument)
+            {
+                return null;
+            }
+
+            var fileUri = mcsDocument.Uri.ToString();
+            var relativePath = mcsDocument.RelativePath.ToString().Replace('\\', '/');
+            if (relativePath.Length == 0 || !fileUri.EndsWith(relativePath, System.StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            return new System.Uri(fileUri.Substring(0, fileUri.Length - relativePath.Length));
         }
 
         /// <summary>

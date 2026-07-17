@@ -15,11 +15,13 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Handlers
     internal class GoToDefinitionHandler : IRequestHandler<TextDocumentPositionParams, Location?, RequestContext>
     {
         private readonly ILspLogger _logger;
+        private readonly IGlobalVariableReferenceService _globalVariableReferenceService;
         private readonly IReferenceResolver? _refResolver;
 
-        public GoToDefinitionHandler(ILspLogger lspLogger, IReferenceResolver? refResolver = null)
+        public GoToDefinitionHandler(ILspLogger lspLogger, IGlobalVariableReferenceService globalVariableReferenceService, IReferenceResolver? refResolver = null)
         {
             _logger = lspLogger;
+            _globalVariableReferenceService = globalVariableReferenceService;
             _refResolver = refResolver;
         }
 
@@ -27,6 +29,15 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Handlers
 
         public Task<Location?> HandleRequestAsync(TextDocumentPositionParams request, RequestContext context, CancellationToken cancellationToken)
         {
+            if (_globalVariableReferenceService.TryResolveIdentityAtPosition(context, out var identity) && _globalVariableReferenceService.TryGetDefinitionUri(context, identity, out var definitionUri))
+            {
+                return Task.FromResult<Location?>(new Location
+                {
+                    Uri = definitionUri,
+                    Range = Range.Zero,
+                });
+            }
+
             var syntax = HandleRequest(request, context, cancellationToken);
 
             Location? location = null;
@@ -98,38 +109,6 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Handlers
                             return syntax;
                         }
                     }
-                }
-            }
-            else if (elementAtPosition is SetVariable setVariable)
-            {
-                var schemaName = GetSchemaName(setVariable);
-
-                if (schemaName !=  null)
-                {
-                    var store = setVariable.ParentOfType<IGlobalVariableSchemaNameScope>();
-
-                    if (store != null &&
-                        store.TryGetGlobalVariableBySchemaName(schemaName.Value, out var globalVariableComponent))
-                    {
-                        return globalVariableComponent?.Variable?.Syntax;
-                    }
-                }
-            }
-
-            return null;
-        }
-
-        private static GlobalVariableSchemaName? GetSchemaName(SetVariable setVariable)
-        {
-            // Only global variables will have mcs files for go-to-definition.
-            // Only global variable will have mcs files.
-            if (setVariable?.Variable?.Path.Namespace == VariableNamespace.Global)
-            {
-                var botDefinition = setVariable.ParentOfType<BotDefinition>();
-
-                if (botDefinition != null && botDefinition.Entity != null)
-                {
-                    return new GlobalVariableSchemaName(botDefinition?.Entity?.SchemaName + ".globalvariable." + setVariable.Variable.Path.VariableName);
                 }
             }
 

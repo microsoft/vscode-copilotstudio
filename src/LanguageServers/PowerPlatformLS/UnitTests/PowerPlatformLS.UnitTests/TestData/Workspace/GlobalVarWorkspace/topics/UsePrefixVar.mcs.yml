@@ -1,0 +1,16 @@
+mcs.metadata:
+  componentName: Use Prefix Var
+kind: AdaptiveDialog
+beginDialog:
+  kind: OnRecognizedIntent
+  id: mainUsePrefixVar
+  intent:
+    displayName: Use Prefix Var
+    includeInOnSelectIntent: false
+    triggerQueries:
+      - use prefix var
+  actions:
+    - kind: SetVariable
+      id: setVariable_usePrefixVar
+      variable: Global.PrefixVar
+      value: prefixed

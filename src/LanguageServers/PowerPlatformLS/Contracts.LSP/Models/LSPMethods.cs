@@ -4,6 +4,9 @@
     {
         #region Language Features
         public const string GoToDefinition = "textDocument/definition";
+        public const string References = "textDocument/references";
+        public const string Rename = "textDocument/rename";
+        public const string PrepareRename = "textDocument/prepareRename";
         public const string Completion = "textDocument/completion";
         public const string SignatureHelp = "textDocument/signatureHelp";
         public const string Initialize = "initialize";

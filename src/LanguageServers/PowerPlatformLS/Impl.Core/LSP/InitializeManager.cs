@@ -44,6 +44,11 @@
                     TriggerCharacters = ["(", GetListSeparator(_clientInfo.CultureInfo)]
                 },
                 DefinitionProvider = true,
+                ReferencesProvider = true,
+                RenameProvider = new RenameOptions
+                {
+                    PrepareProvider = true,
+                },
                 SemanticTokensProvider = new SemanticTokensOptions
                 {
                     DocumentSelector = [

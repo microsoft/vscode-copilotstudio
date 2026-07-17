@@ -1,6 +1,7 @@
 ﻿namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Completion.Generators
 {
     using Microsoft.Agents.ObjectModel;
+    using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio;
     using Schema = Microsoft.Agents.ObjectModel.Schema;
     using System.Collections.Immutable;
     using System.Diagnostics.CodeAnalysis;
@@ -24,12 +25,19 @@
 
         public bool TryGenerateCompletionSnippets(Schema.PrimitiveKind kind, DefinitionBase? definition, out ImmutableArray<string> snippets)
         {
+            var botDefinition = definition as BotDefinition;
+            if (botDefinition != null && (kind == Schema.PrimitiveKind.PropertyPath || kind == Schema.PrimitiveKind.InitializablePropertyPath))
+            {
+                snippets = GetVariablePathSnippets(kind, botDefinition);
+                return true;
+            }
+
             if (PrimitiveSnippets.TryGetValue(kind, out snippets))
             {
                 return true;
             }
 
-            if (definition != null && definition is BotDefinition botDefinition)
+            if (botDefinition != null)
             {
                 snippets = GetSchemaNameSnippets(kind, botDefinition);
                 if (!snippets.IsEmpty)
@@ -40,6 +48,21 @@
 
             snippets = default;
             return false;
+        }
+
+        private static ImmutableArray<string> GetVariablePathSnippets(Schema.PrimitiveKind kind, BotDefinition botDefinition)
+        {
+            var builder = ImmutableArray.CreateBuilder<string>();
+            builder.Add("Topic.");
+            builder.Add("Global.");
+            builder.Add("System.");
+            foreach (var globalVariableName in botDefinition.Components.OfType<GlobalVariableComponent>().Select(component => GlobalVariableReferenceService.GetVariableName(component.SchemaNameString)).Where(name => !string.IsNullOrEmpty(name)).Select(name => name!).Distinct())
+            {
+                builder.Add($"Global.{globalVariableName}");
+            }
+
+            var pathSnippets = builder.ToImmutable();
+            return kind == Schema.PrimitiveKind.InitializablePropertyPath ? pathSnippets.AddRange(pathSnippets.Select(snippet => "init:" + snippet)) : pathSnippets;
         }
 
         private static ImmutableArray<string> GetSchemaNameSnippets(Schema.PrimitiveKind kind, BotDefinition botDefinition)

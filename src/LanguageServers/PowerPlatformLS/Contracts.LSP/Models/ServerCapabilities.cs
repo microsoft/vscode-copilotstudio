@@ -16,6 +16,10 @@
 
         public bool DefinitionProvider { get; set; } = false;
 
+        public bool ReferencesProvider { get; set; } = false;
+
+        public RenameOptions? RenameProvider { get; set; } = null;
+
         public SemanticTokensOptions? SemanticTokensProvider { get; set; } = null;
 
         public CodeActionOptions? CodeActionProvider { get; set; } = null;

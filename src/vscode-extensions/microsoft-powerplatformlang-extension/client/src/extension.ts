@@ -20,6 +20,7 @@ import { registerResetAccountCommand } from './commands/resetAccount';
 import { registerSyncCommands } from './commands/syncWorkspace';
 import { registerReattachAgentCommand } from './commands/reattachAgent';
 import { registerManageConnectionsCommand, registerDeclareConnectionReferenceCommand } from './commands/manageConnections';
+import { registerCreateGlobalVariableCommand } from './commands/createGlobalVariable';
 import { registerConnectionReferenceQuickFix } from './connections/connectionDiagnostics';
 import { registerAddConnectionReferenceCommand } from './connections/addConnectionReferenceCommand';
 import { registerTelemetrySettingsListeners } from './services/telemetry';
@@ -81,6 +82,7 @@ export async function activate(context: vscode.ExtensionContext) {
   registerReattachAgentCommand(context);
   registerManageConnectionsCommand(context);
   registerDeclareConnectionReferenceCommand(context);
+  registerCreateGlobalVariableCommand(context);
   registerConnectionReferenceQuickFix(context);
   registerAddConnectionReferenceCommand(context);
   registerAgentStatusBar(context);

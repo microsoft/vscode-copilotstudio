@@ -43,6 +43,9 @@
             services.AddHandler<DidRenameHandler>();
             services.AddHandler<ListWorkspacesHandler>();
             services.AddHandler<SetTraceHandler>();
+            services.AddHandler<DefaultReferencesHandler>();
+            services.AddHandler<DefaultPrepareRenameHandler>();
+            services.AddHandler<DefaultRenameHandler>();
         }
     }
 }

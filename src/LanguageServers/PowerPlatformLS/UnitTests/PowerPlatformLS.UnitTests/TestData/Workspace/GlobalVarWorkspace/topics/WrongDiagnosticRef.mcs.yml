@@ -1,0 +1,16 @@
+mcs.metadata:
+  componentName: Wrong Diagnostic Ref
+kind: AdaptiveDialog
+beginDialog:
+  kind: OnRecognizedIntent
+  id: mainWrongDiagnosticRef
+  intent:
+    displayName: Wrong Diagnostic Ref
+    includeInOnSelectIntent: false
+    triggerQueries:
+      - wrong diagnostic ref
+  actions:
+    - kind: SetVariable
+      id: setVariable_wrongDiagnosticRef1
+      variable: Topic.Temp
+      value: =Concatenate(UnknownThing, Global.Var1)
