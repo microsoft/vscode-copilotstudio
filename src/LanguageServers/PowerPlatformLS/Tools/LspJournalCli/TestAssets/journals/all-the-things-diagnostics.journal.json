@@ -40,6 +40,10 @@
             ]
           },
           "definitionProvider": true,
+          "referencesProvider": true,
+          "renameProvider": {
+            "prepareProvider": true
+          },
           "semanticTokensProvider": {
             "documentSelector": [
               {

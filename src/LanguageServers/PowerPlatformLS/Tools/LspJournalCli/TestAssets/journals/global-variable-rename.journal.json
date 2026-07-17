@@ -1,13 +1,13 @@
 {
   "metadata": {
-    "description": "Workspace indexing: file discovery, folder-to-element mapping, completions.",
-    "workspaceRoot": "../fixtures/connected-workspace",
+    "description": "Global variable rename: references, prepareRename, and rename on Global.ItemList.",
+    "workspaceRoot": "../fixtures/all-the-things-clean-workspace",
     "classification": "recorded",
-    "branch": "dev/stevesteiner/testcli.2",
-    "commit": "fa6143602",
-    "timestamp": "2026-02-10T22:45:44.5820218Z",
-    "branchBase": "27b3c27f3",
-    "branchDepth": 5
+    "branch": "nguhoa/globalVar",
+    "commit": "2d251c6",
+    "timestamp": "2026-07-16T14:27:51.1310203Z",
+    "branchBase": "2d251c6",
+    "branchDepth": 0
   },
   "steps": [
     {
@@ -18,7 +18,7 @@
         "workspaceFolders": [
           {
             "uri": "${workspace}",
-            "name": "connected-workspace"
+            "name": "all-the-things-clean-workspace"
           }
         ]
       },
@@ -133,57 +133,57 @@
       "step": "open",
       "params": {
         "textDocument": {
-          "uri": "${workspace}/topics/Greeting.mcs.yml",
+          "uri": "${workspace}/topics/LoopAndBranch.mcs.yml",
           "languageId": "CopilotStudio",
           "version": 1,
-          "text": "${file:topics/Greeting.mcs.yml}",
-          "textHash": "sha256:4cb49430e38a4c45a21a8ae54afb2b39ba7f576a6530373d393606752d8a096e",
-          "textBytes": 145
+          "text": "${file:topics/LoopAndBranch.mcs.yml}",
+          "textHash": "sha256:4cd798956177a0ddbc436cff9b91b9d43153678472dae943b70f3b2e6dec00fa",
+          "textBytes": 1602
         }
       },
       "waitFor": [
         {
           "method": "textDocument/publishDiagnostics",
-          "timeoutMs": 10000
+          "timeoutMs": 15000
         }
       ],
       "expectedNotifications": [
         {
           "method": "textDocument/publishDiagnostics",
           "params": {
-            "uri": "${workspace}/topics/Greeting.mcs.yml",
+            "uri": "${workspace}/topics/LoopAndBranch.mcs.yml",
             "version": 0,
             "diagnostics": [
               {
-                "code": "MissingRequiredProperty",
+                "code": "PowerFxError",
                 "range": {
                   "start": {
-                    "line": 2,
-                    "character": 0
+                    "line": 16,
+                    "character": 14
                   },
                   "end": {
-                    "line": 6,
-                    "character": 0
+                    "line": 16,
+                    "character": 14
                   }
                 },
                 "severity": 1,
-                "message": "Missing required property \u0027Id\u0027",
+                "message": "Expected an operand. The formula or expression expects a valid operand. For example, you can add the operand \u00272\u0027 to the expression \u0027 1 \u002B_\u0027 so that the result is \u00273\u0027. Or, you can add the operand \u0022there\u0022 to the expression \u0027\u0022Hi \u0022\u0026 _ \u0027 so that the result is \u0027Hi there\u0027.",
                 "data": {}
               },
               {
-                "code": "MissingRequiredProperty",
+                "code": "UnexpectedCharacter",
                 "range": {
                   "start": {
-                    "line": 4,
-                    "character": 6
+                    "line": 16,
+                    "character": 14
                   },
                   "end": {
-                    "line": 6,
-                    "character": 0
+                    "line": 16,
+                    "character": 14
                   }
                 },
                 "severity": 1,
-                "message": "Missing required property \u0027Id\u0027",
+                "message": "Unexpected character in expression \u0027[\u0027",
                 "data": {}
               }
             ]
@@ -192,27 +192,97 @@
       ]
     },
     {
-      "step": "completion",
+      "step": "textDocument/references",
       "params": {
         "textDocument": {
-          "uri": "${workspace}/topics/Greeting.mcs.yml"
+          "uri": "${workspace}/topics/LoopAndBranch.mcs.yml"
         },
         "position": {
-          "line": 4,
-          "character": 12
+          "line": 15,
+          "character": 25
+        },
+        "context": {
+          "includeDeclaration": true
+        }
+      },
+      "expected": [
+        {
+          "range": {
+            "end": {
+              "character": 31,
+              "line": 15
+            },
+            "start": {
+              "character": 23,
+              "line": 15
+            }
+          },
+          "uri": "${workspace}/topics/LoopAndBranch.mcs.yml"
+        }
+      ]
+    },
+    {
+      "step": "textDocument/prepareRename",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/LoopAndBranch.mcs.yml"
+        },
+        "position": {
+          "line": 15,
+          "character": 25
         }
       },
       "expected": {
-        "isIncomplete": false,
-        "items": []
+        "placeholder": "ItemList",
+        "range": {
+          "end": {
+            "character": 31,
+            "line": 15
+          },
+          "start": {
+            "character": 23,
+            "line": 15
+          }
+        }
       }
     },
     {
-      "step": "close",
+      "step": "textDocument/rename",
       "params": {
         "textDocument": {
-          "uri": "${workspace}/topics/Greeting.mcs.yml"
-        }
+          "uri": "${workspace}/topics/LoopAndBranch.mcs.yml"
+        },
+        "position": {
+          "line": 15,
+          "character": 25
+        },
+        "newName": "RenamedItemList"
+      },
+      "expected": {
+        "documentChanges": [
+          {
+            "edits": [
+              {
+                "newText": "RenamedItemList",
+                "range": {
+                  "end": {
+                    "character": 31,
+                    "line": 15
+                  },
+                  "start": {
+                    "character": 23,
+                    "line": 15
+                  }
+                }
+              }
+            ],
+            "kind": "edit",
+            "textDocument": {
+              "uri": "${workspace}/topics/LoopAndBranch.mcs.yml",
+              "version": 0
+            }
+          }
+        ]
       }
     },
     {

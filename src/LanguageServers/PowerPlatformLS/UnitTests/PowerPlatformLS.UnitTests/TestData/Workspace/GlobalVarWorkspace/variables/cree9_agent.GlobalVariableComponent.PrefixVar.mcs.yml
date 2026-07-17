@@ -1,0 +1,8 @@
+mcs.metadata:
+  componentName: PrefixVar
+kind: Variable
+name: PrefixVar
+scope: User
+isExternalInitializationAllowed: false
+initializationTimeoutInMilliseconds: 0
+aIVisibility: Hidden

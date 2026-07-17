@@ -1,0 +1,20 @@
+mcs.metadata:
+  componentName: Use Global Var
+kind: AdaptiveDialog
+beginDialog:
+  kind: OnRecognizedIntent
+  id: mainUseGlobalVar
+  intent:
+    displayName: Use Global Var
+    includeInOnSelectIntent: false
+    triggerQueries:
+      - use global var
+  actions:
+    - kind: SetVariable
+      id: setVariable_useGlobalVar1
+      variable: Global.Var1
+      value: =Concatenate(Global.Var1, "!")
+    - kind: SetVariable
+      id: setVariable_useGlobalVar2
+      variable: Topic.Copy
+      value: =Global.Var1

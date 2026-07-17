@@ -1,0 +1,30 @@
+mcs.metadata:
+  componentName: Thank you
+  description: This topic triggers when the user says thank you.
+kind: AdaptiveDialog
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent:
+    displayName: Thank you
+    includeInOnSelectIntent: false
+    triggerQueries:
+      - thanks
+      - thank you
+      - thanks so much
+      - ty
+
+  actions:
+    - kind: SetVariable
+      id: setVariable_Q16YQO
+      variable: Global.Var1
+      value: var1
+    
+    - kind: SetVariable
+      id: setVariable_Q16123
+      variable: Global.Var2
+      value: var2
+      
+    - kind: SendActivity
+      id: sendMessage_9iz6v7
+      activity: You're welcome.

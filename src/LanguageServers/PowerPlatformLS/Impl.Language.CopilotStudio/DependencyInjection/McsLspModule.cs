@@ -37,6 +37,7 @@
             services.AddSingleton<IDiagnosticsProvider<McsLspDocument>, DiagnosticsProvider>();
             services.AddSingleton<IWorkspaceCompiler<DefinitionBase>, McsWorkspaceCompiler>();
             services.AddSingleton<IReferenceResolver, McsReferenceResolver>();
+            services.AddSingleton<IGlobalVariableReferenceService, GlobalVariableReferenceService>();
             services.AddSingleton<Contracts.FileLayout.IMcsFileParser, McsFileParser>();
             services.AddSingleton<IComponentPathResolver, LspComponentPathResolver>();
             services.AddSingleton<IStringResources, StringResources>();
@@ -64,6 +65,9 @@
                 .AddHandler<DidChangeHandler>()
                 .AddHandler<DidOpenHandler>()
                 .AddHandler<GoToDefinitionHandler>()
+                .AddHandler<FindReferencesHandler>()
+                .AddHandler<PrepareRenameHandler>()
+                .AddHandler<RenameHandler>()
                 .AddHandler<SemanticTokenFullHandler>();
         }
     }

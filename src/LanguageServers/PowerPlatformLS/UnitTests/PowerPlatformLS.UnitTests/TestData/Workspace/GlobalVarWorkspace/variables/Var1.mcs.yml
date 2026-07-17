@@ -1,0 +1,8 @@
+﻿mcs.metadata:
+  componentName: Var1
+kind: Variable
+name: Var1
+scope: User
+isExternalInitializationAllowed: false
+initializationTimeoutInMilliseconds: 0
+aIVisibility: Hidden

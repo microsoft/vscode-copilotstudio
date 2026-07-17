@@ -25,7 +25,7 @@
             throw new InvalidOperationException($"No descendant found for {syntaxUri}.");
         }
 
-        internal static IEnumerable<Contracts.Lsp.Models.Diagnostic> ToLspDiagnostics(this BotElementDiagnostic diagnostic, BotElement parent, MarkResolver markResolver)
+        internal static IEnumerable<Contracts.Lsp.Models.Diagnostic> ToLspDiagnostics(this BotElementDiagnostic diagnostic, BotElement parent, MarkResolver markResolver, Uri? agentRootUri = null)
         {
             var kindNumber = (int)diagnostic.Kind;
 
@@ -44,7 +44,7 @@
             {
                 var diagnosticData = new DiagnosticData
                 {
-                    Quickfix = CodeActionHelper.GetSuggestions(diagnostic, errorRange, parent),
+                    Quickfix = CodeActionHelper.GetSuggestions(diagnostic, errorRange, parent, markResolver, agentRootUri),
                 };
                 var ambibuityMessage = CreateAmbiguityMessage(errorRange, highlightRanges);
                 yield return new Diagnostic
