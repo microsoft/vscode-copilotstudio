@@ -46,7 +46,10 @@ export const registerCreateGlobalVariableCommand = (context: vscode.ExtensionCon
         edit.insert(documentUri, position, args.setVariable.textBeforeValue + value + args.setVariable.textAfterValue);
       }
 
-      await vscode.workspace.applyEdit(edit);
+      const applied = await vscode.workspace.applyEdit(edit);
+      if (!applied) {
+        void vscode.window.showErrorMessage(`Failed to apply edits to create Global.${args.variableName}.`);
+      }
     }
   );
   context.subscriptions.push(command);
