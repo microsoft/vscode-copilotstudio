@@ -92,8 +92,25 @@
                 .Setup(x => x.GetDirectoryContents(It.IsAny<DirectoryPath>()))
                 .Returns((DirectoryPath path) =>
                 {
-                    var physicalProvider = new PhysicalFileProvider(path.ToString());
+                    var systemPath = path.ToString();
+                    if (!Directory.Exists(systemPath))
+                    {
+                        return NotFoundDirectoryContents.Singleton;
+                    }
+                    var physicalProvider = new PhysicalFileProvider(systemPath);
                     return physicalProvider.GetDirectoryContents(string.Empty);
+                });
+            mockFileProvider
+                .Setup(x => x.GetFileInfo(It.IsAny<FilePath>()))
+                .Returns((FilePath path) =>
+                {
+                    var systemPath = path.ToString();
+                    var directory = Path.GetDirectoryName(systemPath);
+                    if (directory == null || !Directory.Exists(directory))
+                    {
+                        return new NotFoundFileInfo(Path.GetFileName(systemPath));
+                    }
+                    return new PhysicalFileProvider(directory).GetFileInfo(Path.GetFileName(systemPath));
                 });
 
             services.AddSingleton(mockFileProvider.Object);
@@ -113,6 +130,103 @@
                     text,
                     CultureInfo.InvariantCulture,
                     workspacePath);
+                documents.Add(documentPath, document);
+            }
+
+            return documents;
+        }
+
+        [Fact]
+        public void Compile_MergesNewLocalPromptModelDefinition()
+        {
+            var services = new ServiceCollection();
+            services.Install(new McsLspModule());
+            MockCoreWorkspaceBuilder(services);
+            var serviceProvider = services.BuildServiceProvider();
+            var compiler = serviceProvider.GetRequiredService<IWorkspaceCompiler<DefinitionBase>>();
+            var language = serviceProvider.GetRequiredService<ILanguageAbstraction>();
+
+            var tempRoot = Path.Combine(Path.GetTempPath(), "WorkspaceCompilerPromptTest-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                Directory.CreateDirectory(tempRoot);
+                File.WriteAllText(Path.Combine(tempRoot, "agent.mcs.yml"), "instructions: test agent");
+
+                var modelId = Guid.NewGuid();
+                var promptFolder = Path.Combine(tempRoot, "prompts", $"promptE2-{modelId}");
+                Directory.CreateDirectory(promptFolder);
+                File.WriteAllText(Path.Combine(promptFolder, "metadata.yml"), $"aIModelId: {modelId}\nname: prompt E2\ntemplateId: {Guid.Empty}\n");
+                File.WriteAllText(Path.Combine(promptFolder, "prompt.json"), "{\"name\":\"prompt E2\",\"instruction\":\"answer {{question}}\",\"model\":\"gpt-41-mini\",\"inputs\":[{\"id\":\"question\",\"type\":\"text\"}],\"output\":{\"formats\":[\"text\"]}}");
+
+                var workspacePath = SystemToAgentDirectoryPath(tempRoot);
+                var documents = ReadAllMcsComponentDocuments(workspacePath, language);
+                var compilation = compiler.Compile(documents, workspacePath);
+
+                var definition = Assert.IsType<BotDefinition>(compilation.Model);
+                Assert.Contains(definition.AIModelDefinitions, aiModel => aiModel.Id.HasValue && aiModel.Id.Value == modelId);
+            }
+            finally
+            {
+                if (Directory.Exists(tempRoot))
+                {
+                    Directory.Delete(tempRoot, recursive: true);
+                }
+            }
+        }
+
+        [Fact]
+        public void Compile_DoesNotWriteToCloudCache()
+        {
+            var services = new ServiceCollection();
+            services.Install(new McsLspModule());
+            MockCoreWorkspaceBuilder(services);
+            var serviceProvider = services.BuildServiceProvider();
+            var compiler = serviceProvider.GetRequiredService<IWorkspaceCompiler<DefinitionBase>>();
+            var language = serviceProvider.GetRequiredService<ILanguageAbstraction>();
+
+            var tempRoot = Path.Combine(Path.GetTempPath(), "WorkspaceCompilerCacheTest-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                Directory.CreateDirectory(tempRoot);
+                File.WriteAllText(Path.Combine(tempRoot, "agent.mcs.yml"), "instructions: test agent");
+
+                var modelId = Guid.NewGuid();
+                var promptFolder = Path.Combine(tempRoot, "prompts", $"promptE2-{modelId}");
+                Directory.CreateDirectory(promptFolder);
+                File.WriteAllText(Path.Combine(promptFolder, "metadata.yml"), $"aIModelId: {modelId}\nname: prompt E2\ntemplateId: {Guid.Empty}\n");
+                File.WriteAllText(Path.Combine(promptFolder, "prompt.json"), "{\"name\":\"prompt E2\",\"instruction\":\"answer {{question}}\",\"model\":\"gpt-41-mini\",\"inputs\":[{\"id\":\"question\",\"type\":\"text\"}],\"output\":{\"formats\":[\"text\"]}}");
+
+                var cacheDirectory = Path.Combine(tempRoot, ".mcs");
+                Directory.CreateDirectory(cacheDirectory);
+                var cachePath = Path.Combine(cacheDirectory, "botdefinition.json");
+                File.WriteAllText(cachePath, "{\"sentinel\":true}");
+                var cacheBytesBefore = File.ReadAllBytes(cachePath);
+
+                var workspacePath = SystemToAgentDirectoryPath(tempRoot);
+                var documents = ReadAllMcsComponentDocuments(workspacePath, language);
+                compiler.Compile(documents, workspacePath);
+
+                Assert.Equal(cacheBytesBefore, File.ReadAllBytes(cachePath));
+            }
+            finally
+            {
+                if (Directory.Exists(tempRoot))
+                {
+                    Directory.Delete(tempRoot, recursive: true);
+                }
+            }
+        }
+
+        private static IReadOnlyDictionary<FilePath, LspDocument> ReadAllMcsComponentDocuments(DirectoryPath workspacePath, ILanguageAbstraction mcsLanguage)
+        {
+            var files = Directory.EnumerateFiles(workspacePath.ToString(), "*.mcs.yml", SearchOption.AllDirectories)
+                .Concat(Directory.EnumerateFiles(workspacePath.ToString(), "*.mcs.yaml", SearchOption.AllDirectories));
+            var documents = new Dictionary<FilePath, LspDocument>();
+            foreach (var file in files)
+            {
+                var text = File.ReadAllText(file);
+                var documentPath = SystemToAgentFilePath(Path.GetFullPath(file));
+                var document = mcsLanguage.CreateDocument(documentPath, text, CultureInfo.InvariantCulture, workspacePath);
                 documents.Add(documentPath, document);
             }
 
