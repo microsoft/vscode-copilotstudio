@@ -44,7 +44,11 @@ export const registerDiscardChangesCommand = (context: ExtensionContext) => {
       // Never discard while a sync is running (the button is gated by !mcs.isSyncing,
       // but the command palette can still reach us).
       if (getActiveSyncUri() !== undefined) {
-        logger.logWarning(TelemetryEventsKeys.SyncWorkspaceCancel, undefined, { message: 'Cannot discard while a sync operation is in progress.' });
+        logger.logWarning(
+          TelemetryEventsKeys.SyncWorkspaceCancel,
+          'Cannot discard while a sync operation is in progress.',
+          { operation: DISCARD_OPERATION },
+        );
         return;
       }
 
