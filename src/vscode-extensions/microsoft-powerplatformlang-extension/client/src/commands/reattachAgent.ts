@@ -4,7 +4,8 @@ import * as vscode from 'vscode';
 import { AccountInfo, EnvironmentInfo, ReattachAgentRequest, ReattachAgentResponse, RetargetConflictResolution, FinalizeRetargetResponse } from '../types';
 import { DefaultCoreServicesClusterCategory, LspMethods, TelemetryEventsKeys } from '../constants';
 import { listEnvironmentsAsync } from '../clients/bapClient';
-import { switchAccount, getPreferredTreeAccount, listStoredAccounts } from '../clients/account';
+import { buildEnvironmentPickItems } from '../services/accountEnvPicker';
+import { switchAccount, getPreferredTreeAccount, listStoredAccounts, clearAuthAccountState } from '../clients/account';
 import { pushNewWorkspace } from '../sync/workspaceScm';
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import logger from '../services/logger';
@@ -95,7 +96,7 @@ const runReattachForWorkspace = async (context: vscode.ExtensionContext, workspa
     }
   }
 
-  logger.logInfo(TelemetryEventsKeys.ReattachAgentInfo, undefined, { message: `${getWorkspaceKindLabel(workspace)} <pii>${getWorkspaceIdentity(reattachedWorkspace)}</pii> ${wasRetarget ? 'retargeted' : 'reattached'} successfully.` });
+  logger.logInfo(TelemetryEventsKeys.ReattachAgentSuccess, undefined, { message: `${getWorkspaceKindLabel(workspace)} <pii>${getWorkspaceIdentity(reattachedWorkspace)}</pii> ${wasRetarget ? 'retargeted' : 'reattached'} successfully.` });
   return { workspace: reattachedWorkspace, response: reattachResult, wasRetarget };
 };
 
@@ -109,6 +110,8 @@ const finalizeRetargets = async (results: ReattachWorkspaceResult[], pushSucceed
 
 export const registerReattachAgentCommand = (context: vscode.ExtensionContext) => {
   const reattachAgentCommand = vscode.commands.registerCommand('microsoft-copilot-studio.reattachAgent', async (treeItem?: { workspace?: CopilotStudioWorkspace }) => {
+    logger.logInfo(TelemetryEventsKeys.ReattachAgentClick, undefined, { message: 'Reattach agent initiated' });
+
     if (getActiveSyncUri() !== undefined) {
       void vscode.window.showWarningMessage('A sync is already in progress. Please wait for it to finish before retargeting an agent.');
       return;
@@ -144,30 +147,10 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
           DefaultCoreServicesClusterCategory,
           null,
           account.accountId ?? null,
-          account.accountEmail
+          account.accountEmail,
+          true
         );
-        const seen = new Set<string>();
-        const items: vscode.QuickPickItem[] = [];
-        let lastSku: string | undefined;
-        for (const env of envs) {
-          if (seen.has(env.environmentId)) {
-            continue;
-          }
-          seen.add(env.environmentId);
-          const sku = env.environmentSku || 'Other';
-          if (sku !== lastSku) {
-            items.push({ label: sku, kind: vscode.QuickPickItemKind.Separator });
-            lastSku = sku;
-          }
-          const item: ReattachEnvironmentPickItem = {
-            label: env.displayName,
-            description: env.environmentId,
-            environment: env,
-            sourceAccount: account
-          };
-          items.push(item);
-        }
-        quickPick.items = items;
+        quickPick.items = buildEnvironmentPickItems(envs, account);
       } catch (error: any) {
         logger.logError(TelemetryEventsKeys.LoadEnvironmentError, `[Reattach] Failed to load environments: <pii>${error?.message || error}</pii>`);
         quickPick.items = [];
@@ -292,7 +275,7 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
             const completedRetargets: ReattachWorkspaceResult[] = [];
             try {
               const selectedAccount = pickedEnvironment.sourceAccount ?? getPreferredTreeAccount();
-              const basePayload = await buildLspRequestPayload(undefined, environmentInfo, selectedAccount);
+              const basePayload = await buildLspRequestPayload(undefined, environmentInfo, selectedAccount, true);
 
               for (const workspaceToReattach of reattachPlan.workspaces) {
                 const result = await runReattachForWorkspace(context, workspaceToReattach, basePayload, targetEnvironmentName);
@@ -310,7 +293,7 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
               try {
                 await finalizeRetargets(completedRetargets, true);
               } catch (finalizeError) {
-                logger.logWarning(TelemetryEventsKeys.ReattachAgentError, `Retarget succeeded but clearing the retarget backup failed; the workspaces remain on the new environment: <pii>${(finalizeError as Error).message}</pii>`);
+                logger.logWarning(TelemetryEventsKeys.ReattachAgentInfo, `Retarget succeeded but clearing the retarget backup failed; the workspaces remain on the new environment: <pii>${(finalizeError as Error).message}</pii>`);
               }
 
               const primaryResult = completedRetargets.find(result => result.workspace.workspaceUri === currentWorkspace.workspaceUri);
@@ -321,6 +304,7 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
               let anyConnectionsBound = false;
               let workflowsEnabledTotal = 0;
               for (const result of completedRetargets) {
+                clearAuthAccountState(result.workspace.syncInfo?.accountInfo?.accountId, result.workspace.syncInfo?.accountInfo?.accountEmail);
                 const autoBindResult = await autoBindAgentConnections(result.workspace, true);
                 if (autoBindResult.needsNewCount > 0) {
                   workspacesNeedingConnections.push(result.workspace);

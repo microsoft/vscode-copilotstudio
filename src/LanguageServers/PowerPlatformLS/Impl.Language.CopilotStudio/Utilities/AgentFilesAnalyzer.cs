@@ -2,11 +2,10 @@
 {
     using Microsoft.Agents.ObjectModel;
     using Microsoft.Agents.ObjectModel.Yaml;
+    using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.Extensions.FileProviders;
     using Microsoft.CopilotStudio.McsCore;
-    using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
-    using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models;
     using System;
     using System.Collections.Immutable;
     using System.Diagnostics.CodeAnalysis;
@@ -45,17 +44,25 @@
 
         IEnumerable<DirectoryPath> EnumerateChildAgentsDirectories(DirectoryPath currentFolderPath);
 
-
+        /// <summary>
+        /// Read new local ai prompt.
+        /// </summary>
+        /// <param name="agentRoot">The root directory of the agent.</param>
+        /// <param name="knownModelIds">A set of known model IDs.</param>
+        /// <returns>An immutable array of AI model definitions.</returns>
+        ImmutableArray<AIModelDefinition> ReadNewLocalAiModelDefinitions(DirectoryPath agentRoot, IReadOnlySet<Guid> knownModelIds);
     }
 
     internal class AgentFilesAnalyzer : IAgentFilesAnalyzer
     {
         private static readonly ImmutableArray<string> CompoundExtensionNames = [".mcs.yml", ".mcs.yaml"];
         private readonly IClientWorkspaceFileProvider _fileProvider;
+        private readonly ILspLogger _logger;
 
-        public AgentFilesAnalyzer(IClientWorkspaceFileProvider fileProvider)
+        public AgentFilesAnalyzer(IClientWorkspaceFileProvider fileProvider, ILspLogger logger)
         {
             _fileProvider = fileProvider;
+            _logger = logger;
         }
 
         // Has an agent.mcs.yml that's a GptComponentMetadata (classic), or the agent.sync.yaml
@@ -239,6 +246,60 @@
                     yield return fileInfo.ToDirectoryPath();
                 }
             }
+        }
+
+        public ImmutableArray<AIModelDefinition> ReadNewLocalAiModelDefinitions(DirectoryPath agentRoot, IReadOnlySet<Guid> knownModelIds)
+        {
+            IDirectoryContents promptsContents;
+            try
+            {
+                promptsContents = _fileProvider.GetDirectoryContents(agentRoot.GetChildDirectoryPath("prompts"));
+            }
+            catch (InvalidOperationException)
+            {
+                return ImmutableArray<AIModelDefinition>.Empty;
+            }
+
+            if (!promptsContents.Exists)
+            {
+                return ImmutableArray<AIModelDefinition>.Empty;
+            }
+
+            var definitions = ImmutableArray.CreateBuilder<AIModelDefinition>();
+            foreach (var entry in promptsContents)
+            {
+                if (!entry.IsDirectory)
+                {
+                    continue;
+                }
+
+                var modelId = AiPromptProjection.ExtractTrailingGuidFromFileName(entry.Name);
+                if (modelId == null || knownModelIds.Contains(modelId.Value))
+                {
+                    continue;
+                }
+
+                var promptFolder = entry.ToDirectoryPath();
+                try
+                {
+                    if (!_fileProvider.GetFileInfo(promptFolder.GetChildFilePath("metadata.yml")).Exists)
+                    {
+                        continue;
+                    }
+
+                    var promptJsonInfo = _fileProvider.GetFileInfo(promptFolder.GetChildFilePath("prompt.json"));
+                    var promptJson = promptJsonInfo.Exists ? promptJsonInfo.ReadAllText() : null;
+                    var name = promptJson != null ? AiPromptProjection.TryReadPromptName(promptJson) : null;
+                    var customConfiguration = promptJson != null ? AiPromptProjection.BuildCustomConfigurationFromPromptJson(promptJson) : null;
+                    definitions.Add(AiPromptProjection.Build(modelId.Value, name, customConfiguration));
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogSensitiveWarning($"Failed to read the local AI prompt '{promptFolder}' (model '{modelId.Value}') with exception: {ex.Message}.", "Failed to read the local AI prompt.");
+                }
+            }
+
+            return definitions.ToImmutable();
         }
     }
 }

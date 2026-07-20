@@ -50,7 +50,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
             using var result = await invoker.SendAsync(request, CancellationToken.None);
 
             var completionLog = _testLogger.Info.ToList()[1];
-            Assert.Contains("HTTP response #", completionLog);
+            Assert.Contains("HTTP request #", completionLog);
             Assert.Contains("completed: POST /api/data/v9.2/accounts?foo=bar", completionLog);
             Assert.Contains("duration=", completionLog);
             Assert.Contains("status=202", completionLog);
@@ -70,6 +70,21 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
             Assert.Contains("failed: DELETE /api/data/v9.2/accounts(1)", errorLog);
             Assert.Contains("duration=", errorLog);
             Assert.Contains("error=network failure", errorLog);
+        }
+
+        [Fact]
+        public async Task SendAsync_Logs_Failed_For_Non_Success_StatusCode()
+        {
+            using var response = new HttpResponseMessage(HttpStatusCode.NotFound);
+            using var request = new HttpRequestMessage(HttpMethod.Get, "https://contoso.crm.dynamics.com/api/data/v9.2/bots(1)");
+            using var invoker = CreateInvoker((_, _) => Task.FromResult(response));
+
+            using var result = await invoker.SendAsync(request, CancellationToken.None);
+
+            var errorLog = Assert.Single(_testLogger.Error);
+            Assert.Contains("failed: GET /api/data/v9.2/bots(1)", errorLog);
+            Assert.Contains("status=404", errorLog);
+            Assert.DoesNotContain("completed", errorLog);
         }
 
         [Fact]

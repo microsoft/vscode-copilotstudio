@@ -42,6 +42,19 @@
                 }
 
                 var filePath = changeFileEvent.Uri.ToFilePath();
+
+                if (IsAiPromptComponentFile(filePath) && _languageProvider.TryGetLanguage(LanguageType.CopilotStudio, out var promptLanguage))
+                {
+                    if (promptLanguage.IsValidAgentDirectory(filePath.ParentDirectoryPath, out _))
+                    {
+                        var promptWorkspace = promptLanguage.ResolveWorkspace(filePath);
+                        promptWorkspace.BuildCompilationModel();
+                        dirtyWorkspaces.TryAdd(promptWorkspace.FolderPath, new RequestContext(promptLanguage, promptWorkspace, null, 0));
+                    }
+
+                    continue;
+                }
+
                 if (changeFileEvent.Type == FileChangeType.Deleted)
                 {
                     if (_languageProvider.TryGetLanguage(LanguageType.CopilotStudio, out var language))
@@ -57,20 +70,15 @@
 
                     if (!WorkspacePath.TryGetLanguageType(filePath, out _))
                     {
-                        // File name may be an agent/component name (EUII); redact it from telemetry.
-                        _logger.LogSensitiveInformation(
-                            $"Client notified '{changeFileEvent.Type}' event on watched files that has no language definition: {filePath.FileName}. Change won't be tracked.",
-                            $"Client notified '{changeFileEvent.Type}' event on watched files that has no language definition. Change won't be tracked.");
+                        _logger.LogDebug(
+                            $"Client notified '{changeFileEvent.Type}' event on watched files that has no language definition: {filePath.FileName}. Change won't be tracked.");
                         continue;
                     }
 
                     var context = _contextResolver.Resolve(new TextDocumentIdentifier { Uri = changeFileEvent.Uri });
                     if (context.IsInvalid)
                     {
-                        // File name may be an agent/component name (EUII); redact it from telemetry.
-                        _logger.LogSensitiveInformation(
-                            $"File is not tracked. File is not found in workspace: '{filePath.FileName}'",
-                            "File is not tracked. File is not found in workspace.");
+                        _logger.LogDebug($"File is not tracked. File is not found in workspace: '{filePath.FileName}'");
                     }
                     else
                     {
@@ -86,10 +94,8 @@
 
                 if (!WorkspacePath.TryGetLanguageType(filePath, out _))
                 {
-                    // File name may be an agent/component name (EUII); redact it from telemetry.
-                    _logger.LogSensitiveInformation(
-                        $"Client notified '{changeFileEvent.Type}' event on watched files that has no language definition: {filePath.FileName}. Change won't be tracked.",
-                        $"Client notified '{changeFileEvent.Type}' event on watched files that has no language definition. Change won't be tracked.");
+                    _logger.LogDebug(
+                        $"Client notified '{changeFileEvent.Type}' event on watched files that has no language definition: {filePath.FileName}. Change won't be tracked.");
                     continue;
                 }
 
@@ -119,8 +125,20 @@
 
             foreach (var workspaceContext in dirtyWorkspaces.Values)
             {
-                await _diagnosticPublisher.PublishAllDiagnosticsAsync(workspaceContext, cancellationToken);
+                await _diagnosticPublisher.PublishAllDiagnosticsAsync(workspaceContext, cancellationToken, logDiagnostics: false);
             }
+        }
+
+        private static bool IsAiPromptComponentFile(FilePath filePath)
+        {
+            var normalizedPath = filePath.ToString().Replace('\\', '/');
+            if (!normalizedPath.Contains("/prompts/"))
+            {
+                return false;
+            }
+
+            var fileName = filePath.FileName.ToLowerInvariant();
+            return fileName == "prompt.json" || fileName == "metadata.yml";
         }
     }
 }

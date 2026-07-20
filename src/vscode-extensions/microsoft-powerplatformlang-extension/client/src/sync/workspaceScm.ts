@@ -62,7 +62,7 @@ export function onWorkspaceChange(uri: string): void {
         .then(() => refreshAgentChangesTree())
         .catch(err => {
           logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-            message: `[SCM] onLocalChange failed: ${(err as Error).message}`
+            message: `onLocalChange failed: ${(err as Error).message}`
           });
         });
       return;
@@ -142,7 +142,7 @@ export async function refreshWorkspaces(workspaces: CopilotStudioWorkspace[], co
       if (r.status === 'rejected') {
         const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
         logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-          message: `[SCM] Workspace setup failed: ${reason}`
+          message: `Workspace setup failed: ${reason}`
         });
       }
     }
@@ -156,8 +156,8 @@ export async function refreshWorkspaces(workspaces: CopilotStudioWorkspace[], co
   }
 
   // Update context key for Agent Changes view visibility
-  const hasConnectedAgent = workspaceMap.size > 0;
-  void commands.executeCommand('setContext', 'mcs.hasConnectedAgent', hasConnectedAgent);
+  const hasAgentWorkspace = workspaces.length > 0;
+  void commands.executeCommand('setContext', 'mcs.hasAgentWorkspace', hasAgentWorkspace);
 }
 
 export async function pushNewWorkspace(context: ExtensionContext, ws: CopilotStudioWorkspace, draftConnectionReferenceWorkflows = false) {
@@ -288,6 +288,7 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
 
   // Tracks if any remote change fetch has succeeded for this workspace instance
   let remoteHadSuccess = false;
+  let remoteChangeInFlight: Promise<void> | undefined;
 
   const result: WorkspaceScm = {
     workspace: ws,
@@ -332,31 +333,38 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
       if (!syncInfo || !syncInfo.dataverseEndpoint) {
         return;
       }
-      // Track per-instance remote success to decide whether to log anomalies (3)
-      // We leverage closure variable remoteHadSuccess
+      if (remoteChangeInFlight) {
+        return remoteChangeInFlight;
+      }
+      remoteChangeInFlight = (async () => {
+        try {
+          const request: SyncRequest = {
+            ...await buildLspRequestPayload(syncInfo),
+            workspaceUri
+          };
+          const remoteChanges = await fetchChanges<SyncRequest>(LspMethods.GET_REMOTE_CHANGES, request);
+          const allRemoteChanges = [...remoteChanges];
+          const resources = mapResources(allRemoteChanges, remoteCommandController);
+
+          if (remoteChangeGroup) {
+            remoteChangeGroup.resourceStates = resources;
+          } else {
+            remoteChangesStore = resources;
+          }
+          remoteHadSuccess = true;
+        } catch (e) {
+          if (remoteHadSuccess) {
+            logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
+              message: `onRemoteChangeErrorAfterSuccess: ${e instanceof Error ? e.message : String(e)}`
+            });
+          }
+          // Swallow to avoid aborting setup; remote can retry later.
+        }
+      })();
       try {
-        const request: SyncRequest = {
-          ...await buildLspRequestPayload(syncInfo),
-          workspaceUri
-        };
-        const remoteChanges = await fetchChanges<SyncRequest>(LspMethods.GET_REMOTE_CHANGES, request);
-        const allRemoteChanges = [...remoteChanges];
-        const resources = mapResources(allRemoteChanges, remoteCommandController);
-        
-        // Store changes in SCM resource group or internal store
-        if (remoteChangeGroup) {
-          remoteChangeGroup.resourceStates = resources;
-        } else {
-          remoteChangesStore = resources;
-        }
-        remoteHadSuccess = true;
-      } catch (e) {
-        if (remoteHadSuccess) {
-          logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-            message: `onRemoteChangeErrorAfterSuccess: ${e instanceof Error ? e.message : String(e)}`
-          });
-        }
-        // Swallow to avoid aborting setup; remote can retry later.
+        await remoteChangeInFlight;
+      } finally {
+        remoteChangeInFlight = undefined;
       }
     },
     getLocalChanges: () => {
@@ -379,16 +387,7 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
   synchronizer.subscribe(async (state) => {
     if (state === SyncState.Idle) {
       if (lastOperation === SyncState.Pulling || lastOperation === SyncState.Pushing) {
-        await result.onRemoteChange();
         await result.onLocalChange();
-        const remoteChanges = result.getRemoteChanges();
-        if (remoteChanges.length > 0) {
-          // Unexpected clearing with remaining remote items (4)
-          logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-            message: 'clearingRemoteWithRemainingChanges'
-          });
-        }
-        // Clear after sync operations that reconcile state
         if (remoteChangeGroup) {
           remoteChangeGroup.resourceStates = [];
         } else {

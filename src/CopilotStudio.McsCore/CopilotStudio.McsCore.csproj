@@ -26,6 +26,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Agents.ObjectModel" />
     <PackageReference Include="Microsoft.Agents.ObjectModel.PowerFx" />
+    <PackageReference Include="System.Text.Json" />
   </ItemGroup>
 
 </Project>

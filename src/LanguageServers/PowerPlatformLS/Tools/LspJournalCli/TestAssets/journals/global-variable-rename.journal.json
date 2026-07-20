@@ -1,0 +1,296 @@
+{
+  "metadata": {
+    "description": "Global variable rename: references, prepareRename, and rename on Global.ItemList.",
+    "workspaceRoot": "../fixtures/all-the-things-clean-workspace",
+    "classification": "recorded",
+    "branch": "nguhoa/globalVar",
+    "commit": "2d251c6",
+    "timestamp": "2026-07-16T14:27:51.1310203Z",
+    "branchBase": "2d251c6",
+    "branchDepth": 0
+  },
+  "steps": [
+    {
+      "step": "initialize",
+      "params": {
+        "processId": 0,
+        "capabilities": {},
+        "workspaceFolders": [
+          {
+            "uri": "${workspace}",
+            "name": "all-the-things-clean-workspace"
+          }
+        ]
+      },
+      "expected": {
+        "capabilities": {
+          "codeActionProvider": {
+            "codeActionKinds": [
+              "quickfix"
+            ]
+          },
+          "completionProvider": {
+            "allCommitCharacters": [],
+            "resolveProvider": false,
+            "triggerCharacters": [
+              "\n",
+              ".",
+              ":",
+              " "
+            ]
+          },
+          "definitionProvider": true,
+          "referencesProvider": true,
+          "renameProvider": {
+            "prepareProvider": true
+          },
+          "semanticTokensProvider": {
+            "documentSelector": [
+              {
+                "language": "CopilotStudio"
+              }
+            ],
+            "full": true,
+            "legend": {
+              "tokenModifiers": [
+                "declaration",
+                "definition",
+                "readonly",
+                "static",
+                "deprecated",
+                "abstract",
+                "async",
+                "modification",
+                "documentation",
+                "defaultlibrary"
+              ],
+              "tokenTypes": [
+                "keyword",
+                "variable",
+                "function",
+                "interface",
+                "comment",
+                "namespace",
+                "type",
+                "class",
+                "enum",
+                "struct",
+                "typeparameter",
+                "parameter",
+                "property",
+                "enummember",
+                "event",
+                "method",
+                "macro",
+                "modifier",
+                "string",
+                "number",
+                "regexp",
+                "operator",
+                "decorator",
+                "default"
+              ]
+            },
+            "range": false
+          },
+          "signatureHelpProvider": {
+            "triggerCharacters": [
+              "(",
+              ","
+            ]
+          },
+          "textDocumentSync": {
+            "change": 2,
+            "openClose": true,
+            "save": {
+              "includeText": false
+            }
+          },
+          "workspace": {
+            "fileOperations": {
+              "didRename": {
+                "filters": [
+                  {
+                    "pattern": {
+                      "glob": "**/*"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "serverInfo": {
+          "name": "Power Platform Pro-Code Language Server",
+          "version": "1.0"
+        }
+      }
+    },
+    {
+      "step": "initialized"
+    },
+    {
+      "step": "open",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/LoopAndBranch.mcs.yml",
+          "languageId": "CopilotStudio",
+          "version": 1,
+          "text": "${file:topics/LoopAndBranch.mcs.yml}",
+          "textHash": "sha256:4cd798956177a0ddbc436cff9b91b9d43153678472dae943b70f3b2e6dec00fa",
+          "textBytes": 1602
+        }
+      },
+      "waitFor": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "timeoutMs": 15000
+        }
+      ],
+      "expectedNotifications": [
+        {
+          "method": "textDocument/publishDiagnostics",
+          "params": {
+            "uri": "${workspace}/topics/LoopAndBranch.mcs.yml",
+            "version": 0,
+            "diagnostics": [
+              {
+                "code": "PowerFxError",
+                "range": {
+                  "start": {
+                    "line": 16,
+                    "character": 14
+                  },
+                  "end": {
+                    "line": 16,
+                    "character": 14
+                  }
+                },
+                "severity": 1,
+                "message": "Expected an operand. The formula or expression expects a valid operand. For example, you can add the operand \u00272\u0027 to the expression \u0027 1 \u002B_\u0027 so that the result is \u00273\u0027. Or, you can add the operand \u0022there\u0022 to the expression \u0027\u0022Hi \u0022\u0026 _ \u0027 so that the result is \u0027Hi there\u0027.",
+                "data": {}
+              },
+              {
+                "code": "UnexpectedCharacter",
+                "range": {
+                  "start": {
+                    "line": 16,
+                    "character": 14
+                  },
+                  "end": {
+                    "line": 16,
+                    "character": 14
+                  }
+                },
+                "severity": 1,
+                "message": "Unexpected character in expression \u0027[\u0027",
+                "data": {}
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "step": "textDocument/references",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/LoopAndBranch.mcs.yml"
+        },
+        "position": {
+          "line": 15,
+          "character": 25
+        },
+        "context": {
+          "includeDeclaration": true
+        }
+      },
+      "expected": [
+        {
+          "range": {
+            "end": {
+              "character": 31,
+              "line": 15
+            },
+            "start": {
+              "character": 23,
+              "line": 15
+            }
+          },
+          "uri": "${workspace}/topics/LoopAndBranch.mcs.yml"
+        }
+      ]
+    },
+    {
+      "step": "textDocument/prepareRename",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/LoopAndBranch.mcs.yml"
+        },
+        "position": {
+          "line": 15,
+          "character": 25
+        }
+      },
+      "expected": {
+        "placeholder": "ItemList",
+        "range": {
+          "end": {
+            "character": 31,
+            "line": 15
+          },
+          "start": {
+            "character": 23,
+            "line": 15
+          }
+        }
+      }
+    },
+    {
+      "step": "textDocument/rename",
+      "params": {
+        "textDocument": {
+          "uri": "${workspace}/topics/LoopAndBranch.mcs.yml"
+        },
+        "position": {
+          "line": 15,
+          "character": 25
+        },
+        "newName": "RenamedItemList"
+      },
+      "expected": {
+        "documentChanges": [
+          {
+            "edits": [
+              {
+                "newText": "RenamedItemList",
+                "range": {
+                  "end": {
+                    "character": 31,
+                    "line": 15
+                  },
+                  "start": {
+                    "character": 23,
+                    "line": 15
+                  }
+                }
+              }
+            ],
+            "kind": "edit",
+            "textDocument": {
+              "uri": "${workspace}/topics/LoopAndBranch.mcs.yml",
+              "version": 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "step": "shutdown",
+      "expected": null
+    },
+    {
+      "step": "exit"
+    }
+  ]
+}

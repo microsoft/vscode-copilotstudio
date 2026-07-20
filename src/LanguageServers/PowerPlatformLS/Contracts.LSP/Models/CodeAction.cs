@@ -7,5 +7,6 @@
         public Diagnostic[]? Diagnostics { get; set; } = null;
         public bool IsPreferred { get; set; } = false;
         public WorkspaceEdit? Edit { get; set; }
+        public LspCommand? Command { get; set; }
     }
 }

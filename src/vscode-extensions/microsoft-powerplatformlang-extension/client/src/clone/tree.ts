@@ -1,29 +1,46 @@
-import { ExtensionContext, window, TreeDataProvider, EventEmitter, TreeItem, TreeItemCollapsibleState, ThemeIcon, Uri, commands, TreeView } from "vscode";
+import { ExtensionContext, window, TreeDataProvider, EventEmitter, TreeItem, TreeItemCollapsibleState, ThemeIcon, ThemeColor, Uri, commands } from "vscode";
 import { AccountInfo, EnvironmentInfo, AgentInfo } from "../types";
 import { getIcon } from "../icon";
-import { isSignedIn, onAccountChange, switchAccount, hasStoredAccount, getPreferredTreeAccount } from "../clients/account";
+import { isSignedIn, onAccountChange, onAuthStateChanged, switchAccount, getPreferredTreeAccount, listStoredAccounts, getAccessTokenByAccountId, getAccountHealth, clearAuthAccountState, AuthError } from "../clients/account";
 import { listAgentsAsync, listSharedAgentsAsync, clearWhoAmICache } from "../clients/dataverseClient";
-import { listEnvironmentsBySkuAsync, EnvironmentSku } from "../clients/bapClient";
+import { listEnvironmentsBySkuAsync, EnvironmentSku, getTokenScopeHostName, isAccountTokenUsable } from "../clients/bapClient";
 import { DefaultCoreServicesClusterCategory, TelemetryEventsKeys } from "../constants";
 import { addWorkspaceChangeSubscription, getActiveAgentAccount, getAllProjectAccounts } from "../sync/localWorkspaces";
 import logger from '../services/logger';
 
-// Types must be declared before SKU_SECTIONS
+// Types must be declared before the account/SKU nodes
 export enum TreeItemKind  {
     SignIn = 1,
 	Environment = 3,
 	Agent = 4,
 	Error = 5,
 	SkuSection = 6,
+	AccountProblem = 7,
+	RetrySignIn = 8,
+	Account = 10,
+	AddAccount = 11,
 }
+
+const TREE_ITEM_KIND_VALUES = new Set<number>(
+	Object.values(TreeItemKind).filter((value): value is number => typeof value === 'number')
+);
 
 interface CopilotStudioTreeItem {
 	kind: TreeItemKind;
 }
 
+interface AccountNodeTreeItem extends CopilotStudioTreeItem {
+	kind: TreeItemKind.Account;
+	account: AccountInfo;
+	linked: boolean;
+	current: boolean;
+	expanded: boolean;
+}
+
 export interface SkuSectionTreeItem extends CopilotStudioTreeItem {
 	kind: TreeItemKind.SkuSection;
 	sku: EnvironmentSku;
+	account: AccountInfo;
 }
 
 interface EnvironmentTreeItem extends CopilotStudioTreeItem {
@@ -39,6 +56,17 @@ export interface AgentTreeItem extends CopilotStudioTreeItem {
     sourceAccount?: AccountInfo;
 }
 
+interface AccountProblemTreeItem extends CopilotStudioTreeItem {
+	kind: TreeItemKind.AccountProblem;
+	account: AccountInfo;
+	message: string;
+}
+
+interface RetrySignInTreeItem extends CopilotStudioTreeItem {
+	kind: TreeItemKind.RetrySignIn;
+	account: AccountInfo;
+}
+
 interface ErrorTreeItem extends CopilotStudioTreeItem {
 	kind: TreeItemKind.Error;
 	environment?: EnvironmentInfo;
@@ -48,6 +76,10 @@ interface ErrorTreeItem extends CopilotStudioTreeItem {
 /** Discriminated union of all tree item types */
 export type CopilotStudioTreeItemUnion =
 	| { kind: TreeItemKind.SignIn }
+	| { kind: TreeItemKind.AddAccount }
+	| AccountNodeTreeItem
+	| AccountProblemTreeItem
+	| RetrySignInTreeItem
 	| SkuSectionTreeItem
 	| EnvironmentTreeItem
 	| AgentTreeItem
@@ -64,21 +96,11 @@ export function isCopilotStudioTreeItem(arg: unknown): arg is CopilotStudioTreeI
 		arg !== null &&
 		'kind' in arg &&
 		typeof (arg as CopilotStudioTreeItem).kind === 'number' &&
-		(arg as CopilotStudioTreeItem).kind >= TreeItemKind.SignIn &&
-		(arg as CopilotStudioTreeItem).kind <= TreeItemKind.SkuSection
+		TREE_ITEM_KIND_VALUES.has((arg as CopilotStudioTreeItem).kind)
 	);
 }
 
-// Static SKU section objects - reused for object identity in reveal()
-const SKU_SECTIONS: SkuSectionTreeItem[] = [
-    { kind: TreeItemKind.SkuSection, sku: 'Developer' },
-    { kind: TreeItemKind.SkuSection, sku: 'Default' },
-    { kind: TreeItemKind.SkuSection, sku: 'Sandbox' },
-    { kind: TreeItemKind.SkuSection, sku: 'Production' },
-    { kind: TreeItemKind.SkuSection, sku: 'Teams' },
-    { kind: TreeItemKind.SkuSection, sku: 'Trial' },
-    { kind: TreeItemKind.SkuSection, sku: 'SubscriptionBasedTrial' },
-];
+const SKU_LIST: EnvironmentSku[] = ['Developer', 'Default', 'Sandbox', 'Production', 'Teams', 'Trial', 'SubscriptionBasedTrial'];
 
 // Sign-in items (static)
 const SIGN_IN_ITEMS: CopilotStudioTreeItem[] = [
@@ -92,47 +114,52 @@ export async function configureTreeView(context: ExtensionContext) {
         showCollapseAll: true,
     });
 
-	treeView.description = "Remote";
+    treeView.description = undefined;
 
-    // LAZY LOADING: Don't fetch environments on sign-in.
-    // Just clear the cache and fire change event - getChildren will load on-demand
-    // when user actually expands the TreeView. This avoids competing with QuickPick.
-
-	// Listen for account/session changes and invalidate the cache
     const accountChangeDisposable = await onAccountChange(async () => {
         treeDataProvider.invalidateCache();
-        // Collapse all, then re-expand Developer
-        await resetTreeExpansion(treeView);
+        void treeDataProvider.probeAccounts();
     });
 
-    // Register the refresh command (full tree)
+    const authStateDisposable = onAuthStateChanged(() => {
+        treeDataProvider.invalidateCache();
+        void treeDataProvider.probeAccounts();
+    });
+
     const refreshCommand = commands.registerCommand('microsoft-copilot-studio.refreshAgentTreeView', async () => {
-        logger.info('AgentTree', 'Refresh agents requested');
-        treeDataProvider.refresh();
-        await resetTreeExpansion(treeView);
-    });
-
-    // Register the switch account command (same behavior as button in clone flow)
-    const switchAccountCommand = commands.registerCommand('microsoft-copilot-studio.switchAccount', async () => {
-        logger.info('AgentTree', 'Switch account requested');
-        const switched = await switchAccount(DefaultCoreServicesClusterCategory);
-        if (switched) {
-            logger.info('AgentTree', 'Account switched successfully, reloading tree');
-            treeDataProvider.invalidateCache();
-            await resetTreeExpansion(treeView);
-        } else {
-            logger.debug('AgentTree', 'Switch account cancelled or failed');
+        logger.logInfo(TelemetryEventsKeys.RefreshAgentsClick, undefined, { message: 'Agents refresh initiated' });
+        const startTime = Date.now();
+        try {
+            treeDataProvider.refresh();
+            void treeDataProvider.probeAccounts();
+            const durationMs = Date.now() - startTime;
+            logger.logInfo(TelemetryEventsKeys.RefreshAgentsSuccess, undefined, { message: `Agents refreshed in ${durationMs}ms`, durationMs });
+        } catch (error) {
+            const durationMs = Date.now() - startTime;
+            logger.logError(TelemetryEventsKeys.RefreshAgentsError, undefined, { message: `Agents refresh failed after ${durationMs}ms`, error: (error as Error).message, durationMs });
         }
     });
 
-    let lastActiveAccountKey: string | undefined =
-        (getActiveAgentAccount()?.accountEmail || getActiveAgentAccount()?.accountId || '').toLowerCase() || undefined;
+    const retrySignInCommand = commands.registerCommand('microsoft-copilot-studio.treeRetrySignIn', async (account?: AccountInfo) => {
+        if (account) {
+            await treeDataProvider.signInAccount(account);
+        } else {
+            await treeDataProvider.signInSelectedAccount();
+        }
+    });
+
+    const addAccountCommand = commands.registerCommand('microsoft-copilot-studio.addTreeAccount', async () => {
+        await switchAccount(DefaultCoreServicesClusterCategory);
+        treeDataProvider.invalidateCache();
+        void treeDataProvider.probeAccounts();
+    });
+
+    let lastActiveAccountKey = activeAccountKey();
     const activeEditorDisposable = window.onDidChangeActiveTextEditor(() => {
-        const active = getActiveAgentAccount();
-        const key = (active?.accountEmail || active?.accountId || '').toLowerCase() || undefined;
+        const key = activeAccountKey();
         if (key !== lastActiveAccountKey) {
             lastActiveAccountKey = key;
-            treeDataProvider.invalidateCache();
+            treeDataProvider.refreshNodes();
         }
     });
 
@@ -143,10 +170,17 @@ export async function configureTreeView(context: ExtensionContext) {
             lastProjectAccountsKey = next;
             treeDataProvider.invalidateCache();
         }
+        void treeDataProvider.probeAccounts();
     });
 
-    // Clean up on deactivate
-    context.subscriptions.push(accountChangeDisposable, refreshCommand, switchAccountCommand, activeEditorDisposable, workspaceChangeDisposable);
+    void treeDataProvider.probeAccounts();
+
+    context.subscriptions.push(accountChangeDisposable, authStateDisposable, refreshCommand, retrySignInCommand, addAccountCommand, activeEditorDisposable, workspaceChangeDisposable);
+}
+
+function activeAccountKey(): string | undefined {
+    const active = getActiveAgentAccount();
+    return (active?.accountEmail || active?.accountId || '').toLowerCase() || undefined;
 }
 
 function projectAccountsKey(): string {
@@ -157,25 +191,26 @@ function projectAccountsKey(): string {
         .join('|');
 }
 
-/** Resets tree expansion: collapse all, then expand Developer */
-async function resetTreeExpansion(treeView: TreeView<CopilotStudioTreeItem>) {
-    try {
-        await commands.executeCommand('workbench.actions.treeView.remote-agents.collapseAll');
-        // Re-expand Developer using the static object for identity matching
-        const devSection = SKU_SECTIONS[0]; // Developer is first
-        await treeView.reveal(devSection, { expand: true, focus: false, select: false });
-    } catch {
-        // Ignore errors during tree expansion reset
-    }
+export interface AgentTreeDeps {
+    isSignedIn: () => Promise<boolean>;
+    listAccounts: () => Promise<{ accountId: string; accountEmail?: string }[]>;
 }
 
 export class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTreeItem> {
     private _onDidChangeTreeData: EventEmitter<CopilotStudioTreeItem | undefined | void> = new EventEmitter<CopilotStudioTreeItem | undefined | void>();
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
     
-    // Cache environments by SKU - loaded lazily when user expands each section.
-    private envsBySku: Map<EnvironmentSku, EnvironmentTreeItem[]> = new Map();
-    private loadedSkus: Set<EnvironmentSku> = new Set();
+    private envsByAccountSku: Map<string, EnvironmentTreeItem[]> = new Map();
+    private loadedAccountSkus: Set<string> = new Set();
+    private accountUsable: Map<string, boolean> = new Map();
+
+    private readonly checkSignedIn: () => Promise<boolean>;
+    private readonly listAccounts: () => Promise<{ accountId: string; accountEmail?: string }[]>;
+
+    constructor(deps?: Partial<AgentTreeDeps>) {
+        this.checkSignedIn = deps?.isSignedIn ?? isSignedIn;
+        this.listAccounts = deps?.listAccounts ?? listStoredAccounts;
+    }
     
     // Populate-once guard: pending fire is debounced to ensure single tree build
     private pendingFire: ReturnType<typeof setTimeout> | null = null;
@@ -195,111 +230,118 @@ export class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTree
 
     /** Called when user clicks refresh button */
     async refresh(): Promise<void> {
-        // Clear cache and reload
-        this.envsBySku.clear();
-        this.loadedSkus.clear();
-        clearWhoAmICache(); // Allow retry of previously failed (403) environments
+        this.envsByAccountSku.clear();
+        this.loadedAccountSkus.clear();
+        clearWhoAmICache();
         this.fireChange();
     }
 
     /** Clears the environment cache on sign-out or account change. */
     invalidateCache(): void {
-        this.envsBySku.clear();
-        this.loadedSkus.clear();
+        this.envsByAccountSku.clear();
+        this.loadedAccountSkus.clear();
         this.fireChange();
     }
 
-    /** Load environments for a specific SKU */
-    private async loadSkuEnvironments(sku: EnvironmentSku): Promise<EnvironmentTreeItem[]> {
-        if (this.loadedSkus.has(sku)) {
-            return this.envsBySku.get(sku) || [];
-        }
+    refreshNodes(): void {
+        this.fireChange();
+    }
 
-        logger.info('AgentTree', `Loading ${sku} environments`);
+    private accountKey(account: AccountInfo): string {
+        return (account.accountEmail || account.accountId || '').toLowerCase();
+    }
+
+    async getAccounts(): Promise<AccountInfo[]> {
+        return (await this.listAccounts()).map<AccountInfo>(a => ({ accountId: a.accountId, accountEmail: a.accountEmail ?? '', tenantId: '' }));
+    }
+
+    async resolveSelectedAccount(): Promise<AccountInfo | undefined> {
+        const active = getActiveAgentAccount();
+        if (active) {
+            return active;
+        }
         const preferred = getPreferredTreeAccount();
-        const projectAccounts = getAllProjectAccounts();
-
-        let candidateAccounts: (AccountInfo | undefined)[];
         if (preferred) {
-            candidateAccounts = [{
-                accountId: preferred.accountId,
-                accountEmail: preferred.accountEmail ?? '',
-                tenantId: ''
-            } as AccountInfo];
-        } else {
-            candidateAccounts =
-                projectAccounts.length > 0 ? projectAccounts : [getActiveAgentAccount()];
+            return { accountId: preferred.accountId, accountEmail: preferred.accountEmail ?? '', tenantId: '' };
         }
-
-        const signInChecks = await Promise.all(
-            candidateAccounts.map(async (acct) => {
-                if (!acct) {
-                    return (await hasStoredAccount()) ? acct : null;
-                }
-                const hasAccount = await hasStoredAccount(acct.accountId, acct.accountEmail);
-                return hasAccount ? acct : null;
-            })
-        );
-        const accountsToQuery = signInChecks.filter((a): a is AccountInfo | undefined => a !== null);
-
-        if (accountsToQuery.length === 0) {
-            this.envsBySku.set(sku, []);
-            this.loadedSkus.add(sku);
-            return [];
+        const stored = await this.listAccounts();
+        if (stored.length > 0) {
+            return { accountId: stored[0].accountId, accountEmail: stored[0].accountEmail ?? '', tenantId: '' };
         }
+        return undefined;
+    }
 
-        try {
-            const perAccountResults = await Promise.all(
-                accountsToQuery.map(async (acct) => {
-                    try {
-                        const envs = await listEnvironmentsBySkuAsync(
-                            DefaultCoreServicesClusterCategory,
-                            sku,
-                            null,
-                            acct?.accountId ?? null,
-                            acct?.accountEmail
-                        );
-                        return envs.map<EnvironmentTreeItem>(env => ({
-                            kind: TreeItemKind.Environment,
-                            environment: env,
-                            sourceAccount: acct
-                        }));
-                    } catch (e: any) {
-                        logger.error('AgentTree', `Failed to load ${sku} environments for account ${acct?.accountId ?? 'default'}: ${e?.message || e}`);
-                        logger.logError(TelemetryEventsKeys.LoadEnvironmentError, `[TreeView] Failed to load ${sku} environments for ${acct?.accountId ?? 'default'}: ${e?.message || e}`);
-                        return [] as EnvironmentTreeItem[];
-                    }
-                })
-            );
+    private async isAccountUsable(account: AccountInfo): Promise<boolean> {
+        const usable = await isAccountTokenUsable(account.accountId, account.accountEmail);
+        this.accountUsable.set(this.accountKey(account), usable);
+        return usable;
+    }
 
-            const seen = new Set<string>();
-            const merged: EnvironmentTreeItem[] = [];
-            for (const list of perAccountResults) {
-                for (const item of list) {
-                    const key = item.environment.environmentId;
-                    if (seen.has(key)) {
-                        continue;
-                    }
-                    seen.add(key);
-                    merged.push(item);
-                }
+    isAccountUsableCached(account: AccountInfo): boolean | undefined {
+        return this.accountUsable.get(this.accountKey(account));
+    }
+
+    async probeAccounts(): Promise<void> {
+        const accounts = await this.getAccounts();
+        let changed = false;
+        for (const account of accounts) {
+            const key = this.accountKey(account);
+            const before = this.accountUsable.get(key);
+            const usable = await isAccountTokenUsable(account.accountId, account.accountEmail);
+            if (before !== usable) {
+                this.accountUsable.set(key, usable);
+                changed = true;
             }
-
-            this.envsBySku.set(sku, merged);
-            this.loadedSkus.add(sku);
-            logger.info('AgentTree', `Loaded ${merged.length} ${sku} environment(s)`);
-            return merged;
-        } catch (e: any) {
-            logger.error('AgentTree', `Failed to load ${sku} environments: ${e?.message || e}`);
-            logger.logError(TelemetryEventsKeys.LoadEnvironmentError, `[TreeView] Failed to load ${sku} environments: ${e?.message || e}`);
-            this.loadedSkus.add(sku); // Mark as loaded to avoid retry loops
-            return [];
+        }
+        if (changed) {
+            this.fireChange();
         }
     }
 
-    // Keep old fetchData for compatibility but it's not used anymore
-    async fetchData(): Promise<void> {
-        await this.loadSkuEnvironments('Developer');
+    async signInAccount(account: AccountInfo): Promise<void> {
+        clearAuthAccountState(account.accountId, account.accountEmail);
+        try {
+            const resource = Uri.from({ scheme: 'https', authority: getTokenScopeHostName(DefaultCoreServicesClusterCategory) });
+            await getAccessTokenByAccountId(resource, account.accountId, account.accountEmail, true);
+        } catch (error) {
+            logger.logInfo(TelemetryEventsKeys.SignInError, undefined, { message: `Tree sign-in failed for <pii>${account.accountEmail ?? account.accountId}</pii>: <pii>${(error as Error).message}</pii>` });
+        }
+        this.invalidateCache();
+        void this.probeAccounts();
+    }
+
+    async signInSelectedAccount(): Promise<void> {
+        const account = await this.resolveSelectedAccount();
+        if (account) {
+            await this.signInAccount(account);
+        }
+    }
+
+    private async loadSkuEnvironments(sku: EnvironmentSku, account: AccountInfo): Promise<EnvironmentTreeItem[]> {
+        const cacheKey = `${this.accountKey(account)}:${sku}`;
+        if (this.loadedAccountSkus.has(cacheKey)) {
+            const cached = this.envsByAccountSku.get(cacheKey) || [];
+            logger.logTrace('AgentTree', `Using ${cached.length} cached ${sku} environment(s)`);
+            return cached;
+        }
+        logger.logTrace('AgentTree', `Loading ${sku} environments`);
+        const startTime = Date.now();
+        try {
+            const envs = await listEnvironmentsBySkuAsync(DefaultCoreServicesClusterCategory, sku, null, account.accountId ?? null, account.accountEmail, true);
+            const items = envs.map<EnvironmentTreeItem>(env => ({ kind: TreeItemKind.Environment, environment: env, sourceAccount: account }));
+            this.envsByAccountSku.set(cacheKey, items);
+            this.loadedAccountSkus.add(cacheKey);
+            const durationMs = Date.now() - startTime;
+            logger.logInfo(TelemetryEventsKeys.LoadEnvironmentSuccess, undefined, { message: `Loaded ${items.length} ${sku} environment(s) in ${durationMs}ms`, sku, environmentCount: items.length, durationMs });
+            return items;
+        } catch (error) {
+            if (!(error instanceof AuthError)) {
+                const durationMs = Date.now() - startTime;
+                logger.logError(TelemetryEventsKeys.LoadEnvironmentError, `Failed to load ${sku} environments for <pii>${account.accountEmail ?? account.accountId}</pii> after ${durationMs}ms`, { sku, environmentCount: 0, error: `<pii>${(error as Error).message}</pii>`, durationMs });
+            }
+            this.loadedAccountSkus.add(cacheKey);
+            return [];
+        }
     }
 
     getTreeItem(element: CopilotStudioTreeItem) : TreeItem {
@@ -307,6 +349,48 @@ export class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTree
             const item = new TreeItem("Sign In", TreeItemCollapsibleState.None);
             item.iconPath = new ThemeIcon("sign-in");
             item.command = { command: "microsoft-copilot-studio.signIn", title: "Sign In" };
+            return item;
+        } else if (element.kind === TreeItemKind.AccountProblem) {
+            const problem = element as AccountProblemTreeItem;
+            const item = new TreeItem(problem.message, TreeItemCollapsibleState.None);
+            item.iconPath = new ThemeIcon('warning', new ThemeColor('list.warningForeground'));
+            return item;
+        } else if (element.kind === TreeItemKind.RetrySignIn) {
+            const retry = element as RetrySignInTreeItem;
+            const item = new TreeItem('Try signing in again', TreeItemCollapsibleState.None);
+            item.iconPath = new ThemeIcon('sign-in');
+            item.command = { command: 'microsoft-copilot-studio.treeRetrySignIn', title: 'Try signing in again', arguments: [retry.account] };
+            return item;
+        } else if (element.kind === TreeItemKind.Account) {
+            const node = element as AccountNodeTreeItem;
+            const account = node.account;
+            const label = account.accountEmail || account.accountId || '';
+            const health = getAccountHealth(account.accountId, account.accountEmail);
+            const unusable = health === 'terminal' || this.isAccountUsableCached(account) === false;
+            const bits: string[] = [];
+            if (node.current) {
+                bits.push('current');
+            } else if (node.linked) {
+                bits.push('in this workspace');
+            }
+            if (unusable) {
+                bits.push("can't sign in");
+            } else if (health === 'signedOut') {
+                bits.push('signed out');
+            }
+            const item = new TreeItem(node.current ? { label, highlights: [[0, label.length]] as [number, number][] } : label, node.expanded ? TreeItemCollapsibleState.Expanded : TreeItemCollapsibleState.Collapsed);
+            item.description = bits.join(' \u00b7 ');
+            item.iconPath = health === 'terminal'
+                ? new ThemeIcon('error', new ThemeColor('list.errorForeground'))
+                : (unusable || health === 'signedOut')
+                    ? new ThemeIcon('warning', new ThemeColor('list.warningForeground'))
+                    : new ThemeIcon('account');
+            item.contextValue = 'treeAccount';
+            return item;
+        } else if (element.kind === TreeItemKind.AddAccount) {
+            const item = new TreeItem('Add or switch account\u2026', TreeItemCollapsibleState.None);
+            item.iconPath = new ThemeIcon('add');
+            item.command = { command: 'microsoft-copilot-studio.addTreeAccount', title: 'Add or switch account' };
             return item;
         } else if (element.kind === TreeItemKind.SkuSection) {
 			const skuItem = element as SkuSectionTreeItem;
@@ -351,68 +435,86 @@ export class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTree
 		} else {throw new Error("Unknown tree item kind: " + element.kind);}
 	}
 
-    getParent(element: CopilotStudioTreeItem): CopilotStudioTreeItem | undefined {
-        // SKU sections and sign-in items are root level - no parent
-        if (element.kind === TreeItemKind.SkuSection || 
-            element.kind === TreeItemKind.SignIn) {
-            return undefined;
-        }
-        // Environment items have SKU section as parent
-        if (element.kind === TreeItemKind.Environment) {
-            const envItem = element as EnvironmentTreeItem;
-            const sku = envItem.environment.environmentSku;
-            return SKU_SECTIONS.find(s => s.sku === sku);
-        }
-        // Agents have Environment as parent - not supported for now
+    getParent(): CopilotStudioTreeItem | undefined {
         return undefined;
     }
 
     getChildren(element?: CopilotStudioTreeItem): Thenable<CopilotStudioTreeItem[]> {
 		return new Promise(async (resolve) => {
 			if (element === undefined) {
-				// Root level: show SKU sections or sign-in options
-				if (await isSignedIn()) {
-					// Use static SKU_SECTIONS for object identity with reveal()
-					resolve(SKU_SECTIONS);
-				} else {
-					// Use static SIGN_IN_ITEMS for object identity
+				if (!(await this.checkSignedIn())) {
 					resolve(SIGN_IN_ITEMS);
+					return;
+				}
+				const accounts = await this.getAccounts();
+				if (accounts.length === 0) {
+					resolve(SIGN_IN_ITEMS);
+					return;
+				}
+				const linkedKeys = new Set(getAllProjectAccounts().map(a => (a.accountEmail || a.accountId || '').toLowerCase()).filter(Boolean));
+				const active = getActiveAgentAccount();
+				const activeKey = (active?.accountEmail || active?.accountId || '').toLowerCase();
+				const decorated = accounts.map(account => {
+					const key = this.accountKey(account);
+					return { account, linked: linkedKeys.has(key), current: !!activeKey && key === activeKey };
+				});
+				decorated.sort((a, b) => {
+					if (a.linked !== b.linked) {
+						return a.linked ? -1 : 1;
+					}
+					return (a.account.accountEmail || a.account.accountId || '').localeCompare(b.account.accountEmail || b.account.accountId || '');
+				});
+				const nodes: CopilotStudioTreeItem[] = decorated.map(d => ({
+					kind: TreeItemKind.Account,
+					account: d.account,
+					linked: d.linked,
+					current: d.current,
+					expanded: d.current
+				} as AccountNodeTreeItem));
+				nodes.push({ kind: TreeItemKind.AddAccount });
+				resolve(nodes);
+			} else if (element.kind === TreeItemKind.Account) {
+				const account = (element as AccountNodeTreeItem).account;
+				if (await this.isAccountUsable(account)) {
+					resolve(SKU_LIST.map(sku => ({ kind: TreeItemKind.SkuSection, sku, account } as SkuSectionTreeItem)));
+				} else {
+					const label = account.accountEmail || account.accountId;
+					resolve([
+						{ kind: TreeItemKind.AccountProblem, account, message: `Can't sign in to ${label}.` } as AccountProblemTreeItem,
+						{ kind: TreeItemKind.RetrySignIn, account } as RetrySignInTreeItem
+					]);
 				}
 			} else if (element.kind === TreeItemKind.SkuSection) {
-				// SKU section expanded: load environments for this SKU
 				const skuItem = element as SkuSectionTreeItem;
-				try {
-					const envItems = await this.loadSkuEnvironments(skuItem.sku);
-					if (envItems.length === 0) {
-						resolve([{ kind: TreeItemKind.Error, message: `No ${skuItem.sku} environments` } as ErrorTreeItem]);
-					} else {
-						resolve(envItems);
-					}
-				} catch (e: any) {
-					logger.error('AgentTree', `Failed to load ${skuItem.sku} environments: ${e?.message || e}`);
-					logger.logError(TelemetryEventsKeys.LoadEnvironmentError, `[TreeView] Failed to load ${skuItem.sku} environments: ${e?.message || e}`);
-					resolve([{ kind: TreeItemKind.Error, message: "Failed to load environments" } as ErrorTreeItem]);
+				const envItems = await this.loadSkuEnvironments(skuItem.sku, skuItem.account);
+				if (envItems.length === 0) {
+					resolve([{ kind: TreeItemKind.Error, message: `No ${skuItem.sku} environments` } as ErrorTreeItem]);
+				} else {
+					resolve(envItems);
 				}
 			} else if (element.kind === TreeItemKind.Environment) {
 				const envItem = element as EnvironmentTreeItem;
+				const sku = envItem.environment.environmentSku ?? 'Unknown';
+				const envName = envItem.environment.displayName;
+				const startTime = Date.now();
                 try {
-                    // Load owned and shared agents in parallel, combine into single list
-					const storeAccount = envItem.sourceAccount ?? getActiveAgentAccount();
-					logger.info('AgentTree', `Loading agents for environment: ${envItem.environment.displayName}`);
+					const storeAccount = envItem.sourceAccount ?? await this.resolveSelectedAccount();
+					logger.logTrace('AgentTree', `${sku} > ${envName}: Loading agents`);
 					const [ownedAgents, sharedAgents] = await Promise.all([
-                        listAgentsAsync(Uri.parse(envItem.environment.dataverseUrl), null, storeAccount?.accountId, storeAccount?.accountEmail),
-                        listSharedAgentsAsync(Uri.parse(envItem.environment.dataverseUrl), null, storeAccount?.accountId, storeAccount?.accountEmail)
+                        listAgentsAsync(Uri.parse(envItem.environment.dataverseUrl), null, storeAccount?.accountId, storeAccount?.accountEmail, true),
+                        listSharedAgentsAsync(Uri.parse(envItem.environment.dataverseUrl), null, storeAccount?.accountId, storeAccount?.accountEmail, true)
 					]);
 					
 					const allAgents = [...ownedAgents, ...sharedAgents];
-					logger.info('AgentTree', `Loaded ${allAgents.length} agent(s) for environment: ${envItem.environment.displayName}`);
 					const agents: CopilotStudioTreeItem[] = allAgents.map((agent) => {
                         return { kind: TreeItemKind.Agent, environment: envItem.environment, agent: agent, sourceAccount: storeAccount } as AgentTreeItem;
 					});
+                    const durationMs = Date.now() - startTime;
+                    logger.logInfo(TelemetryEventsKeys.LoadAgentsSuccess, undefined, { message: `${sku} > ${envName}: Loaded ${allAgents.length} agent(s) in ${durationMs}ms`, sku, environment: envName, agentCount: allAgents.length, durationMs });
 					resolve(agents);
 				} catch (e: any) {
-					logger.error('AgentTree', `Failed to load agents for environment: ${envItem.environment.displayName}: ${e?.message || e}`);
-					logger.logError(TelemetryEventsKeys.LoadEnvironmentError, `[TreeView] Failed to load agents for ${envItem.environment.displayName}: ${e?.message || e}`);
+                    const durationMs = Date.now() - startTime;
+					logger.logError(TelemetryEventsKeys.LoadAgentsError, `${sku} > ${envName}: Failed to load agents after ${durationMs}ms`, { sku, environment: envName, agentCount: 0, error: `<pii>${(e as Error).message}</pii>`, durationMs });
 					const errorMessage = e?.message?.includes('403') || e?.message?.includes('not a member')
 						? "Access denied - not a member of this organization"
 						: e?.message?.includes('timeout') || e?.message?.includes('abort')

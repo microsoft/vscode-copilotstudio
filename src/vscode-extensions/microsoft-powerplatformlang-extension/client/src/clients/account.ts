@@ -1,4 +1,4 @@
-import { authentication, AuthenticationGetSessionOptions, Uri, Disposable } from "vscode";
+import { authentication, Uri, Disposable, EventEmitter } from "vscode";
 import logger from "../services/logger";
 import { CoreServicesClusterCategory, TelemetryEventsKeys } from "../constants";
 
@@ -14,7 +14,38 @@ export interface AccessTokenResponse {
     tokenInfo: TokenInfo;
 }
 
-let clearSession = false;
+export type AuthErrorClassification = 'terminal' | 'transient' | 'cancelled';
+
+export class AuthError extends Error {
+    readonly classification: AuthErrorClassification;
+    readonly accountId?: string;
+    readonly accountEmail?: string;
+
+    constructor(classification: AuthErrorClassification, message: string, accountId?: string, accountEmail?: string) {
+        super(message);
+        this.name = 'AuthError';
+        this.classification = classification;
+        this.accountId = accountId;
+        this.accountEmail = accountEmail;
+    }
+}
+
+const TERMINAL_AUTH_ERROR_PATTERN = /AADSTS50020|AADSTS90072|AADSTS500011|AADSTS700016|AADSTS50057|AADSTS50128|AADSTS50076|AADSTS700082|invalid_grant/i;
+
+export function classifyAuthError(error: unknown): AuthErrorClassification {
+    if (error instanceof AuthError) {
+        return error.classification;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    if (/cancel(l)?ed|user did not consent/i.test(message)) {
+        return 'cancelled';
+    }
+    if (TERMINAL_AUTH_ERROR_PATTERN.test(message)) {
+        return 'terminal';
+    }
+    return 'transient';
+}
+
 const MICROSOFT_PROVIDER_ID = 'microsoft';
 const VSCODE_CLIENT_ID = "VSCODE_CLIENT_ID:41c3658f-468d-40c9-92cd-2af217093eaa";
 
@@ -27,22 +58,109 @@ export interface PreferredTreeAccount {
 }
 
 let preferredTreeAccount: PreferredTreeAccount | undefined;
-let noAccountCancellationNonce = 0;
 
 export function getPreferredTreeAccount(): PreferredTreeAccount | undefined {
     return preferredTreeAccount;
 }
 
-const signInCancelled = new Set<string>();
+const authAccountStates = new Map<string, AuthErrorClassification>();
+const authStateChangedEmitter = new EventEmitter<void>();
 
-function cancellationKey(scopes: string[], accountId?: string, accountHint?: string): string {
-    const identity = (accountId ?? accountHint)?.toLowerCase();
-    if (identity) {
-        return `${identity}|${scopes.join(' ')}`;
+export const onAuthStateChanged = authStateChangedEmitter.event;
+
+let storedAccountSnapshot = new Set<string>();
+
+function authAccountKey(accountId?: string, accountHint?: string): string {
+    return (accountId ?? accountHint ?? '').toLowerCase();
+}
+
+function setAuthAccountState(classification: AuthErrorClassification, accountId?: string, accountHint?: string): void {
+    const key = authAccountKey(accountId, accountHint);
+    if (!key) {
+        return;
     }
+    if (authAccountStates.get(key) === 'terminal' && classification !== 'terminal') {
+        return;
+    }
+    if (authAccountStates.get(key) === classification) {
+        return;
+    }
+    authAccountStates.set(key, classification);
+    authStateChangedEmitter.fire();
+}
 
-    noAccountCancellationNonce += 1;
-    return `anonymous:${noAccountCancellationNonce}|${scopes.join(' ')}`;
+export function getAuthAccountState(accountId?: string, accountHint?: string): AuthErrorClassification | undefined {
+    const key = authAccountKey(accountId, accountHint);
+    return key ? authAccountStates.get(key) : undefined;
+}
+
+export function clearAuthAccountState(accountId?: string, accountHint?: string): void {
+    const key = authAccountKey(accountId, accountHint);
+    if (key && authAccountStates.delete(key)) {
+        authStateChangedEmitter.fire();
+    }
+}
+
+export function clearSuppressedAuthState(accountId?: string, accountHint?: string): void {
+    const key = authAccountKey(accountId, accountHint);
+    if (key && authAccountStates.get(key) !== 'terminal' && authAccountStates.delete(key)) {
+        authStateChangedEmitter.fire();
+    }
+}
+
+export function isAccountSignedInSync(accountId?: string, accountEmail?: string): boolean {
+    if (accountId && storedAccountSnapshot.has(accountId.toLowerCase())) {
+        return true;
+    }
+    if (accountEmail && storedAccountSnapshot.has(accountEmail.toLowerCase())) {
+        return true;
+    }
+    return false;
+}
+
+export type AccountHealth = 'ok' | 'signedOut' | 'terminal';
+
+export function getAccountHealth(accountId?: string, accountEmail?: string): AccountHealth {
+    if (getAuthAccountState(accountId, accountEmail) === 'terminal') {
+        return 'terminal';
+    }
+    if (!isAccountSignedInSync(accountId, accountEmail)) {
+        return 'signedOut';
+    }
+    return 'ok';
+}
+
+async function refreshStoredAccountSnapshot(): Promise<void> {
+    const accounts = await authentication.getAccounts(MICROSOFT_PROVIDER_ID);
+    const next = new Set<string>();
+    for (const account of accounts) {
+        next.add(account.id.toLowerCase());
+        if (account.label) {
+            next.add(account.label.toLowerCase());
+        }
+    }
+    storedAccountSnapshot = next;
+}
+
+export function registerAuthStateRecovery(): Disposable {
+    void refreshStoredAccountSnapshot().then(() => authStateChangedEmitter.fire());
+    return authentication.onDidChangeSessions((event) => {
+        if (event.provider.id !== MICROSOFT_PROVIDER_ID) {
+            return;
+        }
+        void reconcileAuthStateOnSessionChange();
+    });
+}
+
+async function reconcileAuthStateOnSessionChange(): Promise<void> {
+    const previous = storedAccountSnapshot;
+    await refreshStoredAccountSnapshot();
+    for (const key of storedAccountSnapshot) {
+        if (!previous.has(key)) {
+            authAccountStates.delete(key);
+        }
+    }
+    authStateChangedEmitter.fire();
 }
 
 function isCancellationError(error: unknown): boolean {
@@ -50,12 +168,26 @@ function isCancellationError(error: unknown): boolean {
     return /cancel(l)?ed|user did not consent/i.test(message);
 }
 
-export function clearSignInCancellation(): void {
-    signInCancelled.clear();
+export function clearRecoverableAuthState(): void {
+    let changed = false;
+    for (const [key, classification] of authAccountStates) {
+        if (classification !== 'terminal') {
+            authAccountStates.delete(key);
+            changed = true;
+        }
+    }
+    if (changed) {
+        authStateChangedEmitter.fire();
+    }
 }
 
-export function isSignInCancelled(): boolean {
-    return signInCancelled.size > 0;
+export function hasRecoverableAuthState(): boolean {
+    for (const classification of authAccountStates.values()) {
+        if (classification !== 'terminal') {
+            return true;
+        }
+    }
+    return false;
 }
 
 export async function hasStoredAccount(accountId?: string, accountHint?: string): Promise<boolean> {
@@ -136,7 +268,6 @@ async function ensureInteractiveSession(
     accountId?: string,
     accountHint?: string
 ): Promise<import('vscode').AuthenticationSession | undefined> {
-    const cancelKey = cancellationKey(scopes, accountId, accountHint);
     const trySilent = async () => {
         const accs = await authentication.getAccounts(MICROSOFT_PROVIDER_ID);
         const acc = findStoredAccount(accs, accountId, accountHint);
@@ -169,26 +300,26 @@ async function ensureInteractiveSession(
                 });
             }
 
-            signInCancelled.delete(cancelKey);
+            clearAuthAccountState(accountId, accountHint);
             return session;
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            if (/cancel(l)?ed/i.test(message)) {
-                signInCancelled.add(cancelKey);
-            } else {
-                logger.logError(TelemetryEventsKeys.SignInError, `Interactive sign-in failed: ${message}`);
+            const classification = classifyAuthError(error);
+            setAuthAccountState(classification, accountId, accountHint);
+            if (classification !== 'cancelled') {
+                logger.logError(TelemetryEventsKeys.SignInError, `Interactive sign-in failed (${classification}): <pii>${message}</pii>`);
             }
             return undefined;
         }
     };
 
-    if (signInCancelled.has(cancelKey)) {
+    if (getAuthAccountState(accountId, accountHint)) {
         return undefined;
     }
 
     if (pendingInteractiveAuth) {
         await pendingInteractiveAuth;
-        if (signInCancelled.has(cancelKey)) {
+        if (getAuthAccountState(accountId, accountHint)) {
             return undefined;
         }
         const silentSession = await trySilent();
@@ -221,41 +352,31 @@ export async function FetchAccessToken(
     accountId: string | null,
     cancellationToken: AbortSignal | null,
     autopickAccount: boolean = true,
-    accountHint?: string
+    accountHint?: string,
+    interactive: boolean = false
 ): Promise<AccessTokenResponse> {
     const accounts = await authentication.getAccounts(MICROSOFT_PROVIDER_ID);
     if (accountId) {
-        const account = findStoredAccount(accounts, accountId, accountHint);
-        if (account) {
-            try {
-                const tokenInfo = await getAccessTokenByAccountId(resource, account.id, accountHint);
-                const response = await fetch(requestUri.toString(true), {
+        const tokenInfo = await getAccessTokenByAccountId(resource, accountId, accountHint, interactive);
+        const response = await fetch(requestUri.toString(true), {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${tokenInfo.accessToken}` },
+            signal: cancellationToken
+        });
+        if (response.status === 401 && interactive) {
+            const scope = Uri.from({ scheme: resource.scheme, authority: resource.authority, path: '/.default' }).toString(true);
+            const refreshedSession = await ensureInteractiveSession([VSCODE_CLIENT_ID, scope], accountId, accountHint);
+            if (refreshedSession) {
+                const refreshedTokenInfo = sessionToTokenInfo(refreshedSession);
+                const retryResponse = await fetch(requestUri.toString(true), {
                     method: 'GET',
-                    headers: {
-                        'Authorization': `Bearer ${tokenInfo.accessToken}`
-                    },
+                    headers: { 'Authorization': `Bearer ${refreshedTokenInfo.accessToken}` },
                     signal: cancellationToken
                 });
-                if (response.ok) {
-                    return { response, tokenInfo };
-                }
-            } catch {
-                // Fall through to interactive sign-in below.
+                return { response: retryResponse, tokenInfo: refreshedTokenInfo };
             }
         }
-
-        const scope = Uri.from({ scheme: resource.scheme, authority: resource.authority, path: '/.default' }).toString(true);
-        const interactive = await ensureInteractiveSession([VSCODE_CLIENT_ID, scope], accountId, accountHint);
-        if (interactive) {
-            const tokenInfo = sessionToTokenInfo(interactive);
-            const response = await fetch(requestUri.toString(true), {
-                method: 'GET',
-                headers: { 'Authorization': `Bearer ${tokenInfo.accessToken}` },
-                signal: cancellationToken
-            });
-            return { response, tokenInfo };
-        }
-        throw new Error('Sign-in required for this agent. Please sign in to continue.');
+        return { response, tokenInfo };
     }
 
     if (autopickAccount) {
@@ -278,7 +399,7 @@ export async function FetchAccessToken(
                     return { response, tokenInfo };
                 }
             } catch {
-                // Try the next account.
+                continue;
             }
         }
     }
@@ -295,18 +416,20 @@ export async function FetchAccessToken(
         return { response: fallbackResponse, tokenInfo: fallbackTokenInfo };
     }
 
-    const interactive = await ensureInteractiveSession([VSCODE_CLIENT_ID, scope]);
     if (interactive) {
-        const tokenInfo = sessionToTokenInfo(interactive);
-        const response = await fetch(requestUri.toString(true), {
-            method: 'GET',
-            headers: { 'Authorization': `Bearer ${tokenInfo.accessToken}` },
-            signal: cancellationToken
-        });
-        return { response, tokenInfo };
+        const interactiveSession = await ensureInteractiveSession([VSCODE_CLIENT_ID, scope]);
+        if (interactiveSession) {
+            const tokenInfo = sessionToTokenInfo(interactiveSession);
+            const response = await fetch(requestUri.toString(true), {
+                method: 'GET',
+                headers: { 'Authorization': `Bearer ${tokenInfo.accessToken}` },
+                signal: cancellationToken
+            });
+            return { response, tokenInfo };
+        }
     }
 
-    throw new Error('No signed-in account available for this request. Please sign in.');
+    throw new AuthError('transient', 'No signed-in account available for this request. Please sign in.');
 }
 
 /**
@@ -339,8 +462,8 @@ export async function getPreferredAccountId(clusterCategory: CoreServicesCluster
  * Uses coalescing to prevent multiple concurrent consent dialogs.
  */
 export async function switchAccount(clusterCategory: CoreServicesClusterCategory): Promise<boolean> {
-    logger.info('Auth', 'Switch account initiated');
-    signInCancelled.clear();
+    logger.logTrace('Auth', 'Switch account initiated');
+    clearRecoverableAuthState();
     while (pendingInteractiveAuth) {
         await pendingInteractiveAuth;
     }
@@ -361,32 +484,28 @@ export async function switchAccount(clusterCategory: CoreServicesClusterCategory
                 createIfNone: true
             });
 
-            signInCancelled.clear();
-
             if (session) {
+                clearAuthAccountState(session.account.id, session.account.label);
                 preferredTreeAccount = {
                     accountId: session.account.id,
                     accountEmail: session.account.label
                 };
-                logger.info('Auth', `Switched to account: ${session.account.label}`);
+                logger.logInfo(TelemetryEventsKeys.SwitchAccountSuccess, undefined, { message: `Switched account successfully to <pii>${session.account.label}</pii>` });
                 try {
                     const { clearWhoAmICache } = await import('./dataverseClient.js');
                     clearWhoAmICache();
                 } catch {
                 }
             }
-            return true; // Successfully switched
+            return true;
         } catch (error) {
-            // User cancelled or auth failed
             if (isCancellationError(error)) {
-                logger.info('Auth', 'Switch account cancelled by user');
-                logger.logInfo(TelemetryEventsKeys.SwitchAccountError, 'Switch account cancelled by user.');
+                logger.logInfo(TelemetryEventsKeys.SwitchAccountCancel, undefined, { message: 'Switch account cancelled by user.'});
             } else {
                 const message = error instanceof Error ? error.message : String(error);
-                logger.error('Auth', `Switch account failed: ${message}`);
-                logger.logError(TelemetryEventsKeys.SwitchAccountError, `Failed to switch account: ${message}`);
+                logger.logError(TelemetryEventsKeys.SwitchAccountError, `Failed to sign in: <pii>${message}</pii>`);
             }
-            return false; // Cancelled or failed
+            return false;
         } finally {
             pendingInteractiveAuth = null;
         }
@@ -490,13 +609,14 @@ export function isSignedIn(): Promise<boolean> {
 export function getCopilotStudioAccessTokenByAccountId(
     clusterCategory: CoreServicesClusterCategory,
     accountId: string | undefined,
-    accountHint?: string
+    accountHint?: string,
+    interactive: boolean = false
 ): Promise<TokenInfo> {
     const resource = Uri.from({ scheme: 'api', authority: getTokenScopeHostName(clusterCategory) });
-    return getAccessTokenByAccountId(resource, accountId, accountHint);
+    return getAccessTokenByAccountId(resource, accountId, accountHint, interactive);
 }
 
-export async function getAccessTokenByAccountId(resource: Uri, accountId: string | undefined, accountHint?: string): Promise<TokenInfo> {
+export async function getAccessTokenByAccountId(resource: Uri, accountId: string | undefined, accountHint?: string, interactive: boolean = false): Promise<TokenInfo> {
     const scope = Uri.from({ scheme: resource.scheme, authority: resource.authority, path: '/.default' }).toString(true);
     const scopes = [VSCODE_CLIENT_ID, scope];
 
@@ -507,19 +627,23 @@ export async function getAccessTokenByAccountId(resource: Uri, accountId: string
         if (account) {
             const session = await getSilentSession(scopes, account);
             if (session) {
+                clearAuthAccountState(accountId, accountHint);
                 return sessionToTokenInfo(session);
             }
         }
 
-        const interactive = await ensureInteractiveSession(scopes, accountId, accountHint);
         if (interactive) {
-            return sessionToTokenInfo(interactive);
+            const interactiveSession = await ensureInteractiveSession(scopes, accountId, accountHint);
+            if (interactiveSession) {
+                return sessionToTokenInfo(interactiveSession);
+            }
         }
 
-        throw new Error('Sign-in required for this agent. Please sign in to continue.');
+        const classification: AuthErrorClassification = getAuthAccountState(accountId, accountHint) ?? 'transient';
+        throw new AuthError(classification, classification === 'terminal' ? 'This account can no longer be used for this agent. Retarget it to an environment you can access.' : 'Sign-in required for this agent. Please sign in to continue.', accountId, accountHint);
     }
 
-    return getAccessToken(resource);
+    return getAccessToken(resource, interactive);
 }
 
 function sessionToTokenInfo(session: import('vscode').AuthenticationSession): TokenInfo {
@@ -556,9 +680,7 @@ export async function signIn(clusterCategory: CoreServicesClusterCategory) {
     return !!session;
 }
 
-async function getAccessToken(uri: Uri): Promise<TokenInfo> {
-    // Wait for any pending interactive auth to complete first
-    // This prevents concurrent consent dialogs
+async function getAccessToken(uri: Uri, interactive: boolean = false): Promise<TokenInfo> {
     if (pendingInteractiveAuth) {
         await pendingInteractiveAuth;
     }
@@ -568,54 +690,21 @@ async function getAccessToken(uri: Uri): Promise<TokenInfo> {
 
     const silentSession = await getSilentSession(scopes);
     if (silentSession) {
-        const tenantId = decodeIdToken(silentSession.accessToken)?.tid || '';
-        return {
-            accessToken: silentSession.accessToken,
-            accountId: silentSession.account.id,
-            tenantId,
-            accountEmail: silentSession.account.label
-        };
+        return sessionToTokenInfo(silentSession);
     }
 
-    const storedAccounts = await authentication.getAccounts(MICROSOFT_PROVIDER_ID);
-    if (storedAccounts.length > 0) {
-        const preferred = preferredTreeAccount
-            ? findStoredAccount(storedAccounts, preferredTreeAccount.accountId, preferredTreeAccount.accountEmail) ?? storedAccounts[0]
-            : storedAccounts[0];
-        const interactive = await ensureInteractiveSession(scopes, preferred.id, preferred.label);
-        if (interactive) {
-            const tenantId = decodeIdToken(interactive.accessToken)?.tid || '';
-            return {
-                accessToken: interactive.accessToken,
-                accountId: interactive.account.id,
-                tenantId,
-                accountEmail: interactive.account.label
-            };
+    if (interactive) {
+        const storedAccounts = await authentication.getAccounts(MICROSOFT_PROVIDER_ID);
+        const preferred = storedAccounts.length > 0
+            ? (preferredTreeAccount ? findStoredAccount(storedAccounts, preferredTreeAccount.accountId, preferredTreeAccount.accountEmail) ?? storedAccounts[0] : storedAccounts[0])
+            : undefined;
+        const interactiveSession = await ensureInteractiveSession(scopes, preferred?.id, preferred?.label);
+        if (interactiveSession) {
+            return sessionToTokenInfo(interactiveSession);
         }
     }
 
-    if (!clearSession) {
-        throw new Error("No signed-in account available for this request. Please sign in.");
-    }
-
-    const options: AuthenticationGetSessionOptions = {
-        clearSessionPreference: true,
-        createIfNone: true,
-    };
-    clearSession = false;
-
-    const session = await authentication.getSession(MICROSOFT_PROVIDER_ID, scopes, options);
-    if (session) {
-        const tenantId = decodeIdToken(session.accessToken)?.tid || '';
-        return {
-            accessToken: session.accessToken,
-            accountId: session.account.id,
-            tenantId: tenantId,
-            accountEmail: session.account.label
-        };
-    } else {
-        throw new Error("User canceled sign in");
-    }
+    throw new AuthError('transient', 'No signed-in account available for this request. Please sign in.');
 }
 
 function decodeIdToken(idToken: string): { [key: string]: any } | null {
@@ -628,8 +717,11 @@ function decodeIdToken(idToken: string): { [key: string]: any } | null {
     }
 }
 
-export function resetAccount(): void{
-    clearSession = true;
+export function resetAccount(): void {
+    if (authAccountStates.size > 0) {
+        authAccountStates.clear();
+        authStateChangedEmitter.fire();
+    }
     preferredTreeAccount = undefined;
 }
 

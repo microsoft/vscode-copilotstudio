@@ -1,5 +1,5 @@
 import { Uri } from "vscode";
-import { FetchAccessToken, TokenInfo } from "./account";
+import { FetchAccessToken, TokenInfo, getAccessTokenByAccountId } from "./account";
 import { EnvironmentInfo } from "../types";
 import { CoreServicesClusterCategory, DefaultCoreServicesClusterCategory, TelemetryEventsKeys } from "../constants";
 import logger from "../services/logger";
@@ -114,10 +114,10 @@ export async function listEnvironmentsBySkuAsync(
     sku: EnvironmentSku,
     cancellationToken: AbortSignal | null,
     accountId: string | null = null,
-    accountHint?: string
+    accountHint?: string,
+    interactive: boolean = false
 ): Promise<EnvironmentInfo[]> {
     const query = SKU_QUERIES[sku];
-    logger.debug('BapClient', `Fetching ${sku} environments`);
 
     const response = await getAsync<EnvironmentResponse>(
         clusterCategory,
@@ -126,7 +126,8 @@ export async function listEnvironmentsBySkuAsync(
         cancellationToken,
         accountId,
         false,
-        accountHint
+        accountHint,
+        interactive
     );
 
     // Client-side filter (OData filter is unreliable)
@@ -138,7 +139,7 @@ export async function listEnvironmentsBySkuAsync(
         .map(toEnvironmentInfo)
         .filter((env): env is EnvironmentInfo => env !== null);
     
-    logger.debug('BapClient', `Fetched ${permissionFilteredEnvs.length} ${sku} environment(s)`);
+    logger.logDebug('BapClient', `Found ${permissionFilteredEnvs.length} ${sku} environment(s)`);
     return permissionFilteredEnvs;
 }
 
@@ -146,11 +147,12 @@ export async function listEnvironmentsAsync(
     clusterCategory: CoreServicesClusterCategory | null,
     cancellationToken: AbortSignal | null,
     accountId: string | null,
-    accountHint?: string
+    accountHint?: string,
+    interactive: boolean = false
 ): Promise<EnvironmentInfo[]> {
     const perSkuResults = await Promise.all(
         SKU_LOAD_ORDER.map(sku =>
-            listEnvironmentsBySkuAsync(clusterCategory, sku, cancellationToken, accountId, accountHint)
+            listEnvironmentsBySkuAsync(clusterCategory, sku, cancellationToken, accountId, accountHint, interactive)
                 .catch(error => {
                     if (!(error instanceof Error && error.name === 'AbortError')) {
                         logger.logError(
@@ -219,7 +221,8 @@ async function getAsync<TResult>(
     cancellationToken: AbortSignal | null,
     accountId: string | null,
     autopickAccount: boolean = true,
-    accountHint?: string
+    accountHint?: string,
+    interactive: boolean = false
 ): Promise<{ result: TResult; tokenInfo: TokenInfo }> {
     let query = 'api-version=2024-05-01';
     if (additionalQueryString) {
@@ -238,7 +241,7 @@ async function getAsync<TResult>(
         authority: getTokenScopeHostName(clusterCategory ?? DefaultCoreServicesClusterCategory)
     });
 
-    const { response, tokenInfo } = await FetchAccessToken(resource, uri, accountId, cancellationToken, autopickAccount, accountHint);
+    const { response, tokenInfo } = await FetchAccessToken(resource, uri, accountId, cancellationToken, autopickAccount, accountHint, interactive);
     
     if (!response.ok) {
         const errorBody = await response.json().catch(() => null);
@@ -297,6 +300,16 @@ export function getTokenScopeHostName(clusterCategory: CoreServicesClusterCatego
             return "api.bap.microsoft.scloud";
         default:
             throw new Error("Not implemented");
+    }
+}
+
+export async function isAccountTokenUsable(accountId?: string, accountEmail?: string, clusterCategory: CoreServicesClusterCategory = DefaultCoreServicesClusterCategory): Promise<boolean> {
+    try {
+        const resource = Uri.from({ scheme: 'https', authority: getTokenScopeHostName(clusterCategory) });
+        await getAccessTokenByAccountId(resource, accountId, accountEmail, false);
+        return true;
+    } catch {
+        return false;
     }
 }
 

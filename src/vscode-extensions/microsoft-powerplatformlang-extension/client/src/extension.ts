@@ -20,12 +20,14 @@ import { registerResetAccountCommand } from './commands/resetAccount';
 import { registerSyncCommands } from './commands/syncWorkspace';
 import { registerReattachAgentCommand } from './commands/reattachAgent';
 import { registerManageConnectionsCommand, registerDeclareConnectionReferenceCommand } from './commands/manageConnections';
+import { registerCreateGlobalVariableCommand } from './commands/createGlobalVariable';
 import { registerConnectionReferenceQuickFix } from './connections/connectionDiagnostics';
 import { registerAddConnectionReferenceCommand } from './connections/addConnectionReferenceCommand';
 import { registerTelemetrySettingsListeners } from './services/telemetry';
 import { registerAgentStatusBar } from './services/agentStatusBar';
 import { maybeOpenFileFromPostOpen } from './startup/postOpen';
 import { registerSignInCommand } from './commands/signIn';
+import { registerAuthStateRecovery } from './clients/account';
 import { registerOriginalFileSystemProvider } from './commands/originalFileSystemProvider';
 import { registerRemoteFileSystemProvider } from './commands/remoteFileSystemProvider';
 import { initializeWorkflowFeatures } from './workflows';
@@ -39,12 +41,13 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Logger includes the sessionId and shows a message in the VS Code UI.
   logger.initialize(context, sessionId);
-  logger.logInfo(TelemetryEventsKeys.CopilotStudioStart, undefined, { isDebugMode: isDebugging.toString() });
+  logger.logInfo(TelemetryEventsKeys.CopilotStudioStart, undefined, { message: 'Copilot Studio Extension is starting', isDebugMode: isDebugging.toString() });
 
   // Register commands and features that do not depend on the LSP client
   registerSignInCommand(context);
   registerResetAccountCommand(context);
   registerReportIssueCommand(context, sessionId);
+  context.subscriptions.push(registerAuthStateRecovery());
 
   // Create output channel for LSP logs.
   // Using `createLogOutputChannel` gives each line a timestamp and a color-coded
@@ -79,6 +82,7 @@ export async function activate(context: vscode.ExtensionContext) {
   registerReattachAgentCommand(context);
   registerManageConnectionsCommand(context);
   registerDeclareConnectionReferenceCommand(context);
+  registerCreateGlobalVariableCommand(context);
   registerConnectionReferenceQuickFix(context);
   registerAddConnectionReferenceCommand(context);
   registerAgentStatusBar(context);
@@ -91,8 +95,7 @@ export async function activate(context: vscode.ExtensionContext) {
   void maybeOpenFileFromPostOpen(context)
     .catch(err => {
       logger.logWarning(TelemetryEventsKeys.PostOpenError, undefined, {
-        message: (err as Error).message,
-        detail: 'Post-open file logic failed'
+        message: `Post-open file logic failed: ${(err as Error).message}`,
       });
     });
 

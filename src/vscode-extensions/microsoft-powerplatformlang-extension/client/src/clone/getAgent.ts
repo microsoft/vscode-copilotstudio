@@ -15,14 +15,13 @@ import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import logger from '../services/logger';
 import { writePostOpenInstruction } from '../startup/postOpen';
 import { isCliLayeredWorkspace } from '../sync/syncUtils';
-import { getActiveAgentAccount, getAllProjectAccounts } from '../sync/localWorkspaces';
-
-type EnvironmentPickItem = QuickPickItem & { environment: EnvironmentInfo; sourceAccount?: { accountId?: string; accountEmail?: string } };
+import { getActiveAgentAccount } from '../sync/localWorkspaces';
+import { EnvironmentPickItem, toEnvironmentPickItem } from '../services/accountEnvPicker';
 
 /**
  * A multi-step input using window.createQuickPick() and window.createInputBox().
  */
-export async function getAgentInfo(agentUrl: string | undefined, context: ExtensionContext): Promise<IdentifyAgentResponse | undefined> {
+export async function getAgentInfo(agentUrl: string | undefined, context: ExtensionContext, preselectedAccount?: { accountId?: string; accountEmail?: string }): Promise<IdentifyAgentResponse | undefined> {
   return new Promise(async (resolve, reject) => {
     const parseResult = agentUrl ? tryGetAgentIdentifier(agentUrl) : null;
     const clusterCategory = parseResult?.clusterCategory ?? DefaultCoreServicesClusterCategory;
@@ -296,20 +295,21 @@ export async function getAgentInfo(agentUrl: string | undefined, context: Extens
     rebuildItems();
 
     let preWarmedWhoAmI = false;
-    const preferredTreeAccount = getPreferredTreeAccount();
-    const projectAccounts = getAllProjectAccounts();
     let candidateAccounts: ({ accountId?: string; accountEmail?: string } | undefined)[];
-    if (preferredTreeAccount) {
-      candidateAccounts = [preferredTreeAccount];
-    } else if (projectAccounts.length > 0) {
-      candidateAccounts = projectAccounts;
+    if (preselectedAccount) {
+      candidateAccounts = [preselectedAccount];
     } else {
-      const active = getActiveAgentAccount();
-      if (active) {
-        candidateAccounts = [active];
+      const preferredTreeAccount = getPreferredTreeAccount();
+      if (preferredTreeAccount) {
+        candidateAccounts = [preferredTreeAccount];
       } else {
-        const stored = await listStoredAccounts();
-        candidateAccounts = stored.length > 0 ? stored : [undefined];
+        const active = getActiveAgentAccount();
+        if (active) {
+          candidateAccounts = [{ accountId: active.accountId, accountEmail: active.accountEmail }];
+        } else {
+          const stored = await listStoredAccounts();
+          candidateAccounts = stored.length > 0 ? [stored[0]] : [undefined];
+        }
       }
     }
 
@@ -338,18 +338,14 @@ export async function getAgentInfo(agentUrl: string | undefined, context: Extens
                 sku,
                 envAbortController.signal,
                 acct?.accountId ?? null,
-                acct?.accountEmail
+                acct?.accountEmail,
+                true
               );
-              return environments.map<EnvironmentPickItem>((environment) => ({
-                label: environment.displayName,
-                description: environment.environmentId,
-                environment,
-                sourceAccount: acct
-              }));
+              return environments.map((environment) => toEnvironmentPickItem(environment, acct));
             } catch (error) {
               logger.logError(
                 TelemetryEventsKeys.LoadEnvironmentError,
-                `Failed to load ${sku} environments for ${acct?.accountId ?? 'default'}: ${error instanceof Error ? error.message : String(error)}`
+                `Failed to load ${sku} environments for <pii>${acct?.accountId ?? 'default'}</pii>: <pii>${error instanceof Error ? error.message : String(error)}</pii>`
               );
               return [] as EnvironmentPickItem[];
             }
@@ -422,19 +418,23 @@ async function pickAgent(
     });
     input.show();
 
-    // Load owned and shared agents in parallel, combine into single list
-    const [ownedAgents, sharedAgents] = await Promise.all([
-      listAgentsAsync(Uri.parse(environment.dataverseUrl), null, sourceAccount?.accountId, sourceAccount?.accountEmail),
-      listSharedAgentsAsync(Uri.parse(environment.dataverseUrl), null, sourceAccount?.accountId, sourceAccount?.accountEmail)
-    ]);
+    try {
+      // Load owned and shared agents in parallel, combine into single list
+      const [ownedAgents, sharedAgents] = await Promise.all([
+        listAgentsAsync(Uri.parse(environment.dataverseUrl), null, sourceAccount?.accountId, sourceAccount?.accountEmail, true),
+        listSharedAgentsAsync(Uri.parse(environment.dataverseUrl), null, sourceAccount?.accountId, sourceAccount?.accountEmail, true)
+      ]);
 
-    const allAgents = [...ownedAgents, ...sharedAgents];
-    const agentItems = allAgents.map((agent) => {
-      return { label: agent.displayName + agent.displayComplement, iconPath: getIcon(agent), agent: agent } as QuickPickItem & { agent: AgentInfo };
-    });
-
-    input.items = agentItems;
-    input.busy = false;
+      const allAgents = [...ownedAgents, ...sharedAgents];
+      input.items = allAgents.map((agent) => {
+        return { label: agent.displayName + agent.displayComplement, iconPath: getIcon(agent), agent: agent } as QuickPickItem & { agent: AgentInfo };
+      });
+    } catch (error) {
+      logger.logError(TelemetryEventsKeys.LoadEnvironmentError, `Failed to load agents for <pii>${environment.displayName}</pii>: <pii>${(error as Error).message}</pii>`);
+      input.items = [];
+    } finally {
+      input.busy = false;
+    }
   });
 }
 
@@ -473,6 +473,7 @@ export async function cloneAgentToLocalFolder(agent: IdentifyAgentResponse | und
     await window.withProgress({ location: ProgressLocation.Notification, cancellable: true, title }, async (progress, cancellationToken) => {
       cancellationToken.onCancellationRequested(() => {
         logger.logInfo(TelemetryEventsKeys.CloneAgentCancel, undefined, {
+          message: "Clone agent cancelled by user",
           agentId: agentInfo.agentId,
           environmentId: environmentInfo.environmentId,
         });
@@ -483,7 +484,7 @@ export async function cloneAgentToLocalFolder(agent: IdentifyAgentResponse | und
           accountId,
           accountEmail,
           clusterCategory: agentIdentifier.clusterCategory
-        }),
+        }, true),
         agentInfo,
         assets,
         rootFolder
@@ -510,10 +511,9 @@ export async function cloneAgentToLocalFolder(agent: IdentifyAgentResponse | und
           await writePostOpenInstruction(context, workspaceUri, candidateAgentFile);
         } catch {
           logger.logInfo(TelemetryEventsKeys.PostOpenInstruction, undefined, {
+            message: 'Post-open instruction skipped: entry file not found',
             agentId: agentInfo.agentId,
-            environmentId: environmentInfo.environmentId,
-            phase: 'skipNoAgentFile',
-            detail: `A concrete ${entryFileName} was not recorded as a postOpen instruction`
+            environmentId: environmentInfo.environmentId
           });
         }
       }

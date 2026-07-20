@@ -18,7 +18,7 @@ export async function uploadKnowledgeFiles(ws: CopilotStudioWorkspace): Promise<
   }
 
   const request: UploadKnowledgeFilesRequest = {
-    ...(await buildLspRequestPayload(syncInfo)),
+    ...(await buildLspRequestPayload(syncInfo, undefined, undefined, true)),
     workspaceUri
   };
 
@@ -52,7 +52,6 @@ export async function uploadKnowledgeFiles(ws: CopilotStudioWorkspace): Promise<
       : await uploadPromise;
 
     if (result.uploaded.length) {
-      logger.info('KnowledgeFiles', `Uploaded ${result.uploaded.length} knowledge file(s)`);
       logger.logInfo(TelemetryEventsKeys.UploadKnowledgeFileSuccess, `Uploaded (${result.uploaded.length}): <pii>${result.uploaded.join(', ')}</pii>`);
     }
   } finally {

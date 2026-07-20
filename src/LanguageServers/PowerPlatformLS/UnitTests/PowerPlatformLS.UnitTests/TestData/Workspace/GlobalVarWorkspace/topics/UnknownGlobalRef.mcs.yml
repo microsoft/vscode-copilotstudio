@@ -1,0 +1,16 @@
+mcs.metadata:
+  componentName: Unknown Global Ref
+kind: AdaptiveDialog
+beginDialog:
+  kind: OnRecognizedIntent
+  id: mainUnknownGlobalRef
+  intent:
+    displayName: Unknown Global Ref
+    includeInOnSelectIntent: false
+    triggerQueries:
+      - unknown global ref
+  actions:
+    - kind: SetVariable
+      id: setVariable_unknownGlobalRef1
+      variable: Topic.Temp
+      value: =Concatenate(Global.Var1, Global.Var3)

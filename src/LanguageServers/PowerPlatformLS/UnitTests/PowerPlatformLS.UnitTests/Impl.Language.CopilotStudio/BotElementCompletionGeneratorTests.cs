@@ -51,5 +51,40 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
             Assert.True(ok);
             Assert.Equal(["true", "false"], snippets.ToArray());
         }
+
+        [Fact]
+        public void TryGenerateCompletionSnippets_PropertyPath_ListsExistingGlobalVariableNames()
+        {
+            var sut = new BotElementCompletionGenerator();
+            var definition = new BotDefinition.Builder
+            {
+                Entity = new BotEntity().WithSchemaName(new BotEntitySchemaName("cr123")),
+                Components =
+                {
+                    new GlobalVariableComponent.Builder { SchemaName = "cr123.globalvariable.UserName", Variable = new Variable.Builder() }.Build(),
+                }
+            }.Build();
+
+            var ok = sut.TryGenerateCompletionSnippets(Schema.PrimitiveKind.PropertyPath, definition, out var snippets);
+
+            Assert.True(ok);
+            Assert.Contains("Topic.", snippets);
+            Assert.Contains("Global.", snippets);
+            Assert.Contains("System.", snippets);
+            Assert.Contains("Global.UserName", snippets);
+        }
+
+        [Fact]
+        public void TryGenerateCompletionSnippets_PropertyPath_WithoutDefinition_KeepsStaticPrefixes()
+        {
+            var sut = new BotElementCompletionGenerator();
+
+            var ok = sut.TryGenerateCompletionSnippets(Schema.PrimitiveKind.PropertyPath, definition: null, out var snippets);
+
+            Assert.True(ok);
+            Assert.Contains("Topic.", snippets);
+            Assert.Contains("Global.", snippets);
+            Assert.Contains("System.", snippets);
+        }
     }
 }
