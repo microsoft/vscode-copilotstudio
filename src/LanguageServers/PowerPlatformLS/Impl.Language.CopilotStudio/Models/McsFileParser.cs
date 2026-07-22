@@ -3,7 +3,6 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models
     using Microsoft.Agents.ObjectModel;
     using Microsoft.Agents.ObjectModel.FileProjection;
     using Microsoft.CopilotStudio.McsCore;
-    using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models.Lsp;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Exceptions;
 
@@ -25,12 +24,15 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models
         public (BotComponentBase? component, Exception? error) CompileFile(
             LspDocument<BotElement> document,
             ProjectionContext context)
-            => CompileFile(document, context, AuthoringShape.Classic);
+            => CompileFile(document, context, AuthoringShape.Classic, null);
 
         public (BotComponentBase? component, Exception? error) CompileFile(
             LspDocument<BotElement> document,
             ProjectionContext context,
             AuthoringShape shape)
+            => CompileFile(document, context, shape, null);
+
+        public (BotComponentBase? component, Exception? error) CompileFile(LspDocument<BotElement> document, ProjectionContext context, AuthoringShape shape, string? schemaNameOverride)
         {
             BotElement? fileModel = document.FileModel;
             var relativePath = document.As<McsLspDocument>().RelativePath;
@@ -40,7 +42,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models
                 return (null, new InvalidDataException($"File model is null for {relativePath}"));
             }
 
-            var schemaName = McsFileParserCore.DeriveSchemaName(_projectorService, fileModel, relativePath, context, shape);
+            var schemaName = schemaNameOverride ?? McsFileParserCore.DeriveSchemaName(_projectorService, fileModel, relativePath, context, shape);
 
             if (schemaName == null)
             {
