@@ -104,6 +104,23 @@
         }
 
         [Fact]
+        public void CompileFile_ChildAgentDialog_SchemaNameOverride_UsesLinkedSchemaInsteadOfFolderDerived()
+        {
+            var parser = new McsFileParser();
+            var context = new ProjectionContext(BotName: "crf9a_AgentE4Child");
+            var agentDialogYaml = "mcs.metadata:\n  componentName: Agent Child 1\nkind: AgentDialog\nbeginDialog:\n  kind: OnToolSelected\n  id: main\n";
+            var document = new McsLspDocument(new FilePath("c:/agent/agents/Agent Child 1/agent.mcs.yml"), agentDialogYaml, new DirectoryPath("c:/agent"));
+
+            var derived = parser.CompileFile(document, context, AuthoringShape.Classic, null);
+            Assert.Null(derived.error);
+            Assert.Equal("crf9a_AgentE4Child.agent.AgentChild1", derived.component!.SchemaNameString);
+
+            var overridden = parser.CompileFile(document, context, AuthoringShape.Classic, "crf9a_AgentE4Child.agent.Agent");
+            Assert.Null(overridden.error);
+            Assert.Equal("crf9a_AgentE4Child.agent.Agent", overridden.component!.SchemaNameString);
+        }
+
+        [Fact]
         public void CompileFileModelSucceedsWithoutPath()
         {
             var parser = new McsFileParser();

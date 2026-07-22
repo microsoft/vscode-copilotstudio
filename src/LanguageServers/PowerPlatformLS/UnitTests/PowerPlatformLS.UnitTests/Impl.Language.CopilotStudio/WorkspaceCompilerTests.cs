@@ -233,6 +233,175 @@
             return documents;
         }
 
+        [Fact]
+        public void Compile_ChildAgentInDisplayNameFolder_WithAgentJsonLink_ResolvesDialogReference()
+        {
+            var services = new ServiceCollection();
+            services.Install(new McsLspModule());
+            MockCoreWorkspaceBuilder(services);
+            var serviceProvider = services.BuildServiceProvider();
+            var compiler = serviceProvider.GetRequiredService<IWorkspaceCompiler<DefinitionBase>>();
+            var language = serviceProvider.GetRequiredService<ILanguageAbstraction>();
+
+            var tempRoot = Path.Combine(Path.GetTempPath(), "ChildAgentRefTest-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                WriteChildAgentReproWorkspace(tempRoot, withAgentJsonLink: true);
+
+                var workspacePath = SystemToAgentDirectoryPath(tempRoot);
+                var documents = ReadAllMcsComponentDocuments(workspacePath, language);
+                var compilation = compiler.Compile(documents, workspacePath);
+
+                var childAgentSchemas = GetChildAgentSchemaNames(compilation.Model);
+                Assert.Contains("crf9a_AgentE4Child.agent.Agent", childAgentSchemas);
+                Assert.Contains("crf9a_AgentE4Child.agent.Agent_BR2", childAgentSchemas);
+
+                var unresolvedReferences = GetUnresolvedReferenceIds(compilation.Model);
+                Assert.DoesNotContain("crf9a_AgentE4Child.agent.Agent", unresolvedReferences);
+                Assert.DoesNotContain("crf9a_AgentE4Child.agent.Agent_BR2", unresolvedReferences);
+            }
+            finally
+            {
+                if (Directory.Exists(tempRoot))
+                {
+                    Directory.Delete(tempRoot, recursive: true);
+                }
+            }
+        }
+
+        [Fact]
+        public void Compile_ChildAgentInDisplayNameFolder_WithoutAgentJsonLink_DialogReferenceNotFound()
+        {
+            var services = new ServiceCollection();
+            services.Install(new McsLspModule());
+            MockCoreWorkspaceBuilder(services);
+            var serviceProvider = services.BuildServiceProvider();
+            var compiler = serviceProvider.GetRequiredService<IWorkspaceCompiler<DefinitionBase>>();
+            var language = serviceProvider.GetRequiredService<ILanguageAbstraction>();
+
+            var tempRoot = Path.Combine(Path.GetTempPath(), "ChildAgentRefTest-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                WriteChildAgentReproWorkspace(tempRoot, withAgentJsonLink: false);
+
+                var workspacePath = SystemToAgentDirectoryPath(tempRoot);
+                var documents = ReadAllMcsComponentDocuments(workspacePath, language);
+                var compilation = compiler.Compile(documents, workspacePath);
+
+                var childAgentSchemas = GetChildAgentSchemaNames(compilation.Model);
+                Assert.Contains("crf9a_AgentE4Child.agent.AgentChild1", childAgentSchemas);
+                Assert.Contains("crf9a_AgentE4Child.agent.AgentChild2", childAgentSchemas);
+
+                var unresolvedReferences = GetUnresolvedReferenceIds(compilation.Model);
+                Assert.Contains("crf9a_AgentE4Child.agent.Agent", unresolvedReferences);
+                Assert.Contains("crf9a_AgentE4Child.agent.Agent_BR2", unresolvedReferences);
+            }
+            finally
+            {
+                if (Directory.Exists(tempRoot))
+                {
+                    Directory.Delete(tempRoot, recursive: true);
+                }
+            }
+        }
+
+        private static IReadOnlyList<string?> GetChildAgentSchemaNames(DefinitionBase model)
+        {
+            return ((BotDefinition)model).Components
+                .Where(component => component is DialogComponent dialog && dialog.RootElement is AgentDialog)
+                .Select(component => component.SchemaNameString)
+                .ToList();
+        }
+
+        private static IReadOnlyList<string?> GetUnresolvedReferenceIds(DefinitionBase model)
+        {
+            return model.DescendantsAndSelf()
+                .SelectMany(element => element.Diagnostics)
+                .OfType<InvalidReferenceError>()
+                .Select(error => error.ReferenceId)
+                .ToList();
+        }
+
+        private static void WriteChildAgentReproWorkspace(string tempRoot, bool withAgentJsonLink)
+        {
+            Directory.CreateDirectory(tempRoot);
+
+            WriteWorkspaceFile(tempRoot, "settings.mcs.yml",
+                "displayName: Agent E4 Child\n" +
+                "schemaName: crf9a_AgentE4Child\n" +
+                "authenticationMode: Integrated\n" +
+                "configuration:\n" +
+                "  settings:\n" +
+                "    GenerativeActionsEnabled: true\n" +
+                "  isAgentConnectable: true\n" +
+                "  recognizer:\n" +
+                "    kind: GenerativeAIRecognizer\n" +
+                "template: default-2.1.0\n");
+
+            WriteWorkspaceFile(tempRoot, "agent.mcs.yml",
+                "mcs.metadata:\n" +
+                "  componentName: Agent E4 Child\n" +
+                "kind: GptComponentMetadata\n" +
+                "instructions:\n");
+
+            WriteWorkspaceFile(tempRoot, "topics/ThankYou.mcs.yml",
+                "mcs.metadata:\n" +
+                "  componentName: Thank you\n" +
+                "kind: AdaptiveDialog\n" +
+                "beginDialog:\n" +
+                "  kind: OnRecognizedIntent\n" +
+                "  id: main\n" +
+                "  intent:\n" +
+                "    displayName: Thank you\n" +
+                "    triggerQueries:\n" +
+                "      - thanks\n" +
+                "  actions:\n" +
+                "    - kind: BeginDialog\n" +
+                "      id: cHovWm\n" +
+                "      dialog: crf9a_AgentE4Child.agent.Agent_BR2\n" +
+                "    - kind: BeginDialog\n" +
+                "      id: fsfigY\n" +
+                "      dialog: crf9a_AgentE4Child.agent.Agent\n" +
+                "    - kind: SendActivity\n" +
+                "      id: sendMessage_9iz6v7\n" +
+                "      activity: You're welcome.\n");
+
+            WriteChildAgentDialog(tempRoot, "Agent Child 1", "crf9a_AgentE4Child.agent.Agent", withAgentJsonLink);
+            WriteChildAgentDialog(tempRoot, "Agent Child 2", "crf9a_AgentE4Child.agent.Agent_BR2", withAgentJsonLink);
+        }
+
+        private static void WriteChildAgentDialog(string tempRoot, string folderName, string schemaName, bool withAgentJsonLink)
+        {
+            WriteWorkspaceFile(tempRoot, $"agents/{folderName}/agent.mcs.yml",
+                "mcs.metadata:\n" +
+                $"  componentName: {folderName}\n" +
+                "kind: AgentDialog\n" +
+                "beginDialog:\n" +
+                "  kind: OnToolSelected\n" +
+                "  id: main\n" +
+                $"  description: {folderName} description\n" +
+                "settings: {}\n" +
+                "inputType: {}\n" +
+                "outputType: {}\n");
+
+            if (withAgentJsonLink)
+            {
+                WriteWorkspaceFile(tempRoot, $"agents/{folderName}/.agent.json",
+                    "{\n" +
+                    $"  \"schemaName\": \"{schemaName}\",\n" +
+                    $"  \"folderName\": \"{folderName}\"\n" +
+                    "}");
+            }
+        }
+
+        private static void WriteWorkspaceFile(string tempRoot, string relativePath, string content)
+        {
+            var fullPath = Path.Combine(tempRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+            File.WriteAllText(fullPath, content);
+        }
+
+
         // Verify that the filenames round-trip. 
         [Fact]
         public void Verify_BotComponent_to_Filenames()

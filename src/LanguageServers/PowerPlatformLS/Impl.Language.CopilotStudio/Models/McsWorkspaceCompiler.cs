@@ -6,8 +6,6 @@
     using Microsoft.Agents.ObjectModel.PowerFx;
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.CopilotStudio.McsCore;
-    using Microsoft.PowerPlatformLS.Contracts.FileLayout;
-    using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models.Lsp;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Exceptions;
@@ -24,8 +22,9 @@
         private readonly IFeatureConfiguration _featureConfiguration;
         private readonly ILspLogger _logger;
         private readonly IReferenceResolver _referenceResolver;
+        private readonly IFileAccessorFactory _fileAccessorFactory;
 
-        public McsWorkspaceCompiler(ILspLogger logger, IFeatureConfiguration featureConfiguration, IClientInformation clientInfo, Contracts.FileLayout.IMcsFileParser fileParser, IAgentFilesAnalyzer fileReader, IReferenceResolver referenceResolver)
+        public McsWorkspaceCompiler(ILspLogger logger, IFeatureConfiguration featureConfiguration, IClientInformation clientInfo, Contracts.FileLayout.IMcsFileParser fileParser, IAgentFilesAnalyzer fileReader, IReferenceResolver referenceResolver, IFileAccessorFactory fileAccessorFactory)
         {
             _logger = logger;
             _featureConfiguration = featureConfiguration;
@@ -34,6 +33,7 @@
             _fileParser = fileParser;
             _fileReader = fileReader;
             _referenceResolver = referenceResolver;
+            _fileAccessorFactory = fileAccessorFactory;
         }
 
         public Compilation<DefinitionBase> Compile(IReadOnlyDictionary<FilePath, LspDocument> documents, DirectoryPath workspacePath, bool isFull = false)
@@ -92,6 +92,7 @@
 
             bool hasAgentFile = componentCollection != null;
             string? iconBase64 = null;
+            var childAgentSchemaLinks = ChildAgentLink.ReadSchemaLinks(_fileAccessorFactory.Create(workspacePath));
 
             foreach (var document in documents.Values)  
             {
@@ -109,7 +110,14 @@
                     continue;
                 }
 
-                var (component, error) = _fileParser.CompileFile(mcsDocument, projectionContext, authoringShape);
+                var childAgentSchemaOverride = childAgentSchemaLinks.Count > 0
+                    && mcsDocument.FileModel is AgentDialog
+                    && mcsDocument.RelativePath.TryGetSubAgentName(out var childAgentFolderName, out _)
+                    && childAgentSchemaLinks.TryGetValue(childAgentFolderName, out var linkedSchemaName)
+                    ? linkedSchemaName
+                    : null;
+
+                var (component, error) = _fileParser.CompileFile(mcsDocument, projectionContext, authoringShape, childAgentSchemaOverride);
 
                 if (component != null)
                 {
