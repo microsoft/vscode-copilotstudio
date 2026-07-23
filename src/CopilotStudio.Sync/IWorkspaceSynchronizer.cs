@@ -72,6 +72,18 @@ public interface IWorkspaceSynchronizer
     DiscardResult DiscardLocalChanges(DirectoryPath workspaceFolder, IReadOnlyCollection<Change> changes);
 
     /// <summary>
+    /// Discards local changes using the current workspace definition to resolve projected files.
+    /// </summary>
+    /// <param name="workspaceFolder">The workspace whose local changes should be discarded.</param>
+    /// <param name="workspaceDefinition">The current local workspace definition.</param>
+    /// <param name="changes">The local changes to discard.</param>
+    /// <returns>The discard result, including any changes that could not be restored.</returns>
+    DiscardResult DiscardLocalChanges(
+        DirectoryPath workspaceFolder,
+        DefinitionBase workspaceDefinition,
+        IReadOnlyCollection<Change> changes);
+
+    /// <summary>
     /// Gets the remote changes compared to the last pull.
     /// </summary>
     /// <param name="workspaceFolder">The location of the root of the workspace</param>

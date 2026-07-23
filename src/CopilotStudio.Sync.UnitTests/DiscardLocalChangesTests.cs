@@ -3,6 +3,8 @@
 using Microsoft.Agents.ObjectModel;
 using Microsoft.Agents.Platform.Content;
 using Microsoft.CopilotStudio.McsCore;
+using Microsoft.CopilotStudio.Sync.Dataverse;
+using Moq;
 using System.Collections.Immutable;
 using System.Text.Json;
 using Xunit;
@@ -73,6 +75,208 @@ public class DiscardLocalChangesTests
         var references = ReadText(accessor, "references.mcs.yml");
         Assert.Contains(existingSchema, references);
         Assert.Contains(deletedSchema, references);
+        Assert.Equal(1, result.Restored);
+        Assert.Empty(result.Skipped);
+    }
+
+    [Fact]
+    public async Task ComponentCollectionDelete_RestoresLastSyncedDirectoryReference()
+    {
+        var (synchronizer, factory, islandService) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath("c:/test/restore-directory-reference/Agent/");
+        var collectionWorkspace = workspace.ResolveRelativeRef(new RelativeDirectoryPath("../Collection/"));
+        var accessor = factory.Create(workspace);
+        var collectionAccessor = factory.Create(collectionWorkspace);
+        const string collectionSchema = "bot_componentcollection_directory";
+        var collection = CodeSerializer.Deserialize<BotComponentCollection>(
+            $"schemaName: {collectionSchema}\ndisplayName: Directory Collection\n")!;
+        var agentId = Guid.NewGuid();
+        var entityBuilder = CodeSerializer.Deserialize<BotEntity>(
+            "kind: Bot\nschemaName: directory_reference_agent\n")!.ToBuilder();
+        entityBuilder.CdsBotId = agentId;
+        var entity = entityBuilder.Build();
+        var cloudDefinition = new BotDefinition()
+            .WithEntity(entity)
+            .WithComponentCollections([collection]);
+
+        WorkspaceSynchronizer.WriteCloudCache(accessor, cloudDefinition);
+        await accessor.WriteAsync(
+            new AgentFilePath(".mcs/changetoken.txt"),
+            "token-1",
+            CancellationToken.None);
+        await accessor.WriteAsync(
+            new AgentFilePath("references.mcs.yml"),
+            $"componentCollections:\n  - schemaName: {collectionSchema}\n",
+            CancellationToken.None);
+        await collectionAccessor.WriteAsync(
+            new AgentFilePath("collection.mcs.yml"),
+            $"schemaName: {collectionSchema}\ndisplayName: Directory Collection\n",
+            CancellationToken.None);
+        var referenceTracker = new ReferenceTracker();
+        referenceTracker.MarkDeclaration(collection.SchemaName, collectionWorkspace);
+        await synchronizer.ApplyTouchupsAsync(workspace, referenceTracker, CancellationToken.None);
+
+        accessor.Delete(new AgentFilePath("references.mcs.yml"));
+        var localDefinition = new BotDefinition().WithEntity(entity);
+        islandService
+            .Setup(service => service.GetComponentsAsync(
+                It.IsAny<AuthoringOperationContextBase>(),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PvaComponentChangeSet(null, entity, "token-2"));
+        await synchronizer.PullExistingChangesAsync(
+            workspace,
+            ComponentWriterDefensiveTests.CreateMockOperationContext(),
+            localDefinition,
+            new Mock<ISyncDataverseClient>().Object,
+            new AgentSyncInfo { AgentId = agentId },
+            CancellationToken.None);
+
+        var (_, changes) = synchronizer.GetLocalChanges(
+            localDefinition,
+            cloudDefinition,
+            accessor,
+            "token-1");
+        var referenceChange = Assert.Single(
+            changes.Where(change =>
+                change.ChangeType == ChangeType.Delete
+                && change.ChangeKind == nameof(BotComponentCollection)));
+
+        var result = synchronizer.DiscardLocalChanges(workspace, localDefinition, [referenceChange]);
+
+        var references = CodeSerializer.Deserialize<ReferencesSourceFile>(
+            ReadText(accessor, "references.mcs.yml"))!;
+        var restored = Assert.Single(references.ComponentCollections);
+        Assert.Equal("../Collection/", restored.Directory);
+        Assert.True(!restored.SchemaName.HasValue || string.IsNullOrEmpty(restored.SchemaName.Value));
+        Assert.Equal(1, result.Restored);
+        Assert.Empty(result.Skipped);
+    }
+
+    [Fact]
+    public async Task SyncWithoutDirectoryRewrite_RecreatesDirectoryReferenceBaseline()
+    {
+        var (synchronizer, factory, islandService) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath("c:/test/same-schema-reference-baseline/Agent/");
+        var accessor = factory.Create(workspace);
+        var collectionAccessor = factory.Create(
+            workspace.ResolveRelativeRef(new RelativeDirectoryPath("../Collection/")));
+        const string collectionSchema = "bot_componentcollection_same_schema";
+        var agentId = Guid.NewGuid();
+        var entityBuilder = CodeSerializer.Deserialize<BotEntity>(
+            "kind: Bot\nschemaName: same_schema_agent\n")!.ToBuilder();
+        entityBuilder.CdsBotId = agentId;
+        var entity = entityBuilder.Build();
+        var collection = CodeSerializer.Deserialize<BotComponentCollection>(
+            $"schemaName: {collectionSchema}\ndisplayName: Same Schema Collection\n")!;
+        await accessor.WriteAsync(
+            new AgentFilePath("references.mcs.yml"),
+            "componentCollections:\n  - schemaName:\n    directory: ../Collection/\n",
+            CancellationToken.None);
+        await collectionAccessor.WriteAsync(
+            new AgentFilePath("collection.mcs.yml"),
+            $"schemaName: {collectionSchema}\ndisplayName: Same Schema Collection\n",
+            CancellationToken.None);
+        islandService
+            .Setup(service => service.GetComponentsAsync(
+                It.IsAny<AuthoringOperationContextBase>(),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PvaComponentChangeSet(
+                botComponentChanges: null,
+                connectorDefinitionChanges: null,
+                environmentVariableChanges: null,
+                connectionReferenceChanges: null,
+                aIPluginOperationChanges: null,
+                componentCollectionChanges: [new BotComponentCollectionInsert(collection)],
+                dataverseTableSearchChanges: null,
+                dataverseTableSearchEntityConfigurationChanges: null,
+                connectedAgentDefinitionChanges: null,
+                bot: entity,
+                changeToken: "token-2"));
+
+        await synchronizer.SyncWorkspaceAsync(
+            workspace,
+            ComponentWriterDefensiveTests.CreateMockOperationContext(),
+            changeToken: null,
+            updateWorkspaceDirectory: false,
+            dataverseClient: new Mock<ISyncDataverseClient>().Object,
+            syncInfo: new AgentSyncInfo { AgentId = agentId },
+            cloudFlowMetadata: new CloudFlowMetadata(),
+            cancellationToken: CancellationToken.None,
+            aiPromptMetadata: default,
+            syncCustomConnectors: false,
+            syncWorkflowsAndPrompts: false);
+
+        accessor.Delete(new AgentFilePath("references.mcs.yml"));
+        var result = synchronizer.DiscardLocalChanges(
+            workspace,
+            new BotDefinition().WithEntity(entity),
+            [
+                new Change
+                {
+                    ChangeType = ChangeType.Delete,
+                    ChangeKind = nameof(BotComponentCollection),
+                    SchemaName = collectionSchema,
+                    Uri = "references.mcs.yml",
+                }
+            ]);
+
+        var references = CodeSerializer.Deserialize<ReferencesSourceFile>(
+            ReadText(accessor, "references.mcs.yml"))!;
+        Assert.Equal("../Collection/", Assert.Single(references.ComponentCollections).Directory);
+        Assert.Equal(1, result.Restored);
+        Assert.Empty(result.Skipped);
+    }
+
+    [Fact]
+    public async Task ComponentCollectionDelete_RemovesInvalidReplacementReference()
+    {
+        var (synchronizer, factory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath("c:/test/invalid-replacement-reference/Agent/");
+        var collectionWorkspace = workspace.ResolveRelativeRef(new RelativeDirectoryPath("../Collection/"));
+        var accessor = factory.Create(workspace);
+        var collectionAccessor = factory.Create(collectionWorkspace);
+        const string collectionSchema = "bot_componentcollection_replaced";
+        var collection = CodeSerializer.Deserialize<BotComponentCollection>(
+            $"schemaName: {collectionSchema}\ndisplayName: Replaced Collection\n")!;
+        WorkspaceSynchronizer.WriteCloudCache(
+            accessor,
+            new BotDefinition().WithComponentCollections([collection]));
+        await accessor.WriteAsync(
+            new AgentFilePath("references.mcs.yml"),
+            $"componentCollections:\n  - schemaName: {collectionSchema}\n",
+            CancellationToken.None);
+        await collectionAccessor.WriteAsync(
+            new AgentFilePath("collection.mcs.yml"),
+            $"schemaName: {collectionSchema}\ndisplayName: Replaced Collection\n",
+            CancellationToken.None);
+        var referenceTracker = new ReferenceTracker();
+        referenceTracker.MarkDeclaration(collection.SchemaName, collectionWorkspace);
+        await synchronizer.ApplyTouchupsAsync(workspace, referenceTracker, CancellationToken.None);
+        await accessor.WriteAsync(
+            new AgentFilePath("references.mcs.yml"),
+            "componentCollections:\n  - schemaName:\n    directory: ../Missing/\n",
+            CancellationToken.None);
+
+        var result = synchronizer.DiscardLocalChanges(
+            workspace,
+            new BotDefinition(),
+            [
+                new Change
+                {
+                    ChangeType = ChangeType.Delete,
+                    ChangeKind = nameof(BotComponentCollection),
+                    SchemaName = collectionSchema,
+                    Uri = "references.mcs.yml",
+                }
+            ]);
+
+        var references = CodeSerializer.Deserialize<ReferencesSourceFile>(
+            ReadText(accessor, "references.mcs.yml"))!;
+        var restored = Assert.Single(references.ComponentCollections);
+        Assert.Equal("../Collection/", restored.Directory);
+        Assert.DoesNotContain("Missing", ReadText(accessor, "references.mcs.yml"));
         Assert.Equal(1, result.Restored);
         Assert.Empty(result.Skipped);
     }
@@ -243,6 +447,82 @@ public class DiscardLocalChangesTests
     }
 
     [Fact]
+    public async Task CreatedKnowledgeAttachment_DeletesMetadataAndPayload()
+    {
+        var (_, _, accessor, synchronizer, workspace) =
+            await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
+        var contentPath = new AgentFilePath("capabilities/knowledge/files/NewKb.txt");
+        await accessor.WriteAsync(contentPath, "new knowledge", CancellationToken.None);
+
+        var definition = await synchronizer.ReadWorkspaceDefinitionAsync(
+            workspace,
+            CancellationToken.None,
+            checkKnowledgeFiles: true);
+        var (_, changes) = await synchronizer.GetLocalChangesAsync(
+            workspace,
+            definition,
+            CancellationToken.None);
+        var attachmentChange = Assert.Single(
+            changes.Where(change =>
+                change.ChangeType == ChangeType.Create
+                && change.ChangeKind == BotElementKind.FileAttachmentComponent.ToString()));
+
+        var result = synchronizer.DiscardLocalChanges(workspace, definition, [attachmentChange]);
+
+        Assert.False(accessor.Exists(contentPath));
+        Assert.False(accessor.Exists(new AgentFilePath(attachmentChange.Uri)));
+        Assert.Equal(1, result.Deleted);
+        Assert.Empty(result.Skipped);
+    }
+
+    [Theory]
+    [InlineData("capabilities/knowledge/files/NewKb.mcs.yml")]
+    [InlineData("capabilities/knowledge/files/NewKb.txt")]
+    public async Task CreatedKnowledgeAttachment_DeleteFailure_RestoresMetadataAndPayload(
+        string faultDeletePath)
+    {
+        var workspace = new DirectoryPath("c:/test/discard-knowledge-rollback/");
+        var factory = new FaultOnDeleteFileAccessorFactory(faultDeletePath);
+        var accessor = factory.Create(workspace);
+        var synchronizer = new WorkspaceSynchronizer(
+            new SyncMcsFileParser(LspProjectorService.Instance),
+            factory,
+            new Mock<IIslandControlPlaneService>().Object,
+            new TestSyncProgress([]),
+            new LspComponentPathResolver());
+        var metadataPath = new AgentFilePath("capabilities/knowledge/files/NewKb.mcs.yml");
+        var contentPath = new AgentFilePath("capabilities/knowledge/files/NewKb.txt");
+        const string schemaName = "new_knowledge_attachment";
+
+        await accessor.WriteAsync(metadataPath, "kind: FileAttachment\n", CancellationToken.None);
+        await accessor.WriteAsync(contentPath, "new knowledge", CancellationToken.None);
+        WorkspaceSynchronizer.WriteCloudCache(accessor, new BotDefinition());
+
+        var component = new FileAttachmentComponent()
+            .WithSchemaName(schemaName)
+            .WithDisplayName("NewKb.txt")
+            .WithDescription("desc");
+        var definition = new BotDefinition().WithComponents([component]);
+        var result = synchronizer.DiscardLocalChanges(
+            workspace,
+            definition,
+            [
+                new Change
+                {
+                    ChangeType = ChangeType.Create,
+                    ChangeKind = BotElementKind.FileAttachmentComponent.ToString(),
+                    SchemaName = schemaName,
+                    Uri = metadataPath.ToString(),
+                }
+            ]);
+
+        Assert.True(accessor.Exists(metadataPath));
+        Assert.True(accessor.Exists(contentPath));
+        Assert.Equal(0, result.Deleted);
+        Assert.Single(result.Skipped);
+    }
+
+    [Fact]
     public async Task FailedRestore_DoesNotPreventLaterCreateDeletion()
     {
         var (synchronizer, factory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
@@ -281,5 +561,70 @@ public class DiscardLocalChangesTests
         using var stream = accessor.OpenRead(new AgentFilePath(path));
         using var reader = new StreamReader(stream);
         return reader.ReadToEnd();
+    }
+
+    private sealed class FaultOnDeleteFileAccessorFactory : IFileAccessorFactory
+    {
+        private readonly string _faultDeletePath;
+        private readonly Dictionary<string, IFileAccessor> _accessors = [];
+
+        public FaultOnDeleteFileAccessorFactory(string faultDeletePath)
+        {
+            _faultDeletePath = faultDeletePath;
+        }
+
+        public IFileAccessor Create(DirectoryPath workspaceFolder)
+        {
+            var key = workspaceFolder.ToString();
+            if (!_accessors.TryGetValue(key, out var accessor))
+            {
+                accessor = new FaultOnDeleteFileAccessor(
+                    new InMemoryFileAccessor(workspaceFolder),
+                    _faultDeletePath);
+                _accessors[key] = accessor;
+            }
+
+            return accessor;
+        }
+    }
+
+    private sealed class FaultOnDeleteFileAccessor : IFileAccessor
+    {
+        private readonly IFileAccessor _inner;
+        private readonly string _faultDeletePath;
+
+        public FaultOnDeleteFileAccessor(IFileAccessor inner, string faultDeletePath)
+        {
+            _inner = inner;
+            _faultDeletePath = faultDeletePath;
+        }
+
+        public bool Exists(AgentFilePath path) => _inner.Exists(path);
+
+        public void CreateHiddenDirectory(AgentFilePath path) => _inner.CreateHiddenDirectory(path);
+
+        public Stream OpenWrite(AgentFilePath path) => _inner.OpenWrite(path);
+
+        public Stream OpenRead(AgentFilePath path) => _inner.OpenRead(path);
+
+        public void Delete(AgentFilePath path)
+        {
+            if (string.Equals(path.ToString(), _faultDeletePath, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new IOException($"Injected IO failure deleting '{path}'.");
+            }
+
+            _inner.Delete(path);
+        }
+
+        public void DeleteDirectory(AgentFilePath path) => _inner.DeleteDirectory(path);
+
+        public void Replace(AgentFilePath sourcePath, AgentFilePath targetPath)
+            => _inner.Replace(sourcePath, targetPath);
+
+        public IEnumerable<AgentFilePath> ListFiles(
+            string? relativeFolder = null,
+            string filePattern = "*.*")
+            => _inner.ListFiles(relativeFolder, filePattern);
     }
 }

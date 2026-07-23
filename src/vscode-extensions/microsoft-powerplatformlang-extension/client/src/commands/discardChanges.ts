@@ -5,7 +5,7 @@ import { getWorkspaceChanges, replaceLocalChanges } from '../sync/workspaceScm';
 import { getActiveSyncUri, withSyncCommandBusy } from '../sync/workspaceSynchronizer';
 import { lspClient } from '../services/lspClient';
 import { LspMethods, TelemetryEventsKeys } from '../constants';
-import { DiscardLocalChangesResponse, DiscardResult } from '../types';
+import { Change, DiscardLocalChangesResponse, DiscardResult } from '../types';
 import logger from '../services/logger';
 
 /** Accepted invocation argument shapes (title bar passes nothing; tree/tests may pass a workspace). */
@@ -87,6 +87,7 @@ export const registerDiscardChangesCommand = (context: ExtensionContext) => {
       }
 
       let result: DiscardResult | undefined;
+      let remainingChanges: Change[] = [];
       // Hold the busy state for the whole operation so sync buttons stay disabled
       // and a progress bar shows at the top of the Agent Changes view.
       await withSyncCommandBusy(selectedWorkspace.workspaceUri, async () => {
@@ -100,11 +101,12 @@ export const registerDiscardChangesCommand = (context: ExtensionContext) => {
             { workspaceUri: selectedWorkspace.workspaceUri },
           );
           result = response.result;
+          remainingChanges = response.localChanges;
           replaceLocalChanges(selectedWorkspace.workspaceUri, response.localChanges);
         });
       });
 
-      reportResult(selectedWorkspace.displayName, result);
+      reportResult(selectedWorkspace.displayName, result, remainingChanges);
     } catch (error) {
       logger.logError(
         TelemetryEventsKeys.SyncWorkspaceError,
@@ -116,24 +118,36 @@ export const registerDiscardChangesCommand = (context: ExtensionContext) => {
   context.subscriptions.push(command);
 };
 
-function reportResult(agentName: string, result: DiscardResult | undefined): void {
+function reportResult(agentName: string, result: DiscardResult | undefined, remainingChanges: Change[]): void {
   if (!result) {
     return;
   }
   const revertedText = formatDiscardResultMessage(agentName, result);
 
-  if (result.skipped.length === 0) {
+  if (isDiscardComplete(result, remainingChanges)) {
     logger.logInfo(TelemetryEventsKeys.SyncWorkspaceSuccess, revertedText, { operation: DISCARD_OPERATION });
     return;
   }
 
-  const skippedNames = result.skipped.map(s => s.path).join(', ');
-  const skippedCount = result.skipped.length;
+  const remainingPaths = getRemainingDiscardPaths(result, remainingChanges);
+  const remainingNames = remainingPaths.join(', ');
+  const remainingCount = remainingPaths.length;
   logger.logWarning(
     TelemetryEventsKeys.SyncWorkspaceError,
-    `${revertedText} ${skippedCount} item${skippedCount === 1 ? '' : 's'} couldn't be reverted offline and can be restored with Get: <pii>${skippedNames}</pii>.`,
+    `${revertedText} ${remainingCount} item${remainingCount === 1 ? '' : 's'} couldn't be reverted offline and can be restored with Get: <pii>${remainingNames}</pii>.`,
     { operation: DISCARD_OPERATION },
   );
+}
+
+export function isDiscardComplete(result: DiscardResult, remainingChanges: Change[]): boolean {
+  return result.skipped.length === 0 && remainingChanges.length === 0;
+}
+
+export function getRemainingDiscardPaths(result: DiscardResult, remainingChanges: Change[]): string[] {
+  return [...new Set([
+    ...result.skipped.map(change => change.path),
+    ...remainingChanges.map(change => change.uri),
+  ])];
 }
 
 export function formatDiscardErrorMessage(error: unknown): string {

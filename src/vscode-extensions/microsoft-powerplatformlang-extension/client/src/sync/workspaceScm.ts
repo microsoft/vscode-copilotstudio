@@ -83,6 +83,14 @@ export function onWorkspaceChange(uri: string): void {
   }
 }
 
+export async function refreshInitialLocalChanges(refresh: () => Promise<void>): Promise<void> {
+  try {
+    await refresh();
+  } catch {
+    // Keep tracking registered so a later file change can retry the local diff.
+  }
+}
+
 export function initializeWorkspaceScm(context: ExtensionContext) {
   addWorkspaceChangeSubscription((workspaces) => {
     refreshWorkspaces(workspaces, context);
@@ -396,7 +404,7 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
   synchronizer.subscribe(async (state) => {
     if (state === SyncState.Idle) {
       if (lastOperation === SyncState.Pulling || lastOperation === SyncState.Pushing) {
-        await result.onLocalChange();
+        await refreshInitialLocalChanges(result.onLocalChange);
         if (remoteChangeGroup) {
           remoteChangeGroup.resourceStates = [];
         } else {
@@ -413,7 +421,7 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
     lastOperation = state;
   });
 
-  await result.onLocalChange();
+  await refreshInitialLocalChanges(result.onLocalChange);
   try { await result.onRemoteChange(); } catch { /* swallow */ }
   refreshAgentChangesTree();
   if (scmView) {

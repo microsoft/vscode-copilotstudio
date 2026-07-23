@@ -67,6 +67,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     // - original contents  - for providing diff; and reverting. 
     private static readonly AgentFilePath BotCachePath = new AgentFilePath(HiddenRoot + "/botdefinition.json");
 
+    private static readonly AgentFilePath ReferencesBaselinePath = new AgentFilePath(HiddenRoot + "/.references-cache.yml");
+
     private static readonly AgentFilePath ConnectionsCachePath = new AgentFilePath(HiddenRoot + "/.connections-cache.json");
 
     private static readonly AgentFilePath ConnectorsSyncStatePath = new AgentFilePath(HiddenRoot + "/.connectors-sync.json");
@@ -88,6 +90,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         BotCachePath,
         OldBotCachePath,
         ChangeTokenPath,
+        ReferencesBaselinePath,
         ConnectionsCachePath,
         ConnectorsSyncStatePath,
         ConnectorsDownloadStatePath,
@@ -255,6 +258,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 CodeSerializer.SerializeWithoutKind(textWriter, refs2);
             }
         }
+
+        WriteReferenceBaseline(
+            fileAccessor,
+            workspaceFolder,
+            ReadCloudCacheSnapshot(fileAccessor, allowMissing: true));
     }
 
     private static void WriteDefaultGptComponentMetadata(IFileAccessor fileAccessor, CancellationToken cancellationToken)
@@ -1284,6 +1292,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                     UpdateCloudCache(fileAccessor, changeSet.WithBot(null), cloudFlowMetadata, aiPrompts, syncInfo.AgentId, preserveExistingAIModelDefinitions: true);
                 }
 
+                WriteReferenceBaseline(
+                    fileAccessor,
+                    workspaceFolder,
+                    ReadCloudCacheSnapshot(fileAccessor, allowMissing: true));
                 break;
             }
 
@@ -3125,6 +3137,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 cancellationToken: cancellationToken).ConfigureAwait(false);
         }
 
+        WriteReferenceBaseline(fileAccessor, workspaceFolder, definition);
+
         if (syncCustomConnectors)
         {
             await WriteCustomConnectorsAsync(fileAccessor, workspaceFolder, definition, dataverseClient, cancellationToken).ConfigureAwait(false);
@@ -3291,11 +3305,50 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
     }
 
-    private static ReferencesSourceFile? ReadReferencesOrNull(IFileAccessor fileAccessor)
+    private void WriteReferenceBaseline(
+        IFileAccessor fileAccessor,
+        DirectoryPath workspaceFolder,
+        DefinitionBase? syncedDefinition)
+    {
+        var syncedCollections = GetComponentCollectionsOrEmpty(syncedDefinition as BotDefinition);
+        if (syncedCollections.IsEmpty)
+        {
+            fileAccessor.Delete(ReferencesBaselinePath);
+            return;
+        }
+
+        var currentReferences = ReadReferencesOrNull(fileAccessor);
+        var existingBaseline = ReadReferencesOrNull(fileAccessor, ReferencesBaselinePath);
+        var baselineItems = syncedCollections
+            .Select(collection =>
+            {
+                var schemaName = collection.SchemaName.Value;
+                var currentItem = currentReferences?.ComponentCollections.FirstOrDefault(item =>
+                {
+                    var currentSchemaName = item.SchemaName.HasValue && !string.IsNullOrWhiteSpace(item.SchemaName.Value)
+                        ? item.SchemaName.Value
+                        : TryReadReferencedCollectionSchemaName(workspaceFolder, item.Directory);
+                    return string.Equals(currentSchemaName, schemaName, StringComparison.OrdinalIgnoreCase);
+                });
+                var baselineItem = existingBaseline?.ComponentCollections.FirstOrDefault(item =>
+                    item.SchemaName.HasValue
+                    && string.Equals(item.SchemaName.Value, schemaName, StringComparison.OrdinalIgnoreCase));
+                return new ReferenceItemSourceFile(
+                    new BotComponentCollectionSchemaName(schemaName),
+                    currentItem?.Directory ?? baselineItem?.Directory ?? string.Empty);
+            })
+            .ToList();
+
+        WriteReferenceItems(fileAccessor, baselineItems, ReferencesBaselinePath);
+    }
+
+    private static ReferencesSourceFile? ReadReferencesOrNull(
+        IFileAccessor fileAccessor,
+        AgentFilePath? path = null)
     {
         try
         {
-            using var file = fileAccessor.OpenRead(ReferencesCollectionPath);
+            using var file = fileAccessor.OpenRead(path ?? ReferencesCollectionPath);
             using var reader = new StreamReader(file);
             return CodeSerializer.Deserialize<ReferencesSourceFile>(reader.ReadToEnd());
         }
@@ -3305,7 +3358,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
     }
 
-    private static void WriteReferenceItems(IFileAccessor fileAccessor, IEnumerable<ReferenceItemSourceFile> items)
+    private static void WriteReferenceItems(
+        IFileAccessor fileAccessor,
+        IEnumerable<ReferenceItemSourceFile> items,
+        AgentFilePath? path = null)
     {
         var itemList = items.ToList();
         if (itemList.Count == 0)
@@ -3314,7 +3370,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
 
         var references = new ReferencesSourceFile(itemList);
-        using var file = fileAccessor.OpenWrite(ReferencesCollectionPath);
+        using var file = fileAccessor.OpenWrite(path ?? ReferencesCollectionPath);
         using var writer = new StreamWriter(file, Encoding.UTF8);
         CodeSerializer.SerializeWithoutKind(writer, references);
     }
@@ -3487,6 +3543,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         // Project environment variables as environmentvariables/*.mcs.yml
         WriteEnvironmentVariables(fileAccessor, updatedDefinition, changeset, thisSchema);
+        WriteReferenceBaseline(fileAccessor, workspaceFolder, groundingDefinition);
 
         return updatedDefinition;
     }
@@ -4021,6 +4078,17 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     public DiscardResult DiscardLocalChanges(DirectoryPath workspaceFolder, IReadOnlyCollection<Change> changes)
     {
         var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var workspaceDefinition = ReadCloudCacheSnapshot(fileAccessor)
+            ?? throw new InvalidOperationException("Unable to read cloud cache from .mcs/botdefinition.json");
+        return DiscardLocalChanges(workspaceFolder, workspaceDefinition, changes);
+    }
+
+    public DiscardResult DiscardLocalChanges(
+        DirectoryPath workspaceFolder,
+        DefinitionBase workspaceDefinition,
+        IReadOnlyCollection<Change> changes)
+    {
+        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
         var cloudSnapshot = ReadCloudCacheSnapshot(fileAccessor)
             ?? throw new InvalidOperationException("Unable to read cloud cache from .mcs/botdefinition.json");
         var skipped = ImmutableArray.CreateBuilder<DiscardSkippedChange>();
@@ -4049,6 +4117,23 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             try
             {
+                if (change.ChangeKind == BotElementKind.FileAttachmentComponent.ToString())
+                {
+                    if (change.ChangeType == ChangeType.Create)
+                    {
+                        DeleteCreatedKnowledgeAttachment(fileAccessor, workspaceDefinition, change);
+                        deleted++;
+                    }
+                    else
+                    {
+                        skipped.Add(CreateDiscardSkippedChange(
+                            change,
+                            "knowledge file content can only be restored with Get"));
+                    }
+
+                    continue;
+                }
+
                 if (change.ChangeType == ChangeType.Create)
                 {
                     fileAccessor.Delete(new AgentFilePath(change.Uri));
@@ -4056,12 +4141,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                     continue;
                 }
 
-                if (change.SchemaName.Equals("icon", StringComparison.OrdinalIgnoreCase)
-                    || change.ChangeKind == BotElementKind.FileAttachmentComponent.ToString())
+                if (change.SchemaName.Equals("icon", StringComparison.OrdinalIgnoreCase))
                 {
                     skipped.Add(CreateDiscardSkippedChange(
                         change,
-                        "binary content (icon or knowledge file) can only be restored with Get"));
+                        "binary icon content can only be restored with Get"));
                     continue;
                 }
 
@@ -4094,6 +4178,44 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         };
     }
 
+    private void DeleteCreatedKnowledgeAttachment(
+        IFileAccessor fileAccessor,
+        DefinitionBase workspaceDefinition,
+        Change change)
+    {
+        var component = workspaceDefinition.Components
+            .OfType<FileAttachmentComponent>()
+            .FirstOrDefault(candidate =>
+                string.Equals(candidate.SchemaNameString, change.SchemaName, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException(
+                $"Knowledge attachment '{change.SchemaName}' was not found in the workspace.");
+        if (string.IsNullOrWhiteSpace(component.DisplayName))
+        {
+            throw new InvalidOperationException(
+                $"Knowledge attachment '{change.SchemaName}' does not have a file name.");
+        }
+
+        var metadataPath = new AgentFilePath(change.Uri);
+        var metadataContent = fileAccessor.Exists(metadataPath)
+            ? ReadAllBytes(fileAccessor, metadataPath)
+            : null;
+
+        try
+        {
+            fileAccessor.Delete(metadataPath);
+            fileAccessor.Delete(GetKnowledgeContentFilePath(metadataPath, component.DisplayName));
+        }
+        catch
+        {
+            if (metadataContent != null && !fileAccessor.Exists(metadataPath))
+            {
+                WriteAllBytes(fileAccessor, metadataPath, metadataContent);
+            }
+
+            throw;
+        }
+    }
+
     private static bool IsComponentCollectionReferenceChange(Change change)
         => change.ChangeKind == nameof(BotComponentCollection)
             && string.Equals(change.Uri, ReferencesCollectionPath.ToString(), StringComparison.OrdinalIgnoreCase);
@@ -4107,6 +4229,28 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         if (fileAccessor.Exists(ReferencesCollectionPath) && existingReferences == null)
         {
             throw new InvalidOperationException("Could not read the referenced component collections file.");
+        }
+
+        var baselineReferences = ReadReferencesOrNull(fileAccessor, ReferencesBaselinePath);
+        if (baselineReferences != null)
+        {
+            var baselineItems = baselineReferences.ComponentCollections
+                .Select(item => !string.IsNullOrWhiteSpace(item.Directory)
+                    ? new ReferenceItemSourceFile(
+                        new BotComponentCollectionSchemaName(string.Empty),
+                        item.Directory)
+                    : new ReferenceItemSourceFile(item.SchemaName, string.Empty))
+                .ToList();
+            if (baselineItems.Count == 0)
+            {
+                fileAccessor.Delete(ReferencesCollectionPath);
+            }
+            else
+            {
+                WriteReferenceItems(fileAccessor, baselineItems);
+            }
+
+            return;
         }
 
         var createdSchemaNames = changes
@@ -4140,13 +4284,17 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
 
         var representedSchemaNames = retainedItems
-            .Select(item => item.SchemaName.HasValue ? item.SchemaName.Value : null)
+            .Select(item => item.SchemaName.HasValue && !string.IsNullOrWhiteSpace(item.SchemaName.Value)
+                ? item.SchemaName.Value
+                : TryReadReferencedCollectionSchemaName(workspaceFolder, item.Directory))
             .Where(schemaName => !string.IsNullOrWhiteSpace(schemaName))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         retainedItems.AddRange(
             deletedSchemaNames
                 .Where(schemaName => !representedSchemaNames.Contains(schemaName))
-                .Select(schemaName => new ReferenceItemSourceFile(new BotComponentCollectionSchemaName(schemaName), string.Empty)));
+                .Select(schemaName => new ReferenceItemSourceFile(
+                    new BotComponentCollectionSchemaName(schemaName),
+                    string.Empty)));
 
         if (retainedItems.Count == 0)
         {
@@ -4251,7 +4399,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     private static DiscardSkippedChange CreateDiscardSkippedChange(Change change, string reason) => new()
     {
         SchemaName = change.SchemaName,
-        Path = Path.GetFileName(change.Uri),
+        Path = change.Uri,
         Reason = reason,
     };
 

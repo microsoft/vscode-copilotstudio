@@ -1,11 +1,13 @@
 namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 {
+    using Microsoft.Agents.ObjectModel;
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Contracts.Internal;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
+    using System.Collections.Immutable;
     using System.Threading;
     using System.Threading.Tasks;
 
@@ -44,10 +46,16 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 var definition = await _workspaceSynchronizer
                     .ReadWorkspaceDefinitionAsync(workspace.FolderPath, cancellationToken, checkKnowledgeFiles: true)
                     .ConfigureAwait(false);
+                var diffDefinition = OverlayCompiledComponentCollections(
+                    definition,
+                    workspace.Definition);
                 var (_, localChanges) = await _workspaceSynchronizer
-                    .GetLocalChangesAsync(workspace.FolderPath, definition, cancellationToken)
+                    .GetLocalChangesAsync(workspace.FolderPath, diffDefinition, cancellationToken)
                     .ConfigureAwait(false);
-                var result = _workspaceSynchronizer.DiscardLocalChanges(workspace.FolderPath, localChanges);
+                var result = _workspaceSynchronizer.DiscardLocalChanges(
+                    workspace.FolderPath,
+                    definition,
+                    localChanges);
 
                 var updatedDefinition = await _workspaceSynchronizer
                     .ReadWorkspaceDefinitionAsync(workspace.FolderPath, cancellationToken, checkKnowledgeFiles: true)
@@ -55,6 +63,14 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 var (_, remainingChanges) = await _workspaceSynchronizer
                     .GetLocalChangesAsync(workspace.FolderPath, updatedDefinition, cancellationToken)
                     .ConfigureAwait(false);
+                var skippedChanges = localChanges.Where(change =>
+                    result.Skipped.Any(skipped =>
+                        string.Equals(skipped.SchemaName, change.SchemaName, StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(skipped.Path, change.Uri, StringComparison.OrdinalIgnoreCase)));
+                remainingChanges = remainingChanges
+                    .AddRange(skippedChanges)
+                    .DistinctBy(change => (change.SchemaName.ToUpperInvariant(), change.Uri.ToUpperInvariant()))
+                    .ToImmutableArray();
 
                 return new DiscardLocalChangesResponse
                 {
@@ -73,6 +89,16 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     Message = message,
                 };
             }
+        }
+
+        private static DefinitionBase OverlayCompiledComponentCollections(
+            DefinitionBase projectedDefinition,
+            DefinitionBase compiledDefinition)
+        {
+            return projectedDefinition is BotDefinition projectedBot
+                && compiledDefinition is BotDefinition compiledBot
+                ? projectedBot.WithComponentCollections(compiledBot.ComponentCollections)
+                : projectedDefinition;
         }
     }
 }
