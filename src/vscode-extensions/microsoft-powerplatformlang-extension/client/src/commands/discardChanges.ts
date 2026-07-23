@@ -50,10 +50,11 @@ export const registerDiscardChangesCommand = (context: ExtensionContext) => {
 
       const selectedWorkspace = resolveWorkspaceArg(arg) ?? await selectWorkspace();
       if (!selectedWorkspace) {
-        const message = getAllWorkspaces().length > 0
-          ? `No workspace selected. ${DISCARD_OPERATION} operation cancelled.`
-          : `No workspace found for ${DISCARD_OPERATION} operation`;
-        logger.logWarning(TelemetryEventsKeys.SyncWorkspaceCancel, undefined, { message });
+        if (getAllWorkspaces().length > 0) {
+          logger.logWarning(TelemetryEventsKeys.SyncWorkspaceCancel, `No workspace selected. ${DISCARD_OPERATION} operation cancelled.`);
+        } else {
+          logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `No workspace found for ${DISCARD_OPERATION} operation`);
+        }
         return;
       }
 
@@ -107,7 +108,7 @@ export const registerDiscardChangesCommand = (context: ExtensionContext) => {
     } catch (error) {
       logger.logError(
         TelemetryEventsKeys.SyncWorkspaceError,
-        `Failed to execute ${DISCARD_OPERATION.toLowerCase()} operation: <pii>${(error as Error).message}</pii>`,
+        formatDiscardErrorMessage(error),
       );
     }
   });
@@ -133,6 +134,11 @@ function reportResult(agentName: string, result: DiscardResult | undefined): voi
     `${revertedText} ${skippedCount} item${skippedCount === 1 ? '' : 's'} couldn't be reverted offline and can be restored with Get: <pii>${skippedNames}</pii>.`,
     { operation: DISCARD_OPERATION },
   );
+}
+
+export function formatDiscardErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return `Failed to execute ${DISCARD_OPERATION.toLowerCase()} operation: <pii>${message}</pii>`;
 }
 
 export function formatDiscardResultMessage(agentName: string, result: DiscardResult): string {
