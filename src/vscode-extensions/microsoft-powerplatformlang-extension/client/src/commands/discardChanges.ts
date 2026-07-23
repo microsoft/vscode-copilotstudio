@@ -1,12 +1,11 @@
-import { commands, ExtensionContext, ProgressLocation, Uri, window, workspace as VSworkspace } from 'vscode';
+import { commands, ExtensionContext, ProgressLocation, window } from 'vscode';
 import { CopilotStudioWorkspace, getAllWorkspaces, hasConnectionFileInWorkspace } from '../sync/localWorkspaces';
 import { selectWorkspace } from '../sync/workspacePicker';
-import { getWorkspaceChanges, refreshLocalChanges } from '../sync/workspaceScm';
+import { getWorkspaceChanges, replaceLocalChanges } from '../sync/workspaceScm';
 import { getActiveSyncUri, withSyncCommandBusy } from '../sync/workspaceSynchronizer';
-import { DiscardChangeInput, discardLocalChanges, DiscardResult } from '../sync/discardChanges';
 import { lspClient } from '../services/lspClient';
 import { LspMethods, TelemetryEventsKeys } from '../constants';
-import { GetFileRequest, GetFileResponse } from '../types';
+import { DiscardLocalChangesResponse, DiscardResult } from '../types';
 import logger from '../services/logger';
 
 /** Accepted invocation argument shapes (title bar passes nothing; tree/tests may pass a workspace). */
@@ -30,11 +29,8 @@ function resolveWorkspaceArg(arg?: WorkspaceArg): CopilotStudioWorkspace | undef
 /**
  * Registers the "Discard changes" command shown in the Agent Changes view title bar.
  * It reverts all of the selected agent's local changes back to their last-synced
- * (cached) baseline, entirely offline:
- *   - locally added files are deleted,
- *   - locally updated/deleted files are rewritten from the cached baseline.
- * Binary changes that the text-only cache cannot restore (icon / knowledge files)
- * are reported so the user can restore them with Get.
+ * (cached) baseline entirely offline. Projection-aware restoration is performed
+ * by the language server so logical changes that span or share files remain safe.
  */
 export const registerDiscardChangesCommand = (context: ExtensionContext) => {
   const command = commands.registerCommand('microsoft-copilot-studio.discardChanges', async (arg?: WorkspaceArg) => {
@@ -89,13 +85,6 @@ export const registerDiscardChangesCommand = (context: ExtensionContext) => {
         return;
       }
 
-      const inputs: DiscardChangeInput[] = localChanges.map(resource => ({
-        schemaName: resource.schemaName,
-        changeType: resource.type,
-        changeKind: resource.changeKind,
-        fileUri: resource.fullResourceUri,
-      }));
-
       let result: DiscardResult | undefined;
       // Hold the busy state for the whole operation so sync buttons stay disabled
       // and a progress bar shows at the top of the Agent Changes view.
@@ -105,36 +94,21 @@ export const registerDiscardChangesCommand = (context: ExtensionContext) => {
           title: `${DISCARD_OPERATION} operation in progress. Please wait...`,
           cancellable: false,
         }, async () => {
-          result = await discardLocalChanges(inputs, {
-            getCachedContent: async (schemaName: string) => {
-              const request: GetFileRequest = { workspaceUri: selectedWorkspace.workspaceUri, schemaName };
-              const response = await lspClient.sendRequest<GetFileResponse>(LspMethods.GET_CACHED_FILE, request);
-              return response.content;
-            },
-            writeFile: async (uri: Uri, content: string) => {
-              await VSworkspace.fs.writeFile(uri, Buffer.from(content, 'utf8'));
-            },
-            deleteFile: async (uri: Uri) => {
-              try {
-                await VSworkspace.fs.delete(uri, { recursive: false, useTrash: false });
-              } catch (error) {
-                // An already-missing file is a no-op success.
-                const code = (error as { code?: string }).code;
-                if (!code || !code.includes('NotFound')) {
-                  throw error;
-                }
-              }
-            },
-          });
+          const response = await lspClient.sendRequest<DiscardLocalChangesResponse>(
+            LspMethods.DISCARD_LOCAL_CHANGES,
+            { workspaceUri: selectedWorkspace.workspaceUri },
+          );
+          result = response.result;
+          replaceLocalChanges(selectedWorkspace.workspaceUri, response.localChanges);
         });
-
-        // Recompute local changes so the tree/badge reflect the discard immediately.
-        await refreshLocalChanges(selectedWorkspace.workspaceUri);
       });
 
       reportResult(selectedWorkspace.displayName, result);
     } catch (error) {
-      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Failed to execute ${DISCARD_OPERATION.toLowerCase()} operation: ${(error as Error).message}`);
+      logger.logError(
+        TelemetryEventsKeys.SyncWorkspaceError,
+        `Failed to execute ${DISCARD_OPERATION.toLowerCase()} operation: <pii>${(error as Error).message}</pii>`,
+      );
     }
   });
 
@@ -145,8 +119,7 @@ function reportResult(agentName: string, result: DiscardResult | undefined): voi
   if (!result) {
     return;
   }
-  const reverted = result.restored + result.deleted;
-  const revertedText = `Discarded ${reverted} local change${reverted === 1 ? '' : 's'} for "${agentName}".`;
+  const revertedText = formatDiscardResultMessage(agentName, result);
 
   if (result.skipped.length === 0) {
     logger.logInfo(TelemetryEventsKeys.SyncWorkspaceSuccess, revertedText, { operation: DISCARD_OPERATION });
@@ -160,4 +133,9 @@ function reportResult(agentName: string, result: DiscardResult | undefined): voi
     `${revertedText} ${skippedCount} item${skippedCount === 1 ? '' : 's'} couldn't be reverted offline and can be restored with Get: <pii>${skippedNames}</pii>.`,
     { operation: DISCARD_OPERATION },
   );
+}
+
+export function formatDiscardResultMessage(agentName: string, result: DiscardResult): string {
+  const reverted = result.restored + result.deleted;
+  return `Discarded ${reverted} local change${reverted === 1 ? '' : 's'} for "<pii>${agentName}</pii>".`;
 }
