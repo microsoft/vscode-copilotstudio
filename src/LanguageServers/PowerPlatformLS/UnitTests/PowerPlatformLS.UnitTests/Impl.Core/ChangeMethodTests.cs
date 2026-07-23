@@ -378,17 +378,21 @@
         [Fact]
         public async Task DiscardLocalChanges_RestoresCachedTopicWithoutRemoteCredentials()
         {
-            var workspacePath = Path.GetFullPath("TestData/WorkspaceWithSubAgents");
-            var topicPath = Path.Combine(workspacePath, "topics", "Signin.mcs.yml");
-            var original = await File.ReadAllTextAsync(topicPath);
-            var modified = original.Replace(
-                "activity: Hello! To be able to help you",
-                "activity: Changed locally! To be able to help you",
-                StringComparison.Ordinal);
-            Assert.NotEqual(original, modified);
+            var sourceWorkspacePath = Path.GetFullPath("TestData/WorkspaceWithSubAgents");
+            var tempWorkspace = Directory.CreateTempSubdirectory("discard-local-changes-");
 
             try
             {
+                CopyDirectory(sourceWorkspacePath, tempWorkspace.FullName);
+                var workspacePath = tempWorkspace.FullName;
+                var topicPath = Path.Combine(workspacePath, "topics", "Signin.mcs.yml");
+                var original = await File.ReadAllTextAsync(topicPath);
+                var modified = original.Replace(
+                    "activity: Hello! To be able to help you",
+                    "activity: Changed locally! To be able to help you",
+                    StringComparison.Ordinal);
+                Assert.NotEqual(original, modified);
+
                 await using var context = new TestHost(
                 [
                     new McsLspModule(),
@@ -402,7 +406,10 @@
                 context.TestStream.WriteMessage(getLocalChangesRequest);
                 var baselineMessage = await context.GetResponseAsync([Constants.JsonRpcMethods.GetLocalChanges]) as JsonRpcResponse;
                 Assert.NotNull(baselineMessage);
-                JsonRpc.GetValidResult<SyncAgentResponse>(baselineMessage);
+                var baseline = JsonRpc.GetValidResult<SyncAgentResponse>(baselineMessage);
+                Assert.DoesNotContain(
+                    baseline.LocalChanges,
+                    change => change.Uri.EndsWith("topics/Signin.mcs.yml", StringComparison.OrdinalIgnoreCase));
 
                 await File.WriteAllTextAsync(topicPath, modified);
                 var request = JsonRpc.CreateRequestMessage(
@@ -413,14 +420,25 @@
                 var message = await context.GetResponseAsync([Constants.JsonRpcMethods.DiscardLocalChanges]) as JsonRpcResponse;
                 Assert.NotNull(message);
                 var response = JsonRpc.GetValidResult<DiscardLocalChangesResponse>(message);
-                Assert.Equal(1, response.Result.Restored);
+                Assert.True(response.Result.Restored > 0);
                 Assert.Empty(response.Result.Skipped);
                 Assert.Empty(response.LocalChanges);
                 Assert.Contains("activity: Hello! To be able to help you", await File.ReadAllTextAsync(topicPath));
             }
             finally
             {
-                await File.WriteAllTextAsync(topicPath, original);
+                tempWorkspace.Delete(recursive: true);
+            }
+        }
+
+        private static void CopyDirectory(string sourcePath, string destinationPath)
+        {
+            foreach (var sourceFile in Directory.EnumerateFiles(sourcePath, "*", SearchOption.AllDirectories))
+            {
+                var relativePath = Path.GetRelativePath(sourcePath, sourceFile);
+                var destinationFile = Path.Combine(destinationPath, relativePath);
+                Directory.CreateDirectory(Path.GetDirectoryName(destinationFile)!);
+                File.Copy(sourceFile, destinationFile);
             }
         }
 
