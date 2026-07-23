@@ -80,7 +80,8 @@ export const getDiagnosticsErrors = async (workspace: CopilotStudioWorkspace) =>
       const document = await VSworkspace.openTextDocument(fileUri);
       openedDocuments.push(document);
     } catch (error) {
-      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, { message: `Error opening file <pii>${fileUri.fsPath}</pii>: ${(error as Error).message}` });
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, { message: `Error opening file <pii>${fileUri.fsPath}</pii>: <pii>${errorMessage}</pii>` });
     }
   }
 
@@ -227,7 +228,8 @@ const registerSyncCommand = (
       if (workspaceForCatch && await handleSyncAuthError(workspaceForCatch, error, async () => { await commands.executeCommand(id, workspaceForCatch); })) {
         return;
       }
-      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Failed to execute ${displayName} operation: ${(error as Error).message}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Failed to execute ${displayName} operation: <pii>${errorMessage}</pii>`);
     }
   });
 

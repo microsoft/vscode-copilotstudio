@@ -37,7 +37,8 @@ async function retrieveLastSyncedFile(uri: Uri): Promise<string | null> {
     const result = await lspClient.sendRequest<GetFileResponse>(LspMethods.GET_CACHED_FILE, request);
     return result.content;
   } catch (error) {
-    logger.logError(TelemetryEventsKeys.GetLocalFileError, `Error retrieving file: ${(error as Error).message}`);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.logError(TelemetryEventsKeys.GetLocalFileError, `Error retrieving file: <pii>${errorMessage}</pii>`);
     return null;
   }
 }

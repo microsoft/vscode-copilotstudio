@@ -51,7 +51,8 @@ async function getRemoteFileContent(uri: Uri): Promise<string | null> {
     const result = await lspClient.sendRequest<GetFileResponse>(LspMethods.GET_REMOTE_FILE, request);
     return result.content;
   } catch (error) {
-    logger.logError(TelemetryEventsKeys.GetRemoteFileError, `Error fetching file: ${(error as Error).message}`);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.logError(TelemetryEventsKeys.GetRemoteFileError, `Error fetching file: <pii>${errorMessage}</pii>`);
     return null;
   }
 }

@@ -75,7 +75,7 @@ export function onWorkspaceChange(uri: string): void {
         .then(() => refreshAgentChangesTree())
         .catch(err => {
           logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-            message: `onLocalChange failed: ${(err as Error).message}`
+            message: `onLocalChange failed: <pii>${err instanceof Error ? err.message : String(err)}</pii>`
           });
         });
       return;
@@ -163,7 +163,7 @@ export async function refreshWorkspaces(workspaces: CopilotStudioWorkspace[], co
       if (r.status === 'rejected') {
         const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
         logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-          message: `Workspace setup failed: ${reason}`
+          message: `Workspace setup failed: <pii>${reason}</pii>`
         });
       }
     }
@@ -340,7 +340,7 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
         setLocalChanges(generalChanges);
       } catch (e) {
         logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-          message: `onLocalChangeError: ${e instanceof Error ? e.message : String(e)}`
+          message: `onLocalChangeError: <pii>${e instanceof Error ? e.message : String(e)}</pii>`
         });
         throw e;
       }
@@ -371,7 +371,7 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
         } catch (e) {
           if (remoteHadSuccess) {
             logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-              message: `onRemoteChangeErrorAfterSuccess: ${e instanceof Error ? e.message : String(e)}`
+              message: `onRemoteChangeErrorAfterSuccess: <pii>${e instanceof Error ? e.message : String(e)}</pii>`
             });
           }
           // Swallow to avoid aborting setup; remote can retry later.
@@ -434,7 +434,7 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
   return result;
   } catch (e) {
     logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-      message: `setupChangeTrackingRejected: ${e instanceof Error ? e.message : String(e)}`
+      message: `setupChangeTrackingRejected: <pii>${e instanceof Error ? e.message : String(e)}</pii>`
     });
     // Dispose any partially created resources
     try {

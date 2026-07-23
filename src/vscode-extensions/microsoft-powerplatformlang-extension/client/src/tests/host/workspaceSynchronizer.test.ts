@@ -1,6 +1,7 @@
 import * as assert from 'node:assert';
 import { describe, test } from 'node:test';
 import {
+	createSyncSuccessLog,
 	getActiveSyncUri,
 	getSyncStateFor,
 	logWorkflowIssues,
@@ -8,8 +9,37 @@ import {
 	SyncState,
 	withSyncCommandBusy,
 } from '../../sync/workspaceSynchronizer';
-import logger from '../../services/logger';
+import logger, { prepareLogData } from '../../services/logger';
 import type { WorkflowResponse } from '../../types';
+
+describe('workspaceSynchronizer: sync success telemetry', () => {
+
+	test('keeps the agent name visible while redacting it from telemetry', () => {
+		const successLog = createSyncSuccessLog('Contoso Support', 'applying changes', 42);
+		const prepared = prepareLogData(successLog.message, {
+			sessionId: 'test-session',
+			agent: successLog.data.agent,
+			operation: successLog.data.operation,
+		});
+
+		assert.strictEqual(prepared.displayMessage, 'Completed applying changes for Contoso Support in 42ms');
+		assert.strictEqual(prepared.telemetryProperties.message, 'Completed applying changes for [REDACTED] in 42ms');
+		assert.strictEqual(prepared.telemetryProperties.agent, '[REDACTED]');
+		assert.strictEqual(prepared.telemetryProperties.operation, 'applying changes');
+	});
+
+	test('redacts multiline sensitive values without changing display text', () => {
+		const message = 'Sync failed: <pii>Agent Contoso\nC:\\agents\\contoso</pii>';
+		const prepared = prepareLogData(message, {
+			sessionId: 'test-session',
+			error: '<pii>Agent Contoso\nC:\\agents\\contoso</pii>',
+		});
+
+		assert.strictEqual(prepared.displayMessage, 'Sync failed: Agent Contoso\nC:\\agents\\contoso');
+		assert.strictEqual(prepared.telemetryProperties.message, 'Sync failed: [REDACTED]');
+		assert.strictEqual(prepared.telemetryProperties.error, '[REDACTED]');
+	});
+});
 
 /**
  * Tests for the command-level busy tracking exposed by workspaceSynchronizer.

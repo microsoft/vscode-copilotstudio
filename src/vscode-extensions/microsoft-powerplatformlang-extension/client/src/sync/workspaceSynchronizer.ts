@@ -84,6 +84,21 @@ interface SyncStateListener {
   (state: SyncState): void | Promise<void>;
 }
 
+export function createSyncSuccessLog(agentName: string, operation: string, durationMs: number): {
+  message: string;
+  data: { agent: string; operation: string; durationMs: number };
+} {
+  const protectedAgentName = `<pii>${agentName}</pii>`;
+  return {
+    message: `Completed ${operation} for ${protectedAgentName} in ${durationMs}ms`,
+    data: {
+      agent: protectedAgentName,
+      operation,
+      durationMs,
+    },
+  };
+}
+
 export function getOrAddSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
   const uri = ws.workspaceUri.toString();
   if (map.has(uri)) {
@@ -109,7 +124,7 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
     for (const result of results) {
       if (result.status === 'rejected') {
         logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-          message: `syncStateListenerError: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`
+          message: `syncStateListenerError: <pii>${result.reason instanceof Error ? result.reason.message : String(result.reason)}</pii>`
         });
       }
     }
@@ -210,29 +225,28 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
     const durationMs = Date.now() - startTime;
     const workflowErrorsFound = logWorkflowIssues(result.workflowResponse, suppressDisabledWorkflowWarnings);
     if (!workflowErrorsFound) {
-      logger.logInfo(TelemetryEventsKeys.SyncWorkspaceSuccess, `Completed ${displayText} for ${workspace.displayName} in ${durationMs}ms`, {
-        agent: workspace.displayName,
-        operation: displayText,
-        durationMs,
-      });
+      const successLog = createSyncSuccessLog(workspace.displayName, displayText, durationMs);
+      logger.logInfo(TelemetryEventsKeys.SyncWorkspaceSuccess, successLog.message, successLog.data);
     }
     logAIPromptIssues(result.aiPromptResponse);
     return result;
   } catch (error) {
-    if (retryOnUserNotMember && (error as Error).message?.includes("UserNotMemberOfOrg")) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (retryOnUserNotMember && errorMessage.includes("UserNotMemberOfOrg")) {
       logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Your current account does not have permission. Please sign in with the account <pii>(${accountInfo.accountEmail ?? accountInfo.accountId})</pii> to perform this operation.`);
       try {
         resetAccount();
         return await sync(workspace, displayText, methodName, silent, suppressErrorNotification, suppressDisabledWorkflowWarnings, draftConnectionReferenceWorkflows, false);
       } catch (error) {
-        logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Re-authentication failed: ${(error as Error).message}`);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Re-authentication failed: <pii>${errorMessage}</pii>`);
         throw error;
       }
     } else if (suppressErrorNotification) {
-      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, { message: `Error ${displayText}: <pii>${(error as Error).message}</pii>` });
+      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, { message: `Error ${displayText}: <pii>${errorMessage}</pii>` });
       throw error;
     } else {
-      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Error ${displayText}: ${(error as Error).message}`);
+      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Error ${displayText}: <pii>${errorMessage}</pii>`);
       throw error;
     }
   }
@@ -282,7 +296,7 @@ export function logAIPromptIssues(prompts: AIPromptResponse[] | undefined) {
   if (failed.length > 0) {
     logger.logError(
       TelemetryEventsKeys.SyncWorkspaceError,
-      `Failed to push AI Builder prompt(s): ${failed.join('; ')}`
+      `Failed to push AI Builder prompt(s): <pii>${failed.join('; ')}</pii>`
     );
   }
 }

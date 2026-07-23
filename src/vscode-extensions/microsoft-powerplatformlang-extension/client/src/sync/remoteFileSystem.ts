@@ -55,7 +55,8 @@ export class RemoteFileSystem implements FileSystemProvider {
             const result = await lspClient.sendRequest<GetFileResponse>(LspMethods.GET_REMOTE_FILE, request);
             return Buffer.from(result.content ?? '', 'utf8');
         } catch (error) {
-            logger.logError(TelemetryEventsKeys.GetRemoteFileError, `Error fetching file: ${(error as Error).message}`);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            logger.logError(TelemetryEventsKeys.GetRemoteFileError, `Error fetching file: <pii>${errorMessage}</pii>`);
             return new Uint8Array();
         }
     }

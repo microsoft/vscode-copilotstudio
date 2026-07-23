@@ -43,7 +43,8 @@ export class OriginalFileSystem implements FileSystemProvider {
 
             return Buffer.from(result.content ?? '', 'utf8');
         } catch (error) {
-            logger.logError(TelemetryEventsKeys.GetLocalFileError, `Error fetching file: ${(error as Error).message}`);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            logger.logError(TelemetryEventsKeys.GetLocalFileError, `Error fetching file: <pii>${errorMessage}</pii>`);
             return new Uint8Array();
         }
     }

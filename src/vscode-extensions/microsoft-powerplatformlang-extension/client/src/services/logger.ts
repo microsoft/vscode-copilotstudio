@@ -15,6 +15,32 @@ type TelemetryEventProps = {
  */
 type TelemetryEventData = Record<string, string | number | undefined>;
 
+const stripPiiTags = (value: string): string => value.replace(/<pii>(.*?)<\/pii>/gs, '$1');
+const redactPii = (value: string): string => value.replace(/<pii>.*?<\/pii>/gs, '[REDACTED]');
+
+export function prepareLogData(message: string | undefined, properties: TelemetryEventProperties): {
+  displayMessage: string | undefined;
+  telemetryProperties: Record<string, string>;
+} {
+  const displayMessage = message === undefined ? undefined : stripPiiTags(message);
+  const rawMessage = properties.message as string || message;
+  const telemetryProperties: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(properties)) {
+    if (typeof value === 'string') {
+      telemetryProperties[key] = redactPii(value);
+    } else if (value !== undefined) {
+      telemetryProperties[key] = String(value);
+    }
+  }
+
+  if (rawMessage) {
+    telemetryProperties.message = redactPii(rawMessage);
+  }
+
+  return { displayMessage, telemetryProperties };
+}
+
 const NOOP_REPORTER = {
   sendTelemetryEvent: () => { },
   sendTelemetryErrorEvent: () => { },
@@ -175,29 +201,7 @@ class Logger {
     data?: TelemetryEventData
   ) {
     const { properties, measurements } = this.parseData(logLevel, data);
-
-    // A clean version of the message for the user, with PII tags stripped out
-    const displayMessage = message?.replace(/<pii>(.*?)<\/pii>/g, '$1');
-
-    // The message for telemetry with potential PII tags
-    const rawMessage = properties?.message as string || message;
-
-    // Redact all string properties that contain <pii> tags before sending to telemetry
-    const redactedProperties: Record<string, string> = {};
-    if (properties) {
-      for (const [key, value] of Object.entries(properties)) {
-        if (typeof value === 'string') {
-          redactedProperties[key] = value.replace(/<pii>.*?<\/pii>/g, '[REDACTED]');
-        } else if (value !== undefined) {
-          redactedProperties[key] = String(value);
-        }
-      }
-    }
-    // Ensure the message property uses the raw message source for redaction
-    const redactedMessage = rawMessage?.replace(/<pii>.*?<\/pii>/g, '[REDACTED]');
-    const updatedProperties = redactedMessage
-      ? { ...redactedProperties, message: redactedMessage }
-      : redactedProperties;
+    const { displayMessage, telemetryProperties } = prepareLogData(message, properties);
 
     const canSendTelemetry = isTelemetryEnabled();
     this.writeToOutputChannel(logLevel, eventName, displayMessage, properties);
@@ -205,7 +209,7 @@ class Logger {
     switch (logLevel) {
       case LogLevel.Info:
         if (canSendTelemetry) {
-          this.reporter.sendTelemetryEvent(eventName, updatedProperties, measurements);
+          this.reporter.sendTelemetryEvent(eventName, telemetryProperties, measurements);
         }
         if (displayMessage) {
           vscode.window.showInformationMessage(displayMessage);
@@ -213,7 +217,7 @@ class Logger {
         break;
       case LogLevel.Warning:
         if (canSendTelemetry) {
-          this.reporter.sendTelemetryErrorEvent(eventName, updatedProperties, measurements);
+          this.reporter.sendTelemetryErrorEvent(eventName, telemetryProperties, measurements);
         }
         if (displayMessage) {
           vscode.window.showWarningMessage(displayMessage);
@@ -221,7 +225,7 @@ class Logger {
         break;
       case LogLevel.Error:
         if (canSendTelemetry) {
-          this.reporter.sendTelemetryErrorEvent(eventName, updatedProperties, measurements);
+          this.reporter.sendTelemetryErrorEvent(eventName, telemetryProperties, measurements);
         }
         if (displayMessage) {
           vscode.window.showErrorMessage(displayMessage);
@@ -294,7 +298,8 @@ class Logger {
 
     const category = eventCategoryMap[eventName];
 
-    const mainMessage = displayMessage ?? (properties?.['message'] as string | undefined)?.replace(/<pii>(.*?)<\/pii>/g, '$1');
+    const propertyMessage = properties?.['message'] as string | undefined;
+    const mainMessage = displayMessage ?? (propertyMessage ? stripPiiTags(propertyMessage) : undefined);
     if (!mainMessage) {
       return;
     }
