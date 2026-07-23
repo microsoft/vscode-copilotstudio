@@ -87,6 +87,7 @@
             services.AddSingleton<IMethodHandler, CloneAgentHandler>();
             services.AddSingleton<IMethodHandler, SyncPushHandler>();
             services.AddSingleton<IMethodHandler, SyncPullHandler>();
+            services.AddSingleton<IMethodHandler, DiscardLocalChangesHandler>();
             services.AddSingleton<IMethodHandler, GetLocalChangeHandler>();
             services.AddSingleton<IMethodHandler, GetRemoteChangeHandler>();
             services.AddSingleton<IMethodHandler, GetRemoteFileHandler>();

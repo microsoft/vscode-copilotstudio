@@ -275,28 +275,9 @@
             TestLogger logs;
             var workspacePath = Path.GetFullPath("TestData/WorkspaceWithSubAgents");
             var iconPath = Path.Combine(workspacePath, "icon.png");
-            var diffLocalRequest = new DiffLocalRequest
+            var diffLocalRequest = new
             {
                 WorkspaceUri = new Uri(workspacePath),
-                AccountInfo = new AccountInfo
-                {
-                    AccountId = AccountId,
-                    TenantId = Guid.NewGuid(),
-                    AccountEmail = AccountEmail
-                },
-                EnvironmentInfo = new EnvironmentInfo
-                {
-                    DataverseUrl = DataverseUrl,
-                    AgentManagementUrl = AgentManagementUrl,
-                    EnvironmentId = EnvironmentId,
-                    DisplayName = "Test Environment"
-                },
-                SolutionVersions = new SolutionInfo
-                {
-                    CopilotStudioSolutionVersion = new Version(1, 0, 0, 0)
-                },
-                CopilotStudioAccessToken = CopilotStudioToken,
-                DataverseAccessToken = DataverseToken
             };
             var getLocalChangesMessage = JsonRpc.CreateRequestMessage(Constants.JsonRpcMethods.GetLocalChanges, diffLocalRequest);
 
@@ -392,6 +373,55 @@
 
             // request completed without error
             Assert.Empty(logs.Error);
+        }
+
+        [Fact]
+        public async Task DiscardLocalChanges_RestoresCachedTopicWithoutRemoteCredentials()
+        {
+            var workspacePath = Path.GetFullPath("TestData/WorkspaceWithSubAgents");
+            var topicPath = Path.Combine(workspacePath, "topics", "Signin.mcs.yml");
+            var original = await File.ReadAllTextAsync(topicPath);
+            var modified = original.Replace(
+                "activity: Hello! To be able to help you",
+                "activity: Changed locally! To be able to help you",
+                StringComparison.Ordinal);
+            Assert.NotEqual(original, modified);
+
+            try
+            {
+                await using var context = new TestHost(
+                [
+                    new McsLspModule(),
+                    new PullAgentLspModule(new BuildVersionInfo { VsixVersion = "1.0.0-test", Hash = "discard" }),
+                ]);
+                await context.InitializeLanguageServerAsync(workspacePath);
+
+                var getLocalChangesRequest = JsonRpc.CreateRequestMessage(
+                    Constants.JsonRpcMethods.GetLocalChanges,
+                    new DiffLocalRequest { WorkspaceUri = new Uri(workspacePath) });
+                context.TestStream.WriteMessage(getLocalChangesRequest);
+                var baselineMessage = await context.GetResponseAsync([Constants.JsonRpcMethods.GetLocalChanges]) as JsonRpcResponse;
+                Assert.NotNull(baselineMessage);
+                JsonRpc.GetValidResult<SyncAgentResponse>(baselineMessage);
+
+                await File.WriteAllTextAsync(topicPath, modified);
+                var request = JsonRpc.CreateRequestMessage(
+                    Constants.JsonRpcMethods.DiscardLocalChanges,
+                    new { WorkspaceUri = new Uri(workspacePath) });
+                context.TestStream.WriteMessage(request);
+
+                var message = await context.GetResponseAsync([Constants.JsonRpcMethods.DiscardLocalChanges]) as JsonRpcResponse;
+                Assert.NotNull(message);
+                var response = JsonRpc.GetValidResult<DiscardLocalChangesResponse>(message);
+                Assert.Equal(1, response.Result.Restored);
+                Assert.Empty(response.Result.Skipped);
+                Assert.Empty(response.LocalChanges);
+                Assert.Contains("activity: Hello! To be able to help you", await File.ReadAllTextAsync(topicPath));
+            }
+            finally
+            {
+                await File.WriteAllTextAsync(topicPath, original);
+            }
         }
 
         private async Task AssertDiagnosticsAsync(TestHost context, (string uriEnd, int count)[] expected)

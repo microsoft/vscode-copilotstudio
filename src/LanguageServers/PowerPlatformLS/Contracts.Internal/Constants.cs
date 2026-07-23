@@ -58,6 +58,7 @@ namespace Microsoft.PowerPlatformLS.Contracts.Internal
         public static class JsonRpcMethods
         {
             public const string AgentDirectoryChange = "powerplatformls/onAgentDirectoryChange";
+            public const string DiscardLocalChanges = "powerplatformls/discardLocalChanges";
             public const string GetLocalChanges = "powerplatformls/getLocalChanges";
         }
     }
