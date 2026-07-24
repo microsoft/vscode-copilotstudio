@@ -5,7 +5,7 @@ import { getWorkspaceChanges, replaceLocalChanges } from '../sync/workspaceScm';
 import { getActiveSyncUri, withSyncCommandBusy } from '../sync/workspaceSynchronizer';
 import { lspClient } from '../services/lspClient';
 import { LspMethods, TelemetryEventsKeys } from '../constants';
-import { Change, DiscardLocalChangesResponse, DiscardResult } from '../types';
+import { Change, DiffRequest, DiscardLocalChangesResponse, DiscardResult, SyncResponse } from '../types';
 import logger from '../services/logger';
 
 /** Accepted invocation argument shapes (title bar passes nothing; tree/tests may pass a workspace). */
@@ -66,13 +66,16 @@ export const registerDiscardChangesCommand = (context: ExtensionContext) => {
         return;
       }
 
-      const localChanges = getWorkspaceChanges(selectedWorkspace.workspaceUri)?.localChanges ?? [];
-      if (localChanges.length === 0) {
+      // Recompute local changes from disk (credential-free) rather than trusting the
+      // Agent Changes tree cache, which can under-report while it catches up with disk
+      // (e.g. right after an initial local-diff failure). This keeps the pre-flight
+      // gate and confirmation count consistent with the disk-based discard below.
+      const count = await getLocalChangeCount(selectedWorkspace.workspaceUri);
+      if (count === 0) {
         void window.showInformationMessage(`No local changes to discard for "${selectedWorkspace.displayName}".`);
         return;
       }
 
-      const count = localChanges.length;
       const confirm = await window.showWarningMessage(
         `Discard ${count} local change${count === 1 ? '' : 's'} for "${selectedWorkspace.displayName}"?`,
         {
@@ -88,8 +91,10 @@ export const registerDiscardChangesCommand = (context: ExtensionContext) => {
 
       let result: DiscardResult | undefined;
       let remainingChanges: Change[] = [];
-      // Hold the busy state for the whole operation so sync buttons stay disabled
-      // and a progress bar shows at the top of the Agent Changes view.
+      // withSyncCommandBusy holds the busy state for the whole operation so the sync
+      // buttons stay disabled and a progress bar shows at the top of the Agent Changes
+      // view. The inner withProgress raises a notification with a "please wait" message
+      // while the offline discard runs.
       await withSyncCommandBusy(selectedWorkspace.workspaceUri, async () => {
         await window.withProgress({
           location: ProgressLocation.Notification,
@@ -117,6 +122,27 @@ export const registerDiscardChangesCommand = (context: ExtensionContext) => {
 
   context.subscriptions.push(command);
 };
+
+/**
+ * Returns the current number of local changes for the workspace.
+ *
+ * Prefers a fresh, credential-free recomputation from disk via the language server so
+ * the pre-flight gate and confirmation count don't depend on the possibly-stale Agent
+ * Changes tree cache. Falls back to the cached tree state only if the LSP request fails
+ * so this never regresses below the previous behavior.
+ */
+async function getLocalChangeCount(workspaceUri: string): Promise<number> {
+  try {
+    const request: DiffRequest = { workspaceUri };
+    const response = await lspClient.sendRequest<SyncResponse>(LspMethods.GET_LOCAL_CHANGES, request);
+    return response.localChanges.length;
+  } catch (error) {
+    logger.logWarning(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
+      message: `Failed to recompute local changes for ${DISCARD_OPERATION.toLowerCase()}; falling back to cached tree state: ${error instanceof Error ? error.message : String(error)}`,
+    });
+    return getWorkspaceChanges(workspaceUri)?.localChanges.length ?? 0;
+  }
+}
 
 function reportResult(agentName: string, result: DiscardResult | undefined, remainingChanges: Change[]): void {
   if (!result) {
