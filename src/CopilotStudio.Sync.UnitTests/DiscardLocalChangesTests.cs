@@ -47,7 +47,7 @@ public class DiscardLocalChangesTests
     }
 
     [Fact]
-    public async Task ComponentCollectionDelete_RestoresOnlyDeletedReference()
+    public async Task ComponentCollectionDelete_WithoutBaseline_SkipsRestoreInsteadOfDegrading()
     {
         var (synchronizer, factory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath("c:/test/restore-reference/");
@@ -72,11 +72,16 @@ public class DiscardLocalChangesTests
             }
         ]);
 
+        // Without a .references-cache.yml baseline the original reference form cannot be
+        // recovered, so the deleted reference is skipped rather than silently restored as a
+        // (possibly incorrect) schema-only reference. Retained references are left untouched.
         var references = ReadText(accessor, "references.mcs.yml");
         Assert.Contains(existingSchema, references);
-        Assert.Contains(deletedSchema, references);
-        Assert.Equal(1, result.Restored);
-        Assert.Empty(result.Skipped);
+        Assert.DoesNotContain(deletedSchema, references);
+        Assert.Equal(0, result.Restored);
+        var skipped = Assert.Single(result.Skipped);
+        Assert.Equal(deletedSchema, skipped.SchemaName);
+        Assert.Equal("references.mcs.yml", skipped.Path);
     }
 
     [Fact]

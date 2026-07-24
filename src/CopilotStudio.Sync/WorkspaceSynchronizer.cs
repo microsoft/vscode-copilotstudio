@@ -4106,9 +4106,17 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             try
             {
-                RestoreComponentCollectionReferences(fileAccessor, workspaceFolder, referenceChanges);
-                restored += referenceChanges.Count(change => change.ChangeType != ChangeType.Create);
-                deleted += referenceChanges.Count(change => change.ChangeType == ChangeType.Create);
+                var skippedReferenceChanges = RestoreComponentCollectionReferences(fileAccessor, workspaceFolder, referenceChanges);
+                var skippedReferenceChangeSet = skippedReferenceChanges.ToHashSet();
+                foreach (var change in skippedReferenceChanges)
+                {
+                    skipped.Add(CreateDiscardSkippedChange(change, ComponentCollectionReferenceRestoreSkipReason));
+                }
+
+                restored += referenceChanges.Count(change =>
+                    change.ChangeType != ChangeType.Create && !skippedReferenceChangeSet.Contains(change));
+                deleted += referenceChanges.Count(change =>
+                    change.ChangeType == ChangeType.Create && !skippedReferenceChangeSet.Contains(change));
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
@@ -4226,7 +4234,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         => change.ChangeKind == nameof(BotComponentCollection)
             && string.Equals(change.Uri, ReferencesCollectionPath.ToString(), StringComparison.OrdinalIgnoreCase);
 
-    private void RestoreComponentCollectionReferences(
+    private const string ComponentCollectionReferenceRestoreSkipReason =
+        "component collection reference can only be restored with Get";
+
+    private IReadOnlyList<Change> RestoreComponentCollectionReferences(
         IFileAccessor fileAccessor,
         DirectoryPath workspaceFolder,
         IReadOnlyCollection<Change> changes)
@@ -4256,7 +4267,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 WriteReferenceItems(fileAccessor, baselineItems);
             }
 
-            return;
+            return [];
         }
 
         var createdSchemaNames = changes
@@ -4295,12 +4306,16 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 : TryReadReferencedCollectionSchemaName(workspaceFolder, item.Directory))
             .Where(schemaName => !string.IsNullOrWhiteSpace(schemaName))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        retainedItems.AddRange(
-            deletedSchemaNames
-                .Where(schemaName => !representedSchemaNames.Contains(schemaName))
-                .Select(schemaName => new ReferenceItemSourceFile(
-                    new BotComponentCollectionSchemaName(schemaName),
-                    string.Empty)));
+
+        // No reference baseline (.references-cache.yml) exists for this workspace, so the original
+        // directory linkage of a deleted directory-based reference cannot be recovered. Fabricating
+        // a schema-only reference would silently degrade the workspace: the LSP rejects a
+        // directory-less reference to a locally materialized collection, yet the recomputed local
+        // diff treats the schema-only declaration as satisfied and would falsely report the discard
+        // as successful. Skip these deletes so the caller reports them honestly; Get restores them.
+        var unrestorableDeletedSchemaNames = deletedSchemaNames
+            .Where(schemaName => !representedSchemaNames.Contains(schemaName))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         if (retainedItems.Count == 0)
         {
@@ -4310,6 +4325,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             WriteReferenceItems(fileAccessor, retainedItems);
         }
+
+        return changes
+            .Where(change => change.ChangeType == ChangeType.Delete
+                && unrestorableDeletedSchemaNames.Contains(change.SchemaName))
+            .ToList();
     }
 
     private static void RestoreCliConnectionReference(IFileAccessor fileAccessor, DefinitionBase cloudSnapshot, Change change)
