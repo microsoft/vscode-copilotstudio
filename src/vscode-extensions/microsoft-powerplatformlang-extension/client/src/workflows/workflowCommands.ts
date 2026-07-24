@@ -35,7 +35,8 @@ async function focusNode(args: FocusNodeArgs): Promise<void> {
   } catch (error) {
     logger.logError(
       TelemetryEventsKeys.WorkflowFocusNodeError,
-      `Failed to focus workflow node: <pii>${error instanceof Error ? error.message : String(error)}</pii>`,
+      'Failed to focus workflow node',
+      { error },
     );
   }
 }
@@ -171,9 +172,9 @@ async function editEmbeddedJson(args: EditEmbeddedJsonArgs): Promise<void> {
   } catch (error) {
     logger.logError(
       TelemetryEventsKeys.WorkflowEditEmbeddedJsonError,
-      `Failed to open embedded JSON editor: <pii>${error instanceof Error ? error.message : String(error)}</pii>`,
+      'Failed to open embedded JSON editor',
+      { error },
     );
-    void vscode.window.showErrorMessage(`Could not open embedded JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 

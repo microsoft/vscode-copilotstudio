@@ -2,7 +2,6 @@ import * as assert from 'node:assert';
 import { describe, test } from 'node:test';
 import {
 	createSyncSuccessLog,
-	formatReauthenticationError,
 	getActiveSyncUri,
 	getSyncStateFor,
 	logWorkflowIssues,
@@ -10,18 +9,30 @@ import {
 	SyncState,
 	withSyncCommandBusy,
 } from '../../sync/workspaceSynchronizer';
-import { formatOpenFileError } from '../../commands/syncWorkspace';
-import logger, { prepareLogData, sanitizeErrorDetails } from '../../services/logger';
+import logger, { formatFileName, prepareLogData, sanitizeErrorDetails } from '../../services/logger';
 import type { WorkflowResponse } from '../../types';
+
+import { ThemeIcon } from 'vscode';
+import { WorkspaceType, type CopilotStudioWorkspace } from '../../sync/localWorkspaces';
+
+function createMockWorkspace(agentName: string): CopilotStudioWorkspace {
+	return {
+		workspaceUri: 'file:///c%3A/tmp',
+		displayName: agentName,
+		description: '',
+		icon: new ThemeIcon('hubot'),
+		type: WorkspaceType.Agent,
+	};
+}
 
 describe('workspaceSynchronizer: sync success telemetry', () => {
 
 	test('keeps the agent name visible while redacting it from telemetry', () => {
-		const successLog = createSyncSuccessLog('Contoso Support', 'applying changes', 42);
+		const successLog = createSyncSuccessLog(createMockWorkspace('Contoso Support'), 'applying changes', 42);
 		const prepared = prepareLogData(successLog.message, {
 			sessionId: 'test-session',
-			agent: successLog.data.agent,
-			operation: successLog.data.operation,
+			agentId: successLog.data.agentId,
+			syncOperation: successLog.data.syncOperation,
 		});
 
 		assert.strictEqual(prepared.displayMessage, 'Completed applying changes for Contoso Support in 42ms');
@@ -32,10 +43,10 @@ describe('workspaceSynchronizer: sync success telemetry', () => {
 
 	test('does not allow PII values to close their redaction marker', () => {
 		const agentName = 'Contoso </pii> alice@contoso.com';
-		const successLog = createSyncSuccessLog(agentName, 'applying changes', 42);
+		const successLog = createSyncSuccessLog(createMockWorkspace(agentName), 'applying changes', 42);
 		const prepared = prepareLogData(successLog.message, {
 			sessionId: 'test-session',
-			agent: successLog.data.agent,
+			agentId: successLog.data.agentId,
 		});
 
 		assert.strictEqual(prepared.displayMessage, `Completed applying changes for ${agentName} in 42ms`);
@@ -47,7 +58,7 @@ describe('workspaceSynchronizer: sync success telemetry', () => {
 	});
 
 	test('identifies an MCS YAML file name while preserving a safe file error', () => {
-		const message = formatOpenFileError('C:\\agents\\contoso\\agent.mcs.yml', new Error('Access denied'));
+		const message = `Error opening file ${formatFileName('C:\\agents\\contoso\\agent.mcs.yml')}: ${sanitizeErrorDetails('Access denied')}`;
 		const prepared = prepareLogData(message, {
 			sessionId: 'test-session',
 			message,
@@ -64,10 +75,7 @@ describe('workspaceSynchronizer: sync success telemetry', () => {
 	});
 
 	test('preserves filesystem error details for the user while redacting unsafe qualifiers', () => {
-		const error = Object.assign(new Error('Access denied by policy Contoso-Restricted'), {
-			code: 'NoPermissions',
-		});
-		const message = formatOpenFileError('C:\\agents\\contoso\\agent.mcs.yml', error);
+		const message = `Error opening file ${formatFileName('C:\\agents\\contoso\\agent.mcs.yml')}: ${sanitizeErrorDetails('Access denied by policy Contoso-Restricted')}`;
 		const prepared = prepareLogData(message, { sessionId: 'test-session' });
 
 		assert.strictEqual(
@@ -81,11 +89,7 @@ describe('workspaceSynchronizer: sync success telemetry', () => {
 	});
 
 	test('preserves a file error reason while redacting its agent and MCS YAML file', () => {
-		const message = formatOpenFileError(
-			'C:\\agents\\contoso\\agent.mcs.yml',
-			new Error('Agent Contoso could not open C:\\agents\\contoso\\topic.mcs.yml'),
-			'Contoso',
-		);
+		const message = `Error opening file ${formatFileName('C:\\agents\\contoso\\agent.mcs.yml')}: ${sanitizeErrorDetails('Agent Contoso could not open C:\\agents\\contoso\\topic.mcs.yml', ['Contoso'])}`;
 		const prepared = prepareLogData(message, { sessionId: 'test-session' });
 
 		assert.strictEqual(
@@ -95,7 +99,7 @@ describe('workspaceSynchronizer: sync success telemetry', () => {
 	});
 
 	test('identifies an email address while preserving a safe rejection reason', () => {
-		const message = formatReauthenticationError(new Error('alex@contoso.com was rejected'));
+		const message = `Re-authentication failed: ${sanitizeErrorDetails('alex@contoso.com was rejected')}`;
 		const prepared = prepareLogData(message, { sessionId: 'test-session' });
 
 		assert.strictEqual(prepared.displayMessage, 'Re-authentication failed: alex@contoso.com was rejected');
@@ -106,10 +110,7 @@ describe('workspaceSynchronizer: sync success telemetry', () => {
 	});
 
 	test('preserves a re-authentication reason while redacting its PII', () => {
-		const message = formatReauthenticationError(
-			new Error('Agent Contoso could not open C:\\agents\\contoso\\agent.mcs.yml for alex@contoso.com'),
-			'Contoso',
-		);
+		const message = `Re-authentication failed: ${sanitizeErrorDetails('Agent Contoso could not open C:\\agents\\contoso\\agent.mcs.yml for alex@contoso.com', ['Contoso'])}`;
 		const prepared = prepareLogData(message, { sessionId: 'test-session' });
 
 		assert.strictEqual(

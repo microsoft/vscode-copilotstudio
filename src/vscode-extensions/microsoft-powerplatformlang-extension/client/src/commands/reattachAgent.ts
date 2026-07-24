@@ -53,8 +53,8 @@ const getDiagnosticsErrorMessage = async (workspaces: CopilotStudioWorkspace[], 
     const diagnostics = await getDiagnosticsErrors(workspace);
     if (diagnostics.count > 0) {
       return {
-        displayMessage: `Cannot ${operationName}: found ${diagnostics.count} error(s) in ${diagnostics.files} file(s) for ${workspace.displayName}. Fix the errors and try again.`,
-        telemetryMessage: `Cannot ${operationName}: found ${diagnostics.count} error(s) in ${diagnostics.files} file(s) for <pii>${workspace.displayName}</pii>. Fix the errors and try again.`
+        displayMessage: `Cannot ${operationName}: found ${diagnostics.count} error(s) in ${diagnostics.files} file(s) for '${workspace.displayName}'. Fix the errors and try again.`,
+        telemetryMessage: `Cannot ${operationName}: found ${diagnostics.count} error(s) in ${diagnostics.files} file(s) for <pii>'${workspace.displayName}'</pii>. Fix the errors and try again.`
       };
     }
   }
@@ -80,7 +80,11 @@ const runReattachForWorkspace = async (context: vscode.ExtensionContext, workspa
   }
 
   if (reattachResult.code !== 200) {
-    logger.logError(TelemetryEventsKeys.ReattachAgentError, `Reattach failed for <pii>${workspace.displayName}</pii>: <pii>${reattachResult.message ?? 'Unknown error'}</pii>`);
+    logger.logError(
+      TelemetryEventsKeys.ReattachAgentError,
+      `Reattach failed for '${workspace.displayName}'`,
+      { error: new Error(reattachResult.message ?? 'Unknown error') }
+    );
     return undefined;
   }
 
@@ -152,7 +156,7 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
         );
         quickPick.items = buildEnvironmentPickItems(envs, account);
       } catch (error: any) {
-        logger.logError(TelemetryEventsKeys.LoadEnvironmentError, `[Reattach] Failed to load environments: <pii>${error?.message || error}</pii>`);
+        logger.logError(TelemetryEventsKeys.LoadEnvironmentError, `[Reattach] Failed to load environments for <pii>${account.accountEmail ?? account.accountId}</pii>`, { error });
         quickPick.items = [];
       }
       quickPick.busy = false;
@@ -217,9 +221,10 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
       const targetEnvironmentName = pickedEnvironment.label || 'the selected environment';
       const reattachPlan = buildReattachPlan(currentWorkspace);
 
+
       if (reattachPlan.missingCollectionDirectories.length > 0) {
         void vscode.window.showErrorMessage(`Cannot retarget ${agentDisplayName}: referenced component collection workspace was not found.`);
-        logger.logWarning(TelemetryEventsKeys.ReattachAgentError, `Cannot retarget agent because referenced component collection workspace(s) were not found: <pii>${reattachPlan.missingCollectionDirectories.join(', ')}</pii>`);
+        logger.logWarning(TelemetryEventsKeys.ReattachAgentError, `Cannot retarget agent because ${reattachPlan.missingCollectionDirectories.length} referenced component collection workspace(s) were not found: <pii>${reattachPlan.missingCollectionDirectories.join(', ')}</pii>`);
         return;
       }
 
@@ -283,7 +288,7 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
                   try {
                     await finalizeRetargets(completedRetargets, false);
                   } catch (rollbackError) {
-                    logger.logError(TelemetryEventsKeys.ReattachAgentError, `Retarget rollback failed for one or more workspaces: <pii>${(rollbackError as Error).message}</pii>`);
+                    logger.logError(TelemetryEventsKeys.ReattachAgentError, 'Retarget rollback failed for one or more workspaces', { error: rollbackError });
                   }
                   return;
                 }
@@ -293,7 +298,7 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
               try {
                 await finalizeRetargets(completedRetargets, true);
               } catch (finalizeError) {
-                logger.logWarning(TelemetryEventsKeys.ReattachAgentInfo, `Retarget succeeded but clearing the retarget backup failed; the workspaces remain on the new environment: <pii>${(finalizeError as Error).message}</pii>`);
+                logger.logWarning(TelemetryEventsKeys.ReattachAgentInfo, 'Retarget succeeded but clearing the retarget backup failed; the workspaces remain on the new environment', { error: finalizeError });
               }
 
               const primaryResult = completedRetargets.find(result => result.workspace.workspaceUri === currentWorkspace.workspaceUri);
@@ -338,10 +343,10 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
                   await finalizeRetargets(completedRetargets, false);
                   void vscode.window.showErrorMessage(`Retargeting failed while uploading content. The workspaces were reverted to their previous environment. Please try again.`);
                 } catch (rollbackError) {
-                  logger.logError(TelemetryEventsKeys.ReattachAgentError, `Retarget failed and rollback to the previous environment failed: <pii>${(rollbackError as Error).message}</pii>`);
+                  logger.logError(TelemetryEventsKeys.ReattachAgentError, 'Retarget failed and rollback to the previous environment failed', { error: rollbackError });
                 }
               }
-              logger.logError(TelemetryEventsKeys.ReattachAgentError, `Error reattaching agent: <pii>${(error as Error).message}</pii>`);
+              logger.logError(TelemetryEventsKeys.ReattachAgentError, 'Error reattaching agent', { error });
             }
           });
         }

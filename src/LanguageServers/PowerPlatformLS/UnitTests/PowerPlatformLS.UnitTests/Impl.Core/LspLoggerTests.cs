@@ -95,7 +95,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
             _logger.LogEndContext("powerplatformls/syncPull", 17);
 
             var infoLog = Assert.Single(_testLogger.Info);
-            Assert.Contains("[Req: 19] Completed handler for: powerplatformls/syncPull, duration=17ms", infoLog);
+            Assert.Contains("[Req: 19] Completed handler for: powerplatformls/syncPull", infoLog);
+            Assert.DoesNotContain("duration=", infoLog);
         }
 
         [Fact]
@@ -105,8 +106,9 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
 
             _logger.LogEndContext("powerplatformls/syncPull", 42, HandlerOutcome.Failure);
 
-            var infoLog = Assert.Single(_testLogger.Info);
-            Assert.Contains("[Req: 19] Failed handler for: powerplatformls/syncPull, duration=42ms", infoLog);
+            var errorLog = Assert.Single(_testLogger.Error);
+            Assert.Contains("[Req: 19] Failed handler for: powerplatformls/syncPull", errorLog);
+            Assert.DoesNotContain("duration=", errorLog);
         }
 
         [Fact]
@@ -116,8 +118,9 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
 
             _logger.LogEndContext("powerplatformls/syncPull", 15, HandlerOutcome.Canceled);
 
-            var infoLog = Assert.Single(_testLogger.Info);
-            Assert.Contains("[Req: 21] Canceled handler for: powerplatformls/syncPull, duration=15ms", infoLog);
+            var warningLog = Assert.Single(_testLogger.Warning);
+            Assert.Contains("[Req: 21] Canceled handler for: powerplatformls/syncPull", warningLog);
+            Assert.DoesNotContain("duration=", warningLog);
         }
 
         [Theory]
@@ -181,63 +184,6 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
         }
 
         [Fact]
-        public void LogStartContext_Includes_Agent_Name_When_Provided()
-        {
-            var requestId = LspLogger.AllocateRequestId();
-            _logger.SetCurrentRequestId(requestId);
-
-            _logger.LogStartContext("powerplatformls/syncPull", "MCS Helper");
-
-            var infoLog = Assert.Single(_testLogger.Info);
-            Assert.Contains($"[Req: {requestId}] Started handler for: powerplatformls/syncPull, agent='MCS Helper'", infoLog);
-        }
-
-        [Fact]
-        public void LogEndContext_Includes_Agent_Name_And_Duration()
-        {
-            LspRequestContext.CurrentRequestId = 5;
-
-            _logger.LogEndContext("powerplatformls/getLocalChanges", 12, HandlerOutcome.Success, "MCS Helper");
-
-            var infoLog = Assert.Single(_testLogger.Info);
-            Assert.Contains("[Req: 5] Completed handler for: powerplatformls/getLocalChanges, agent='MCS Helper', duration=12ms", infoLog);
-        }
-
-        [Fact]
-        public void LogEndContext_Agent_Name_Without_Duration()
-        {
-            LspRequestContext.CurrentRequestId = 7;
-
-            _logger.LogEndContext("powerplatformls/cloneAgent", agentName: "Test Bot");
-
-            var infoLog = Assert.Single(_testLogger.Info);
-            Assert.Contains("[Req: 7] Completed handler for: powerplatformls/cloneAgent, agent='Test Bot'", infoLog);
-            Assert.DoesNotContain("duration=", infoLog);
-        }
-
-        [Fact]
-        public void LogEndContext_Failure_With_Agent_Name_Logs_Failed()
-        {
-            LspRequestContext.CurrentRequestId = 9;
-
-            _logger.LogEndContext("powerplatformls/syncPush", 100, HandlerOutcome.Failure, "My Agent");
-
-            var infoLog = Assert.Single(_testLogger.Info);
-            Assert.Contains("Failed handler for: powerplatformls/syncPush, agent='My Agent', duration=100ms", infoLog);
-        }
-
-        [Fact]
-        public void LogEndContext_Canceled_With_Agent_Name_Logs_Canceled()
-        {
-            LspRequestContext.CurrentRequestId = 10;
-
-            _logger.LogEndContext("powerplatformls/getRemoteChanges", 50, HandlerOutcome.Canceled, "Bot X");
-
-            var infoLog = Assert.Single(_testLogger.Info);
-            Assert.Contains("Canceled handler for: powerplatformls/getRemoteChanges, agent='Bot X', duration=50ms", infoLog);
-        }
-
-        [Fact]
         public void LogSensitiveInformation_Logs_Full_Message_For_TestLogger()
         {
             _logger.LogSensitiveInformation("Valid agent: 'c:/Users/john/agents/MyBot/'", "Valid agent: 'MyBot'");
@@ -290,6 +236,41 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
             var errorLog = Assert.Single(_testLogger.Error);
             Assert.DoesNotContain("[Req:", errorLog);
             Assert.Contains("no request context", errorLog);
+        }
+
+        [Fact]
+        public void LogEndContext_Logs_Without_Duration_When_Negative()
+        {
+            LspRequestContext.CurrentRequestId = 25;
+
+            _logger.LogEndContext("powerplatformls/syncPush");
+
+            var infoLog = Assert.Single(_testLogger.Info);
+            Assert.Contains("[Req: 25] Completed handler for: powerplatformls/syncPush", infoLog);
+        }
+
+        [Fact]
+        public void LogWarning_Includes_RequestId_When_Set()
+        {
+            LspRequestContext.CurrentRequestId = 13;
+
+            _logger.LogWarning("something concerning");
+
+            var warningLog = Assert.Single(_testLogger.Warning);
+            Assert.Contains("[Req: 13]", warningLog);
+            Assert.Contains("something concerning", warningLog);
+        }
+
+        [Fact]
+        public void LogException_Includes_RequestId_And_Exception()
+        {
+            LspRequestContext.CurrentRequestId = 14;
+
+            _logger.LogException(new InvalidOperationException("bad state"), "handler failed");
+
+            var errorLog = Assert.Single(_testLogger.Error);
+            Assert.Contains("[Req: 14]", errorLog);
+            Assert.Contains("handler failed", errorLog);
         }
     }
 }

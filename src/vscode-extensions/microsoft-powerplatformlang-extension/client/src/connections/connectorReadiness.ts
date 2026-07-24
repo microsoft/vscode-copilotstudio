@@ -59,7 +59,8 @@ export const waitForCustomConnectorReady = async (
     } catch (error) {
       logger.logInfo(
         TelemetryEventsKeys.ConnectionCreationInfo,
-        `Custom connector readiness check failed for <pii>${target}</pii>: ${(error as Error).message}`
+        `Custom connector readiness check failed for <pii>${target}</pii>`,
+        { error }
       );
     }
 

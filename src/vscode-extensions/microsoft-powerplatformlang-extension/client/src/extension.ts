@@ -42,7 +42,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Logger includes the sessionId and shows a message in the VS Code UI.
   logger.initialize(context, sessionId);
-  logger.logInfo(TelemetryEventsKeys.CopilotStudioStart, undefined, { message: 'Copilot Studio Extension is starting', isDebugMode: isDebugging.toString() });
+  logger.logInfo(TelemetryEventsKeys.CopilotStudioStart, undefined, { message: 'Copilot Studio Extension is starting' });
 
   // Register commands and features that do not depend on the LSP client
   registerSignInCommand(context);
@@ -95,9 +95,10 @@ export async function activate(context: vscode.ExtensionContext) {
   // after the workspace has been added to the window.
   // This is a one-shot operation, so we just fire-and-forget here.
   void maybeOpenFileFromPostOpen(context)
-    .catch(err => {
+    .catch(error => {
       logger.logWarning(TelemetryEventsKeys.PostOpenError, undefined, {
-        message: `Post-open file logic failed: ${(err as Error).message}`,
+        message: 'Post-open file logic failed',
+        error,
       });
     });
 

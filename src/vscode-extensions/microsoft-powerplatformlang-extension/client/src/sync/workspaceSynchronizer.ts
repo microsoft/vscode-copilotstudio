@@ -8,7 +8,7 @@ import { knowledgeTreeDataProvider } from '../knowledgeFiles/knowledgeFileTree';
 import { LspMethods, TelemetryEventsKeys } from '../constants';
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import { replaceLocalChanges } from './workspaceScm';
-import logger, { formatPii, PiiRedactionType, sanitizeErrorDetails } from '../services/logger';
+import logger, { formatPii, PiiRedactionType } from '../services/logger';
 
 let treeDataProvider: knowledgeTreeDataProvider | undefined;
 
@@ -85,21 +85,18 @@ interface SyncStateListener {
   (state: SyncState): void | Promise<void>;
 }
 
-export function formatReauthenticationError(error: unknown, agentName?: string): string {
-  const errorMessage = error instanceof Error ? error.message : String(error);
-  return `Re-authentication failed: ${sanitizeErrorDetails(errorMessage, agentName ? [agentName] : [])}`;
-}
 
-export function createSyncSuccessLog(agentName: string, operation: string, durationMs: number): {
+export function createSyncSuccessLog(workspace: CopilotStudioWorkspace, syncOperation: string, durationMs: number): {
   message: string;
-  data: { agent: string; operation: string; durationMs: number };
+  data: { agentId: string; environmentId: string; syncOperation: string; durationMs: number };
 } {
-  const protectedAgentName = formatPii(agentName, PiiRedactionType.AgentName);
+  const protectedAgentName = formatPii(workspace.displayName, PiiRedactionType.AgentName);
   return {
-    message: `Completed ${operation} for ${protectedAgentName} in ${durationMs}ms`,
+    message: `Completed ${syncOperation} for ${protectedAgentName}`,
     data: {
-      agent: protectedAgentName,
-      operation,
+      agentId: workspace.syncInfo?.agentId ?? '',
+      environmentId: workspace.syncInfo?.environmentId ?? '',
+      syncOperation,
       durationMs,
     },
   };
@@ -130,7 +127,8 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
     for (const result of results) {
       if (result.status === 'rejected') {
         logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-          message: `syncStateListenerError: ${sanitizeErrorDetails(result.reason instanceof Error ? result.reason.message : String(result.reason), [ws.displayName])}`
+          message: 'syncStateListener failed',
+          error: result.reason,
         });
       }
     }
@@ -233,7 +231,7 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
     const durationMs = Date.now() - startTime;
     const workflowErrorsFound = logWorkflowIssues(result.workflowResponse, suppressDisabledWorkflowWarnings);
     if (!workflowErrorsFound) {
-      const successLog = createSyncSuccessLog(workspace.displayName, displayText, durationMs);
+      const successLog = createSyncSuccessLog(workspace, displayText, durationMs);
       logger.logInfo(TelemetryEventsKeys.SyncWorkspaceSuccess, successLog.message, successLog.data);
     }
     logAIPromptIssues(result.aiPromptResponse);
@@ -250,19 +248,14 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
         resetAccount();
         return await sync(workspace, displayText, methodName, silent, suppressErrorNotification, suppressDisabledWorkflowWarnings, draftConnectionReferenceWorkflows, false);
       } catch (error) {
-        logger.logError(TelemetryEventsKeys.SyncWorkspaceError, formatReauthenticationError(error, workspace.displayName));
+        logger.logError(TelemetryEventsKeys.SyncWorkspaceError, 'Re-authentication failed', { error });
         throw error;
       }
     } else if (suppressErrorNotification) {
-      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-        message: `Error ${displayText}: ${sanitizeErrorDetails(errorMessage, [workspace.displayName])}`,
-      });
+      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, { message: `Error ${displayText}`, error });
       throw error;
     } else {
-      logger.logError(
-        TelemetryEventsKeys.SyncWorkspaceError,
-        `Error ${displayText}: ${sanitizeErrorDetails(errorMessage, [workspace.displayName])}`,
-      );
+      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Error ${displayText}`, { error });
       throw error;
     }
   }

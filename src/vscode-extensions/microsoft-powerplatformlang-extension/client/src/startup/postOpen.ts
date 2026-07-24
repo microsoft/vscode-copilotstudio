@@ -62,11 +62,11 @@ export async function maybeOpenFileFromPostOpen(context: vscode.ExtensionContext
             await vscode.workspace.fs.stat(target);
             const doc = await vscode.workspace.openTextDocument(target);
             await vscode.window.showTextDocument(doc, { preview: false });
-        } catch (err) {
+        } catch (error) {
             // While postOpen is best-effort, we do want to log failures to open the identified file.
             logger.logError(TelemetryEventsKeys.PostOpenError, undefined, {
                 message: 'Failed to auto-open agent file after clone',
-                error: err instanceof Error ? err.message : String(err)
+                error,
             });
         }
     } finally {

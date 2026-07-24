@@ -142,9 +142,9 @@ class LspClientService {
           try {
             next(uri, diagnostics);
           } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
             logger.logError(TelemetryEventsKeys.LanguageServerError, undefined, {
-              message: `Diagnostics error: ${sanitizeErrorDetails(errorMessage)}`,
+              message: 'Diagnostics error',
+              error,
             });
             throw error;
           }
@@ -153,7 +153,7 @@ class LspClientService {
           const method = typeof type === 'string' ? type : type.method;
           const isCustom = !isBuiltInLspMethod(method);
           // Using :: instead of / so it is not flagged as PII in telemetry.
-          const telemetryMethod = method.replace(/[./\\]/g, "::");
+          const lspMethod = method.replace(/[./\\]/g, "::");
 
           if (isCustom) {
             logger.logTrace('LSP', `Sending notification: ${method}`);
@@ -163,13 +163,15 @@ class LspClientService {
             await next(type, params);
             if (isCustom) {
               logger.logInfo(TelemetryEventsKeys.LanguageServerInfo, undefined, {
-                message: `Notification completed: ${telemetryMethod}`,
+                message: `Notification completed: ${lspMethod}`,
+                lspMethod,
               });
             }
           } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
             logger.logError(TelemetryEventsKeys.LanguageServerError, undefined, {
-              message: `Notification ${telemetryMethod} failed: ${sanitizeErrorDetails(errorMessage)}`,
+              message: `Notification failed: ${lspMethod}`,
+              lspMethod,
+              error,
             });
             throw error;
           }
@@ -178,28 +180,35 @@ class LspClientService {
           const method = typeof type === 'string' ? type : type.method;
           const isCustom = !isBuiltInLspMethod(method);
           // Using :: instead of / so it is not flagged as PII in telemetry.
-          const telemetryMethod = method.replace(/[./\\]/g, "::");
+          const lspMethod = method.replace(/[./\\]/g, "::");
 
           if (isCustom) {
             logger.logTrace('LSP', `Sending request: ${method}`);
           }
 
+          const startTime = Date.now();
           try {
             const result = await next(type, param, token);
+            const durationMs = Date.now() - startTime;
             if (result && typeof result === 'object' && 'code' in result && (result as any).code !== 200) {
-              throw new Error((result as any).message ?? `Request ${method} failed with code ${(result as any).code}`);
+              throw new Error((result as any).message ?? `Request failed with code ${(result as any).code}`);
             } else {
               if (isCustom) {
                 logger.logInfo(TelemetryEventsKeys.LanguageServerInfo, undefined, {
-                  message: `Request completed: ${telemetryMethod}`,
+                  message: `Request completed: ${lspMethod}`,
+                  lspMethod,
+                  durationMs,
                 });
               }
               return result;
             }
           } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
+            const durationMs = Date.now() - startTime;
             logger.logError(TelemetryEventsKeys.LanguageServerError, undefined, {
-              message: `Request ${telemetryMethod} failed: ${sanitizeErrorDetails(errorMessage)}`
+              message: `Request failed: ${lspMethod}`,
+              lspMethod,
+              durationMs,
+              error,
             });
             throw error;
           }
@@ -268,11 +277,7 @@ class LspClientService {
 
       context.subscriptions.push(this._client);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.logError(
-        TelemetryEventsKeys.LanguageServerError,
-        `Copilot Studio Language Server failed to start: ${sanitizeErrorDetails(errorMessage)}`,
-      );
+      logger.logError(TelemetryEventsKeys.LanguageServerError, 'Copilot Studio Language Server failed to start', { error });
       throw error;
     }
   }

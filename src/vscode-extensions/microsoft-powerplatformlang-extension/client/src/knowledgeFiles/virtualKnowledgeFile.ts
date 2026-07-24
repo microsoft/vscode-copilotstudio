@@ -66,10 +66,10 @@ export async function initializeVirtualKnowledgeTree(context: vscode.ExtensionCo
             virtualTreeProvider?.refresh();
           });
           const durationMs = Date.now() - startTime;
-          logger.logInfo(TelemetryEventsKeys.RefreshKnowledgeFilesSuccess, undefined, { message: `Knowledge files refreshed in ${durationMs}ms`, durationMs });
-        } catch (e: any) {
+          logger.logInfo(TelemetryEventsKeys.RefreshKnowledgeFilesSuccess, undefined, { message: `Knowledge files refreshed`, durationMs });
+        } catch (error) {
           const durationMs = Date.now() - startTime;
-          logger.logError(TelemetryEventsKeys.RefreshKnowledgeFilesError, undefined, { message: `Failed to refresh knowledge files after ${durationMs}ms`, error: e?.message || String(e), durationMs });
+          logger.logError(TelemetryEventsKeys.RefreshKnowledgeFilesError, undefined, { message: `Failed to refresh knowledge files`, durationMs, error });
         }
       }),
       vscode.commands.registerCommand('microsoft-copilot-studio.downloadAllKnowledgeFiles', async () => {
@@ -85,10 +85,10 @@ export async function initializeVirtualKnowledgeTree(context: vscode.ExtensionCo
             }
           });
           const durationMs = Date.now() - startTime;
-          logger.logInfo(TelemetryEventsKeys.DownloadKnowledgeFileSuccess, undefined, { message: `Knowledge files downloaded in ${durationMs}ms`, durationMs });
-        } catch (e: any) {
+          logger.logInfo(TelemetryEventsKeys.DownloadKnowledgeFileSuccess, undefined, { message: `Knowledge files downloaded`, durationMs });
+        } catch (error) {
           const durationMs = Date.now() - startTime;
-          logger.logError(TelemetryEventsKeys.DownloadKnowledgeFileError, undefined, { message: `Failed to download knowledge files after ${durationMs}ms`, error: e?.message || String(e), durationMs });
+          logger.logError(TelemetryEventsKeys.DownloadKnowledgeFileError, undefined, { message: `Failed to download knowledge files`, durationMs, error });
         }
       })
     );
@@ -175,9 +175,9 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
     for (const ws of this.workspaces) {
       try {
         await this.refreshWorkspace(ws);
-      } catch (err) {
-        if (!(err instanceof AuthError)) {
-          logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `Failed to refresh workspace <pii>${ws.workspaceUri.toString()}</pii>: ${err}`);
+      } catch (error) {
+        if (!(error instanceof AuthError)) {
+          logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `Failed to refresh workspace for '${ws.displayName}'`, { error });
         }
       }
     }
@@ -195,8 +195,8 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
     for (const ws of this.workspaces) {
       try {
         await this.downloadWorkspaceFiles(ws);
-      } catch (err) {
-        logger.logError(TelemetryEventsKeys.DownloadKnowledgeFileError, `Failed to download knowledge files for <pii>${ws.workspaceUri.toString()}</pii>: ${err}`);
+      } catch (error) {
+        logger.logError(TelemetryEventsKeys.DownloadKnowledgeFileError, `Failed to download knowledge files for '${ws.displayName}'`, { error });
       }
     }
   }
@@ -313,8 +313,8 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
 
     try {
       await this.downloadWorkspaceFiles(component.ws, [component.schema], this._shutdownCts.token);
-    } catch (err) {
-      logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `Failed to download <pii>${component.fileName}</pii>: ${err}`);
+    } catch (error) {
+      logger.logError(TelemetryEventsKeys.VirtualKnowledgeFileError, `Failed to download <pii>${component.fileName}</pii>`, { error });
       throw vscode.FileSystemError.Unavailable();
     }
 

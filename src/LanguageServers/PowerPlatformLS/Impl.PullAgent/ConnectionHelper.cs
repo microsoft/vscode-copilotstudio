@@ -4,6 +4,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.CopilotStudio.McsCore;
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.CopilotStudio.Sync.Dataverse;
+    using Microsoft.PowerPlatformLS.Contracts.FileLayout;
+    using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
     using System;
     using System.Collections.Immutable;
@@ -12,12 +14,53 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
     internal static class ConnectionHelper
     {
-        public static void ApplyConnectionContext(IIslandControlPlaneService islandControlPlaneService, ITokenManager dataverseTokenManager, LspDataverseHttpClientAccessor dataverseHttpClientAccessor, ISyncDataverseClient dataverseClient, DataverseRequest request)
+        /// <summary>
+        /// Sets up Dataverse connection infrastructure and enriches ambient agent context.
+        /// Intentionally non-async — synchronous execution preserves AsyncLocal values
+        /// (which don't propagate back from awaited async methods).
+        /// </summary>
+#pragma warning disable VSTHRD200 // Intentionally non-async: synchronous execution preserves AsyncLocal values
+        public static Task ApplyConnectionContext(
+            IIslandControlPlaneService islandControlPlaneService,
+            ITokenManager dataverseTokenManager,
+            LspDataverseHttpClientAccessor dataverseHttpClientAccessor,
+            ISyncDataverseClient dataverseClient,
+            DataverseRequest request,
+            IWorkspaceSynchronizer synchronizer,
+            IMcsWorkspace? workspace = null,
+            AgentInfo? agentInfo = null)
         {
             islandControlPlaneService.SetConnectionContext(request.EnvironmentInfo.AgentManagementUrl, request.AccountInfo.ClusterCategory);
             dataverseTokenManager.SetTokens(request.DataverseAccessToken, request.CopilotStudioAccessToken);
             dataverseHttpClientAccessor.SetDataverseUrl(new Uri(request.EnvironmentInfo.DataverseUrl));
             dataverseClient.SetDataverseUrl(request.EnvironmentInfo.DataverseUrl);
+
+            return SetAgentContextAsync(request, synchronizer, workspace, agentInfo);
+        }
+#pragma warning restore VSTHRD200
+
+        /// <summary>
+        /// Sets ambient agent context from persisted sync metadata (no Dataverse connection setup).
+        /// Priority: syncInfo (from disk) > workspace definition > request env.
+        /// Safe to call from async methods because LspRequestContext uses a mutable reference holder
+        /// (not value-type AsyncLocal writes) so mutations propagate across async boundaries.
+        /// </summary>
+        public static async Task SetAgentContextAsync(DataverseRequest request, IWorkspaceSynchronizer synchronizer, IMcsWorkspace? workspace = null, AgentInfo? agentInfo = null)
+        {
+            var agentName = agentInfo?.DisplayName ?? (workspace?.Definition as BotDefinition)?.Entity?.DisplayName;
+            var agentId = agentInfo?.AgentId.ToString();
+            var envName = request.EnvironmentInfo.DisplayName;
+            var envId = request.EnvironmentInfo.EnvironmentId;
+
+            if (workspace != null && synchronizer.IsSyncInfoAvailable(workspace.FolderPath))
+            {
+                var syncInfo = await synchronizer.GetSyncInfoAsync(workspace.FolderPath);
+                agentId = syncInfo.AgentId?.ToString();
+                envName = syncInfo.EnvironmentDisplayName ?? envName;
+                envId = syncInfo.EnvironmentId ?? envId;
+            }
+
+            LspRequestContext.SetAgentContext(agentName, agentId, envName, envId);
         }
 
         public static AgentSyncInfo BuildDefaultSyncInfo(DataverseRequest request) => new()

@@ -1,6 +1,6 @@
 namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 {
-    using Microsoft.Agents.Platform.Content.Exceptions;
+
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.CopilotStudio.McsCore;
     using Microsoft.CopilotStudio.Sync;
@@ -25,6 +25,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         private readonly IConnectionCatalogClient _connectionCatalogClient;
         private readonly LspDataverseHttpClientAccessor _dataverseHttpClientAccessor;
         private readonly ILspLogger _logger;
+        private readonly IWorkspaceSynchronizer _synchronizer;
 
         public bool MutatesSolutionState => false;
 
@@ -36,7 +37,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             ISyncDataverseClient dataverseClient,
             IConnectionCatalogClient connectionCatalogClient,
             LspDataverseHttpClientAccessor dataverseHttpClientAccessor,
-            ILspLogger logger)
+            ILspLogger logger,
+            IWorkspaceSynchronizer synchronizer)
         {
             _islandControlPlaneService = islandControlPlaneService;
             _connectionManagementService = connectionManagementService ?? throw new ArgumentNullException(nameof(connectionManagementService));
@@ -46,14 +48,15 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             _connectionCatalogClient = connectionCatalogClient ?? throw new ArgumentNullException(nameof(connectionCatalogClient));
             _dataverseHttpClientAccessor = dataverseHttpClientAccessor ?? throw new ArgumentNullException(nameof(dataverseHttpClientAccessor));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _synchronizer = synchronizer ?? throw new ArgumentNullException(nameof(synchronizer));
         }
 
         public async Task<ListWorkflowStatusResponse> HandleRequestAsync(ListWorkflowStatusRequest request, RequestContext context, CancellationToken cancellationToken)
         {
             try
             {
-                ConnectionHelper.ApplyConnectionContext(_islandControlPlaneService, _dataverseTokenManager, _dataverseHttpClientAccessor, _dataverseClient, request);
                 var workspace = (IMcsWorkspace)context.Workspace;
+                await ConnectionHelper.ApplyConnectionContext(_islandControlPlaneService, _dataverseTokenManager, _dataverseHttpClientAccessor, _dataverseClient, request, _synchronizer, workspace);
                 var classification = AgentClassifier.Classify(workspace.Definition, workspace.FolderPath.ToString());
 
                 if (!classification.Allows(SyncOperation.Push))
@@ -85,11 +88,6 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     Message = string.Empty,
                     Workflows = workflows.ToImmutableArray(),
                 };
-            }
-            catch (DataverseBadRequestException ex)
-            {
-                _logger.LogException(ex);
-                return new ListWorkflowStatusResponse() { Code = ex.StatusCode, Message = ex.Message };
             }
             catch (Exception ex)
             {

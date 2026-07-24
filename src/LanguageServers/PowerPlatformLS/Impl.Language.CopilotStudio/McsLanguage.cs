@@ -163,8 +163,8 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
 
             var agentName = GetAgentName(currentFolderPath);
             LogAgentResolvingInfoEvent(
-                $"Agent directory initialized with {documentCount} documents tracked: '{currentFolderPath}'",
-                $"Agent directory initialized with {documentCount} documents tracked for: '{agentName}'");
+                $"Agent directory initialized with {documentCount} documents tracked for '{currentFolderPath}'",
+                $"Agent directory initialized with {documentCount} documents tracked for '{agentName}'");
 
             _agentDirectories.Add(currentFolderPath, agentDirectory);
             NotifyClientOfAgentDirectoryChange();
@@ -207,7 +207,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
                         }
                         if (fileCount > 0)
                         {
-                            LogAgentResolvingDebugEvent($"{fileCount} files added under {relativePath} for {agentName}");
+                            LogAgentResolvingDebugEvent($"{fileCount} files added under {relativePath} for '{agentName}'");
                         }
                     }
                     else
@@ -251,7 +251,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
 
             if (rootFiles.Count > 0)
             {
-                LogAgentResolvingDebugEvent($"{rootFiles.Count} files added to root directory for {agentName}: {string.Join(", ", rootFiles)}");
+                LogAgentResolvingDebugEvent($"{rootFiles.Count} files added to root directory for '{agentName}': {string.Join(", ", rootFiles)}");
             }
 
             agentDirectory.BuildCompilationModel();

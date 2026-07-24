@@ -1,6 +1,8 @@
 namespace Microsoft.PowerPlatformLS.Contracts.Lsp.Models
 {
-    public abstract class ResponseBase
+    using Microsoft.CommonLanguageServerProtocol.Framework;
+
+    public abstract class ResponseBase : IHasStatusCode
     {
         /// <summary>
         /// The status code of the response.

@@ -1,4 +1,4 @@
-namespace Microsoft.PowerPlatformLS.Impl.PullAgent
+namespace Microsoft.PowerPlatformLS.Contracts.Internal.Common
 {
     using System;
     using System.Diagnostics;
@@ -8,13 +8,13 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     /// Extracts a short, meaningful source reference from an exception stack trace.
     /// Used to make error logs self-contained and searchable in the codebase.
     /// </summary>
-    internal static class ExceptionSourceExtractor
+    public static class ExceptionSourceExtractor
     {
         /// <summary>
         /// Returns the first non-framework stack frame as "FileName.cs:Line" or "Type.Method".
         /// Returns null if no meaningful frame is found.
         /// </summary>
-        internal static string? GetSource(Exception ex)
+        public static string? GetSource(Exception ex)
         {
             var trace = new StackTrace(ex, fNeedFileInfo: true);
             for (int i = 0; i < trace.FrameCount; i++)
@@ -55,7 +55,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         /// <summary>
         /// Formats exception source as " (at Source)" or empty string if unavailable.
         /// </summary>
-        internal static string FormatSource(Exception ex)
+        public static string FormatSource(Exception ex)
         {
             var source = GetSource(ex);
             return source != null ? $" (at {source})" : string.Empty;

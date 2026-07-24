@@ -12,6 +12,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     /// <summary>
     /// Logs SDK operation timings with consistent format.
     /// Failures are logged at Error level with exception message and source location.
+    /// Agent/environment context is NOT shown in the output channel (suppressed to reduce noise),
+    /// but is still sent as telemetry dimensions by the PiiScrubTelemetryInitializer.
     /// </summary>
     internal class LspOperationLogger : IOperationLogger
     {
@@ -25,18 +27,17 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         public T Execute<T>(string operation, Func<T> function)
         {
             int reqId = LspRequestContext.CurrentRequestId;
-            _logger.LogInformation("[Req: {ReqId}] Sync operation started: {Operation}", reqId, operation);
+            LogStarted(reqId, operation);
             Stopwatch stopwatch = Stopwatch.StartNew();
             try
             {
                 T result = function();
-                _logger.LogInformation("[Req: {ReqId}] Sync operation completed: {Operation}, duration={Duration}ms", reqId, operation, stopwatch.ElapsedMilliseconds);
+                LogCompleted(reqId, operation, stopwatch.ElapsedMilliseconds);
                 return result;
             }
             catch(Exception ex)
             {
-                var source = ExceptionSourceExtractor.FormatSource(ex);
-                _logger.LogError("[Req: {ReqId}] Sync operation failed: {Operation}, duration={Duration}ms, error=[{ExType}] {Error}{Source}", reqId, operation, stopwatch.ElapsedMilliseconds, ex.GetType().Name, ex.Message, source);
+                LogFailed(ex, reqId, operation, stopwatch.ElapsedMilliseconds);
                 throw;
             }
         }
@@ -44,18 +45,17 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         public T Execute<T>(string activity, Func<T> function, IEnumerable<KeyValuePair<string, string>> dimensions)
         {
             int reqId = LspRequestContext.CurrentRequestId;
-            _logger.LogInformation("[Req: {ReqId}] Sync operation started: {Activity}", reqId, activity);
+            LogStarted(reqId, activity);
             Stopwatch stopwatch = Stopwatch.StartNew();
             try
             {
                 T result = function();
-                _logger.LogInformation("[Req: {ReqId}] Sync operation completed: {Activity}, duration={Duration}ms", reqId, activity, stopwatch.ElapsedMilliseconds);
+                LogCompleted(reqId, activity, stopwatch.ElapsedMilliseconds);
                 return result;
             }
             catch (Exception ex)
             {
-                var source = ExceptionSourceExtractor.FormatSource(ex);
-                _logger.LogError("[Req: {ReqId}] Sync operation failed: {Activity}, duration={Duration}ms, error=[{ExType}] {Error}{Source}", reqId, activity, stopwatch.ElapsedMilliseconds, ex.GetType().Name, ex.Message, source);
+                LogFailed(ex, reqId, activity, stopwatch.ElapsedMilliseconds);
                 throw;
             }
         }
@@ -63,18 +63,17 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         public async Task<T> ExecuteAsync<T>(string activity, Func<Task<T>> function)
         {
             int reqId = LspRequestContext.CurrentRequestId;
-            _logger.LogInformation("[Req: {ReqId}] Sync operation started: {Activity}", reqId, activity);
+            LogStarted(reqId, activity);
             Stopwatch stopwatch = Stopwatch.StartNew();
             try
             {
                 T result = await function();
-                _logger.LogInformation("[Req: {ReqId}] Sync operation completed: {Activity}, duration={Duration}ms", reqId, activity, stopwatch.ElapsedMilliseconds);
+                LogCompleted(reqId, activity, stopwatch.ElapsedMilliseconds);
                 return result;
             }
             catch (Exception ex)
             {
-                var source = ExceptionSourceExtractor.FormatSource(ex);
-                _logger.LogError("[Req: {ReqId}] Sync operation failed: {Activity}, duration={Duration}ms, error=[{ExType}] {Error}{Source}", reqId, activity, stopwatch.ElapsedMilliseconds, ex.GetType().Name, ex.Message, source);
+                LogFailed(ex, reqId, activity, stopwatch.ElapsedMilliseconds);
                 throw;
             }
         }
@@ -82,19 +81,45 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         public async Task<T> ExecuteAsync<T>(string activity, Func<Task<T>> function, IEnumerable<KeyValuePair<string, string>> dimensions)
         {
             int reqId = LspRequestContext.CurrentRequestId;
-            _logger.LogInformation("[Req: {ReqId}] Sync operation started: {Activity}", reqId, activity);
+            LogStarted(reqId, activity);
             Stopwatch stopwatch = Stopwatch.StartNew();
             try
             {
                 T result = await function();
-                _logger.LogInformation("[Req: {ReqId}] Sync operation completed: {Activity}, duration={Duration}ms", reqId, activity, stopwatch.ElapsedMilliseconds);
+                LogCompleted(reqId, activity, stopwatch.ElapsedMilliseconds);
                 return result;
             }
             catch (Exception ex)
             {
-                var source = ExceptionSourceExtractor.FormatSource(ex);
-                _logger.LogError("[Req: {ReqId}] Sync operation failed: {Activity}, duration={Duration}ms, error=[{ExType}] {Error}{Source}", reqId, activity, stopwatch.ElapsedMilliseconds, ex.GetType().Name, ex.Message, source);
+                LogFailed(ex, reqId, activity, stopwatch.ElapsedMilliseconds);
                 throw;
+            }
+        }
+
+        private void LogStarted(int reqId, string activity)
+        {
+            using (LspRequestContext.SuppressOutputContext())
+            {
+                _logger.LogInformation("[Req: {reqId}] Sync operation started: {syncFunction}", reqId, activity);
+            }
+        }
+
+        private void LogCompleted(int reqId, string activity, long durationMs)
+        {
+            using (LspRequestContext.SuppressOutputContext())
+            using (LspRequestContext.WithDuration(durationMs, _logger))
+            {
+                _logger.LogInformation("[Req: {reqId}] Sync operation {outcome}: {syncFunction}", reqId, "completed", activity);
+            }
+        }
+
+        private void LogFailed(Exception ex, int reqId, string activity, long durationMs)
+        {
+            using (LspRequestContext.SuppressOutputContext())
+            using (LspRequestContext.WithDuration(durationMs, _logger))
+            {
+                _logger.LogError("[Req: {reqId}] Sync operation {outcome}: {syncFunction}. " + ex.Message,
+                    reqId, "failed", activity);
             }
         }
     }

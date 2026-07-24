@@ -7,7 +7,7 @@ import { getWorkspaceChanges, refreshAgentChangesAfterFetch } from "../sync/work
 import { handleSyncAuthError } from "../sync/authFailureNotification";
 import { clearSuppressedAuthState } from "../clients/account";
 import { isKnowledgeFileChangeKind, TelemetryEventsKeys } from "../constants";
-import logger, { formatFileName, sanitizeErrorDetails } from "../services/logger";
+import logger, { formatFileName } from "../services/logger";
 
 type Workspace = { ws: CopilotStudioWorkspace } | CopilotStudioWorkspace | null;
 
@@ -15,12 +15,6 @@ interface SyncCommand {
   id: string;
   displayName: string;
   action: (synchroniser: WorkspaceSynchronizer) => Promise<void>;
-}
-
-export function formatOpenFileError(fileName: string, error: unknown, agentName?: string): string {
-  const errorMessage = error instanceof Error ? error.message : String(error);
-
-  return `Error opening file ${formatFileName(fileName)}: ${sanitizeErrorDetails(errorMessage, agentName ? [agentName] : [])}`;
 }
 
 export const registerSyncCommands = (context: ExtensionContext) => {
@@ -86,9 +80,7 @@ export const getDiagnosticsErrors = async (workspace: CopilotStudioWorkspace) =>
       const document = await VSworkspace.openTextDocument(fileUri);
       openedDocuments.push(document);
     } catch (error) {
-      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-        message: formatOpenFileError(fileUri.fsPath, error, workspace.displayName),
-      });
+      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, { message: `Error opening file ${formatFileName(fileUri.fsPath)}`, error });
     }
   }
 
@@ -120,8 +112,9 @@ const registerSyncCommand = (
 ) => {
   const syncCommand = commands.registerCommand(id, async (workspace?: Workspace) => {
     let workspaceForCatch: CopilotStudioWorkspace | undefined;
+    let workspaceContext = {};
     try {
-      logger.logInfo(TelemetryEventsKeys.SyncWorkspaceClick, undefined, { message: `${displayName} operation initiated`, operation: displayName });
+      logger.logInfo(TelemetryEventsKeys.SyncWorkspaceClick, undefined, { message: `${displayName} operation initiated`, syncOperation: displayName });
       const selectedWorkspace = workspace && typeof workspace === 'object' && 'ws' in workspace && workspace.ws
         ? workspace.ws
         : await selectWorkspace();
@@ -146,6 +139,13 @@ const registerSyncCommand = (
       }
 
       workspaceForCatch = selectedWorkspace;
+
+      // Workspace context dimensions for logs
+      workspaceContext = {
+        agentId: selectedWorkspace.syncInfo?.agentId,
+        environmentId: selectedWorkspace.syncInfo?.environmentId,
+      };
+
       if (selectedWorkspace.syncInfo?.accountInfo) {
         clearSuppressedAuthState(selectedWorkspace.syncInfo.accountInfo.accountId, selectedWorkspace.syncInfo.accountInfo.accountEmail);
       }
@@ -223,7 +223,7 @@ const registerSyncCommand = (
 
       if ((id === 'microsoft-copilot-studio.syncPush' || id === 'microsoft-copilot-studio.applyChanges') && errors.count > 0) {
         const errorMessage = `Cannot perform ${displayName.toLowerCase()} operation: found ${errors.count} error(s) in ${errors.files} file(s).`;
-        logger.logWarning(TelemetryEventsKeys.SyncWorkspaceError, undefined, { message: errorMessage });
+        logger.logWarning(TelemetryEventsKeys.SyncWorkspaceError, undefined, { message: errorMessage, ...workspaceContext });
         const detailView = await window.showErrorMessage(errorMessage, 'View Details');
 
         // Navigate to Problems view if user selects 'View Details'
@@ -235,11 +235,7 @@ const registerSyncCommand = (
       if (workspaceForCatch && await handleSyncAuthError(workspaceForCatch, error, async () => { await commands.executeCommand(id, workspaceForCatch); })) {
         return;
       }
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.logError(
-        TelemetryEventsKeys.SyncWorkspaceError,
-        `Failed to execute ${displayName} operation: ${sanitizeErrorDetails(errorMessage, workspaceForCatch ? [workspaceForCatch.displayName] : [])}`,
-      );
+      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Failed to execute ${displayName} operation`, { error, ...workspaceContext });
     }
   });
 

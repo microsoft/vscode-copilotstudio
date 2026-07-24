@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { TelemetryEventMeasurements, TelemetryEventProperties, TelemetryReporter } from "@vscode/extension-telemetry";
 import { LogLevel, TELEMETRY_CONNECTION_STRING, TelemetryEventsKeys, type TelemetryEventType } from '../constants';
 import { isTelemetryEnabled } from './telemetry';
+import { SharedDimensions, EventDimensions } from './telemetryDimensions';
 
 type TelemetryEventProps = {
   properties: TelemetryEventProperties,
@@ -9,11 +10,26 @@ type TelemetryEventProps = {
 };
 
 /**
+ * Allowed keys for telemetry event data.
+ * All keys must be declared in telemetryDimensions.ts before use.
+ */
+type AllowedDimensionKey =
+  | typeof SharedDimensions[keyof typeof SharedDimensions]
+  | typeof EventDimensions[keyof typeof EventDimensions]
+  | 'error';
+
+/**
  * Type definitions for telemetry event parameters:
  * - properties: Record<string, string> (string key-value pairs for event metadata)
  * - measurements: Record<string, number> (string key-number pairs for numeric metrics)
+ * - error: special key — pass an Error object and the logger automatically extracts `errorMessage`
+ *
+ * Keys are constrained to declared dimensions in telemetryDimensions.ts.
+ * Add new dimensions there before using them here.
  */
-type TelemetryEventData = Record<string, string | number | undefined>;
+type TelemetryEventData = {
+  [K in AllowedDimensionKey]?: K extends 'error' ? unknown : string | number;
+};
 
 export enum PiiRedactionType {
   AccountIdentifier = 'ACCOUNT IDENTIFIER',
@@ -217,13 +233,26 @@ const redactPii = (value: string): string =>
     type ? `[REDACTED ${type}]` : '[REDACTED]');
 
 export function prepareLogData(message: string | undefined, properties: TelemetryEventProperties): {
-  displayMessage: string | undefined;
+  displayMessage?: string;
+  outputMessage: string;
   telemetryProperties: Record<string, string>;
 } {
-  const displayMessage = message === undefined ? undefined : stripPiiTags(message);
-  const rawMessage = properties.message as string || message;
-  const telemetryProperties: Record<string, string> = {};
+  const rawErrorMessage = properties?.['errorMessage'] as string;
 
+  // --- 1. VS Code popup: msg with <pii> tags stripped + error.message ---
+  let displayMessage = message ? stripPiiTags(message) : undefined;
+  if (displayMessage && rawErrorMessage && !displayMessage.includes(rawErrorMessage)) {
+    displayMessage = `${displayMessage}: ${rawErrorMessage}`;
+  }
+
+  // --- 2. Output channel: (data.message || msg) with <pii> stripped + error.message ---
+  let outputMessage = stripPiiTags(properties?.['message'] as string);
+  if (rawErrorMessage && !outputMessage.includes(rawErrorMessage)) {
+    outputMessage = `${outputMessage}: ${rawErrorMessage}`;
+  }
+
+  // --- 3. Telemetry: sanitized dimensions only ---
+  const telemetryProperties: Record<string, string> = {};
   for (const [key, value] of Object.entries(properties)) {
     if (typeof value === 'string') {
       telemetryProperties[key] = redactPii(value);
@@ -232,11 +261,7 @@ export function prepareLogData(message: string | undefined, properties: Telemetr
     }
   }
 
-  if (rawMessage) {
-    telemetryProperties.message = redactPii(rawMessage);
-  }
-
-  return { displayMessage, telemetryProperties };
+  return { displayMessage, outputMessage, telemetryProperties };
 }
 
 const NOOP_REPORTER = {
@@ -343,6 +368,8 @@ class Logger {
   private static instance: Logger;
   private reporter: TelemetryReporter = NOOP_REPORTER;
   private sessionId!: string;
+  private version!: string;
+  private isDevMode!: string;
   private outputChannel: vscode.LogOutputChannel | undefined;
 
   private constructor() { }
@@ -357,6 +384,8 @@ class Logger {
   public initialize(context: vscode.ExtensionContext, sessionId: string) {
     this.reporter = new TelemetryReporter(TELEMETRY_CONNECTION_STRING);
     this.sessionId = sessionId;
+    this.version = context.extension.packageJSON.version ?? '1.0.0';
+    this.isDevMode = (process.env.VSCODE_DEBUG === 'true').toString();
     context.subscriptions.push(this.reporter);
   }
 
@@ -374,12 +403,12 @@ class Logger {
 
   /** Writes a trace-level message to the output channel only (no telemetry). */
   public logTrace(category: LogCategory | string, message: string): void {
-    this.outputChannel?.trace(`[${category}] ${message}`);
+    this.outputChannel?.trace(`[${category}] ${stripPiiTags(message)}`);
   }
 
   /** Writes a debug-level message to the output channel only (no telemetry). */
   public logDebug(category: LogCategory | string, message: string): void {
-    this.outputChannel?.debug(`[${category}] ${message}`);
+    this.outputChannel?.debug(`[${category}] ${stripPiiTags(message)}`);
   }
 
   /**
@@ -399,11 +428,12 @@ class Logger {
     message?: string,
     data?: TelemetryEventData
   ) {
-    const { properties, measurements } = this.parseData(logLevel, data);
-    const { displayMessage, telemetryProperties } = prepareLogData(message, properties);
+    const { properties, measurements } = this.parseData(logLevel, message, data);
+    const { displayMessage, outputMessage, telemetryProperties } = prepareLogData(message, properties);
 
+    this.writeToOutputChannel(logLevel, eventName, outputMessage, measurements);
+ 
     const canSendTelemetry = isTelemetryEnabled();
-    this.writeToOutputChannel(logLevel, eventName, displayMessage, properties);
 
     switch (logLevel) {
       case LogLevel.Info:
@@ -411,7 +441,7 @@ class Logger {
           this.reporter.sendTelemetryEvent(eventName, telemetryProperties, measurements);
         }
         if (displayMessage) {
-          vscode.window.showInformationMessage(displayMessage);
+          void vscode.window.showInformationMessage(displayMessage);
         }
         break;
       case LogLevel.Warning:
@@ -419,7 +449,7 @@ class Logger {
           this.reporter.sendTelemetryErrorEvent(eventName, telemetryProperties, measurements);
         }
         if (displayMessage) {
-          vscode.window.showWarningMessage(displayMessage);
+          void vscode.window.showWarningMessage(displayMessage);
         }
         break;
       case LogLevel.Error:
@@ -427,7 +457,7 @@ class Logger {
           this.reporter.sendTelemetryErrorEvent(eventName, telemetryProperties, measurements);
         }
         if (displayMessage) {
-          vscode.window.showErrorMessage(displayMessage);
+          void vscode.window.showErrorMessage(displayMessage);
         }
         break;
     }
@@ -455,56 +485,74 @@ class Logger {
    * If message is provided, shows a warning message to users.
    * PII in the message should be wrapped with `formatPii` to ensure it is redacted in telemetry.
    *
-   * @param eventName - The name of the telemetry event.
-   * @param message - Optional message string to display to the user.
-   * @param data - Optional telemetry data object (any custom metadata to send with the event).
-   */
-  public logWarning(
-    eventName: TelemetryEventType,
-    message?: string,
-    data?: TelemetryEventData
-  ) {
-    this.log(LogLevel.Warning, eventName, message, data);
-  }
+  * **IMPORTANT:** Do NOT embed error details in the message string.
+  * Pass the error object via `data: { error }` instead — the logger auto-extracts
+  * `errorMessage` dimension and appends error details to the display message.
+  *
+  * @param eventName - The name of the telemetry event.
+  * @param message - Optional descriptive message (what failed, NOT why). Error details are auto-appended.
+  * @param data - Optional telemetry data. Pass `{ error }` for automatic error extraction.
+  */
+ public logWarning(
+   eventName: TelemetryEventType,
+   message?: string,
+   data?: TelemetryEventData
+ ) {
+   this.log(LogLevel.Warning, eventName, message, data);
+ }
 
-  /**
-* Sends error-specific telemetry event.
-   * If message is provided, shows an error message to users.
-   * PII in the message should be wrapped with `formatPii` to ensure it is redacted in telemetry.
-   *
-   * @param eventName - The name of the telemetry event.
-   * @param message - Optional message string to display to the user.
-   * @param data - Optional telemetry data object (any custom metadata to send with the event).
-*/
-  public logError(
-    eventName: TelemetryEventType,
-    message?: string,
-    data?: TelemetryEventData
-  ) {
-    this.log(LogLevel.Error, eventName, message, data);
-  }
+ /**
+  * Sends error-specific telemetry event.
+  * If message is provided, shows an error message to users.
+  * PII in the message should be wrapped in `<pii>...</pii>` tags to ensure it is redacted in telemetry.
+  *
+  * **IMPORTANT:** Do NOT embed error details in the message string.
+  * Pass the error object via `data: { error }` instead — the logger auto-extracts
+  * `errorMessage` dimension and appends error details to the display message.
+  *
+  * @example
+  * // ✅ Correct:
+  * logger.logError(event, 'Failed to sync workspace', { error, durationMs });
+  *
+  * // ❌ Wrong — error message in the display string:
+  * logger.logError(event, `Failed to sync workspace: ${(error as Error).message}`);
+  *
+  * @param eventName - The name of the telemetry event.
+  * @param message - Optional descriptive message (what failed, NOT why). Error details are auto-appended.
+  * @param data - Optional telemetry data. Pass `{ error }` for automatic error extraction.
+  */
+ public logError(
+   eventName: TelemetryEventType,
+   message?: string,
+   data?: TelemetryEventData
+ ) {
+   this.log(LogLevel.Error, eventName, message, data);
+ }
 
   /** Writes the event message to the output channel with optional [Category] prefix. */
   private writeToOutputChannel(
     logLevel: LogLevel,
     eventName: TelemetryEventType,
-    displayMessage: string | undefined,
-    properties: TelemetryEventProperties,
+    message?: string,
+    measurements?: TelemetryEventMeasurements,
   ): void {
-    if (!this.outputChannel) {
+    if (!this.outputChannel || !message) {
       return;
     }
 
     const category = eventCategoryMap[eventName];
 
-    const propertyMessage = properties?.['message'] as string | undefined;
-    const mainMessage = displayMessage ?? (propertyMessage ? stripPiiTags(propertyMessage) : undefined);
-    if (!mainMessage) {
-      return;
+    // Replace :: with / in output channel for LSP messages only (telemetry uses :: to avoid PII flagging)
+    let outputLine = category === LogCategory.LSP ? message.replace(/::/g, '/') : message;
+
+    const durationMs = measurements?.['durationMs'];
+    if (durationMs !== undefined) {
+      outputLine = `${outputLine}, duration=${durationMs}ms`;
     }
 
-    const prefix = category ? `[${category}] ` : '';
-    const outputLine = `${prefix}${mainMessage}`;
+    if (category) {
+      outputLine = `[${category}] ${outputLine}`;
+    }
 
     switch (logLevel) {
       case LogLevel.Info:
@@ -521,23 +569,40 @@ class Logger {
 
   private parseData(
     logLevel: LogLevel,
+    message?: string,
     data?: TelemetryEventData,
   ): TelemetryEventProps {
+    const logLevelValue = logLevel === LogLevel.Error ? 'error'
+      : logLevel === LogLevel.Warning ? 'warning' : 'info';
+
     const properties: Record<string, string> = {
-      sessionId: this.sessionId,
-      ...(logLevel === LogLevel.Warning && { isWarning: "true" }),
-      ...(logLevel === LogLevel.Error && { isError: "true" }),
+      [SharedDimensions.sessionId]: this.sessionId,
+      [SharedDimensions.version]: this.version,
+      [SharedDimensions.isDevMode]: this.isDevMode,
+      [SharedDimensions.logLevel]: logLevelValue,
     };
     const measurements: Record<string, number> = {};
 
     if (data) {
       for (const [key, value] of Object.entries(data)) {
-        if (typeof value === 'string') {
+        if (key === 'error') {
+          // Error messages from external sources — detect and wrap PII patterns
+          if (value instanceof Error) {
+            properties[SharedDimensions.errorMessage] = sanitizeErrorDetails(value.message);
+          } else if (value !== null && value !== undefined) {
+            properties[SharedDimensions.errorMessage] = sanitizeErrorDetails(String(value));
+          }
+        } else if (typeof value === 'string') {
           properties[key] = value;
         } else if (typeof value === 'number') {
           measurements[key] = value;
         }
       }
+    }
+
+    // Always populate message dimension (data.message takes priority over msg param)
+    if (!properties[SharedDimensions.message] && message) {
+      properties[SharedDimensions.message] = message;
     }
 
     return { properties, measurements };

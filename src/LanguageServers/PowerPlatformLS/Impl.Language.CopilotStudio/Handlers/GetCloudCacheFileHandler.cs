@@ -113,7 +113,7 @@
                 {
                     const int NotFoundErrorCode = 404;
                     var errorMessage = originalDefinition != null ? $"Schema name '{request.SchemaName}' not found in the cached file." : "Cached file not found.";
-                    _logger.LogWarning($"{EndpointName} returns {NotFoundErrorCode} with error={errorMessage}");
+                    _logger.LogWarning($"{EndpointName} returns {NotFoundErrorCode}: {errorMessage}");
                     return Task.FromResult(new GetFileResponse
                     {
                         Code = NotFoundErrorCode,
@@ -129,11 +129,10 @@
             }
             catch (Exception ex)
             {
-                const int InternalErrorCode = 500;
-                _logger.LogError($"{EndpointName} returns {InternalErrorCode} with error={ex.Message}");
+                _logger.LogException(ex);
                 return Task.FromResult(new GetFileResponse
                 {
-                    Code = InternalErrorCode,
+                    Code = 500,
                     Message = ex.Message,
                 });
             }

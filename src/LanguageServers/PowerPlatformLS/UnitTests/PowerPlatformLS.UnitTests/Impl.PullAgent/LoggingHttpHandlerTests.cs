@@ -36,8 +36,9 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
             var infoLogs = _testLogger.Info.ToList();
             Assert.Equal(2, infoLogs.Count);
             Assert.Contains("HTTP request #", infoLogs[0]);
-            Assert.Contains("started: GET /api/data/v9.2/accounts?foo=bar", infoLogs[0]);
+            Assert.Contains("started: GET /api/data/v9.2/accounts", infoLogs[0]);
             Assert.DoesNotContain("contoso.crm.dynamics.com", infoLogs[0]);
+            Assert.DoesNotContain("foo=bar", infoLogs[0]);
         }
 
         [Fact]
@@ -51,8 +52,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
 
             var completionLog = _testLogger.Info.ToList()[1];
             Assert.Contains("HTTP request #", completionLog);
-            Assert.Contains("completed: POST /api/data/v9.2/accounts?foo=bar", completionLog);
-            Assert.Contains("duration=", completionLog);
+            Assert.Contains("completed: POST /api/data/v9.2/accounts", completionLog);
+            Assert.DoesNotContain("duration=", completionLog);
             Assert.Contains("status=202", completionLog);
         }
 
@@ -68,8 +69,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
             var errorLog = Assert.Single(_testLogger.Error);
             Assert.Contains("HTTP request #", errorLog);
             Assert.Contains("failed: DELETE /api/data/v9.2/accounts(1)", errorLog);
-            Assert.Contains("duration=", errorLog);
-            Assert.Contains("error=network failure", errorLog);
+            Assert.DoesNotContain("duration=", errorLog);
+            Assert.Contains("network failure", errorLog);
         }
 
         [Fact]
@@ -95,7 +96,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
             Assert.NotNull(method);
             var result = (string)method!.Invoke(null, [new Uri("https://contoso.crm.dynamics.com/api/data/v9.2/accounts?foo=bar")])!;
 
-            Assert.Equal("/api/data/v9.2/accounts?foo=bar", result);
+            Assert.Equal("/api/data/v9.2/accounts", result);
         }
 
         [Fact]
@@ -107,6 +108,38 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
             var result = (string)method!.Invoke(null, [null])!;
 
             Assert.Equal(string.Empty, result);
+        }
+
+        [Theory]
+        [InlineData(
+            "https://org.crm.dynamics.com/api/data/v9.2/workflows(3fa85f64-5717-4562-b3fc-2c963f66afa6)",
+            "/api/data/v9.2/workflows({id})")]
+        [InlineData(
+            "https://org.crm.dynamics.com/api/data/v9.2/bots(3fa85f64-5717-4562-b3fc-2c963f66afa6)/bot_botcomponentcollection(7c9e1234-abcd-4000-8000-000000000000)/$ref",
+            "/api/data/v9.2/bots({id})/bot_botcomponentcollection({id})/$ref")]
+        [InlineData(
+            "https://org.crm.dynamics.com/api/data/v9.2/botcomponents(AABBCCDD-1122-3344-5566-778899001122)/filedata/$value",
+            "/api/data/v9.2/botcomponents({id})/filedata/$value")]
+        [InlineData(
+            "https://host.com/api/botmanagement/v1/environments/Default-c2983f0e-abc1-4def-9012-3456789abcde/bots/40b35f64-5717-4562-b3fc-2c963f66afa6/content/botcomponents",
+            "/api/botmanagement/v1/environments/{id}/bots/{id}/content/botcomponents")]
+        [InlineData(
+            "https://host.com/chatbotmanagement/tenants/aabbccdd-1122-3344-5566-778899001122/environments/Default-c2983f0e-abc1-4def-9012-3456789abcde/componentcollections/api/11111111-2222-3333-4444-555555555555/get-content",
+            "/chatbotmanagement/tenants/{id}/environments/{id}/componentcollections/api/{id}/get-content")]
+        [InlineData(
+            "https://org.crm.dynamics.com/api/data/v9.2/connectors",
+            "/api/data/v9.2/connectors")]
+        [InlineData(
+            "https://org.crm.dynamics.com/api/data/v9.2/EntityDefinitions(LogicalName='connectionreference')/ManyToOneRelationships",
+            "/api/data/v9.2/EntityDefinitions(LogicalName='connectionreference')/ManyToOneRelationships")]
+        public void GetPathAndQuery_Normalizes_Guids(string input, string expected)
+        {
+            var method = typeof(LoggingHttpHandler).GetMethod("GetPathAndQuery", BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+
+            var result = (string)method!.Invoke(null, [new Uri(input)])!;
+
+            Assert.Equal(expected, result);
         }
 
         [Fact]

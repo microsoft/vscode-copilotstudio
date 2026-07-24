@@ -92,7 +92,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             DataverseAccessToken = DataverseToken,
         };
 
-        private static ApplyConnectionBindingsHandler CreateHandler(IConnectionManagementService synchronizer, IDiagnosticsPublisher diagnosticsPublisher)
+        private static ApplyConnectionBindingsHandler CreateHandler(TestWorkspaceSynchronizer synchronizer, IDiagnosticsPublisher diagnosticsPublisher)
         {
             var mockAuthProvider = new Mock<ISyncAuthProvider>();
             mockAuthProvider
@@ -108,7 +108,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
                 new Mock<IConnectionCatalogClient>().Object,
                 accessor,
                 diagnosticsPublisher,
-                new Mock<ILspLogger>().Object);
+                new Mock<ILspLogger>().Object,
+                synchronizer);
         }
     }
 }

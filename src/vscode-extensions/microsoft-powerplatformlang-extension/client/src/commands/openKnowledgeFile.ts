@@ -8,7 +8,7 @@ export const registerOpenKnowledgeFileCommand = (context: vscode.ExtensionContex
             try {
                 await vscode.workspace.fs.readFile(uri);
             } catch (error) {
-                logger.logError(TelemetryEventsKeys.OpenKnowledgeFileError, `Failed to open local file for <pii>${uri.path}</pii>: ${error}`);
+                logger.logError(TelemetryEventsKeys.OpenKnowledgeFileError, `Failed to open local knowledge file <pii>${uri.path}</pii>`, { error });
             }
         })
     );

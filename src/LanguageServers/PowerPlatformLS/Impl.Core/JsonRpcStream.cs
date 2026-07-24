@@ -60,7 +60,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Core
                     if (!LspLogger.IsBuiltInLspMethod(lspMessage.Method))
                     {
                         reqId = LspLogger.AllocateRequestId();
-                        _logger.LogTrace("[Req: {ReqId}] LSP request received: {Method}", reqId, lspMessage.Method);
+                        _logger.LogTrace($"[Req: {reqId}] LSP request received: {lspMessage.Method}");
                     }
 
                     // Release the LSP log-forwarding pump once the client is initialized.
@@ -120,7 +120,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Core
 
                         if (!LspLogger.IsBuiltInLspMethod(request.Method))
                         {
-                            _logger.LogTrace("[Req: {ReqId}] LSP response sent: {Method}, result={Result}", reqId, request.Method, result ?? Constants.Null);
+                            _logger.LogTrace($"[Req: {reqId}] LSP response sent: {request.Method}, result={result ?? Constants.Null}");
                         }
 
                         if (request.Id.HasValue)
@@ -145,7 +145,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Core
                         // Non-generic Task — handler returned no value.
                         if (!LspLogger.IsBuiltInLspMethod(request.Method))
                         {
-                            _logger.LogTrace("[Req: {ReqId}] LSP response sent: {Method}, result=none", reqId, request.Method);
+                            _logger.LogTrace($"[Req: {reqId}] LSP response sent: {request.Method}, result=none");
                         }
 
                         if (request.Id.HasValue)

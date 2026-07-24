@@ -307,7 +307,7 @@ async function ensureInteractiveSession(
             const classification = classifyAuthError(error);
             setAuthAccountState(classification, accountId, accountHint);
             if (classification !== 'cancelled') {
-                logger.logError(TelemetryEventsKeys.SignInError, `Interactive sign-in failed (${classification}): <pii>${message}</pii>`);
+                logger.logError(TelemetryEventsKeys.SignInError, `Interactive sign-in failed (${classification})`, { error });
             }
             return undefined;
         }
@@ -502,8 +502,7 @@ export async function switchAccount(clusterCategory: CoreServicesClusterCategory
             if (isCancellationError(error)) {
                 logger.logInfo(TelemetryEventsKeys.SwitchAccountCancel, undefined, { message: 'Switch account cancelled by user.'});
             } else {
-                const message = error instanceof Error ? error.message : String(error);
-                logger.logError(TelemetryEventsKeys.SwitchAccountError, `Failed to sign in: <pii>${message}</pii>`);
+                logger.logError(TelemetryEventsKeys.SwitchAccountError, 'Failed to sign in', { error });
             }
             return false;
         } finally {

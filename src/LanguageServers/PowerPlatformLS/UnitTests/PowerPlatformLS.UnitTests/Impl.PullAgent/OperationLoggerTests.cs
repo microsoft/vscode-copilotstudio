@@ -34,7 +34,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
             Assert.Equal(2, infoLogs.Count);
             Assert.Contains("Sync operation started: syncPull", infoLogs[0]);
             Assert.Contains("Sync operation completed: syncPull", infoLogs[1]);
-            Assert.Contains("duration=", infoLogs[1]);
+            Assert.DoesNotContain("duration=", infoLogs[1]);
         }
 
         [Fact]
@@ -44,10 +44,9 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
 
             Assert.Equal("boom", exception.Message);
             var errorLog = Assert.Single(_testLogger.Error);
-            Assert.Contains("InvalidOperationException", errorLog);
             Assert.Contains("boom", errorLog);
             Assert.Contains("Sync operation failed: syncPush", errorLog);
-            Assert.Contains("duration=", errorLog);
+            Assert.DoesNotContain("duration=", errorLog);
         }
 
         [Fact]
@@ -64,7 +63,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
             Assert.Equal(2, infoLogs.Count);
             Assert.Contains("Sync operation started: syncPull", infoLogs[0]);
             Assert.Contains("Sync operation completed: syncPull", infoLogs[1]);
-            Assert.Contains("duration=", infoLogs[1]);
+            Assert.DoesNotContain("duration=", infoLogs[1]);
         }
 
         [Fact]
@@ -78,10 +77,9 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
 
             Assert.Equal("boom", exception.Message);
             var errorLog = Assert.Single(_testLogger.Error);
-            Assert.Contains("InvalidOperationException", errorLog);
             Assert.Contains("boom", errorLog);
             Assert.Contains("Sync operation failed: syncPush", errorLog);
-            Assert.Contains("duration=", errorLog);
+            Assert.DoesNotContain("duration=", errorLog);
         }
 
         [Fact]

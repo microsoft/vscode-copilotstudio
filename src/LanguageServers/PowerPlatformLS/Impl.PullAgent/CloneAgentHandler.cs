@@ -5,6 +5,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.CopilotStudio.Sync.Dataverse;
     using Microsoft.CopilotStudio.McsCore;
+    using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
     using System.Collections.Generic;
@@ -68,14 +69,10 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
             try
             {
-                _islandControlPlaneService.SetConnectionContext(
-                    request.EnvironmentInfo.AgentManagementUrl,
-                    request.AccountInfo.ClusterCategory);
-                _dataverseTokenManager.SetTokens(request.DataverseAccessToken, request.CopilotStudioAccessToken);
-                _dataverseHttpClientAccessor.SetDataverseUrl(new Uri(request.EnvironmentInfo.DataverseUrl));
-                _dataverseClient.SetDataverseUrl(request.EnvironmentInfo.DataverseUrl);
+                await ConnectionHelper.ApplyConnectionContext(_islandControlPlaneService, _dataverseTokenManager, _dataverseHttpClientAccessor, _dataverseClient, request, _workspaceSynchronizer, agentInfo: request.AgentInfo);
 
                 var syncInfo = request.GetSyncInfo();
+
                 var rootPath = ValidateRequest(request);
                 var allOperations = await _operationContextProvider.GetAllAsync(request.GetSyncInfo(), request.Assets);
 

@@ -6,6 +6,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.CopilotStudio.Sync.Dataverse;
     using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
+    using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
     using System;
@@ -66,9 +67,9 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
             try
             {
-                ConnectionHelper.ApplyConnectionContext(_islandControlPlaneService, _dataverseTokenManager, _dataverseHttpClientAccessor, _dataverseClient, request);
-
                 var workspace = (IMcsWorkspace)context.Workspace;
+                await ConnectionHelper.ApplyConnectionContext(_islandControlPlaneService, _dataverseTokenManager, _dataverseHttpClientAccessor, _dataverseClient, request, _workspaceSynchronizer, workspace);
+
                 var language = context.Language;
 
                 if (!language.IsValidAgentDirectory(workspaceFolder, out _))

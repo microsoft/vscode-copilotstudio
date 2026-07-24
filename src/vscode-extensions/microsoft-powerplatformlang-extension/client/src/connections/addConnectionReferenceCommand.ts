@@ -186,9 +186,7 @@ export const registerAddConnectionReferenceCommand = (context: vscode.ExtensionC
 
         void vscode.window.showInformationMessage(`Connection reference '${logicalName}' is ready.`);
       } catch (error) {
-        const message = (error as Error).message ?? 'Failed to add the connection reference.';
-        logger.logError(TelemetryEventsKeys.ConnectionCreationError, `Failed to add connection reference: <pii>${message}</pii>`);
-        void vscode.window.showErrorMessage(message);
+        logger.logError(TelemetryEventsKeys.ConnectionCreationError, 'Failed to add connection reference', { error });
       }
     }
   );

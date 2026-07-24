@@ -9,7 +9,7 @@ export const registerSignInCommand = (context: vscode.ExtensionContext) => {
             clearRecoverableAuthState();
             await signIn(DefaultCoreServicesClusterCategory);
         } catch (error) {
-            logger.logError(TelemetryEventsKeys.SignInError, `Failed to sign in: ${(error as Error).message}`);
+            logger.logError(TelemetryEventsKeys.SignInError, 'Failed to sign in', { error });
         }
     }));
 };

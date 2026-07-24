@@ -9,7 +9,7 @@ import { registerVirtualKnowledgeProvider } from "../knowledgeFiles/virtualKnowl
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import { isChildUri, isSameUri } from "../utils/genericUtils";
 import { LspMethods, TelemetryEventsKeys } from "../constants";
-import logger, { sanitizeErrorDetails } from "../services/logger";
+import logger from "../services/logger";
 import { refreshAgentChangesTree } from "./agentChangesTreeProvider";
 
 interface WorkspaceScm {
@@ -73,9 +73,10 @@ export function onWorkspaceChange(uri: string): void {
       // Errors are caught to prevent unhandled promise rejections.
       void scm.onLocalChange()
         .then(() => refreshAgentChangesTree())
-        .catch(err => {
+        .catch(error => {
           logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-            message: `onLocalChange failed: ${sanitizeErrorDetails(err instanceof Error ? err.message : String(err), [scm.workspace.displayName])}`
+            message: 'onLocalChange failed',
+            error,
           });
         });
       return;
@@ -161,9 +162,9 @@ export async function refreshWorkspaces(workspaces: CopilotStudioWorkspace[], co
     const results = await Promise.allSettled(newSetups.map(setup => setup.promise));
     for (const [index, r] of results.entries()) {
       if (r.status === 'rejected') {
-        const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
         logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-          message: `Workspace setup failed: ${sanitizeErrorDetails(reason, [newSetups[index].agentName])}`
+          message: 'Workspace setup failed',
+          error: r.reason,
         });
       }
     }
@@ -338,11 +339,11 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
         };
         const generalChanges = await fetchChanges<DiffRequest>(LspMethods.GET_LOCAL_CHANGES, diffRequest);
         setLocalChanges(generalChanges);
-      } catch (e) {
+      } catch (error) {
         logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-          message: `onLocalChangeError: ${sanitizeErrorDetails(e instanceof Error ? e.message : String(e), [ws.displayName])}`
+          message: "onLocalChange failed",
+          error
         });
-        throw e;
       }
     },
     onRemoteChange: async () => {
@@ -368,10 +369,11 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
             remoteChangesStore = resources;
           }
           remoteHadSuccess = true;
-        } catch (e) {
+        } catch (error) {
           if (remoteHadSuccess) {
             logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-              message: `onRemoteChangeErrorAfterSuccess: ${sanitizeErrorDetails(e instanceof Error ? e.message : String(e), [ws.displayName])}`
+              message: 'onRemoteChange failed after success',
+              error,
             });
           }
           // Swallow to avoid aborting setup; remote can retry later.
@@ -431,9 +433,10 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
     context.subscriptions.push(fileDecorationChangeEmitter); 
   }
   return result;
-  } catch (e) {
+  } catch (error) {
     logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-      message: `setupChangeTrackingRejected: ${sanitizeErrorDetails(e instanceof Error ? e.message : String(e), [ws.displayName])}`
+      message: 'setupChangeTrackingRejected',
+      error,
     });
     // Dispose any partially created resources
     try {
@@ -441,7 +444,7 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
       fileDecorationChangeEmitter?.dispose();
       scmView?.dispose();
     } catch { /* ignore */ }
-    throw e; // propagate to caller so top-level catch logs too
+    throw error; // propagate to caller so top-level catch logs too
   }
 
   function mapResources(changes: Change[], commandController: ResourceCommandResolver): Resource[] {

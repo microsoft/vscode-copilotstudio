@@ -345,7 +345,8 @@ export async function getAgentInfo(agentUrl: string | undefined, context: Extens
             } catch (error) {
               logger.logError(
                 TelemetryEventsKeys.LoadEnvironmentError,
-                `Failed to load ${sku} environments for <pii>${acct?.accountId ?? 'default'}</pii>: <pii>${error instanceof Error ? error.message : String(error)}</pii>`
+                `[Clone] Failed to load ${sku} environments for <pii>${acct?.accountEmail ?? acct?.accountId}</pii>`,
+                { sku, error }
               );
               return [] as EnvironmentPickItem[];
             }
@@ -430,7 +431,7 @@ async function pickAgent(
         return { label: agent.displayName + agent.displayComplement, iconPath: getIcon(agent), agent: agent } as QuickPickItem & { agent: AgentInfo };
       });
     } catch (error) {
-      logger.logError(TelemetryEventsKeys.LoadEnvironmentError, `Failed to load agents for <pii>${environment.displayName}</pii>: <pii>${(error as Error).message}</pii>`);
+      logger.logError(TelemetryEventsKeys.LoadAgentsError, `[Clone] Failed to load agents for <pii>${sourceAccount?.accountEmail ?? sourceAccount?.accountId}</pii> in '${environment.displayName}'`, { sku: environment.environmentSku, environmentId: environment.environmentId, error });
       input.items = [];
     } finally {
       input.busy = false;
@@ -449,7 +450,10 @@ export async function cloneAgentToLocalFolder(agent: IdentifyAgentResponse | und
   const assets = await pickAssets(agentInfo);
   if (!assets) {
     // User cancelled the component picker
-    logger.logWarning(TelemetryEventsKeys.CloneAgentCancel, "Component selection cancelled. Clone agent canceled.");
+    logger.logWarning(TelemetryEventsKeys.CloneAgentCancel, "Component selection cancelled. Clone agent canceled.", {
+      agentId: agentInfo.agentId,
+      environmentId: environmentInfo.environmentId,
+    });
     return;
   }
 
@@ -461,7 +465,10 @@ export async function cloneAgentToLocalFolder(agent: IdentifyAgentResponse | und
 
   const rootFolder = folder?.pop()?.fsPath;
   if (!rootFolder) {
-    logger.logWarning(TelemetryEventsKeys.CloneAgentCancel, "No folder selected. Clone agent canceled.");
+    logger.logWarning(TelemetryEventsKeys.CloneAgentCancel, "No folder selected. Clone agent canceled.", {
+      agentId: agentInfo.agentId,
+      environmentId: environmentInfo.environmentId,
+    });
     return;
   }
 
@@ -491,7 +498,7 @@ export async function cloneAgentToLocalFolder(agent: IdentifyAgentResponse | und
       };
       const cloneResp = await lspClient.sendRequest<CloneAgentResponse>(LspMethods.CLONE_AGENT, cloneRequest, cancellationToken);
 
-      logger.logInfo(TelemetryEventsKeys.CloneAgentSuccess, `Agent ${agentInfo.displayName} cloned to <pii>${rootFolder}</pii>`, {
+      logger.logInfo(TelemetryEventsKeys.CloneAgentSuccess, `Agent '${agentInfo.displayName}' cloned to <pii>${rootFolder}</pii>`, {
         agentId: agentInfo.agentId,
         environmentId: environmentInfo.environmentId,
       });

@@ -5,6 +5,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
+    using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
     using System;
@@ -50,6 +51,11 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 if (_synchronizer.IsSyncInfoAvailable(ws.FolderPath))
                 {
                     syncInfo = await _synchronizer.GetSyncInfoAsync(ws.FolderPath);
+                    LspRequestContext.SetAgentContext(
+                        agentName: displayName,
+                        agentId: syncInfo.AgentId?.ToString(),
+                        environmentName: syncInfo.EnvironmentDisplayName,
+                        environmentId: syncInfo.EnvironmentId);
                 }
             }
             catch (Exception exception)
