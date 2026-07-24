@@ -4084,8 +4084,13 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     public DiscardResult DiscardLocalChanges(DirectoryPath workspaceFolder, IReadOnlyCollection<Change> changes)
     {
         var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
-        var workspaceDefinition = ReadCloudCacheSnapshot(fileAccessor)
+        var cloudSnapshot = ReadCloudCacheSnapshot(fileAccessor)
             ?? throw new InvalidOperationException("Unable to read cloud cache from .mcs/botdefinition.json");
+        var workspaceDefinition = DetectNewKnowledgeFiles(
+            workspaceFolder,
+            cloudSnapshot,
+            out _,
+            CancellationToken.None);
         return DiscardLocalChanges(workspaceFolder, workspaceDefinition, changes);
     }
 

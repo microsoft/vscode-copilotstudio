@@ -480,6 +480,35 @@ public class DiscardLocalChangesTests
         Assert.Empty(result.Skipped);
     }
 
+    [Fact]
+    public async Task CreatedKnowledgeAttachment_WithoutWorkspaceDefinition_DeletesMetadataAndPayload()
+    {
+        var (_, _, accessor, synchronizer, workspace) =
+            await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
+        var contentPath = new AgentFilePath("capabilities/knowledge/files/NewKb.txt");
+        await accessor.WriteAsync(contentPath, "new knowledge", CancellationToken.None);
+
+        var definition = await synchronizer.ReadWorkspaceDefinitionAsync(
+            workspace,
+            CancellationToken.None,
+            checkKnowledgeFiles: true);
+        var (_, changes) = await synchronizer.GetLocalChangesAsync(
+            workspace,
+            definition,
+            CancellationToken.None);
+        var attachmentChange = Assert.Single(
+            changes.Where(change =>
+                change.ChangeType == ChangeType.Create
+                && change.ChangeKind == BotElementKind.FileAttachmentComponent.ToString()));
+
+        var result = synchronizer.DiscardLocalChanges(workspace, [attachmentChange]);
+
+        Assert.False(accessor.Exists(contentPath));
+        Assert.False(accessor.Exists(new AgentFilePath(attachmentChange.Uri)));
+        Assert.Equal(1, result.Deleted);
+        Assert.Empty(result.Skipped);
+    }
+
     [Theory]
     [InlineData("capabilities/knowledge/files/NewKb.mcs.yml")]
     [InlineData("capabilities/knowledge/files/NewKb.txt")]
