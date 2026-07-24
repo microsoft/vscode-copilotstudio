@@ -3346,9 +3346,15 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         IFileAccessor fileAccessor,
         AgentFilePath? path = null)
     {
+        var referencesPath = path ?? ReferencesCollectionPath;
+        if (!fileAccessor.Exists(referencesPath))
+        {
+            return null;
+        }
+
         try
         {
-            using var file = fileAccessor.OpenRead(path ?? ReferencesCollectionPath);
+            using var file = fileAccessor.OpenRead(referencesPath);
             using var reader = new StreamReader(file);
             return CodeSerializer.Deserialize<ReferencesSourceFile>(reader.ReadToEnd());
         }

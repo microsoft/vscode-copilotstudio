@@ -240,6 +240,7 @@
 
             Assert.Equal([
                     ".mcs/.gitignore",
+                    ".mcs/.references-cache.yml",
                     ".mcs/botdefinition.json",
                     ".mcs/changetoken.txt",
                     ".mcs/conn.json",
@@ -267,6 +268,10 @@
             // Key thing is this has touched up the references ot the local dir. 
             var refContents = await workspacesFiles[1].Value.ReadStringAsync(new AgentFilePath("references.mcs.yml"), default);
             Assert.Equal("componentCollections:\n  - schemaName:\n    directory: ../MyCC_333/", refContents.ReplaceLineEndings("\n"));
+            var baselineContents = await workspacesFiles[1].Value.ReadStringAsync(new AgentFilePath(".mcs/.references-cache.yml"), default);
+            Assert.Equal(
+                "componentCollections:\n  - schemaName: bot_componentcollection_my_cc_333\n    directory: ../MyCC_333/",
+                baselineContents.ReplaceLineEndings("\n"));
 
             Assert.NotNull(context); // prevent dispose
         }
