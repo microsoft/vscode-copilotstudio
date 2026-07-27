@@ -3,7 +3,7 @@ import { getWorkspaceByUri } from "./localWorkspaces";
 import { lspClient } from "../services/lspClient";
 import { LspMethods, TelemetryEventsKeys } from "../constants";
 import { GetFileRequest, GetFileResponse } from "../types";
-import logger from "../services/logger";
+import logger, { formatPii, PiiRedactionType, sanitizeErrorDetails } from "../services/logger";
 
 export const LOCAL_STATE_SCHEME = 'mcs';
 
@@ -24,7 +24,9 @@ async function retrieveLastSyncedFile(uri: Uri): Promise<string | null> {
 
   const workspace = getWorkspaceByUri(uri);
   if (!workspace) {
-    logger.logError(TelemetryEventsKeys.GetLocalFileError, undefined, { message: `Error retrieving file: could not locate workspace for file <pii>${uri}</pii>` });
+    logger.logError(TelemetryEventsKeys.GetLocalFileError, undefined, {
+      message: `Error retrieving file: could not locate workspace for file ${formatPii(String(uri), PiiRedactionType.FileUri)}`,
+    });
     return null;
   }
 
@@ -38,7 +40,10 @@ async function retrieveLastSyncedFile(uri: Uri): Promise<string | null> {
     return result.content;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    logger.logError(TelemetryEventsKeys.GetLocalFileError, `Error retrieving file: <pii>${errorMessage}</pii>`);
+    logger.logError(
+      TelemetryEventsKeys.GetLocalFileError,
+      `Error retrieving file: ${sanitizeErrorDetails(errorMessage, [workspace.displayName])}`,
+    );
     return null;
   }
 }

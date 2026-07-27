@@ -3,7 +3,7 @@ import { GetFileRequest, GetFileResponse } from "../types";
 import { getWorkspaceByUri } from "./localWorkspaces";
 import { lspClient } from "../services/lspClient";
 import { LspMethods, TelemetryEventsKeys } from "../constants";
-import logger from "../services/logger";
+import logger, { formatPii, PiiRedactionType, sanitizeErrorDetails } from "../services/logger";
 
 export const LOCAL_STATE_SCHEME = "mcs";
 
@@ -23,14 +23,16 @@ export class OriginalFileSystem implements FileSystemProvider {
     }
 
     async readFile(uri: Uri): Promise<Uint8Array> {
+        let agentName: string | undefined;
         try {
             const workspace = getWorkspaceByUri(uri);
             if (!workspace) {
                 logger.logError(TelemetryEventsKeys.GetLocalFileError, undefined, {
-                    message: `Error fetching file: could not locate workspace for file <pii>${uri}</pii>`
+                    message: `Error fetching file: could not locate workspace for file ${formatPii(String(uri), PiiRedactionType.FileUri)}`
                 });
                 return new Uint8Array();
             }
+            agentName = workspace.displayName;
 
             const { workspaceUri } = workspace;
             let schemaName = uri.path.substring(1); // remove leading slash
@@ -44,7 +46,10 @@ export class OriginalFileSystem implements FileSystemProvider {
             return Buffer.from(result.content ?? '', 'utf8');
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            logger.logError(TelemetryEventsKeys.GetLocalFileError, `Error fetching file: <pii>${errorMessage}</pii>`);
+            logger.logError(
+                TelemetryEventsKeys.GetLocalFileError,
+                `Error fetching file: ${sanitizeErrorDetails(errorMessage, agentName ? [agentName] : [])}`,
+            );
             return new Uint8Array();
         }
     }
