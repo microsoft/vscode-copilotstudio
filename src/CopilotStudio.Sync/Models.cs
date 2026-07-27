@@ -37,6 +37,24 @@ public enum ChangeType
     Delete = 2
 }
 
+public record DiscardSkippedChange
+{
+    public string SchemaName { get; set; } = string.Empty;
+
+    public string Path { get; set; } = string.Empty;
+
+    public string Reason { get; set; } = string.Empty;
+}
+
+public record DiscardResult
+{
+    public int Restored { get; set; }
+
+    public int Deleted { get; set; }
+
+    public ImmutableArray<DiscardSkippedChange> Skipped { get; set; } = ImmutableArray<DiscardSkippedChange>.Empty;
+}
+
 #endregion
 
 #region AgentSyncInfo

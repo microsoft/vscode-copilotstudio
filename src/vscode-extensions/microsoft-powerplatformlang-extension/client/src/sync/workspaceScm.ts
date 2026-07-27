@@ -16,6 +16,7 @@ interface WorkspaceScm {
   workspace: CopilotStudioWorkspace;
   onLocalChange: () => Promise<void>;
   onRemoteChange: () => Promise<void>;
+  setLocalChanges: (changes: Change[]) => void;
   getLocalChanges: () => Resource[];
   getRemoteChanges: () => Resource[];
   dispose: () => void;
@@ -52,6 +53,18 @@ export async function refreshAgentChangesAfterFetch(workspaceUri: string): Promi
   }
 }
 
+/**
+ * Replace the cached local changes with an already-computed LSP result.
+ * Used by local mutating operations so they do not need a second refresh request.
+ */
+export function replaceLocalChanges(workspaceUri: string, changes: Change[]): void {
+  const scmInstance = workspaceMap.get(workspaceUri);
+  if (scmInstance) {
+    scmInstance.setLocalChanges(changes);
+    refreshAgentChangesTree();
+  }
+}
+
 export function onWorkspaceChange(uri: string): void {
   // Find the matching workspace by checking if the uri is a child of any workspace uri
   for (const [workspaceUri, scm] of workspaceMap.entries()) {
@@ -67,6 +80,14 @@ export function onWorkspaceChange(uri: string): void {
         });
       return;
     }
+  }
+}
+
+export async function refreshInitialLocalChanges(refresh: () => Promise<void>): Promise<void> {
+  try {
+    await refresh();
+  } catch {
+    // Keep tracking registered so a later file change can retry the local diff.
   }
 }
 
@@ -245,12 +266,8 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
   const remoteCommandController = new RemoteChangeResourceCommandResolver(Uri.parse(workspaceUri));
 
   const fetchChanges = async<TInput>(requestType: string, input: TInput): Promise<Change[]> => {
-    try {
-      const result = await lspClient.sendRequest<SyncResponse>(requestType, input);
-      return result.localChanges;
-    } catch (error) {
-      return [];
-    }
+    const result = await lspClient.sendRequest<SyncResponse>(requestType, input);
+    return result.localChanges;
   };
 
   fileDecorationChangeEmitter = new EventEmitter<Uri[]>();
@@ -290,6 +307,25 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
   let remoteHadSuccess = false;
   let remoteChangeInFlight: Promise<void> | undefined;
 
+  const setLocalChanges = (changes: Change[]): void => {
+    const resources = mapResources(changes, localCommandController);
+    if (localChangeGroup) {
+      localChangeGroup.resourceStates = resources;
+    } else {
+      localChangesStore = resources;
+    }
+
+    schemaNames.clear();
+    resources.forEach(element => {
+      schemaNames.set(unescape(element.fullResourceUri.toString(true).toLowerCase()), element.schemaName);
+    });
+
+    const newUris = resources.map(resource => resource.fullResourceUri);
+    const changedUris = newUris.concat(lastFileAnnotations);
+    lastFileAnnotations = newUris;
+    fileDecorationChangeEmitter?.fire(changedUris);
+  };
+
   const result: WorkspaceScm = {
     workspace: ws,
     onLocalChange: async () => {
@@ -298,30 +334,10 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
       }
       try {
         const diffRequest: DiffRequest = {
-          ...await buildLspRequestPayload(syncInfo),
           workspaceUri
         };
         const generalChanges = await fetchChanges<DiffRequest>(LspMethods.GET_LOCAL_CHANGES, diffRequest);
-        const allChanges = [...generalChanges];
-        const resources = mapResources(allChanges, localCommandController);
-        
-        // Store changes in SCM resource group or internal store
-        if (localChangeGroup) {
-          localChangeGroup.resourceStates = resources;
-        } else {
-          localChangesStore = resources;
-        }
-
-        schemaNames.clear();
-        resources.forEach(element => {
-          schemaNames.set(unescape(element.fullResourceUri.toString(true).toLowerCase()), element.schemaName);
-        });
-
-        const newUris = resources.map(r => r.fullResourceUri);
-        const previousChanges = lastFileAnnotations;
-        const changedUris = newUris.concat(previousChanges);
-        lastFileAnnotations = newUris;
-        fileDecorationChangeEmitter?.fire(changedUris);
+        setLocalChanges(generalChanges);
       } catch (e) {
         logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
           message: `onLocalChangeError: ${e instanceof Error ? e.message : String(e)}`
@@ -367,6 +383,7 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
         remoteChangeInFlight = undefined;
       }
     },
+    setLocalChanges,
     getLocalChanges: () => {
       return localChangeGroup ? localChangeGroup.resourceStates as Resource[] : localChangesStore;
     },
@@ -387,7 +404,7 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
   synchronizer.subscribe(async (state) => {
     if (state === SyncState.Idle) {
       if (lastOperation === SyncState.Pulling || lastOperation === SyncState.Pushing) {
-        await result.onLocalChange();
+        await refreshInitialLocalChanges(result.onLocalChange);
         if (remoteChangeGroup) {
           remoteChangeGroup.resourceStates = [];
         } else {
@@ -404,7 +421,7 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
     lastOperation = state;
   });
 
-  await result.onLocalChange();
+  await refreshInitialLocalChanges(result.onLocalChange);
   try { await result.onRemoteChange(); } catch { /* swallow */ }
   refreshAgentChangesTree();
   if (scmView) {
