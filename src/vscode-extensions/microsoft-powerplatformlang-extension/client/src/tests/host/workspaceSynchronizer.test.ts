@@ -126,7 +126,7 @@ describe('workspaceSynchronizer: sync success telemetry', () => {
 		assert.strictEqual(prepared.displayMessage, errorMessage);
 		assert.strictEqual(
 			prepared.telemetryProperties.message,
-			'Agent [REDACTED AGENT NAME] could not open [REDACTED .MCS.YML FILE NAME] for [REDACTED EMAIL ADDRESS]',
+			'Agent [REDACTED AGENT NAME] could not open [REDACTED .MCS.YAML FILE NAME] for [REDACTED EMAIL ADDRESS]',
 		);
 	});
 
@@ -155,6 +155,48 @@ describe('workspaceSynchronizer: sync success telemetry', () => {
 		assert.strictEqual(
 			prepared.telemetryProperties.message,
 			'Could not open [REDACTED .MCS.YML FILE NAME]',
+		);
+	});
+
+	test('redacts full URLs as a URL rather than mislabeling them as file names', () => {
+		const errorMessage = 'Cannot reach https://contoso.crm.dynamics.com/api endpoint';
+		const prepared = prepareLogData(sanitizeErrorDetails(errorMessage), { sessionId: 'test-session' });
+
+		assert.strictEqual(prepared.displayMessage, errorMessage);
+		assert.strictEqual(
+			prepared.telemetryProperties.message,
+			'Cannot reach [REDACTED URL] endpoint',
+		);
+	});
+
+	test('redacts non-MCS file paths while disclosing the file extension', () => {
+		const errorMessage = 'ENOENT: spawn C:\\Users\\alex\\.vscode\\extensions\\lspOut\\LanguageServerHost.exe';
+		const prepared = prepareLogData(sanitizeErrorDetails(errorMessage), { sessionId: 'test-session' });
+
+		assert.strictEqual(prepared.displayMessage, errorMessage);
+		assert.strictEqual(
+			prepared.telemetryProperties.message,
+			'ENOENT: spawn [REDACTED .EXE FILE NAME]',
+		);
+	});
+
+	test('redacts cached botdefinition paths disclosing the .json extension', () => {
+		const errorMessage = 'Failed reading C:\\Users\\alex\\agents\\contoso\\.mcs\\botdefinition.json';
+		const prepared = prepareLogData(sanitizeErrorDetails(errorMessage), { sessionId: 'test-session' });
+
+		assert.strictEqual(
+			prepared.telemetryProperties.message,
+			'Failed reading [REDACTED .JSON FILE NAME]',
+		);
+	});
+
+	test('redacts bare file names disclosing the file extension', () => {
+		const errorMessage = 'Could not parse settings.mcs.yml';
+		const prepared = prepareLogData(sanitizeErrorDetails(errorMessage), { sessionId: 'test-session' });
+
+		assert.strictEqual(
+			prepared.telemetryProperties.message,
+			'Could not parse [REDACTED .MCS.YML FILE NAME]',
 		);
 	});
 

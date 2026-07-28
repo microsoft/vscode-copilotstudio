@@ -20,7 +20,7 @@ export enum PiiRedactionType {
   AgentName = 'AGENT NAME',
   EmailAddress = 'EMAIL ADDRESS',
   FileUri = 'FILE URI',
-  McsYamlFileName = '.MCS.YML FILE NAME',
+  Url = 'URL',
   AiBuilderPromptDetails = 'AI BUILDER PROMPT DETAILS',
   WorkflowErrorDetails = 'WORKFLOW ERROR DETAILS',
   WorkflowNames = 'WORKFLOW NAMES',
@@ -29,7 +29,7 @@ export enum PiiRedactionType {
 interface PiiMatch {
   start: number;
   end: number;
-  type: PiiRedactionType;
+  type: PiiRedactionType | string;
   priority: number;
 }
 
@@ -41,14 +41,37 @@ const encodePiiValue = (value: string): string =>
 const decodePiiValue = (value: string): string =>
   value.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 
-export function formatPii(value: string, type: PiiRedactionType): string {
+export function formatPii(value: string, type: PiiRedactionType | string): string {
   return `<pii type="${type}" encoded="true">${encodePiiValue(value)}</pii>`;
+}
+
+/**
+ * Derives a telemetry redaction label from a file path's extension chain so the
+ * redacted marker discloses the file type without leaking the file name or path.
+ * Examples: "agent.mcs.yml" -> ".MCS.YML FILE NAME", "botdefinition.json" -> ".JSON FILE NAME".
+ * Falls back to "FILE NAME" when no extension is present.
+ */
+function fileExtensionLabel(filePath: string): string {
+  const baseName = filePath.split(/[\\/]/).pop() ?? filePath;
+  const firstDot = baseName.indexOf('.', 1);
+  const extension = (firstDot >= 0 ? baseName.slice(firstDot) : '')
+    .replace(/[^A-Za-z0-9.]/g, '')
+    .toUpperCase();
+  return extension ? `${extension} FILE NAME` : 'FILE NAME';
+}
+
+/**
+ * Wraps a known file path or name so telemetry shows only its extension,
+ * e.g. "[REDACTED .JSON FILE NAME]", while the user still sees the full path.
+ */
+export function formatFileName(filePath: string): string {
+  return formatPii(filePath, fileExtensionLabel(filePath));
 }
 
 function collectMatches(
   value: string,
   pattern: RegExp,
-  type: PiiRedactionType,
+  type: PiiRedactionType | string,
   priority: number,
   captureGroup = 0,
 ): PiiMatch[] {
@@ -69,51 +92,83 @@ function collectMatches(
   return matches;
 }
 
+/**
+ * Like {@link collectMatches}, but derives a per-match redaction label from the
+ * matched file path's extension so telemetry discloses the file type only.
+ */
+function collectFileMatches(
+  value: string,
+  pattern: RegExp,
+  priority: number,
+  captureGroup = 0,
+): PiiMatch[] {
+  const matches: PiiMatch[] = [];
+  for (const match of value.matchAll(pattern)) {
+    const capturedValue = match[captureGroup];
+    if (!capturedValue || match.index === undefined) {
+      continue;
+    }
+    const captureOffset = match[0].indexOf(capturedValue);
+    matches.push({
+      start: match.index + captureOffset,
+      end: match.index + captureOffset + capturedValue.length,
+      type: fileExtensionLabel(capturedValue),
+      priority,
+    });
+  }
+  return matches;
+}
+
 export function sanitizeErrorDetails(errorMessage: string, agentNames: readonly string[] = []): string {
   const matches: PiiMatch[] = [
+    // Full URL (scheme://host/path...). Matched first and whole so a tenant or
+    // Dataverse endpoint is redacted as a URL rather than being partially
+    // consumed and mislabeled as a file name by the path rules below.
+    ...collectMatches(
+      errorMessage,
+      /[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s<>"'|]+/gi,
+      PiiRedactionType.Url,
+      6,
+    ),
     ...collectMatches(
       errorMessage,
       /[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9-]+(?:\.[A-Z0-9-]+)+/gi,
       PiiRedactionType.EmailAddress,
+      5,
+    ),
+    // Drive-letter path ending in any file name: C:\dir\file.ext
+    // The final file token excludes whitespace so a match stops at the file
+    // name and does not run into following prose ("... for alex@contoso.com").
+    ...collectFileMatches(
+      errorMessage,
+      /[A-Za-z]:[\\/](?:[^\\/\r\n:*?"<>|]+[\\/])*[^\s\\/\r\n:*?"<>|]*\.[A-Za-z0-9]{1,12}/gi,
+      4,
+    ),
+    // UNC path ending in any file name: \\server\share\file.ext
+    ...collectFileMatches(
+      errorMessage,
+      /\\\\[^\\/\r\n:*?"<>|]+[\\/](?:[^\\/\r\n:*?"<>|]+[\\/])*[^\s\\/\r\n:*?"<>|]*\.[A-Za-z0-9]{1,12}/gi,
+      4,
+    ),
+    // POSIX path ending in any file name: /dir/file.ext
+    ...collectFileMatches(
+      errorMessage,
+      /(?:\/[^\/\r\n"'<>|?*]+)*\/[^\s\/\r\n"'<>|?*]*\.[A-Za-z0-9]{1,12}/gi,
+      4,
+    ),
+    // Relative or mixed-separator path ending in any file name: dir\file.ext
+    ...collectFileMatches(
+      errorMessage,
+      /(?:[^\s\\/:"'<>|?*]+[\\/])+[^\s\\/:"'<>|?*]*\.[A-Za-z0-9]{1,12}/gi,
+      4,
+    ),
+    // Bare file name (no path). Each extension segment must be letter-initial and
+    // at least two characters, so version numbers ("1.2.3") and abbreviations
+    // ("e.g.", "U.S.A") are not mistaken for file names.
+    ...collectFileMatches(
+      errorMessage,
+      /[A-Za-z0-9_-]+(?:\.[A-Za-z][A-Za-z0-9]{1,11})+/gi,
       3,
-    ),
-    ...collectMatches(
-      errorMessage,
-      /[A-Za-z]:[\\/](?:[^\\/\r\n:*?"<>|]+[\\/])*[^\\/\r\n:*?"<>|]+\.mcs\.ya?ml/gi,
-      PiiRedactionType.McsYamlFileName,
-      4,
-    ),
-    ...collectMatches(
-      errorMessage,
-      /\\\\[^\\/\r\n:*?"<>|]+[\\/](?:[^\\/\r\n:*?"<>|]+[\\/])*[^\\/\r\n:*?"<>|]+\.mcs\.ya?ml/gi,
-      PiiRedactionType.McsYamlFileName,
-      4,
-    ),
-    ...collectMatches(
-      errorMessage,
-      /(?:\/[^\/\r\n"'<>|?*]+)+\.mcs\.ya?ml/gi,
-      PiiRedactionType.McsYamlFileName,
-      4,
-    ),
-    ...collectMatches(
-      errorMessage,
-      /(?:[^\s\\/:"'<>|?*]+[\\/])+[^\s\\/:"'<>|?*]+\.mcs\.ya?ml|[^\s\\/:"'<>|?*]+\.mcs\.ya?ml/gi,
-      PiiRedactionType.McsYamlFileName,
-      3,
-    ),
-    ...collectMatches(
-      errorMessage,
-      /"([^"\r\n]*?\.mcs\.ya?ml)"/gi,
-      PiiRedactionType.McsYamlFileName,
-      4,
-      1,
-    ),
-    ...collectMatches(
-      errorMessage,
-      /'([^'\r\n]*?\.mcs\.ya?ml)'/gi,
-      PiiRedactionType.McsYamlFileName,
-      4,
-      1,
     ),
   ];
 
@@ -130,30 +185,6 @@ export function sanitizeErrorDetails(errorMessage: string, agentNames: readonly 
       2,
     ));
   }
-
-  const quotedAgentPattern = /\bAgent\s+(?:"([^"\r\n]+)"|'([^'\r\n]+)')/gi;
-  for (const match of errorMessage.matchAll(quotedAgentPattern)) {
-    const agentName = match[1] ?? match[2] ?? match[3];
-    if (!agentName || match.index === undefined) {
-      continue;
-    }
-    const nameOffset = match[0].indexOf(agentName);
-    matches.push({
-      start: match.index + nameOffset,
-      end: match.index + nameOffset + agentName.length,
-      type: PiiRedactionType.AgentName,
-      priority: 1,
-    });
-  }
-
-  const unquotedAgentPattern = /\bAgent\s+([A-Za-z0-9][A-Za-z0-9 _.-]*?)(?=\s+(?:at|was|is|has|had|failed|could|cannot|can't|did|does|will|would|returned|with|from|for|unavailable|rejected)\b)/gi;
-  matches.push(...collectMatches(
-    errorMessage,
-    unquotedAgentPattern,
-    PiiRedactionType.AgentName,
-    1,
-    1,
-  ));
 
   matches.sort((left, right) =>
     left.start - right.start

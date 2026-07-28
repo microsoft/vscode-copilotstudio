@@ -7,7 +7,7 @@ import { getWorkspaceChanges, refreshAgentChangesAfterFetch } from "../sync/work
 import { handleSyncAuthError } from "../sync/authFailureNotification";
 import { clearSuppressedAuthState } from "../clients/account";
 import { isKnowledgeFileChangeKind, TelemetryEventsKeys } from "../constants";
-import logger, { formatPii, PiiRedactionType, sanitizeErrorDetails } from "../services/logger";
+import logger, { formatFileName, sanitizeErrorDetails } from "../services/logger";
 
 type Workspace = { ws: CopilotStudioWorkspace } | CopilotStudioWorkspace | null;
 
@@ -20,7 +20,7 @@ interface SyncCommand {
 export function formatOpenFileError(fileName: string, error: unknown, agentName?: string): string {
   const errorMessage = error instanceof Error ? error.message : String(error);
 
-  return `Error opening file ${formatPii(fileName, PiiRedactionType.McsYamlFileName)}: ${sanitizeErrorDetails(errorMessage, agentName ? [agentName] : [])}`;
+  return `Error opening file ${formatFileName(fileName)}: ${sanitizeErrorDetails(errorMessage, agentName ? [agentName] : [])}`;
 }
 
 export const registerSyncCommands = (context: ExtensionContext) => {
