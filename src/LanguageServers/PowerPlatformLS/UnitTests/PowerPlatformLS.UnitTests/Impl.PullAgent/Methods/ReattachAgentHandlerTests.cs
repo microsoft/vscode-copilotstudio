@@ -915,6 +915,24 @@
             return Task.FromResult((new PvaComponentChangeSet(Enumerable.Empty<BotComponentChange>(), null, "token"), ImmutableArray<Change>.Empty));
         }
 
+        public Task<(PvaComponentChangeSet, ImmutableArray<Change>)> GetLocalChangesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, DefinitionBase workspaceDefinition, CancellationToken cancellationToken)
+        {
+            return Task.FromResult((new PvaComponentChangeSet(Enumerable.Empty<BotComponentChange>(), null, "token"), ImmutableArray<Change>.Empty));
+        }
+
+        public DiscardResult DiscardLocalChanges(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, IReadOnlyCollection<Change> changes)
+        {
+            return new DiscardResult();
+        }
+
+        public DiscardResult DiscardLocalChanges(
+            Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder,
+            DefinitionBase workspaceDefinition,
+            IReadOnlyCollection<Change> changes)
+        {
+            return new DiscardResult();
+        }
+
         public Task<(PvaComponentChangeSet, ImmutableArray<Change>)> GetRemoteChangesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CancellationToken cancellationToken)
         {
             return Task.FromResult((new PvaComponentChangeSet(Enumerable.Empty<BotComponentChange>(), null, "token"), ImmutableArray<Change>.Empty));

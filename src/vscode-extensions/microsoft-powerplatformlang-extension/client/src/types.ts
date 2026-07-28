@@ -40,6 +40,22 @@ export interface SyncResponse extends RemoteApiResponse {
   aiPromptResponse?: AIPromptResponse[];
 }
 
+export interface DiscardSkippedChange {
+  schemaName: string;
+  path: string;
+  reason: string;
+}
+
+export interface DiscardResult {
+  restored: number;
+  deleted: number;
+  skipped: DiscardSkippedChange[];
+}
+
+export interface DiscardLocalChangesResponse extends SyncResponse {
+  result: DiscardResult;
+}
+
 export interface GetFileRequest {
   // Workspace URI: get from vscode.WorkspaceFolder;
   workspaceUri: string;
@@ -83,7 +99,7 @@ export interface UploadKnowledgeFilesResponse extends RemoteApiResponse {
   uploaded: string[];
 }
 
-export interface DiffRequest extends RemoteApiRequest {
+export interface DiffRequest {
   // Workspace URI: get from vscode.WorkspaceFolder;
   workspaceUri: string;
 }

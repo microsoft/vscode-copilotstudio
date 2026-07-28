@@ -2061,8 +2061,6 @@ beginDialog:
             var (_, changes) = await synchronizer.GetLocalChangesAsync(
                 workspaceFolder,
                 emptyBotDefinition,
-                mockDataverse,
-                new AgentSyncInfo { AgentId = agentId },
                 cancel);
 
             var workflowChange = changes.Single(c => c.SchemaName == $"Mcs.Workflow.{workflowId}");

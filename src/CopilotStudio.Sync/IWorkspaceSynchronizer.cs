@@ -41,12 +41,47 @@ public interface IWorkspaceSynchronizer
     /// </summary>
     /// <param name="workspaceFolder">The location of the root of the workspace</param>
     /// <param name="workspaceDefinition">The current state of the workspace</param>
-    /// <param name="dataverseClient">The dataverse client to use for communication with the dataverse service.</param>
-    /// <param name="syncInfo">The synchronization information of the agent.</param>
     /// <param name="cancellationToken">Used to cancel the request</param>
     /// <returns>A task representing the asynchronous operation</returns>
+    Task<(PvaComponentChangeSet, ImmutableArray<Change>)> GetLocalChangesAsync(
+        DirectoryPath workspaceFolder,
+        DefinitionBase workspaceDefinition,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Gets the local changes in the workspace folder compared to the last pull.
+    /// </summary>
+    /// <remarks>
+    /// This compatibility overload accepts remote-service dependencies that are no longer
+    /// required to calculate local changes.
+    /// </remarks>
+    /// <param name="workspaceFolder">The location of the root of the workspace</param>
+    /// <param name="workspaceDefinition">The current state of the workspace</param>
+    /// <param name="dataverseClient">Unused compatibility parameter.</param>
+    /// <param name="syncInfo">Unused compatibility parameter.</param>
+    /// <param name="cancellationToken">Used to cancel the request</param>
     Task<(PvaComponentChangeSet, ImmutableArray<Change>)> GetLocalChangesAsync(DirectoryPath workspaceFolder, DefinitionBase workspaceDefinition, ISyncDataverseClient dataverseClient,
         AgentSyncInfo syncInfo, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Restores the supplied local changes from the last-pulled cloud cache.
+    /// </summary>
+    /// <param name="workspaceFolder">The location of the workspace.</param>
+    /// <param name="changes">The local changes to discard.</param>
+    /// <returns>The discard result, including any changes that could not be restored.</returns>
+    DiscardResult DiscardLocalChanges(DirectoryPath workspaceFolder, IReadOnlyCollection<Change> changes);
+
+    /// <summary>
+    /// Discards local changes using the current workspace definition to resolve projected files.
+    /// </summary>
+    /// <param name="workspaceFolder">The workspace whose local changes should be discarded.</param>
+    /// <param name="workspaceDefinition">The current local workspace definition.</param>
+    /// <param name="changes">The local changes to discard.</param>
+    /// <returns>The discard result, including any changes that could not be restored.</returns>
+    DiscardResult DiscardLocalChanges(
+        DirectoryPath workspaceFolder,
+        DefinitionBase workspaceDefinition,
+        IReadOnlyCollection<Change> changes);
 
     /// <summary>
     /// Gets the remote changes compared to the last pull.

@@ -1,6 +1,7 @@
 export const LspMethods = {
   AGENT_DIRECTORY_CHANGE: "powerplatformls/onAgentDirectoryChange",
   CLONE_AGENT: "powerplatformls/cloneAgent",
+  DISCARD_LOCAL_CHANGES: "powerplatformls/discardLocalChanges",
   GET_AGENT: "powerplatformls/getAgent",
   GET_CACHED_FILE: "powerplatformls/getCachedFile",
   GET_ENVIRONMENT: "powerplatformls/getEnvironment",

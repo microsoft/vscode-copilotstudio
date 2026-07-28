@@ -1,42 +1,16 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
-//
-// Hidden per-child-agent link file (".agent.json"). Child agents come only from cloning;
-// their on-disk folder is a lossy sanitization of the display name, so clone records the
-// real cloud schema + folder here to correlate them on sync and detect folder renames.
-// A missing/malformed link is not fatal: WorkspaceSynchronizer self-heals it from the cloud
-// cache (see ResolveChildAgentSchemas), so workspaces cloned before this file existed keep working.
 
-using System;
-using System.IO;
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using Microsoft.CopilotStudio.McsCore;
 
 namespace Microsoft.CopilotStudio.Sync;
 
 internal static class ChildAgentLinkFile
 {
-    internal const string LinkFileName = ".agent.json";
-    private const string AgentsFolderPrefix = "agents/";
-    private const string AgentDefinitionFileName = "agent.mcs.yml";
-
-    private static readonly JsonSerializerOptions SerializerOptions = new()
-    {
-        WriteIndented = true,
-    };
-
-    internal sealed class ChildAgentLink
-    {
-        [JsonPropertyName("schemaName")]
-        public string SchemaName { get; set; } = string.Empty;
-
-        [JsonPropertyName("folderName")]
-        public string FolderName { get; set; } = string.Empty;
-    }
+    internal const string LinkFileName = ChildAgentLink.LinkFileName;
 
     /// <summary>An <c>agents/&lt;FolderName&gt;/</c> child-agent folder and its parsed link (null when missing/malformed).</summary>
-    internal readonly record struct ChildAgentFolder(string FolderName, ChildAgentLink? Link);
+    internal readonly record struct ChildAgentFolder(string FolderName, ChildAgentLink.LinkData? Link);
 
     /// <summary>Writes the hidden link file beside a child agent's agent.mcs.yml.</summary>
     internal static void WriteLink(IFileAccessor fileAccessor, AgentFilePath agentDefinitionPath, string schemaName)
@@ -46,8 +20,8 @@ internal static class ChildAgentLinkFile
             return;
         }
 
-        var link = new ChildAgentLink { SchemaName = schemaName, FolderName = folderName };
-        var json = JsonSerializer.Serialize(link, SerializerOptions);
+        var link = new ChildAgentLink.LinkData { SchemaName = schemaName, FolderName = folderName };
+        var json = ChildAgentLink.Serialize(link);
 
         using var stream = fileAccessor.OpenWrite(linkPath);
         using var textWriter = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
@@ -76,13 +50,13 @@ internal static class ChildAgentLinkFile
     {
         var folders = new List<ChildAgentFolder>();
 
-        foreach (var agentDefinitionPath in fileAccessor.ListFiles("agents", AgentDefinitionFileName))
+        foreach (var agentDefinitionPath in fileAccessor.ListFiles(ChildAgentLink.AgentsFolderName, ChildAgentLink.AgentDefinitionFileName))
         {
             var pathValue = agentDefinitionPath.ToString();
 
             // ListFiles matches by suffix in some accessors; restrict to real agents/.../agent.mcs.yml.
-            if (!pathValue.StartsWith(AgentsFolderPrefix, StringComparison.Ordinal)
-                || !string.Equals(agentDefinitionPath.FileName, AgentDefinitionFileName, StringComparison.OrdinalIgnoreCase))
+            if (!pathValue.StartsWith(ChildAgentLink.AgentsFolderPrefix, StringComparison.Ordinal)
+                || !string.Equals(agentDefinitionPath.FileName, ChildAgentLink.AgentDefinitionFileName, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
@@ -92,7 +66,7 @@ internal static class ChildAgentLinkFile
                 continue;
             }
 
-            ChildAgentLink? link = null;
+            ChildAgentLink.LinkData? link = null;
             if (fileAccessor.Exists(linkPath))
             {
                 try
@@ -115,12 +89,12 @@ internal static class ChildAgentLinkFile
         return folders;
     }
 
-    private static ChildAgentLink? ReadLink(IFileAccessor fileAccessor, AgentFilePath linkPath)
+    private static ChildAgentLink.LinkData? ReadLink(IFileAccessor fileAccessor, AgentFilePath linkPath)
     {
         using var stream = fileAccessor.OpenRead(linkPath);
         using var reader = new StreamReader(stream, Encoding.UTF8);
         var json = reader.ReadToEnd();
-        return JsonSerializer.Deserialize<ChildAgentLink>(json, SerializerOptions);
+        return ChildAgentLink.Parse(json);
     }
 
     /// <summary>

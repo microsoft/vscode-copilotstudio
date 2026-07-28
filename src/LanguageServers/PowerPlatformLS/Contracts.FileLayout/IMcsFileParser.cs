@@ -25,6 +25,15 @@
             AuthoringShape shape);
 
         /// <summary>
+        /// Overload to let the caller supply the component schema name directly instead of deriving it from the file path.
+        /// </summary>
+        (BotComponentBase? component, Exception? error) CompileFile(
+            LspDocument<BotElement> document,
+            ProjectionContext context,
+            AuthoringShape shape,
+            string? schemaNameOverride);
+
+        /// <summary>
         /// This method compiles a file model based on the schema name and the BotElement model.
         /// This is useful for compiling content that are not directly associated with a specific document, e.g. merged content from multiple sources.
         /// </summary>

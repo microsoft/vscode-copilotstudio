@@ -277,28 +277,9 @@
             TestLogger logs;
             var workspacePath = Path.GetFullPath("TestData/WorkspaceWithSubAgents");
             var iconPath = Path.Combine(workspacePath, "icon.png");
-            var diffLocalRequest = new DiffLocalRequest
+            var diffLocalRequest = new
             {
                 WorkspaceUri = new Uri(workspacePath),
-                AccountInfo = new AccountInfo
-                {
-                    AccountId = AccountId,
-                    TenantId = Guid.NewGuid(),
-                    AccountEmail = AccountEmail
-                },
-                EnvironmentInfo = new EnvironmentInfo
-                {
-                    DataverseUrl = DataverseUrl,
-                    AgentManagementUrl = AgentManagementUrl,
-                    EnvironmentId = EnvironmentId,
-                    DisplayName = "Test Environment"
-                },
-                SolutionVersions = new SolutionInfo
-                {
-                    CopilotStudioSolutionVersion = new Version(1, 0, 0, 0)
-                },
-                CopilotStudioAccessToken = CopilotStudioToken,
-                DataverseAccessToken = DataverseToken
             };
             var getLocalChangesMessage = JsonRpc.CreateRequestMessage(Constants.JsonRpcMethods.GetLocalChanges, diffLocalRequest);
 
@@ -394,6 +375,73 @@
 
             // request completed without error
             Assert.Empty(logs.Error);
+        }
+
+        [Fact]
+        public async Task DiscardLocalChanges_RestoresCachedTopicWithoutRemoteCredentials()
+        {
+            var sourceWorkspacePath = Path.GetFullPath("TestData/WorkspaceWithSubAgents");
+            var tempWorkspace = Directory.CreateTempSubdirectory("discard-local-changes-");
+
+            try
+            {
+                CopyDirectory(sourceWorkspacePath, tempWorkspace.FullName);
+                var workspacePath = tempWorkspace.FullName;
+                var topicPath = Path.Combine(workspacePath, "topics", "Signin.mcs.yml");
+                var original = await File.ReadAllTextAsync(topicPath);
+                var modified = original.Replace(
+                    "activity: Hello! To be able to help you",
+                    "activity: Changed locally! To be able to help you",
+                    StringComparison.Ordinal);
+                Assert.NotEqual(original, modified);
+
+                await using var context = new TestHost(
+                [
+                    new McsLspModule(),
+                    new PullAgentLspModule(new BuildVersionInfo { VsixVersion = "1.0.0-test", Hash = "discard" }),
+                ]);
+                await context.InitializeLanguageServerAsync(workspacePath);
+
+                var getLocalChangesRequest = JsonRpc.CreateRequestMessage(
+                    Constants.JsonRpcMethods.GetLocalChanges,
+                    new DiffLocalRequest { WorkspaceUri = new Uri(workspacePath) });
+                context.TestStream.WriteMessage(getLocalChangesRequest);
+                var baselineMessage = await context.GetResponseAsync([Constants.JsonRpcMethods.GetLocalChanges]) as JsonRpcResponse;
+                Assert.NotNull(baselineMessage);
+                var baseline = JsonRpc.GetValidResult<SyncAgentResponse>(baselineMessage);
+                Assert.DoesNotContain(
+                    baseline.LocalChanges,
+                    change => change.Uri.EndsWith("topics/Signin.mcs.yml", StringComparison.OrdinalIgnoreCase));
+
+                await File.WriteAllTextAsync(topicPath, modified);
+                var request = JsonRpc.CreateRequestMessage(
+                    Constants.JsonRpcMethods.DiscardLocalChanges,
+                    new { WorkspaceUri = new Uri(workspacePath) });
+                context.TestStream.WriteMessage(request);
+
+                var message = await context.GetResponseAsync([Constants.JsonRpcMethods.DiscardLocalChanges]) as JsonRpcResponse;
+                Assert.NotNull(message);
+                var response = JsonRpc.GetValidResult<DiscardLocalChangesResponse>(message);
+                Assert.True(response.Result.Restored > 0);
+                Assert.Empty(response.Result.Skipped);
+                Assert.Empty(response.LocalChanges);
+                Assert.Contains("activity: Hello! To be able to help you", await File.ReadAllTextAsync(topicPath));
+            }
+            finally
+            {
+                tempWorkspace.Delete(recursive: true);
+            }
+        }
+
+        private static void CopyDirectory(string sourcePath, string destinationPath)
+        {
+            foreach (var sourceFile in Directory.EnumerateFiles(sourcePath, "*", SearchOption.AllDirectories))
+            {
+                var relativePath = Path.GetRelativePath(sourcePath, sourceFile);
+                var destinationFile = Path.Combine(destinationPath, relativePath);
+                Directory.CreateDirectory(Path.GetDirectoryName(destinationFile)!);
+                File.Copy(sourceFile, destinationFile);
+            }
         }
 
         private async Task AssertDiagnosticsAsync(TestHost context, (string uriEnd, int count)[] expected)
