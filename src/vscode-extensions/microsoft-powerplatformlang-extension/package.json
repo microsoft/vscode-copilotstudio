@@ -404,18 +404,18 @@
     "@typescript-eslint/eslint-plugin": "^8.30.0",
     "@typescript-eslint/parser": "^8.30.0",
     "@vscode/test-electron": "^2.4.1",
-    "esbuild": "0.28.0",
-    "eslint": "^10.0.0",
-    "nerdbank-gitversioning": "^3.7.115",
-    "npm-run-all2": "^7.0.2",
+    "esbuild": "0.28.1",
+    "eslint": "^10.7.0",
+    "nerdbank-gitversioning": "^3.10.91",
+    "npm-run-all2": "^9.0.2",
     "shared": "file:../shared",
     "typescript": "^5.7.2"
   },
   "dependencies": {
     "@types/semver": "^7.7.0",
-    "@vscode/extension-telemetry": "^1.0.0",
+    "@vscode/extension-telemetry": "^1.5.2",
     "jsonc-parser": "^3.3.1",
-    "semver": "^7.7.2"
+    "semver": "^7.8.5"
   },
   "overrides": {
     "glob": ">=11.0.2"
