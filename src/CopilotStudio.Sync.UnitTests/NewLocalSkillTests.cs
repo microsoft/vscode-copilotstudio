@@ -248,7 +248,7 @@ public class NewLocalSkillTests
     }
 
     [Fact]
-    public async Task GetLocalChangesAsync_BareSkill_NotShownInPreview()
+    public async Task GetLocalChangesAsync_BareSkill_ShownInPreview()
     {
         var (sync, accessor, workspace) = await CreateWorkspaceAsync();
         WorkspaceSynchronizer.WriteCloudCache(accessor, CliCloudDefinition());
@@ -256,7 +256,7 @@ public class NewLocalSkillTests
 
         var (_, changes) = await sync.GetLocalChangesAsync(workspace, CliCloudDefinition(), new Mock<ISyncDataverseClient>().Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
 
-        Assert.DoesNotContain(changes, change => change.SchemaName == "cr123_natest.skill.get-us-temperature");
+        Assert.Contains(changes, change => change.ChangeType == ChangeType.Create && change.SchemaName == "cr123_natest.skill.get-us-temperature");
     }
 
     [Fact]
@@ -309,7 +309,7 @@ public class NewLocalSkillTests
     }
 
     [Fact]
-    public async Task GetLocalChangesAsync_BareSkill_NotSynthesizedInPreview()
+    public async Task GetLocalChangesAsync_BareSkill_SynthesizedInPreview()
     {
         var (sync, accessor, workspace) = await CreateWorkspaceAsync();
         WorkspaceSynchronizer.WriteCloudCache(accessor, CliCloudDefinition());
@@ -318,8 +318,21 @@ public class NewLocalSkillTests
 
         var (_, changes) = await sync.GetLocalChangesAsync(workspace, CliCloudDefinition(), new Mock<ISyncDataverseClient>().Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
 
-        Assert.DoesNotContain(changes, change => change.ChangeType == ChangeType.Create && change.SchemaName == "cr123_natest.skill.get-us-weather-2");
+        Assert.Contains(changes, change => change.ChangeType == ChangeType.Create && change.SchemaName == "cr123_natest.skill.get-us-weather-2");
         Assert.DoesNotContain(changes, change => change.Uri.Replace('\\', '/').StartsWith("capabilities/knowledge/files/", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task GetLocalChangesAsync_BareSkillFolderWithPunctuation_AnchorTargetsOriginalFolder()
+    {
+        var (sync, accessor, workspace) = await CreateWorkspaceAsync();
+        WorkspaceSynchronizer.WriteCloudCache(accessor, CliCloudDefinition());
+        Write(accessor, "behaviors/weather.v2/SKILL.md", "---\ndescription: d\n---\nBody\n");
+
+        var (_, changes) = await sync.GetLocalChangesAsync(workspace, CliCloudDefinition(), new Mock<ISyncDataverseClient>().Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
+
+        Assert.Contains(changes, change => change.ChangeType == ChangeType.Create && change.Uri.Replace('\\', '/') == "behaviors/weather.v2.mcs.yml");
+        Assert.DoesNotContain(changes, change => change.Uri.Replace('\\', '/') == "behaviors/weatherv2.mcs.yml");
     }
 
     private static FileAttachmentComponent ParentlessFileAttachment(string schemaName, string displayName)

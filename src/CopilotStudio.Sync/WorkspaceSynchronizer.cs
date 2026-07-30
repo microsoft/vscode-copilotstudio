@@ -1868,7 +1868,16 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 continue;
             }
 
-            var key = KnowledgeFilePath.NormalizeDisplayName(sidecarDisplayName!);
+            string key;
+            try
+            {
+                key = KnowledgeFilePath.NormalizeDisplayName(sidecarDisplayName!);
+            }
+            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+            {
+                continue;
+            }
+
             if (!stemsByDisplayName.ContainsKey(key))
             {
                 stemsByDisplayName[key] = sidecar.FileName.Substring(0, sidecar.FileName.Length - sidecarExtension.Length);
@@ -2285,6 +2294,21 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
             var schema = skillLinks.TryGetValue(onDiskName, out var linkedSchema) ? linkedSchema : LspProjection.GetSchemaName($"{LspProjection.BehaviorsFolder}{onDiskName}", botName, typeof(InlineAgentSkill), AuthoringShape.CliCopilot);
             if (!string.IsNullOrEmpty(schema) && targetFolderBySchema.TryGetValue(schema!, out var targetFolder) && !string.Equals(onDiskName, targetFolder, StringComparison.OrdinalIgnoreCase))
+            {
+                overrides[schema!] = onDiskName;
+            }
+        }
+
+        foreach (var manifestPath in EnumerateBareSkillManifests(fileAccessor))
+        {
+            var onDiskName = GetSkillFolderFromManifestPath(manifestPath);
+            if (onDiskName == null)
+            {
+                continue;
+            }
+
+            var schema = LspProjection.GetSchemaName($"{LspProjection.BehaviorsFolder}{onDiskName}", botName, typeof(InlineAgentSkill), AuthoringShape.CliCopilot);
+            if (!string.IsNullOrEmpty(schema) && !overrides.ContainsKey(schema!) && targetFolderBySchema.TryGetValue(schema!, out var bareTargetFolder) && !string.Equals(onDiskName, bareTargetFolder, StringComparison.OrdinalIgnoreCase))
             {
                 overrides[schema!] = onDiskName;
             }
@@ -4494,6 +4518,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         var changeToken = await GetChangeTokenOrNullAsync(fileAccessor, cancellationToken).ConfigureAwait(false);
         var effectiveDefinition = OverlayCliConnectionReferences(workspaceDefinition, fileAccessor, cancellationToken);
+        effectiveDefinition = DetectNewLocalSkills(fileAccessor, effectiveDefinition, cloudSnapshot, out _);
         var definitionWithNewKnowledgeFiles = DetectNewKnowledgeFiles(workspaceFolder, effectiveDefinition, out _, cancellationToken);
 
         var (changeSet, changes) = GetLocalChanges(definitionWithNewKnowledgeFiles, cloudSnapshot, fileAccessor, changeToken, isRemoteChange: false, deferMissingParents: true, out _, await GetReferencedCollectionComponentSchemaNamesAsync(workspaceFolder, cancellationToken).ConfigureAwait(false));
