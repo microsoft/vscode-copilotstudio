@@ -12,7 +12,7 @@ import { isTelemetryEnabled } from './telemetry';
 import logger, { sanitizeErrorDetails } from './logger';
 
 let currentContext: vscode.ExtensionContext | null = null;
-let currentOutputChannel: vscode.OutputChannel | null = null;
+let currentOutputChannel: vscode.LogOutputChannel | null = null;
 let currentSessionId: string | null = null;
 
 /**
@@ -63,7 +63,7 @@ class LspClientService {
     }
   }
 
-  public async initializeAndStart(context: vscode.ExtensionContext, outputChannel: vscode.OutputChannel, sessionId: string): Promise<void> {
+  public async initializeAndStart(context: vscode.ExtensionContext, outputChannel: vscode.LogOutputChannel, sessionId: string): Promise<void> {
     currentContext = context;
     currentOutputChannel = outputChannel;
     currentSessionId = sessionId;
