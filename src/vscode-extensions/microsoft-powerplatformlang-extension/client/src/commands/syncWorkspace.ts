@@ -7,7 +7,7 @@ import { getWorkspaceChanges, refreshAgentChangesAfterFetch } from "../sync/work
 import { handleSyncAuthError } from "../sync/authFailureNotification";
 import { clearSuppressedAuthState } from "../clients/account";
 import { isKnowledgeFileChangeKind, TelemetryEventsKeys } from "../constants";
-import logger from "../services/logger";
+import logger, { formatFileName, sanitizeErrorDetails } from "../services/logger";
 
 type Workspace = { ws: CopilotStudioWorkspace } | CopilotStudioWorkspace | null;
 
@@ -15,6 +15,12 @@ interface SyncCommand {
   id: string;
   displayName: string;
   action: (synchroniser: WorkspaceSynchronizer) => Promise<void>;
+}
+
+export function formatOpenFileError(fileName: string, error: unknown, agentName?: string): string {
+  const errorMessage = error instanceof Error ? error.message : String(error);
+
+  return `Error opening file ${formatFileName(fileName)}: ${sanitizeErrorDetails(errorMessage, agentName ? [agentName] : [])}`;
 }
 
 export const registerSyncCommands = (context: ExtensionContext) => {
@@ -80,7 +86,9 @@ export const getDiagnosticsErrors = async (workspace: CopilotStudioWorkspace) =>
       const document = await VSworkspace.openTextDocument(fileUri);
       openedDocuments.push(document);
     } catch (error) {
-      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, { message: `Error opening file <pii>${fileUri.fsPath}</pii>: ${(error as Error).message}` });
+      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
+        message: formatOpenFileError(fileUri.fsPath, error, workspace.displayName),
+      });
     }
   }
 
@@ -227,7 +235,11 @@ const registerSyncCommand = (
       if (workspaceForCatch && await handleSyncAuthError(workspaceForCatch, error, async () => { await commands.executeCommand(id, workspaceForCatch); })) {
         return;
       }
-      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Failed to execute ${displayName} operation: ${(error as Error).message}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.logError(
+        TelemetryEventsKeys.SyncWorkspaceError,
+        `Failed to execute ${displayName} operation: ${sanitizeErrorDetails(errorMessage, workspaceForCatch ? [workspaceForCatch.displayName] : [])}`,
+      );
     }
   });
 

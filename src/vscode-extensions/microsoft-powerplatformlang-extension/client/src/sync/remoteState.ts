@@ -4,7 +4,7 @@ import { RemoteFileRequest, GetFileResponse } from '../types';
 import { findWorkspaceForUri } from './localWorkspaces';
 import { lspClient, buildLspRequestPayload } from "../services/lspClient";
 import { LspMethods, TelemetryEventsKeys } from "../constants";
-import logger from "../services/logger";
+import logger, { formatPii, PiiRedactionType, sanitizeErrorDetails } from "../services/logger";
 
 export const REMOTE_STATE_SCHEME = 'mcs-remote';
 
@@ -25,7 +25,9 @@ export function initializeRemoteCacheDocumentContentProvider(context: ExtensionC
 async function getRemoteFileContent(uri: Uri): Promise<string | null> {
   const workspace = findWorkspaceForUri(uri.query);
   if (!workspace) {
-    logger.logError(TelemetryEventsKeys.GetRemoteFileError, undefined, { message: `Error fetching file: could not locate workspace for file <pii>${uri}</pii>` });
+    logger.logError(TelemetryEventsKeys.GetRemoteFileError, undefined, {
+      message: `Error fetching file: could not locate workspace for file ${formatPii(String(uri), PiiRedactionType.FileUri)}`,
+    });
     return null;
   }
 
@@ -51,7 +53,11 @@ async function getRemoteFileContent(uri: Uri): Promise<string | null> {
     const result = await lspClient.sendRequest<GetFileResponse>(LspMethods.GET_REMOTE_FILE, request);
     return result.content;
   } catch (error) {
-    logger.logError(TelemetryEventsKeys.GetRemoteFileError, `Error fetching file: ${(error as Error).message}`);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.logError(
+      TelemetryEventsKeys.GetRemoteFileError,
+      `Error fetching file: ${sanitizeErrorDetails(errorMessage, [workspace.displayName])}`,
+    );
     return null;
   }
 }

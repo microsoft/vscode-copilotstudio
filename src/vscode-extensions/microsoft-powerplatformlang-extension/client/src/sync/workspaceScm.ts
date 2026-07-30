@@ -9,7 +9,7 @@ import { registerVirtualKnowledgeProvider } from "../knowledgeFiles/virtualKnowl
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import { isChildUri, isSameUri } from "../utils/genericUtils";
 import { LspMethods, TelemetryEventsKeys } from "../constants";
-import logger from "../services/logger";
+import logger, { sanitizeErrorDetails } from "../services/logger";
 import { refreshAgentChangesTree } from "./agentChangesTreeProvider";
 
 interface WorkspaceScm {
@@ -75,7 +75,7 @@ export function onWorkspaceChange(uri: string): void {
         .then(() => refreshAgentChangesTree())
         .catch(err => {
           logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-            message: `onLocalChange failed: ${(err as Error).message}`
+            message: `onLocalChange failed: ${sanitizeErrorDetails(err instanceof Error ? err.message : String(err), [scm.workspace.displayName])}`
           });
         });
       return;
@@ -121,7 +121,7 @@ export function initializeWorkspaceScm(context: ExtensionContext) {
 
 export async function refreshWorkspaces(workspaces: CopilotStudioWorkspace[], context: ExtensionContext) {
   const desiredUris = new Set(workspaces.map(w => w.workspaceUri));
-  const newPromises: Promise<void>[] = [];
+  const newSetups: { promise: Promise<void>; agentName: string }[] = [];
   // Precompute connection file availability (case-insensitive path on Windows)
   const eligibility = workspaces.map(ws => ({
     ws,
@@ -151,19 +151,19 @@ export async function refreshWorkspaces(workspaces: CopilotStudioWorkspace[], co
           }
         })();
         workspaceSetupPromises.set(uri, setupPromise);
-        newPromises.push(setupPromise);
+        newSetups.push({ promise: setupPromise, agentName: ws.displayName });
     }
   }
 
-  if (newPromises.length) {
-    // await on newPromises rather than all workspaceSetupPromises to make this independent of other refreshWorkspaces calls.
+  if (newSetups.length) {
+    // Await only the new setups to keep this independent of other refreshWorkspaces calls.
     // we might wish to change this in the future if we want to ensure all workspaces are fully initialized before any refresh completes.
-    const results = await Promise.allSettled(newPromises);
-    for (const r of results) {
+    const results = await Promise.allSettled(newSetups.map(setup => setup.promise));
+    for (const [index, r] of results.entries()) {
       if (r.status === 'rejected') {
         const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
         logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-          message: `Workspace setup failed: ${reason}`
+          message: `Workspace setup failed: ${sanitizeErrorDetails(reason, [newSetups[index].agentName])}`
         });
       }
     }
@@ -340,7 +340,7 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
         setLocalChanges(generalChanges);
       } catch (e) {
         logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-          message: `onLocalChangeError: ${e instanceof Error ? e.message : String(e)}`
+          message: `onLocalChangeError: ${sanitizeErrorDetails(e instanceof Error ? e.message : String(e), [ws.displayName])}`
         });
         throw e;
       }
@@ -371,7 +371,7 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
         } catch (e) {
           if (remoteHadSuccess) {
             logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-              message: `onRemoteChangeErrorAfterSuccess: ${e instanceof Error ? e.message : String(e)}`
+              message: `onRemoteChangeErrorAfterSuccess: ${sanitizeErrorDetails(e instanceof Error ? e.message : String(e), [ws.displayName])}`
             });
           }
           // Swallow to avoid aborting setup; remote can retry later.
@@ -434,7 +434,7 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
   return result;
   } catch (e) {
     logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-      message: `setupChangeTrackingRejected: ${e instanceof Error ? e.message : String(e)}`
+      message: `setupChangeTrackingRejected: ${sanitizeErrorDetails(e instanceof Error ? e.message : String(e), [ws.displayName])}`
     });
     // Dispose any partially created resources
     try {

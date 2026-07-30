@@ -15,6 +15,230 @@ type TelemetryEventProps = {
  */
 type TelemetryEventData = Record<string, string | number | undefined>;
 
+export enum PiiRedactionType {
+  AccountIdentifier = 'ACCOUNT IDENTIFIER',
+  AgentName = 'AGENT NAME',
+  EmailAddress = 'EMAIL ADDRESS',
+  FileUri = 'FILE URI',
+  Url = 'URL',
+  AiBuilderPromptDetails = 'AI BUILDER PROMPT DETAILS',
+  WorkflowErrorDetails = 'WORKFLOW ERROR DETAILS',
+  WorkflowNames = 'WORKFLOW NAMES',
+}
+
+interface PiiMatch {
+  start: number;
+  end: number;
+  type: PiiRedactionType | string;
+  priority: number;
+}
+
+const piiPattern = /<pii(?: type="([^"]+)")?(?: encoded="(true)")?>(.*?)<\/pii>/gs;
+
+const encodePiiValue = (value: string): string =>
+  value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+const decodePiiValue = (value: string): string =>
+  value.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+
+export function formatPii(value: string, type: PiiRedactionType | string): string {
+  return `<pii type="${type}" encoded="true">${encodePiiValue(value)}</pii>`;
+}
+
+/**
+ * Derives a telemetry redaction label from a file path's extension chain so the
+ * redacted marker discloses the file type without leaking the file name or path.
+ * Examples: "agent.mcs.yml" -> ".MCS.YML FILE NAME", "botdefinition.json" -> ".JSON FILE NAME".
+ * Falls back to "FILE NAME" when no extension is present.
+ */
+function fileExtensionLabel(filePath: string): string {
+  const baseName = filePath.split(/[\\/]/).pop() ?? filePath;
+  const firstDot = baseName.indexOf('.', 1);
+  const extension = (firstDot >= 0 ? baseName.slice(firstDot) : '')
+    .replace(/[^A-Za-z0-9.]/g, '')
+    .toUpperCase();
+  return extension ? `${extension} FILE NAME` : 'FILE NAME';
+}
+
+/**
+ * Wraps a known file path or name so telemetry shows only its extension,
+ * e.g. "[REDACTED .JSON FILE NAME]", while the user still sees the full path.
+ */
+export function formatFileName(filePath: string): string {
+  return formatPii(filePath, fileExtensionLabel(filePath));
+}
+
+function collectMatches(
+  value: string,
+  pattern: RegExp,
+  type: PiiRedactionType | string,
+  priority: number,
+  captureGroup = 0,
+): PiiMatch[] {
+  const matches: PiiMatch[] = [];
+  for (const match of value.matchAll(pattern)) {
+    const capturedValue = match[captureGroup];
+    if (!capturedValue || match.index === undefined) {
+      continue;
+    }
+    const captureOffset = match[0].indexOf(capturedValue);
+    matches.push({
+      start: match.index + captureOffset,
+      end: match.index + captureOffset + capturedValue.length,
+      type,
+      priority,
+    });
+  }
+  return matches;
+}
+
+/**
+ * Like {@link collectMatches}, but derives a per-match redaction label from the
+ * matched file path's extension so telemetry discloses the file type only.
+ */
+function collectFileMatches(
+  value: string,
+  pattern: RegExp,
+  priority: number,
+  captureGroup = 0,
+): PiiMatch[] {
+  const matches: PiiMatch[] = [];
+  for (const match of value.matchAll(pattern)) {
+    const capturedValue = match[captureGroup];
+    if (!capturedValue || match.index === undefined) {
+      continue;
+    }
+    const captureOffset = match[0].indexOf(capturedValue);
+    matches.push({
+      start: match.index + captureOffset,
+      end: match.index + captureOffset + capturedValue.length,
+      type: fileExtensionLabel(capturedValue),
+      priority,
+    });
+  }
+  return matches;
+}
+
+export function sanitizeErrorDetails(errorMessage: string, agentNames: readonly string[] = []): string {
+  const matches: PiiMatch[] = [
+    // Full URL (scheme://host/path...). Matched first and whole so a tenant or
+    // Dataverse endpoint is redacted as a URL rather than being partially
+    // consumed and mislabeled as a file name by the path rules below.
+    ...collectMatches(
+      errorMessage,
+      /[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s<>"'|]+/gi,
+      PiiRedactionType.Url,
+      6,
+    ),
+    ...collectMatches(
+      errorMessage,
+      /[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9-]+(?:\.[A-Z0-9-]+)+/gi,
+      PiiRedactionType.EmailAddress,
+      5,
+    ),
+    // Drive-letter path ending in any file name: C:\dir\file.ext
+    // The final file token excludes whitespace so a match stops at the file
+    // name and does not run into following prose ("... for alex@contoso.com").
+    ...collectFileMatches(
+      errorMessage,
+      /[A-Za-z]:[\\/](?:[^\\/\r\n:*?"<>|]+[\\/])*[^\s\\/\r\n:*?"<>|]*\.[A-Za-z0-9]{1,12}/gi,
+      4,
+    ),
+    // UNC path ending in any file name: \\server\share\file.ext
+    ...collectFileMatches(
+      errorMessage,
+      /\\\\[^\\/\r\n:*?"<>|]+[\\/](?:[^\\/\r\n:*?"<>|]+[\\/])*[^\s\\/\r\n:*?"<>|]*\.[A-Za-z0-9]{1,12}/gi,
+      4,
+    ),
+    // POSIX path ending in any file name: /dir/file.ext
+    ...collectFileMatches(
+      errorMessage,
+      /(?:\/[^\/\r\n"'<>|?*]+)*\/[^\s\/\r\n"'<>|?*]*\.[A-Za-z0-9]{1,12}/gi,
+      4,
+    ),
+    // Relative or mixed-separator path ending in any file name: dir\file.ext
+    ...collectFileMatches(
+      errorMessage,
+      /(?:[^\s\\/:"'<>|?*]+[\\/])+[^\s\\/:"'<>|?*]*\.[A-Za-z0-9]{1,12}/gi,
+      4,
+    ),
+    // Bare file name (no path). Each extension segment must be letter-initial and
+    // at least two characters, so version numbers ("1.2.3") and abbreviations
+    // ("e.g.", "U.S.A") are not mistaken for file names.
+    ...collectFileMatches(
+      errorMessage,
+      /[A-Za-z0-9_-]+(?:\.[A-Za-z][A-Za-z0-9]{1,11})+/gi,
+      3,
+    ),
+  ];
+
+  for (const agentName of agentNames.filter(name => name.length > 0)) {
+    const escapedAgentName = agentName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const agentNamePattern = new RegExp(
+      `(?<![\\p{L}\\p{N}])${escapedAgentName}(?![\\p{L}\\p{N}])`,
+      'giu',
+    );
+    matches.push(...collectMatches(
+      errorMessage,
+      agentNamePattern,
+      PiiRedactionType.AgentName,
+      2,
+    ));
+  }
+
+  matches.sort((left, right) =>
+    left.start - right.start
+    || right.priority - left.priority
+    || right.end - right.start - (left.end - left.start));
+
+  let sanitized = '';
+  let cursor = 0;
+  for (const match of matches) {
+    if (match.start < cursor) {
+      continue;
+    }
+    sanitized += errorMessage.slice(cursor, match.start);
+    sanitized += formatPii(errorMessage.slice(match.start, match.end), match.type);
+    cursor = match.end;
+  }
+
+  return sanitized + errorMessage.slice(cursor);
+}
+
+const stripPiiTags = (value: string): string =>
+  value.replace(
+    piiPattern,
+    (_match, _type: string | undefined, encoded: string | undefined, piiValue: string) =>
+      encoded ? decodePiiValue(piiValue) : piiValue,
+  );
+
+const redactPii = (value: string): string =>
+  value.replace(piiPattern, (_match, type: string | undefined) =>
+    type ? `[REDACTED ${type}]` : '[REDACTED]');
+
+export function prepareLogData(message: string | undefined, properties: TelemetryEventProperties): {
+  displayMessage: string | undefined;
+  telemetryProperties: Record<string, string>;
+} {
+  const displayMessage = message === undefined ? undefined : stripPiiTags(message);
+  const rawMessage = properties.message as string || message;
+  const telemetryProperties: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(properties)) {
+    if (typeof value === 'string') {
+      telemetryProperties[key] = redactPii(value);
+    } else if (value !== undefined) {
+      telemetryProperties[key] = String(value);
+    }
+  }
+
+  if (rawMessage) {
+    telemetryProperties.message = redactPii(rawMessage);
+  }
+
+  return { displayMessage, telemetryProperties };
+}
+
 const NOOP_REPORTER = {
   sendTelemetryEvent: () => { },
   sendTelemetryErrorEvent: () => { },
@@ -112,7 +336,8 @@ const eventCategoryMap: Partial<Record<TelemetryEventType, LogCategory>> = {
  * @remarks
  * - Automatically attaches `sessionId` property to all events, `isError` property to error events, and `isWarning` property to warning events.
  * - Supports sending events with just a name, or with additional message and data.
- * - PII: wrap sensitive content in `<pii>...</pii>` tags for automatic redaction in telemetry.
+ * - PII: use `formatPii` to retain sensitive content in the UI while emitting a descriptive redaction in telemetry.
+ *   Legacy `<pii>...</pii>` tags remain supported and emit `[REDACTED]`.
 */
 class Logger {
   private static instance: Logger;
@@ -161,7 +386,7 @@ class Logger {
    * Sends a telemetry event with the given name, message, and data.
    * Writes to the output channel for diagnostic purposes.
    * If message is provided, shows a message in the VS Code UI based on the log level.
-   * PII in the message should be wrapped in `<pii>...</pii>` tags to ensure it is redacted in telemetry.
+   * PII in the message should be wrapped with `formatPii` to ensure it is redacted in telemetry.
    *
    * @param logLevel - The level of the log (Info, Warning, Error).
    * @param eventName - Telemetry event name.
@@ -175,29 +400,7 @@ class Logger {
     data?: TelemetryEventData
   ) {
     const { properties, measurements } = this.parseData(logLevel, data);
-
-    // A clean version of the message for the user, with PII tags stripped out
-    const displayMessage = message?.replace(/<pii>(.*?)<\/pii>/g, '$1');
-
-    // The message for telemetry with potential PII tags
-    const rawMessage = properties?.message as string || message;
-
-    // Redact all string properties that contain <pii> tags before sending to telemetry
-    const redactedProperties: Record<string, string> = {};
-    if (properties) {
-      for (const [key, value] of Object.entries(properties)) {
-        if (typeof value === 'string') {
-          redactedProperties[key] = value.replace(/<pii>.*?<\/pii>/g, '[REDACTED]');
-        } else if (value !== undefined) {
-          redactedProperties[key] = String(value);
-        }
-      }
-    }
-    // Ensure the message property uses the raw message source for redaction
-    const redactedMessage = rawMessage?.replace(/<pii>.*?<\/pii>/g, '[REDACTED]');
-    const updatedProperties = redactedMessage
-      ? { ...redactedProperties, message: redactedMessage }
-      : redactedProperties;
+    const { displayMessage, telemetryProperties } = prepareLogData(message, properties);
 
     const canSendTelemetry = isTelemetryEnabled();
     this.writeToOutputChannel(logLevel, eventName, displayMessage, properties);
@@ -205,7 +408,7 @@ class Logger {
     switch (logLevel) {
       case LogLevel.Info:
         if (canSendTelemetry) {
-          this.reporter.sendTelemetryEvent(eventName, updatedProperties, measurements);
+          this.reporter.sendTelemetryEvent(eventName, telemetryProperties, measurements);
         }
         if (displayMessage) {
           vscode.window.showInformationMessage(displayMessage);
@@ -213,7 +416,7 @@ class Logger {
         break;
       case LogLevel.Warning:
         if (canSendTelemetry) {
-          this.reporter.sendTelemetryErrorEvent(eventName, updatedProperties, measurements);
+          this.reporter.sendTelemetryErrorEvent(eventName, telemetryProperties, measurements);
         }
         if (displayMessage) {
           vscode.window.showWarningMessage(displayMessage);
@@ -221,7 +424,7 @@ class Logger {
         break;
       case LogLevel.Error:
         if (canSendTelemetry) {
-          this.reporter.sendTelemetryErrorEvent(eventName, updatedProperties, measurements);
+          this.reporter.sendTelemetryErrorEvent(eventName, telemetryProperties, measurements);
         }
         if (displayMessage) {
           vscode.window.showErrorMessage(displayMessage);
@@ -233,7 +436,7 @@ class Logger {
   /**
    * Sends a standard telemetry event.
    * If message is provided, shows an information message to users.
-   * PII in the message should be wrapped in `<pii>...</pii>` tags to ensure it is redacted in telemetry.
+   * PII in the message should be wrapped with `formatPii` to ensure it is redacted in telemetry.
    *
    * @param eventName - The name of the telemetry event.
    * @param message - Optional message string to display to the user.
@@ -250,7 +453,7 @@ class Logger {
   /**
    * Sends a warning telemetry event.
    * If message is provided, shows a warning message to users.
-   * PII in the message should be wrapped in `<pii>...</pii>` tags to ensure it is redacted in telemetry.
+   * PII in the message should be wrapped with `formatPii` to ensure it is redacted in telemetry.
    *
    * @param eventName - The name of the telemetry event.
    * @param message - Optional message string to display to the user.
@@ -267,7 +470,7 @@ class Logger {
   /**
 * Sends error-specific telemetry event.
    * If message is provided, shows an error message to users.
-   * PII in the message should be wrapped in `<pii>...</pii>` tags to ensure it is redacted in telemetry.
+   * PII in the message should be wrapped with `formatPii` to ensure it is redacted in telemetry.
    *
    * @param eventName - The name of the telemetry event.
    * @param message - Optional message string to display to the user.
@@ -294,7 +497,8 @@ class Logger {
 
     const category = eventCategoryMap[eventName];
 
-    const mainMessage = displayMessage ?? (properties?.['message'] as string | undefined)?.replace(/<pii>(.*?)<\/pii>/g, '$1');
+    const propertyMessage = properties?.['message'] as string | undefined;
+    const mainMessage = displayMessage ?? (propertyMessage ? stripPiiTags(propertyMessage) : undefined);
     if (!mainMessage) {
       return;
     }
