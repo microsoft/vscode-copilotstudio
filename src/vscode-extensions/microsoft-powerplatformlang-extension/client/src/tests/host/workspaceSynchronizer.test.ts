@@ -1,6 +1,8 @@
 import * as assert from 'node:assert';
 import { describe, test } from 'node:test';
 import {
+	createSyncSuccessLog,
+	formatReauthenticationError,
 	getActiveSyncUri,
 	getSyncStateFor,
 	logWorkflowIssues,
@@ -8,8 +10,229 @@ import {
 	SyncState,
 	withSyncCommandBusy,
 } from '../../sync/workspaceSynchronizer';
-import logger from '../../services/logger';
+import { formatOpenFileError } from '../../commands/syncWorkspace';
+import logger, { prepareLogData, sanitizeErrorDetails } from '../../services/logger';
 import type { WorkflowResponse } from '../../types';
+
+describe('workspaceSynchronizer: sync success telemetry', () => {
+
+	test('keeps the agent name visible while redacting it from telemetry', () => {
+		const successLog = createSyncSuccessLog('Contoso Support', 'applying changes', 42);
+		const prepared = prepareLogData(successLog.message, {
+			sessionId: 'test-session',
+			agent: successLog.data.agent,
+			operation: successLog.data.operation,
+		});
+
+		assert.strictEqual(prepared.displayMessage, 'Completed applying changes for Contoso Support in 42ms');
+		assert.strictEqual(prepared.telemetryProperties.message, 'Completed applying changes for [REDACTED AGENT NAME] in 42ms');
+		assert.strictEqual(prepared.telemetryProperties.agent, '[REDACTED AGENT NAME]');
+		assert.strictEqual(prepared.telemetryProperties.operation, 'applying changes');
+	});
+
+	test('does not allow PII values to close their redaction marker', () => {
+		const agentName = 'Contoso </pii> alice@contoso.com';
+		const successLog = createSyncSuccessLog(agentName, 'applying changes', 42);
+		const prepared = prepareLogData(successLog.message, {
+			sessionId: 'test-session',
+			agent: successLog.data.agent,
+		});
+
+		assert.strictEqual(prepared.displayMessage, `Completed applying changes for ${agentName} in 42ms`);
+		assert.strictEqual(
+			prepared.telemetryProperties.message,
+			'Completed applying changes for [REDACTED AGENT NAME] in 42ms',
+		);
+		assert.strictEqual(prepared.telemetryProperties.agent, '[REDACTED AGENT NAME]');
+	});
+
+	test('identifies an MCS YAML file name while preserving a safe file error', () => {
+		const message = formatOpenFileError('C:\\agents\\contoso\\agent.mcs.yml', new Error('Access denied'));
+		const prepared = prepareLogData(message, {
+			sessionId: 'test-session',
+			message,
+		});
+
+		assert.strictEqual(
+			prepared.displayMessage,
+			'Error opening file C:\\agents\\contoso\\agent.mcs.yml: Access denied',
+		);
+		assert.strictEqual(
+			prepared.telemetryProperties.message,
+			'Error opening file [REDACTED .MCS.YML FILE NAME]: Access denied',
+		);
+	});
+
+	test('preserves filesystem error details for the user while redacting unsafe qualifiers', () => {
+		const error = Object.assign(new Error('Access denied by policy Contoso-Restricted'), {
+			code: 'NoPermissions',
+		});
+		const message = formatOpenFileError('C:\\agents\\contoso\\agent.mcs.yml', error);
+		const prepared = prepareLogData(message, { sessionId: 'test-session' });
+
+		assert.strictEqual(
+			prepared.displayMessage,
+			'Error opening file C:\\agents\\contoso\\agent.mcs.yml: Access denied by policy Contoso-Restricted',
+		);
+		assert.strictEqual(
+			prepared.telemetryProperties.message,
+			'Error opening file [REDACTED .MCS.YML FILE NAME]: Access denied by policy Contoso-Restricted',
+		);
+	});
+
+	test('preserves a file error reason while redacting its agent and MCS YAML file', () => {
+		const message = formatOpenFileError(
+			'C:\\agents\\contoso\\agent.mcs.yml',
+			new Error('Agent Contoso could not open C:\\agents\\contoso\\topic.mcs.yml'),
+			'Contoso',
+		);
+		const prepared = prepareLogData(message, { sessionId: 'test-session' });
+
+		assert.strictEqual(
+			prepared.telemetryProperties.message,
+			'Error opening file [REDACTED .MCS.YML FILE NAME]: Agent [REDACTED AGENT NAME] could not open [REDACTED .MCS.YML FILE NAME]',
+		);
+	});
+
+	test('identifies an email address while preserving a safe rejection reason', () => {
+		const message = formatReauthenticationError(new Error('alex@contoso.com was rejected'));
+		const prepared = prepareLogData(message, { sessionId: 'test-session' });
+
+		assert.strictEqual(prepared.displayMessage, 'Re-authentication failed: alex@contoso.com was rejected');
+		assert.strictEqual(
+			prepared.telemetryProperties.message,
+			'Re-authentication failed: [REDACTED EMAIL ADDRESS] was rejected',
+		);
+	});
+
+	test('preserves a re-authentication reason while redacting its PII', () => {
+		const message = formatReauthenticationError(
+			new Error('Agent Contoso could not open C:\\agents\\contoso\\agent.mcs.yml for alex@contoso.com'),
+			'Contoso',
+		);
+		const prepared = prepareLogData(message, { sessionId: 'test-session' });
+
+		assert.strictEqual(
+			prepared.telemetryProperties.message,
+			'Re-authentication failed: Agent [REDACTED AGENT NAME] could not open [REDACTED .MCS.YML FILE NAME] for [REDACTED EMAIL ADDRESS]',
+		);
+	});
+
+	test('sanitizes recognized PII while preserving the complete error reason', () => {
+		const errorMessage = 'Agent Contoso Support could not open C:\\agents\\contoso\\topic.mcs.yaml for alex@contoso.com';
+		const protectedMessage = sanitizeErrorDetails(errorMessage, ['Contoso Support']);
+		const prepared = prepareLogData(protectedMessage, { sessionId: 'test-session' });
+
+		assert.strictEqual(prepared.displayMessage, errorMessage);
+		assert.strictEqual(
+			prepared.telemetryProperties.message,
+			'Agent [REDACTED AGENT NAME] could not open [REDACTED .MCS.YAML FILE NAME] for [REDACTED EMAIL ADDRESS]',
+		);
+	});
+
+	test('leaves non-PII error details unchanged', () => {
+		const errorMessage = 'Request timed out after 30 seconds';
+		const prepared = prepareLogData(sanitizeErrorDetails(errorMessage), { sessionId: 'test-session' });
+
+		assert.strictEqual(prepared.displayMessage, errorMessage);
+		assert.strictEqual(prepared.telemetryProperties.message, errorMessage);
+	});
+
+	test('redacts complete emails with apostrophes and Windows paths with spaces', () => {
+		const errorMessage = "Could not open C:\\Users\\John Doe\\agent.mcs.yml for o'connor@example.com";
+		const prepared = prepareLogData(sanitizeErrorDetails(errorMessage), { sessionId: 'test-session' });
+
+		assert.strictEqual(
+			prepared.telemetryProperties.message,
+			'Could not open [REDACTED .MCS.YML FILE NAME] for [REDACTED EMAIL ADDRESS]',
+		);
+	});
+
+	test('redacts complete UNC MCS YAML paths with spaces', () => {
+		const errorMessage = 'Could not open \\\\server\\John Doe\\agent.mcs.yml';
+		const prepared = prepareLogData(sanitizeErrorDetails(errorMessage), { sessionId: 'test-session' });
+
+		assert.strictEqual(
+			prepared.telemetryProperties.message,
+			'Could not open [REDACTED .MCS.YML FILE NAME]',
+		);
+	});
+
+	test('redacts full URLs as a URL rather than mislabeling them as file names', () => {
+		const errorMessage = 'Cannot reach https://contoso.crm.dynamics.com/api endpoint';
+		const prepared = prepareLogData(sanitizeErrorDetails(errorMessage), { sessionId: 'test-session' });
+
+		assert.strictEqual(prepared.displayMessage, errorMessage);
+		assert.strictEqual(
+			prepared.telemetryProperties.message,
+			'Cannot reach [REDACTED URL] endpoint',
+		);
+	});
+
+	test('redacts non-MCS file paths while disclosing the file extension', () => {
+		const errorMessage = 'ENOENT: spawn C:\\Users\\alex\\.vscode\\extensions\\lspOut\\LanguageServerHost.exe';
+		const prepared = prepareLogData(sanitizeErrorDetails(errorMessage), { sessionId: 'test-session' });
+
+		assert.strictEqual(prepared.displayMessage, errorMessage);
+		assert.strictEqual(
+			prepared.telemetryProperties.message,
+			'ENOENT: spawn [REDACTED .EXE FILE NAME]',
+		);
+	});
+
+	test('redacts cached botdefinition paths disclosing the .json extension', () => {
+		const errorMessage = 'Failed reading C:\\Users\\alex\\agents\\contoso\\.mcs\\botdefinition.json';
+		const prepared = prepareLogData(sanitizeErrorDetails(errorMessage), { sessionId: 'test-session' });
+
+		assert.strictEqual(
+			prepared.telemetryProperties.message,
+			'Failed reading [REDACTED .JSON FILE NAME]',
+		);
+	});
+
+	test('redacts bare file names disclosing the file extension', () => {
+		const errorMessage = 'Could not parse settings.mcs.yml';
+		const prepared = prepareLogData(sanitizeErrorDetails(errorMessage), { sessionId: 'test-session' });
+
+		assert.strictEqual(
+			prepared.telemetryProperties.message,
+			'Could not parse [REDACTED .MCS.YML FILE NAME]',
+		);
+	});
+
+	test('uses original-string indices for Unicode agent-name matching', () => {
+		const errorMessage = 'İssue for Contoso failed';
+		const prepared = prepareLogData(sanitizeErrorDetails(errorMessage, ['Contoso']), {
+			sessionId: 'test-session',
+		});
+
+		assert.strictEqual(
+			prepared.telemetryProperties.message,
+			'İssue for [REDACTED AGENT NAME] failed',
+		);
+	});
+
+	test('does not redact short agent names inside words or status clauses as agent names', () => {
+		const errorMessage = 'Validation failed. Agent failed to start.';
+		const prepared = prepareLogData(sanitizeErrorDetails(errorMessage, ['AI']), {
+			sessionId: 'test-session',
+		});
+
+		assert.strictEqual(prepared.telemetryProperties.message, errorMessage);
+	});
+
+	test('redacts multiline sensitive values without changing display text', () => {
+		const message = 'Sync failed: <pii>Agent Contoso\nC:\\agents\\contoso</pii>';
+		const prepared = prepareLogData(message, {
+			sessionId: 'test-session',
+			error: '<pii>Agent Contoso\nC:\\agents\\contoso</pii>',
+		});
+
+		assert.strictEqual(prepared.displayMessage, 'Sync failed: Agent Contoso\nC:\\agents\\contoso');
+		assert.strictEqual(prepared.telemetryProperties.message, 'Sync failed: [REDACTED]');
+		assert.strictEqual(prepared.telemetryProperties.error, '[REDACTED]');
+	});
+});
 
 /**
  * Tests for the command-level busy tracking exposed by workspaceSynchronizer.

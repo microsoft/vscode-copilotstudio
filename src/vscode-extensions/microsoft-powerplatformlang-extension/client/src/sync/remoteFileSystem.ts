@@ -3,7 +3,7 @@ import { RemoteFileRequest, GetFileResponse } from '../types';
 import { findWorkspaceForUri, tryRepairAgentManagementEndpoint } from './localWorkspaces';
 import { lspClient, buildLspRequestPayload } from "../services/lspClient";
 import { LspMethods, TelemetryEventsKeys } from "../constants";
-import logger from "../services/logger";
+import logger, { formatPii, PiiRedactionType, sanitizeErrorDetails } from "../services/logger";
 
 export const REMOTE_STATE_SCHEME = 'mcs-remote';
 
@@ -23,12 +23,16 @@ export class RemoteFileSystem implements FileSystemProvider {
     }
 
     async readFile(uri: Uri): Promise<Uint8Array> {
+        let agentName: string | undefined;
         try {
             const workspace = findWorkspaceForUri(uri.query);
             if (!workspace) {
-                logger.logError(TelemetryEventsKeys.GetRemoteFileError, undefined, { message: `Error fetching file: could not locate workspace for file <pii>${uri}</pii>` });                
+                logger.logError(TelemetryEventsKeys.GetRemoteFileError, undefined, {
+                    message: `Error fetching file: could not locate workspace for file ${formatPii(String(uri), PiiRedactionType.FileUri)}`,
+                });
                 return new Uint8Array();
             }
+            agentName = workspace.displayName;
 
             const { syncInfo, workspaceUri } = workspace;
             if (!syncInfo) {
@@ -55,7 +59,11 @@ export class RemoteFileSystem implements FileSystemProvider {
             const result = await lspClient.sendRequest<GetFileResponse>(LspMethods.GET_REMOTE_FILE, request);
             return Buffer.from(result.content ?? '', 'utf8');
         } catch (error) {
-            logger.logError(TelemetryEventsKeys.GetRemoteFileError, `Error fetching file: ${(error as Error).message}`);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            logger.logError(
+                TelemetryEventsKeys.GetRemoteFileError,
+                `Error fetching file: ${sanitizeErrorDetails(errorMessage, agentName ? [agentName] : [])}`,
+            );
             return new Uint8Array();
         }
     }

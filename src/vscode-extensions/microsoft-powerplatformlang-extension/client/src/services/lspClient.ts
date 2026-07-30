@@ -9,7 +9,7 @@ import { getSolutionVersionsAsync } from '../clients/dataverseClient';
 import { getClusterCategory } from '../utils/genericUtils';
 import { onWorkspaceChange } from '../sync/workspaceScm';
 import { isTelemetryEnabled } from './telemetry';
-import logger from './logger';
+import logger, { sanitizeErrorDetails } from './logger';
 
 let currentContext: vscode.ExtensionContext | null = null;
 let currentOutputChannel: vscode.OutputChannel | null = null;
@@ -76,7 +76,10 @@ class LspClientService {
       const response = spawnSync('chmod', ['+x', lspHostPath]);
       if (response.status !== 0) {
         const errorMessage = new TextDecoder().decode(response.stderr);
-        logger.logError(TelemetryEventsKeys.UnixPlatformError, errorMessage);
+        logger.logError(
+          TelemetryEventsKeys.UnixPlatformError,
+          sanitizeErrorDetails(errorMessage),
+        );
       }
     }
 
@@ -139,8 +142,9 @@ class LspClientService {
           try {
             next(uri, diagnostics);
           } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
             logger.logError(TelemetryEventsKeys.LanguageServerError, undefined, {
-              message: `Diagnostics error: ${(error as Error).message}`,
+              message: `Diagnostics error: ${sanitizeErrorDetails(errorMessage)}`,
             });
             throw error;
           }
@@ -163,8 +167,9 @@ class LspClientService {
               });
             }
           } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
             logger.logError(TelemetryEventsKeys.LanguageServerError, undefined, {
-              message: `Notification ${telemetryMethod} failed: ${(error as Error).message}`,
+              message: `Notification ${telemetryMethod} failed: ${sanitizeErrorDetails(errorMessage)}`,
             });
             throw error;
           }
@@ -192,8 +197,9 @@ class LspClientService {
               return result;
             }
           } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
             logger.logError(TelemetryEventsKeys.LanguageServerError, undefined, {
-              message: `Request ${telemetryMethod} failed: ${(error as Error).message}`
+              message: `Request ${telemetryMethod} failed: ${sanitizeErrorDetails(errorMessage)}`
             });
             throw error;
           }
@@ -262,7 +268,11 @@ class LspClientService {
 
       context.subscriptions.push(this._client);
     } catch (error) {
-      logger.logError(TelemetryEventsKeys.LanguageServerError, `Copilot Studio Language Server failed to start: ${(error as Error).message}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.logError(
+        TelemetryEventsKeys.LanguageServerError,
+        `Copilot Studio Language Server failed to start: ${sanitizeErrorDetails(errorMessage)}`,
+      );
       throw error;
     }
   }
