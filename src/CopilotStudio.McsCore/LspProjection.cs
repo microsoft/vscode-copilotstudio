@@ -21,6 +21,7 @@ internal static class LspProjection
     internal const string AgentInfix = ".agent.";
     internal const string FileAttachmentInfix = ".file.";
     internal const string AgentsFolder = "agents/";
+    internal const string BehaviorsFolder = "behaviors/";
 
     /// <summary>
     /// Conditional projection override for a rule.
@@ -277,7 +278,7 @@ internal static class LspProjection
             // Behaviors (CLI inline skills) -> behaviors/
             {
                 typeof(InlineAgentSkill),
-                new Rule(".skill.", "behaviors/", true, new[] { "skill" })
+                new Rule(".skill.", BehaviorsFolder, true, new[] { "skill" })
             },
 
             // Tools -> capabilities/tools/
@@ -531,6 +532,15 @@ internal static class LspProjection
             return $"{prefix}{AgentsFolder}{agentName}/agent.mcs.yml";
         }
 
+        if (typeof(InlineAgentSkill).IsAssignableFrom(elementType) && component != null && string.IsNullOrEmpty(subAgentFolder))
+        {
+            var skillName = SubAgentFolderNaming.FromDisplayName(component.DisplayName, keepSpaces: true);
+            if (skillName != null && !HasInlineAgentSkillFolderCollision(definition, skillName, botName))
+            {
+                return $"{BehaviorsFolder}{skillName}.mcs.yml";
+            }
+        }
+
         // Look up rule
         var ruleContext = new RuleContext(elementType, schemaName, botName, subAgentFolder, pathWithoutExtension, shape, component, definition);
         if (!TryGetRuleForElementType(elementType, schemaName, pathWithoutExtension, out var rule, shape, ruleContext))
@@ -560,6 +570,10 @@ internal static class LspProjection
         return $"{prefix}{rule.Folder}{shortName}.mcs.yml";
     }
 
+    private static bool HasInlineAgentSkillFolderCollision(BotDefinition? definition, string folderName, string? botName) => definition?.Components.OfType<DialogComponent>().Where(component => component.Dialog is InlineAgentSkill && string.Equals(GetPreferredInlineAgentSkillFolder(component, botName), folderName, StringComparison.OrdinalIgnoreCase)).Select(component => component.SchemaNameString).Distinct(StringComparer.Ordinal).Count() > 1;
+
+    internal static string? GetPreferredInlineAgentSkillFolder(DialogComponent component, string? botName) => SubAgentFolderNaming.FromDisplayName(component.DisplayName, keepSpaces: true) ?? DeriveShortName(component.SchemaNameString, ".skill.", botName);
+
     /// <summary>
     /// Gets component ID and parent ID for a dialog element.
     /// </summary>
@@ -571,7 +585,7 @@ internal static class LspProjection
         DialogBase dialog,
         BotComponentId? parentId)
     {
-        if (dialog is AgentDialog)
+        if (dialog is AgentDialog or InlineAgentSkill)
         {
             // AgentDialog: id = parentId, no parent reference
             return (parentId ?? default, default);

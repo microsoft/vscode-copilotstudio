@@ -28,7 +28,7 @@ internal static class McsFileParserCore
        string? displayName = null,
        string? description = null)
     {
-        var subAgentId = GetSubAgentComponentId(relativePath);
+        var subAgentId = GetParentComponentId(relativePath);
         BotComponentBase component;
 
         if (fileModel == null)
@@ -128,11 +128,21 @@ internal static class McsFileParserCore
 
     // If this is in a /agent/ folder, then we need a component Id
     // to associate it as a child-agent component.
-    internal static Guid GetSubAgentComponentId(AgentFilePath filePath)
+    internal static Guid GetParentComponentId(AgentFilePath filePath)
     {
         if (filePath.TryGetSubAgentName(out var agentName, out _))
         {
             return HashStringToGuid(agentName);
+        }
+
+        if (SkillLink.TryGetSkillName(filePath, out var anchorSkillName))
+        {
+            return HashStringToGuid(anchorSkillName);
+        }
+
+        if (filePath.TryGetSkillFolderName(out var skillFolderName, out _))
+        {
+            return HashStringToGuid(skillFolderName);
         }
 
         return Guid.Empty;

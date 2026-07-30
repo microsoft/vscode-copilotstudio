@@ -10,7 +10,7 @@ internal static class ChildAgentLinkFile
     internal const string LinkFileName = ChildAgentLink.LinkFileName;
 
     /// <summary>An <c>agents/&lt;FolderName&gt;/</c> child-agent folder and its parsed link (null when missing/malformed).</summary>
-    internal readonly record struct ChildAgentFolder(string FolderName, ChildAgentLink.LinkData? Link);
+    internal readonly record struct ChildAgentFolder(string FolderName, SchemaLinkData? Link);
 
     /// <summary>Writes the hidden link file beside a child agent's agent.mcs.yml.</summary>
     internal static void WriteLink(IFileAccessor fileAccessor, AgentFilePath agentDefinitionPath, string schemaName)
@@ -20,8 +20,8 @@ internal static class ChildAgentLinkFile
             return;
         }
 
-        var link = new ChildAgentLink.LinkData { SchemaName = schemaName, FolderName = folderName };
-        var json = ChildAgentLink.Serialize(link);
+        var link = new SchemaLinkData { SchemaName = schemaName, FolderName = folderName };
+        var json = SchemaLink.Serialize(link);
 
         using var stream = fileAccessor.OpenWrite(linkPath);
         using var textWriter = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
@@ -66,35 +66,13 @@ internal static class ChildAgentLinkFile
                 continue;
             }
 
-            ChildAgentLink.LinkData? link = null;
-            if (fileAccessor.Exists(linkPath))
-            {
-                try
-                {
-                    var parsed = ReadLink(fileAccessor, linkPath);
-                    if (parsed != null && !string.IsNullOrEmpty(parsed.SchemaName) && !string.IsNullOrEmpty(parsed.FolderName))
-                    {
-                        link = parsed;
-                    }
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    link = null;
-                }
-            }
+            var parsed = SchemaLink.TryRead(fileAccessor, linkPath);
+            var link = parsed != null && !string.IsNullOrEmpty(parsed.SchemaName) && !string.IsNullOrEmpty(parsed.FolderName) ? parsed : null;
 
             folders.Add(new ChildAgentFolder(folderName, link));
         }
 
         return folders;
-    }
-
-    private static ChildAgentLink.LinkData? ReadLink(IFileAccessor fileAccessor, AgentFilePath linkPath)
-    {
-        using var stream = fileAccessor.OpenRead(linkPath);
-        using var reader = new StreamReader(stream, Encoding.UTF8);
-        var json = reader.ReadToEnd();
-        return ChildAgentLink.Parse(json);
     }
 
     /// <summary>

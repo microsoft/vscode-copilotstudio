@@ -15,9 +15,9 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
         [Fact]
         public void ParseAndSerialize_RoundTrip()
         {
-            var json = ChildAgentLink.Serialize(new ChildAgentLink.LinkData { SchemaName = $"{BotName}.agent.Agent", FolderName = "Agent Child 1" });
+            var json = SchemaLink.Serialize(new SchemaLinkData { SchemaName = $"{BotName}.agent.Agent", FolderName = "Agent Child 1" });
 
-            var parsed = ChildAgentLink.Parse(json);
+            var parsed = SchemaLink.Parse(json);
 
             Assert.NotNull(parsed);
             Assert.Equal($"{BotName}.agent.Agent", parsed!.SchemaName);
@@ -100,7 +100,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
         private static void WriteChildAgent(InMemoryFileWriter accessor, string folderName, string schemaName)
         {
             WriteAgentDefinition(accessor, folderName);
-            var link = ChildAgentLink.Serialize(new ChildAgentLink.LinkData { SchemaName = schemaName, FolderName = folderName });
+            var link = SchemaLink.Serialize(new SchemaLinkData { SchemaName = schemaName, FolderName = folderName });
             WriteText(accessor, $"agents/{folderName}/.agent.json", link);
         }
 

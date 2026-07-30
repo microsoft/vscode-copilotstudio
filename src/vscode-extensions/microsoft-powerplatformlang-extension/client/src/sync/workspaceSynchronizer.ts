@@ -7,6 +7,7 @@ import { virtualKnowledgeFileSystemProvider } from '../knowledgeFiles/virtualKno
 import { knowledgeTreeDataProvider } from '../knowledgeFiles/knowledgeFileTree';
 import { LspMethods, TelemetryEventsKeys } from '../constants';
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
+import { replaceLocalChanges } from './workspaceScm';
 import logger from '../services/logger';
 
 let treeDataProvider: knowledgeTreeDataProvider | undefined;
@@ -138,6 +139,7 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
       const { suppressErrorNotification = false, suppressDisabledWorkflowWarnings = false, draftConnectionReferenceWorkflows = false } = options;
       return await executeSyncOperation(async () => {
         const response = await sync(ws, 'applying changes', LspMethods.SYNC_PUSH, false, suppressErrorNotification, suppressDisabledWorkflowWarnings, draftConnectionReferenceWorkflows);
+        replaceLocalChanges(ws.workspaceUri, response.localChanges);
         await uploadKnowledgeFiles(ws);
         return response;
       }, SyncState.Pushing);
@@ -145,6 +147,7 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
     pull: async (virtualProvider: virtualKnowledgeFileSystemProvider): Promise<SyncResponse> => {
       return await executeSyncOperation(async () => {
         const response = await sync(ws, "getting changes", LspMethods.SYNC_PULL, false);
+        replaceLocalChanges(ws.workspaceUri, response.localChanges);
 
         if (virtualProvider) {
           await virtualProvider.refresh();

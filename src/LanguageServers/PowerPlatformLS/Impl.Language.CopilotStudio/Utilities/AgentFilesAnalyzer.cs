@@ -44,6 +44,8 @@
 
         IEnumerable<DirectoryPath> EnumerateChildAgentsDirectories(DirectoryPath currentFolderPath);
 
+        IEnumerable<DirectoryPath> EnumeratePackagedSkillFolders(DirectoryPath currentFolderPath);
+
         /// <summary>
         /// Read new local ai prompt.
         /// </summary>
@@ -240,6 +242,25 @@
             }
 
             foreach (var fileInfo in agentsContent)
+            {
+                if (fileInfo.IsDirectory && fileInfo.PhysicalPath != null)
+                {
+                    yield return fileInfo.ToDirectoryPath();
+                }
+            }
+        }
+
+        public IEnumerable<DirectoryPath> EnumeratePackagedSkillFolders(DirectoryPath currentFolderPath)
+        {
+            var behaviorsRootPath = currentFolderPath.GetChildDirectoryPath("behaviors");
+            IDirectoryContents behaviorsContent = _fileProvider.GetDirectoryContents(behaviorsRootPath);
+
+            if (!behaviorsContent.Exists)
+            {
+                yield break;
+            }
+
+            foreach (var fileInfo in behaviorsContent)
             {
                 if (fileInfo.IsDirectory && fileInfo.PhysicalPath != null)
                 {
