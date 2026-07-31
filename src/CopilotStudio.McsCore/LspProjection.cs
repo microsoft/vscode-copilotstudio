@@ -532,7 +532,7 @@ internal static class LspProjection
             return $"{prefix}{AgentsFolder}{agentName}/agent.mcs.yml";
         }
 
-        if (typeof(InlineAgentSkill).IsAssignableFrom(elementType) && component != null && string.IsNullOrEmpty(subAgentFolder))
+        if (shape == AuthoringShape.CliCopilot && typeof(InlineAgentSkill).IsAssignableFrom(elementType) && component != null && string.IsNullOrEmpty(subAgentFolder))
         {
             var skillName = SubAgentFolderNaming.FromDisplayName(component.DisplayName, keepSpaces: true);
             if (skillName != null && !HasInlineAgentSkillFolderCollision(definition, skillName, botName))

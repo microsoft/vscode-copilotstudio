@@ -850,6 +850,104 @@ public class PackagedSkillKnowledgeFileTests
         Assert.DoesNotContain(changes, change => change.ChangeType == ChangeType.Delete);
     }
 
+    [Fact]
+    public async Task PushLocalChangesAsync_BareSkillPunctuationFolder_CloudSuffixedSchema_KeepsFilesInOriginalFolder()
+    {
+        var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath($"c:/test/bare-skill-punct-cloudsuffix-{Guid.NewGuid():N}/");
+        var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
+        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n")!;
+        await fileAccessor.WriteAsync(new AgentFilePath(AgentClassifier.WorkspaceLayoutMarkerFileName), "layoutVersion: 1\n", CancellationToken.None);
+        await fileAccessor.WriteAsync(
+            new AgentFilePath("settings.mcs.yml"),
+            "displayName: Repro\nschemaName: cre98_Repro\nconfiguration:\n  recognizer:\n    kind: CLICopilotRecognizer\n  agentSettings:\n    model:\n      series: Sonnet46\n    instructions:\n      segments:\n        - kind: StaticSegment\n          value: Test.\ntemplate: cliagent-1.0.0\nlanguage: 1033\n",
+            CancellationToken.None);
+        WorkspaceSynchronizer.WriteCloudCache(fileAccessor, new BotDefinition().WithEntity(botEntity));
+        await fileAccessor.WriteAsync(new AgentFilePath("behaviors/weather.v2/SKILL.md"), "skill body\n", CancellationToken.None);
+        await fileAccessor.WriteAsync(new AgentFilePath("behaviors/weather.v2/scripts/Get-Weather.ps1"), "script body\n", CancellationToken.None);
+
+        mockIsland
+            .Setup(x => x.SaveChangesAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<PvaComponentChangeSet>(), It.IsAny<CancellationToken>()))
+            .Returns<AuthoringOperationContextBase, PvaComponentChangeSet, CancellationToken>((_, incoming, _) =>
+            {
+                var confirmed = incoming.BotComponentChanges.Select(change => change is BotComponentInsert insert && insert.Component is BotComponentBase component ? new BotComponentInsert(AssignNewIdAndCloudSuffixSchema(component)) : change);
+                return Task.FromResult(new PvaComponentChangeSet(confirmed, incoming.Bot, Guid.NewGuid().ToString("N")));
+            });
+
+        var mockDataverse = new Mock<ISyncDataverseClient>();
+        var operationContext = ComponentWriterDefensiveTests.CreateMockOperationContext();
+        var syncInfo = new AgentSyncInfo { AgentId = Guid.NewGuid() };
+        var workspaceDefinition = new BotDefinition().WithEntity(botEntity);
+
+        await synchronizer.PushLocalChangesAsync(workspace, operationContext, workspaceDefinition, mockDataverse.Object, syncInfo, cloudFlowMetadata: null, ImmutableArray<AIPromptMetadata>.Empty, CancellationToken.None);
+
+        var finalCache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
+        var cloudSkill = Assert.Single(finalCache.Components.OfType<DialogComponent>(), component => component.Dialog is InlineAgentSkill);
+        Assert.EndsWith("_cLd", cloudSkill.SchemaNameString, StringComparison.Ordinal);
+        Assert.Equal(2, finalCache.Components.OfType<FileAttachmentComponent>().Count(component => component.ParentBotComponentId == cloudSkill.Id));
+
+        var projectedPaths = fileAccessor.Files.Keys.Select(key => key.Replace('\\', '/')).ToList();
+        Assert.Contains("behaviors/weather.v2.mcs.yml", projectedPaths);
+        Assert.Contains("behaviors/weather.v2/.skill.json", projectedPaths);
+        Assert.Contains(projectedPaths, path => path.StartsWith("behaviors/weather.v2/", StringComparison.Ordinal) && path.Contains("SKILL.md", StringComparison.Ordinal) && path.EndsWith(".mcs.yml", StringComparison.Ordinal));
+        Assert.Contains(projectedPaths, path => path.StartsWith("behaviors/weather.v2/", StringComparison.Ordinal) && path.Contains("Get-Weather.ps1", StringComparison.Ordinal) && path.EndsWith(".mcs.yml", StringComparison.Ordinal));
+        Assert.DoesNotContain(projectedPaths, path => path.StartsWith("behaviors/weatherv2", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task GetLocalChangesAsync_ClassicAgent_BareSkillFolder_NotSynthesized()
+    {
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath($"c:/test/classic-bare-skill-{Guid.NewGuid():N}/");
+        var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
+        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr123_classic\n")!;
+        WorkspaceSynchronizer.WriteCloudCache(fileAccessor, new BotDefinition().WithEntity(botEntity));
+        await fileAccessor.WriteAsync(new AgentFilePath("behaviors/foo/SKILL.md"), "skill body\n", CancellationToken.None);
+
+        var mockDataverse = new Mock<ISyncDataverseClient>();
+        var syncInfo = new AgentSyncInfo { AgentId = Guid.NewGuid() };
+
+        var (changeSet, changes) = await synchronizer.GetLocalChangesAsync(workspace, new BotDefinition().WithEntity(botEntity), mockDataverse.Object, syncInfo, CancellationToken.None);
+
+        Assert.Empty(changeSet.BotComponentChanges);
+        Assert.Empty(changes);
+    }
+
+    [Fact]
+    public async Task GetLocalChangesAsync_BareSkillFoldersWithNonAlphanumericNames_ProduceDistinctNonEmptyBundleMarkers()
+    {
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath($"c:/test/bare-skill-bundle-collision-{Guid.NewGuid():N}/");
+        var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
+        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n")!;
+        await fileAccessor.WriteAsync(new AgentFilePath(AgentClassifier.WorkspaceLayoutMarkerFileName), "layoutVersion: 1\n", CancellationToken.None);
+        await fileAccessor.WriteAsync(
+            new AgentFilePath("settings.mcs.yml"),
+            "displayName: Repro\nschemaName: cre98_Repro\nconfiguration:\n  recognizer:\n    kind: CLICopilotRecognizer\n  agentSettings:\n    model:\n      series: Sonnet46\n    instructions:\n      segments:\n        - kind: StaticSegment\n          value: Test.\ntemplate: cliagent-1.0.0\nlanguage: 1033\n",
+            CancellationToken.None);
+        WorkspaceSynchronizer.WriteCloudCache(fileAccessor, new BotDefinition().WithEntity(botEntity));
+        await fileAccessor.WriteAsync(new AgentFilePath("behaviors/---/SKILL.md"), "skill body\n", CancellationToken.None);
+        await fileAccessor.WriteAsync(new AgentFilePath("behaviors/___/SKILL.md"), "skill body\n", CancellationToken.None);
+
+        var mockDataverse = new Mock<ISyncDataverseClient>();
+        var syncInfo = new AgentSyncInfo { AgentId = Guid.NewGuid() };
+
+        var (changeSet, _) = await synchronizer.GetLocalChangesAsync(workspace, new BotDefinition().WithEntity(botEntity), mockDataverse.Object, syncInfo, CancellationToken.None);
+
+        var skillContents = changeSet.BotComponentChanges
+            .OfType<BotComponentInsert>()
+            .Select(insert => insert.Component)
+            .OfType<DialogComponent>()
+            .Select(dialog => dialog.Dialog)
+            .OfType<InlineAgentSkill>()
+            .Select(skill => skill.Content ?? string.Empty)
+            .ToList();
+
+        Assert.Equal(2, skillContents.Count);
+        Assert.All(skillContents, content => Assert.DoesNotContain($"{LspProjection.FileAttachmentInfix}zip", content));
+        Assert.Equal(2, skillContents.Distinct().Count());
+    }
+
     private static BotComponentBase AssignNewId(BotComponentBase component)
     {
         var builder = component.ToBuilder();

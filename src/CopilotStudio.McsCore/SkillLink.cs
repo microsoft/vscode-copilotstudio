@@ -95,7 +95,7 @@ namespace Microsoft.CopilotStudio.McsCore
                 }
             }
 
-            var displayMatches = cloudSkills.Where(component => string.Equals(SubAgentFolderNaming.FromDisplayName(component.DisplayName, keepSpaces: true), skillName, StringComparison.OrdinalIgnoreCase)).ToList();
+            var displayMatches = cloudSkills.Where(component => string.Equals(component.DisplayName, skillName, StringComparison.OrdinalIgnoreCase) || string.Equals(SubAgentFolderNaming.FromDisplayName(component.DisplayName, keepSpaces: true), skillName, StringComparison.OrdinalIgnoreCase)).ToList();
             if (displayMatches.Count == 1)
             {
                 return displayMatches[0];

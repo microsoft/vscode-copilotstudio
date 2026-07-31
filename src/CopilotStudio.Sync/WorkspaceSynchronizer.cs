@@ -1541,7 +1541,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     private DefinitionBase DetectNewLocalSkills(IFileAccessor fileAccessor, DefinitionBase definition, DefinitionBase? cloudSnapshot, out List<BotComponentBase> newSkills)
     {
         newSkills = new List<BotComponentBase>();
-        if (definition is not BotDefinition botDefinition || botDefinition.Entity == null)
+        if (definition is not BotDefinition botDefinition || botDefinition.Entity == null || !IsCliAgentEntity(botDefinition.Entity))
         {
             return definition;
         }
@@ -1715,7 +1715,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             return null;
         }
 
-        var bundleName = new string(folderName.Where(char.IsLetterOrDigit).ToArray());
+        var bundleStem = new string(folderName.Where(character => character <= 127 && char.IsLetterOrDigit(character)).ToArray());
+        bundleStem = string.IsNullOrEmpty(bundleStem) ? "skill" : bundleStem;
+        var bundleName = $"{bundleStem}{McsFileParserCore.HashStringToGuid(folderName).ToString("N").Substring(0, 8)}";
         var dialog = new InlineAgentSkill.Builder
         {
             Content = $"<!-- bic:bundle={botName}{LspProjection.FileAttachmentInfix}{bundleName}zip -->",
@@ -2308,6 +2310,17 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }
 
             var schema = LspProjection.GetSchemaName($"{LspProjection.BehaviorsFolder}{onDiskName}", botName, typeof(InlineAgentSkill), AuthoringShape.CliCopilot);
+            if (string.IsNullOrEmpty(schema) || !targetFolderBySchema.ContainsKey(schema!))
+            {
+                var displayNameMatchedSchemas = botDefinition.Components.OfType<DialogComponent>()
+                    .Where(component => component.Dialog is InlineAgentSkill && string.Equals(component.DisplayName, onDiskName, StringComparison.OrdinalIgnoreCase))
+                    .Select(component => component.SchemaNameString)
+                    .Where(schemaName => !string.IsNullOrEmpty(schemaName))
+                    .Distinct(StringComparer.Ordinal)
+                    .ToList();
+                schema = displayNameMatchedSchemas.Count == 1 ? displayNameMatchedSchemas[0] : null;
+            }
+
             if (!string.IsNullOrEmpty(schema) && !overrides.ContainsKey(schema!) && targetFolderBySchema.TryGetValue(schema!, out var bareTargetFolder) && !string.Equals(onDiskName, bareTargetFolder, StringComparison.OrdinalIgnoreCase))
             {
                 overrides[schema!] = onDiskName;
