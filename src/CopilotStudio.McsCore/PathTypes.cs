@@ -480,6 +480,7 @@ internal static class WorkspacePath
 public readonly struct AgentFilePath : IEquatable<AgentFilePath>
 {
     private static readonly DirectoryPath AgentsDirectory = new DirectoryPath("agents");
+    private static readonly DirectoryPath BehaviorsDirectory = new DirectoryPath("behaviors");
     private readonly FilePath _value;
 
     public AgentFilePath(string value) : this(new FilePath(value))
@@ -538,6 +539,39 @@ public readonly struct AgentFilePath : IEquatable<AgentFilePath>
         }
 
         agentName = null;
+        subPath = null;
+        return false;
+    }
+
+#pragma warning disable CA1021
+    public bool TryGetSkillFolderName(
+        [NotNullWhen(true)] out string? skillFolderName,
+        [NotNullWhen(true)] out AgentFilePath? subPath)
+    {
+#pragma warning restore CA1021
+        if (BehaviorsDirectory.Contains(_value))
+        {
+            var start = BehaviorsDirectory.Length;
+            var pathValue = _value.ToString();
+            var end = pathValue.IndexOf('/', start);
+
+            if (end < 0)
+            {
+                skillFolderName = null;
+                subPath = null;
+                return false;
+            }
+
+            var len = end - start;
+
+            skillFolderName = pathValue.Substring(start, len);
+
+            var x = pathValue.Substring(end + 1);
+            subPath = new AgentFilePath(x);
+            return true;
+        }
+
+        skillFolderName = null;
         subPath = null;
         return false;
     }

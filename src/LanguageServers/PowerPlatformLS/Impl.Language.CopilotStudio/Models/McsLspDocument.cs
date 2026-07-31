@@ -3,9 +3,7 @@
     using Microsoft.Agents.ObjectModel;
     using Microsoft.Agents.ObjectModel.Yaml;
     using Microsoft.CopilotStudio.McsCore;
-    using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Contracts.Internal;
-    using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models.Lsp;
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Exceptions;
@@ -29,6 +27,7 @@
         protected override BotElement? ComputeModel()
         {
             BotElement? syntax = null;
+            var isUnderSubAgent = false;
 
             var completeRelativePath = RelativePath.RemoveExtension();
             if (RelativePath.IsDefinition())
@@ -40,6 +39,7 @@
             }
             else if (RelativePath.TryGetSubAgentName(out var agentName, out var subPathRef))
             {
+                isUnderSubAgent = true;
                 completeRelativePath = subPathRef.Value;
                 // If this is file directly in the agent subdir, it must be the agent dialog.
                 // For sub agents, these is named based on schema name.
@@ -54,7 +54,7 @@
             if (!LspProjectionLayout.FileStructureMap.TryGetValue(completeRelativePathValue, out var types))
             {
                 var directory = completeRelativePath.ParentDirectoryName;
-                if (!LspProjectionLayout.FileStructureMap.TryGetValue(directory, out types))
+                if (!LspProjectionLayout.FileStructureMap.TryGetValue(directory, out types) && !(!isUnderSubAgent && LspProjectionLayout.TryGetPackagedSkillPayloadTypes(completeRelativePath, out types)))
                 {
                     // either there is no folder opened or the file name is not supported
                     // try to deserialize as an abstract class to resolve the type

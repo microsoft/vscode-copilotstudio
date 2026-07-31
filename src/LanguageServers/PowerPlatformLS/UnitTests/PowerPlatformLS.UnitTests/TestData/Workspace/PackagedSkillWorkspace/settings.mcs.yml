@@ -1,0 +1,9 @@
+displayName: NAgent N1
+schemaName: crf9a_nagentn1_T2U1EY
+authenticationMode: Integrated
+configuration:
+  recognizer:
+    kind: CLICopilotRecognizer
+  agentSettings:
+    instructions: {}
+template: cliagent-1.0.0

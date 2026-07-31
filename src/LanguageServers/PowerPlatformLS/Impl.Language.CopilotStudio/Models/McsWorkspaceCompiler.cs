@@ -92,7 +92,14 @@
 
             bool hasAgentFile = componentCollection != null;
             string? iconBase64 = null;
-            var childAgentSchemaLinks = ChildAgentLink.ReadSchemaLinks(_fileAccessorFactory.Create(workspacePath));
+            var fileAccessor = _fileAccessorFactory.Create(workspacePath);
+            var childAgentSchemaLinks = ChildAgentLink.ReadSchemaLinks(fileAccessor);
+            var skillIdentityDefinition = baseDefinition as BotDefinition ?? new BotDefinition();
+            if (settings != null)
+            {
+                skillIdentityDefinition = skillIdentityDefinition.WithEntity(settings);
+            }
+            var skillSchemaLinks = SkillLink.ReadSchemaLinks(fileAccessor, skillIdentityDefinition);
 
             foreach (var document in documents.Values)  
             {
@@ -117,7 +124,14 @@
                     ? linkedSchemaName
                     : null;
 
-                var (component, error) = _fileParser.CompileFile(mcsDocument, projectionContext, authoringShape, childAgentSchemaOverride);
+                var skillSchemaOverride = skillSchemaLinks.Count > 0
+                    && mcsDocument.FileModel is InlineAgentSkill
+                    && SkillLink.TryGetSkillName(mcsDocument.RelativePath, out var skillName)
+                    && skillSchemaLinks.TryGetValue(skillName, out var linkedSkillSchema)
+                    ? linkedSkillSchema
+                    : null;
+
+                var (component, error) = _fileParser.CompileFile(mcsDocument, projectionContext, authoringShape, childAgentSchemaOverride ?? skillSchemaOverride);
 
                 if (component != null)
                 {

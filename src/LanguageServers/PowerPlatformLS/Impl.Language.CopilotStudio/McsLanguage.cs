@@ -234,6 +234,21 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
                 }
             }
 
+            var skillPayloadFileCount = 0;
+            foreach (var skillFolder in _mcsFilesAnalyzer.EnumeratePackagedSkillFolders(agentDirectoryPath))
+            {
+                foreach (var file in _mcsFilesAnalyzer.EnumerateMcsFiles(skillFolder))
+                {
+                    RemoveDocumentFromPreviousAgent(file);
+                    AddDocumentToAgent(_fileProvider.GetFileInfo(file), file);
+                    ++skillPayloadFileCount;
+                }
+            }
+            if (skillPayloadFileCount > 0)
+            {
+                LogAgentResolvingDebugEvent($"{skillPayloadFileCount} packaged skill payload files added for {agentName}");
+            }
+
             if (rootFiles.Count > 0)
             {
                 LogAgentResolvingDebugEvent($"{rootFiles.Count} files added to root directory for {agentName}: {string.Join(", ", rootFiles)}");

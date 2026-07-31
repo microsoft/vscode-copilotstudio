@@ -404,7 +404,6 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
   synchronizer.subscribe(async (state) => {
     if (state === SyncState.Idle) {
       if (lastOperation === SyncState.Pulling || lastOperation === SyncState.Pushing) {
-        await refreshInitialLocalChanges(result.onLocalChange);
         if (remoteChangeGroup) {
           remoteChangeGroup.resourceStates = [];
         } else {

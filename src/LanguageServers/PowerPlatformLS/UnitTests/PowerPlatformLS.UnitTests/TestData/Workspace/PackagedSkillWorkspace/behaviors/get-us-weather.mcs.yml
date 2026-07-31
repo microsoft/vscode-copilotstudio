@@ -1,0 +1,5 @@
+mcs.metadata:
+  componentName: get-us-weather
+  description: Get the current weather.
+kind: InlineAgentSkill
+content: <!-- bic:bundle=crf9a_nagentn1_T2U1EY.file.getusweatherzip_hq06y -->
