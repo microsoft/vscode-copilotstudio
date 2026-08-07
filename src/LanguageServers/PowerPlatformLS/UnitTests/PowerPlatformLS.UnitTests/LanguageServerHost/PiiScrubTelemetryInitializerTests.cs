@@ -90,14 +90,14 @@ namespace Microsoft.PowerPlatformLS.UnitTests.LanguageServerHost
         [Theory]
         [InlineData(
             "Request to https://org.crm.dynamics.com/api/data/v9.2/bots?$filter=name%20eq%20'test'&token=secret123",
-            "Request to https://org.crm.dynamics.com/api/data/v9.2/bots?[REDACTED: query-string]")]
+            "Request to [REDACTED: url]")]
         [InlineData(
             "GET https://api.example.com/path?key=value",
-            "GET https://api.example.com/path?[REDACTED: query-string]")]
+            "GET [REDACTED: url]")]
         [InlineData(
             "No query string https://api.example.com/path",
-            "No query string https://api.example.com/path")]
-        public void ScrubMessage_Removes_URL_Query_Strings(string input, string expected)
+            "No query string [REDACTED: url]")]
+        public void ScrubMessage_Removes_URLs(string input, string expected)
         {
             var result = PiiScrubTelemetryInitializer.ScrubMessage(input);
             Assert.Equal(expected, result);

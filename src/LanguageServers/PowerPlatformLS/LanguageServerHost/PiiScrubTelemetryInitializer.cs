@@ -59,8 +59,8 @@ namespace Microsoft.PowerPlatformLS.LanguageServerHost
         /// </summary>
         private static string ApplyKnownPatterns(string text)
         {
-            // URL patterns first (before path patterns that could partially match URL segments)
-            text = UrlQueryStringRegex().Replace(text, "$1?[REDACTED: query-string]");
+            // URLs first (host may contain tenant/org names; before path patterns that could partially match URL segments)
+            text = UrlRegex().Replace(text, "[REDACTED: url]");
             text = WindowsPathRegex().Replace(text, "[REDACTED: file-path]");
             text = WindowsForwardSlashPathRegex().Replace(text, "[REDACTED: file-path]");
             text = UnixPathRegex().Replace(text, "[REDACTED: file-path]");
@@ -125,9 +125,9 @@ namespace Microsoft.PowerPlatformLS.LanguageServerHost
         [GeneratedRegex(@"[\w.+-]+@[\w-]+\.[\w.-]+")]
         private static partial Regex EmailRegex();
 
-        // Matches URL query strings (e.g., ?key=value&other=data)
-        [GeneratedRegex(@"(https?://[^\s?]+)\?[^\s""<>]+")]
-        private static partial Regex UrlQueryStringRegex();
+        // Matches any http/https URL (host may contain tenant/org names that are PII)
+        [GeneratedRegex(@"https?://[^\s""<>]+")]
+        private static partial Regex UrlRegex();
 
         // Matches standalone GUIDs NOT preceded by known safe prefixes (e.g., sessionId=)
         [GeneratedRegex(@"(?<!sessionId=)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", RegexOptions.IgnoreCase)]
