@@ -21,7 +21,7 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
 
         void SetCurrentRequestId(int requestId) { }
         void LogStartContext(string methodName);
-        void LogEndContext(string methodName, long durationMs = -1, HandlerOutcome outcome = HandlerOutcome.Success);
+        void LogEndContext(string methodName, long durationMs = -1, HandlerOutcome outcome = HandlerOutcome.Success, string? errorMessage = null);
 
         // -------------------------------------------------------------------
         // Standard logging

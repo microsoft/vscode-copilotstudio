@@ -230,9 +230,9 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
             }
 
             /// <summary>
-            /// Appends output-channel-only metadata to the message: duration and agent/env context.
-            /// Format: "message, duration=Xms, agent='Name'[id], env='Name'[id]"
-            /// Duration is always appended when available. Agent/env context respects
+            /// Appends output-channel-only metadata to the message: agent/env and duration context.
+            /// Format: "message, agent='Name'[id], env='Name'[id], duration=Xms"
+            /// Duration is always appended when available.
             /// <see cref="LspRequestContext.IsOutputContextSuppressed"/>.
             /// </summary>
             private static string AppendOutputContext(string message)

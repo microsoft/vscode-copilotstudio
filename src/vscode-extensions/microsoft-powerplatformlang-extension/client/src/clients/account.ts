@@ -1,5 +1,5 @@
 import { authentication, Uri, Disposable, EventEmitter } from "vscode";
-import logger from "../services/logger";
+import logger, { formatPii, PiiRedactionType } from "../services/logger";
 import { CoreServicesClusterCategory, TelemetryEventsKeys } from "../constants";
 
 export interface TokenInfo {
@@ -490,7 +490,7 @@ export async function switchAccount(clusterCategory: CoreServicesClusterCategory
                     accountId: session.account.id,
                     accountEmail: session.account.label
                 };
-                logger.logInfo(TelemetryEventsKeys.SwitchAccountSuccess, undefined, { message: `Switched account successfully to <pii>${session.account.label}</pii>` });
+                logger.logInfo(TelemetryEventsKeys.SwitchAccountSuccess, undefined, { message: `Switched account successfully to ${formatPii(session.account.label, PiiRedactionType.EmailAddress)}` });
                 try {
                     const { clearWhoAmICache } = await import('./dataverseClient.js');
                     clearWhoAmICache();

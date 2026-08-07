@@ -240,7 +240,7 @@
 
         private class FakeLogger : ILspLogger
         {
-            public void LogEndContext(string methodName, long durationMs = -1, HandlerOutcome outcome = HandlerOutcome.Success) { }
+            public void LogEndContext(string methodName, long durationMs = -1, HandlerOutcome outcome = HandlerOutcome.Success, string? errorMessage = null) { }
 
             public void LogError(string message) { }
 

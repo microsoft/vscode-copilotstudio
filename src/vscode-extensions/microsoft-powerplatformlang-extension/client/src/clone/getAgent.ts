@@ -12,7 +12,7 @@ import { getAgentAsync, listAgentsAsync, listSharedAgentsAsync, preWarmWhoAmI } 
 import { switchAccount, switchToAccount, isSignedIn, getPreferredAccountId, getPreferredTreeAccount, hasStoredAccount, listStoredAccounts, getAccessTokenByAccountId } from '../clients/account';
 import { DefaultCoreServicesClusterCategory, LspMethods, TelemetryEventsKeys } from '../constants';
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
-import logger from '../services/logger';
+import logger, { formatPii, PiiRedactionType } from '../services/logger';
 import { writePostOpenInstruction } from '../startup/postOpen';
 import { isCliLayeredWorkspace } from '../sync/syncUtils';
 import { getActiveAgentAccount } from '../sync/localWorkspaces';
@@ -345,7 +345,7 @@ export async function getAgentInfo(agentUrl: string | undefined, context: Extens
             } catch (error) {
               logger.logError(
                 TelemetryEventsKeys.LoadEnvironmentError,
-                `[Clone] Failed to load ${sku} environments for <pii>${acct?.accountEmail ?? acct?.accountId}</pii>`,
+                `[Clone] Failed to load ${sku} environments for ${formatPii(acct?.accountEmail ?? acct?.accountId ?? 'Unknown', PiiRedactionType.EmailAddress)}`,
                 { sku, error }
               );
               return [] as EnvironmentPickItem[];
@@ -431,7 +431,7 @@ async function pickAgent(
         return { label: agent.displayName + agent.displayComplement, iconPath: getIcon(agent), agent: agent } as QuickPickItem & { agent: AgentInfo };
       });
     } catch (error) {
-      logger.logError(TelemetryEventsKeys.LoadAgentsError, `[Clone] Failed to load agents for <pii>${sourceAccount?.accountEmail ?? sourceAccount?.accountId}</pii> in '${environment.displayName}'`, { sku: environment.environmentSku, environmentId: environment.environmentId, error });
+      logger.logError(TelemetryEventsKeys.LoadAgentsError, `[Clone] Failed to load agents for ${formatPii(sourceAccount?.accountEmail ?? sourceAccount?.accountId ?? 'Unknown', PiiRedactionType.EmailAddress)} in '${environment.displayName}'`, { sku: environment.environmentSku, environmentId: environment.environmentId, error });
       input.items = [];
     } finally {
       input.busy = false;
@@ -498,7 +498,7 @@ export async function cloneAgentToLocalFolder(agent: IdentifyAgentResponse | und
       };
       const cloneResp = await lspClient.sendRequest<CloneAgentResponse>(LspMethods.CLONE_AGENT, cloneRequest, cancellationToken);
 
-      logger.logInfo(TelemetryEventsKeys.CloneAgentSuccess, `Agent '${agentInfo.displayName}' cloned to <pii>${rootFolder}</pii>`, {
+      logger.logInfo(TelemetryEventsKeys.CloneAgentSuccess, `Agent '${agentInfo.displayName}' cloned to ${formatPii(rootFolder, PiiRedactionType.FileUri)}`, {
         agentId: agentInfo.agentId,
         environmentId: environmentInfo.environmentId,
       });
@@ -525,8 +525,10 @@ export async function cloneAgentToLocalFolder(agent: IdentifyAgentResponse | und
         }
       }
 
-      // Dispose the telemetry reporter to ensure all events are sent before VS Code reloads the window.
+      // Dispose the telemetry reporter to ensure all events are flushed before VS Code reloads the window.
       await logger.dispose();
+      // Brief delay to allow the telemetry to complete before the window reload kills the extension host.
+      await new Promise(resolve => setTimeout(resolve, 1000));
       await commands.executeCommand('vscode.openFolder', workspaceUri, { forceReuseWindow: true });
     });
   } catch (error) {

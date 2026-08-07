@@ -153,23 +153,23 @@ export function sanitizeErrorDetails(errorMessage: string, agentNames: readonly 
       5,
     ),
     // Drive-letter path ending in any file name: C:\dir\file.ext
-    // The final file token excludes whitespace so a match stops at the file
-    // name and does not run into following prose ("... for alex@contoso.com").
+    // Allows spaces in directory names and filenames (e.g. C:\Users\Alex Doe\my agent.mcs.yml).
+    // The final segment excludes @ to avoid consuming into email addresses.
     ...collectFileMatches(
       errorMessage,
-      /[A-Za-z]:[\\/](?:[^\\/\r\n:*?"<>|]+[\\/])*[^\s\\/\r\n:*?"<>|]*\.[A-Za-z0-9]{1,12}/gi,
+      /[A-Za-z]:[\\/](?:[^\\/\r\n:*?"<>|]+[\\/])*[^\\/\r\n:*?"<>|@]*\.[A-Za-z0-9]{1,12}(?=[\s,;)\]}>:"'@]|$)/gi,
       4,
     ),
     // UNC path ending in any file name: \\server\share\file.ext
     ...collectFileMatches(
       errorMessage,
-      /\\\\[^\\/\r\n:*?"<>|]+[\\/](?:[^\\/\r\n:*?"<>|]+[\\/])*[^\s\\/\r\n:*?"<>|]*\.[A-Za-z0-9]{1,12}/gi,
+      /\\\\[^\\/\r\n:*?"<>|]+[\\/](?:[^\\/\r\n:*?"<>|]+[\\/])*[^\\/\r\n:*?"<>|@]*\.[A-Za-z0-9]{1,12}(?=[\s,;)\]}>:"'@]|$)/gi,
       4,
     ),
     // POSIX path ending in any file name: /dir/file.ext
     ...collectFileMatches(
       errorMessage,
-      /(?:\/[^\/\r\n"'<>|?*]+)*\/[^\s\/\r\n"'<>|?*]*\.[A-Za-z0-9]{1,12}/gi,
+      /(?:\/[^\/\r\n"'<>|?*]+)*\/[^\/\r\n"'<>|?*@]*\.[A-Za-z0-9]{1,12}(?=[\s,;)\]}>:"'@]|$)/gi,
       4,
     ),
     // Relative or mixed-separator path ending in any file name: dir\file.ext
@@ -228,27 +228,45 @@ const stripPiiTags = (value: string): string =>
       encoded ? decodePiiValue(piiValue) : piiValue,
   );
 
-const redactPii = (value: string): string =>
-  value.replace(piiPattern, (_match, type: string | undefined) =>
+/**
+ * Redacts PII from a telemetry value. Two-step process:
+ * 1. Replaces explicit <pii type="TYPE">...</pii> tags with [REDACTED TYPE]
+ * 2. Applies pattern-based detection for untagged PII (emails, paths, URLs) as defense-in-depth
+ */
+const redactPii = (value: string): string => {
+  // Step 1: Replace explicit <pii> tags
+  let result = value.replace(piiPattern, (_match, type: string | undefined) =>
     type ? `[REDACTED ${type}]` : '[REDACTED]');
+
+  // Step 2: Pattern-based detection for untagged PII that callers missed
+  result = result.replace(/[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s<>"'|]+/gi, '[REDACTED URL]');
+  result = result.replace(/[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9-]+(?:\.[A-Z0-9-]+)+/gi, '[REDACTED EMAIL ADDRESS]');
+  result = result.replace(/[A-Za-z]:[\\/](?:[^\\/\r\n:*?"<>|]+[\\/])*[^\\/\r\n:*?"<>|@]*\.[A-Za-z0-9]{1,12}(?=[\s,;)\]}>:"'@]|$)/gi, '[REDACTED FILE PATH]');
+  result = result.replace(/\\\\[^\\/\r\n:*?"<>|]+[\\/](?:[^\\/\r\n:*?"<>|]+[\\/])*[^\\/\r\n:*?"<>|@]*\.[A-Za-z0-9]{1,12}(?=[\s,;)\]}>:"'@]|$)/gi, '[REDACTED FILE PATH]');
+  result = result.replace(/(?:\/[^\/\r\n"'<>|?*]+)*\/[^\/\r\n"'<>|?*@]*\.[A-Za-z0-9]{1,12}(?=[\s,;)\]}>:"'@]|$)/gi, '[REDACTED FILE PATH]');
+
+  return result;
+};
 
 export function prepareLogData(message: string | undefined, properties: TelemetryEventProperties): {
   displayMessage?: string;
-  outputMessage: string;
+  outputMessage?: string;
   telemetryProperties: Record<string, string>;
 } {
-  const rawErrorMessage = properties?.['errorMessage'] as string;
+  const rawErrorMessage = properties?.['errorMessage'] as string | undefined;
+  const strippedError = rawErrorMessage ? stripPiiTags(rawErrorMessage) : undefined;
 
   // --- 1. VS Code popup: msg with <pii> tags stripped + error.message ---
   let displayMessage = message ? stripPiiTags(message) : undefined;
-  if (displayMessage && rawErrorMessage && !displayMessage.includes(rawErrorMessage)) {
-    displayMessage = `${displayMessage}: ${rawErrorMessage}`;
+  if (strippedError && displayMessage && !displayMessage.includes(strippedError)) {
+    displayMessage = `${displayMessage}: ${strippedError}`;
   }
 
   // --- 2. Output channel: (data.message || msg) with <pii> stripped + error.message ---
-  let outputMessage = stripPiiTags(properties?.['message'] as string);
-  if (rawErrorMessage && !outputMessage.includes(rawErrorMessage)) {
-    outputMessage = `${outputMessage}: ${rawErrorMessage}`;
+  const rawMessage = (properties?.['message'] as string | undefined) ?? message;
+  let outputMessage = rawMessage ? stripPiiTags(rawMessage) : undefined;
+  if (strippedError && outputMessage && !outputMessage.includes(strippedError)) {
+    outputMessage = `${outputMessage}: ${strippedError}`;
   }
 
   // --- 3. Telemetry: sanitized dimensions only ---
@@ -259,6 +277,11 @@ export function prepareLogData(message: string | undefined, properties: Telemetr
     } else if (value !== undefined) {
       telemetryProperties[key] = String(value);
     }
+  }
+
+  // Always populate message dimension for telemetry
+  if (!telemetryProperties.message && message) {
+    telemetryProperties.message = redactPii(message);
   }
 
   return { displayMessage, outputMessage, telemetryProperties };
@@ -432,7 +455,7 @@ class Logger {
     const { displayMessage, outputMessage, telemetryProperties } = prepareLogData(message, properties);
 
     this.writeToOutputChannel(logLevel, eventName, outputMessage, measurements);
- 
+
     const canSendTelemetry = isTelemetryEnabled();
 
     switch (logLevel) {
@@ -598,11 +621,6 @@ class Logger {
           measurements[key] = value;
         }
       }
-    }
-
-    // Always populate message dimension (data.message takes priority over msg param)
-    if (!properties[SharedDimensions.message] && message) {
-      properties[SharedDimensions.message] = message;
     }
 
     return { properties, measurements };

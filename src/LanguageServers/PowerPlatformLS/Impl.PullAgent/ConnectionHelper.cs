@@ -16,10 +16,12 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     {
         /// <summary>
         /// Sets up Dataverse connection infrastructure and enriches ambient agent context.
-        /// Intentionally non-async — synchronous execution preserves AsyncLocal values
-        /// (which don't propagate back from awaited async methods).
+        /// Connection setup (tokens, URLs) is synchronous; agent context resolution is async
+        /// (may read from disk). The returned Task must be awaited — do not fire-and-forget.
+        /// Agent context propagation is safe across async boundaries because LspRequestContext
+        /// uses a mutable reference holder (not value-type AsyncLocal writes).
         /// </summary>
-#pragma warning disable VSTHRD200 // Intentionally non-async: synchronous execution preserves AsyncLocal values
+#pragma warning disable VSTHRD200 // Not suffixed with Async: synchronous preamble + tail-call to SetAgentContextAsync
         public static Task ApplyConnectionContext(
             IIslandControlPlaneService islandControlPlaneService,
             ITokenManager dataverseTokenManager,

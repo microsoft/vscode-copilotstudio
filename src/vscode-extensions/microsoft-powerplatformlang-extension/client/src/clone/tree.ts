@@ -6,7 +6,7 @@ import { listAgentsAsync, listSharedAgentsAsync, clearWhoAmICache } from "../cli
 import { listEnvironmentsBySkuAsync, EnvironmentSku, getTokenScopeHostName, isAccountTokenUsable } from "../clients/bapClient";
 import { DefaultCoreServicesClusterCategory, TelemetryEventsKeys } from "../constants";
 import { addWorkspaceChangeSubscription, getActiveAgentAccount, getAllProjectAccounts } from "../sync/localWorkspaces";
-import logger from '../services/logger';
+import logger, { formatPii, PiiRedactionType } from '../services/logger';
 
 // Types must be declared before the account/SKU nodes
 export enum TreeItemKind  {
@@ -304,7 +304,7 @@ export class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTree
             const resource = Uri.from({ scheme: 'https', authority: getTokenScopeHostName(DefaultCoreServicesClusterCategory) });
             await getAccessTokenByAccountId(resource, account.accountId, account.accountEmail, true);
         } catch (error) {
-            logger.logError(TelemetryEventsKeys.SignInError, undefined, { message: `Tree sign-in failed for <pii>${account.accountEmail ?? account.accountId}</pii>`, error });
+            logger.logError(TelemetryEventsKeys.SignInError, undefined, { message: `Tree sign-in failed for ${formatPii(account.accountEmail ?? account.accountId ?? 'Unknown', PiiRedactionType.EmailAddress)}`, error });
         }
         this.invalidateCache();
         void this.probeAccounts();
@@ -324,7 +324,7 @@ export class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTree
             logger.logTrace('AgentTree', `Using ${cached.length} cached ${sku} environment(s)`);
             return cached;
         }
-        logger.logTrace('AgentTree', `<pii>${account.accountEmail ?? account.accountId}</pii> > ${sku}: Loading environments`);
+        logger.logTrace('AgentTree', `${formatPii(account.accountEmail ?? account.accountId ?? 'Unknown', PiiRedactionType.EmailAddress)} > ${sku}: Loading environments`);
         const startTime = Date.now();
         try {
             const envs = await listEnvironmentsBySkuAsync(DefaultCoreServicesClusterCategory, sku, null, account.accountId ?? null, account.accountEmail, true);
@@ -332,12 +332,12 @@ export class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTree
             this.envsByAccountSku.set(cacheKey, items);
             this.loadedAccountSkus.add(cacheKey);
             const durationMs = Date.now() - startTime;
-            logger.logInfo(TelemetryEventsKeys.LoadEnvironmentSuccess, undefined, { message: `<pii>${account.accountEmail ?? account.accountId}</pii> > ${sku}: Loaded ${items.length} environment(s)`, sku, environmentCount: items.length, durationMs });
+            logger.logInfo(TelemetryEventsKeys.LoadEnvironmentSuccess, undefined, { message: `${formatPii(account.accountEmail ?? account.accountId ?? 'Unknown', PiiRedactionType.EmailAddress)} > ${sku}: Loaded ${items.length} environment(s)`, sku, environmentCount: items.length, durationMs });
             return items;
         } catch (error) {
             if (!(error instanceof AuthError)) {
                 const durationMs = Date.now() - startTime;
-                logger.logError(TelemetryEventsKeys.LoadEnvironmentError, `<pii>${account.accountEmail ?? account.accountId}</pii> > ${sku}: Failed to load environments`, { sku, durationMs, error });
+                logger.logError(TelemetryEventsKeys.LoadEnvironmentError, `${formatPii(account.accountEmail ?? account.accountId ?? 'Unknown', PiiRedactionType.EmailAddress)} > ${sku}: Failed to load environments`, { sku, durationMs, error });
             }
             this.loadedAccountSkus.add(cacheKey);
             return [];
@@ -499,8 +499,8 @@ export class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTree
 				const startTime = Date.now();
                 try {
 					const storeAccount = envItem.sourceAccount ?? await this.resolveSelectedAccount();
-                    const accountName = storeAccount?.accountEmail ?? storeAccount?.accountId ?? 'unknown';
-					logger.logTrace('AgentTree', `<pii>${accountName}</pii> > ${sku} > ${envName}[${envItem.environment.environmentId}]: Loading agents`);
+                    const accountName = storeAccount?.accountEmail ?? storeAccount?.accountId ?? 'Unknown';
+					logger.logTrace('AgentTree', `${formatPii(accountName, PiiRedactionType.EmailAddress)} > ${sku} > ${envName}[${envItem.environment.environmentId}]: Loading agents`);
 					const [ownedAgents, sharedAgents] = await Promise.all([
                         listAgentsAsync(Uri.parse(envItem.environment.dataverseUrl), null, storeAccount?.accountId, storeAccount?.accountEmail, true),
                         listSharedAgentsAsync(Uri.parse(envItem.environment.dataverseUrl), null, storeAccount?.accountId, storeAccount?.accountEmail, true)
@@ -511,11 +511,11 @@ export class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTree
                         return { kind: TreeItemKind.Agent, environment: envItem.environment, agent: agent, sourceAccount: storeAccount } as AgentTreeItem;
 					});
                     const durationMs = Date.now() - startTime;
-                    logger.logInfo(TelemetryEventsKeys.LoadAgentsSuccess, undefined, { message: `<pii>${accountName}</pii> > ${sku} > ${envName}[${envItem.environment.environmentId}]: Loaded ${allAgents.length} agent(s)`, sku, environmentId: envItem.environment.environmentId, agentCount: allAgents.length, durationMs });
+                    logger.logInfo(TelemetryEventsKeys.LoadAgentsSuccess, undefined, { message: `${formatPii(accountName, PiiRedactionType.EmailAddress)} > ${sku} > ${envName}[${envItem.environment.environmentId}]: Loaded ${allAgents.length} agent(s)`, sku, environmentId: envItem.environment.environmentId, agentCount: allAgents.length, durationMs });
 					resolve(agents);
 				} catch (error: any) {
                     const durationMs = Date.now() - startTime;
-					logger.logError(TelemetryEventsKeys.LoadAgentsError, `<pii>${envItem.sourceAccount?.accountEmail ?? envItem.sourceAccount?.accountId ?? 'unknown'}</pii> > ${sku} > ${envName}[${envItem.environment.environmentId}]: Failed to load agents`, { sku, environmentId: envItem.environment.environmentId, durationMs, error });
+                    logger.logError(TelemetryEventsKeys.LoadAgentsError, `${formatPii(envItem.sourceAccount?.accountEmail ?? envItem.sourceAccount?.accountId ?? 'Unknown', PiiRedactionType.EmailAddress)} > ${sku} > ${envName}[${envItem.environment.environmentId}]: Failed to load agents`, { sku, environmentId: envItem.environment.environmentId, durationMs, error });
 					const errorMessage = error?.message?.includes('403') || error?.message?.includes('not a member')
 						? "Access denied - not a member of this organization"
 						: error?.message?.includes('timeout') || error?.message?.includes('abort')

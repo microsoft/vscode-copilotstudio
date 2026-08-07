@@ -8,7 +8,7 @@ import { buildEnvironmentPickItems } from '../services/accountEnvPicker';
 import { switchAccount, getPreferredTreeAccount, listStoredAccounts, clearAuthAccountState } from '../clients/account';
 import { pushNewWorkspace } from '../sync/workspaceScm';
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
-import logger from '../services/logger';
+import logger, { formatPii, PiiRedactionType } from '../services/logger';
 import { logAIPromptIssues, withSyncCommandBusy, getActiveSyncUri } from '../sync/workspaceSynchronizer';
 import { getAllWorkspaces, hasConnectionFileInWorkspace, WorkspaceType, CopilotStudioWorkspace, getWorkspaceKindLabel } from '../sync/localWorkspaces';
 import { selectWorkspace } from '../sync/workspacePicker';
@@ -54,7 +54,7 @@ const getDiagnosticsErrorMessage = async (workspaces: CopilotStudioWorkspace[], 
     if (diagnostics.count > 0) {
       return {
         displayMessage: `Cannot ${operationName}: found ${diagnostics.count} error(s) in ${diagnostics.files} file(s) for '${workspace.displayName}'. Fix the errors and try again.`,
-        telemetryMessage: `Cannot ${operationName}: found ${diagnostics.count} error(s) in ${diagnostics.files} file(s) for <pii>'${workspace.displayName}'</pii>. Fix the errors and try again.`
+        telemetryMessage: `Cannot ${operationName}: found ${diagnostics.count} error(s) in ${diagnostics.files} file(s) for '${workspace.displayName}'. Fix the errors and try again.`
       };
     }
   }
@@ -156,7 +156,7 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
         );
         quickPick.items = buildEnvironmentPickItems(envs, account);
       } catch (error: any) {
-        logger.logError(TelemetryEventsKeys.LoadEnvironmentError, `[Reattach] Failed to load environments for <pii>${account.accountEmail ?? account.accountId}</pii>`, { error });
+        logger.logError(TelemetryEventsKeys.LoadEnvironmentError, `[Reattach] Failed to load environments for ${formatPii(account.accountEmail ?? account.accountId ?? 'Unknown', PiiRedactionType.EmailAddress)}`, { error });
         quickPick.items = [];
       }
       quickPick.busy = false;
@@ -224,7 +224,7 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
 
       if (reattachPlan.missingCollectionDirectories.length > 0) {
         void vscode.window.showErrorMessage(`Cannot retarget ${agentDisplayName}: referenced component collection workspace was not found.`);
-        logger.logWarning(TelemetryEventsKeys.ReattachAgentError, `Cannot retarget agent because ${reattachPlan.missingCollectionDirectories.length} referenced component collection workspace(s) were not found: <pii>${reattachPlan.missingCollectionDirectories.join(', ')}</pii>`);
+        logger.logWarning(TelemetryEventsKeys.ReattachAgentError, `Cannot retarget agent because ${reattachPlan.missingCollectionDirectories.length} referenced component collection workspace(s) were not found: ${formatPii(reattachPlan.missingCollectionDirectories.join(', '), PiiRedactionType.FileUri)}`);
         return;
       }
 
@@ -317,7 +317,7 @@ export const registerReattachAgentCommand = (context: vscode.ExtensionContext) =
                 anyConnectionsBound = anyConnectionsBound || autoBindResult.boundCount > 0;
                 workflowsEnabledTotal += autoBindResult.enabledWorkflowCount;
                 if (autoBindResult.disabledWorkflowNames.length > 0) {
-                  logger.logWarning(TelemetryEventsKeys.ReattachAgentInfo, `These workflows are disabled. Bind their connections, then enable them from the connection manager: <pii>${autoBindResult.disabledWorkflowNames.join(', ')}</pii>`);
+                  logger.logWarning(TelemetryEventsKeys.ReattachAgentInfo, `These workflows are disabled. Bind their connections, then enable them from the connection manager: ${formatPii(autoBindResult.disabledWorkflowNames.join(', '), PiiRedactionType.WorkflowNames)}`);
                 }
               }
 

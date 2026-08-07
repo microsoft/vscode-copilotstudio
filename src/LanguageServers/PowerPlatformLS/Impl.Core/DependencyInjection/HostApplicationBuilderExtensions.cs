@@ -45,8 +45,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.DependencyInjection
             // switches to Trace/Debug when troubleshooting).
             builder.Logging.AddFilter("Microsoft.PowerPlatformLS", LogLevel.Trace);
 
-            // Suppress noisy .NET hosting lifecycle messages (e.g., "Content root path: ...")
-            // from both the output channel and telemetry.
+            // Suppress noisy .NET hosting lifecycle messages (e.g., "Content root path: ...") from the output channel.
             builder.Logging.AddFilter("Microsoft.Hosting.Lifetime", LogLevel.Warning);
 
             // Prevent recursive logging: BaseIpcTransport logs every send at Trace level,

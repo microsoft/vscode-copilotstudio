@@ -64,11 +64,21 @@ namespace Microsoft.PowerPlatformLS.Contracts.Internal.Common
         /// <summary>HTTP response status code (e.g., 200, 401, 500).</summary>
         public const string HttpStatusCode = "httpStatusCode";
 
+        /// <summary>HTTP reason phrase on non-2xx responses (e.g., "Forbidden", "Not Found").</summary>
+        public const string HttpReason = "httpReason";
+
         // ─────────────────────────────────────────────────────────────────────
         // Sync operation dimensions
         // ─────────────────────────────────────────────────────────────────────
 
         /// <summary>Internal sync function being executed (e.g., FetchRemoteAgent, WriteWorkspace).</summary>
         public const string SyncFunction = "syncFunction";
+
+        // ─────────────────────────────────────────────────────────────────────
+        // Error/diagnostic dimensions
+        // ─────────────────────────────────────────────────────────────────────
+
+        /// <summary>Error message from failed handler or exception. Scrubbed by PiiScrubTelemetryInitializer.</summary>
+        public const string ErrorMessage = "errorMessage";
     }
 }

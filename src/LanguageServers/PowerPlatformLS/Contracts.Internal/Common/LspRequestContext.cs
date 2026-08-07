@@ -38,23 +38,26 @@ namespace Microsoft.PowerPlatformLS.Contracts.Internal.Common
         /// </summary>
         public static IDisposable WithDuration(long durationMs, ILogger logger)
         {
+            var previousDuration = _pendingDuration.Value;
             _pendingDuration.Value = durationMs;
             var loggerScope = logger.BeginScope(new Dictionary<string, object> { [TelemetryDimensions.DurationMs] = durationMs });
-            return new DurationScope(loggerScope);
+            return new DurationScope(previousDuration, loggerScope);
         }
 
         private sealed class DurationScope : IDisposable
         {
+            private readonly long? _previousDuration;
             private readonly IDisposable? _loggerScope;
 
-            public DurationScope(IDisposable? loggerScope = null)
+            public DurationScope(long? previousDuration, IDisposable? loggerScope = null)
             {
+                _previousDuration = previousDuration;
                 _loggerScope = loggerScope;
             }
 
             public void Dispose()
             {
-                _pendingDuration.Value = null;
+                _pendingDuration.Value = _previousDuration;
                 _loggerScope?.Dispose();
             }
         }
@@ -141,15 +144,17 @@ namespace Microsoft.PowerPlatformLS.Contracts.Internal.Common
         public static IDisposable SuppressOutputContext()
         {
             var ctx = EnsureContext();
+            var previous = ctx.SuppressOutputContext;
             ctx.SuppressOutputContext = true;
-            return new OutputContextSuppression(ctx);
+            return new OutputContextSuppression(ctx, previous);
         }
 
         private sealed class OutputContextSuppression : IDisposable
         {
             private readonly AgentContextData _ctx;
-            public OutputContextSuppression(AgentContextData ctx) => _ctx = ctx;
-            public void Dispose() => _ctx.SuppressOutputContext = false;
+            private readonly bool _previous;
+            public OutputContextSuppression(AgentContextData ctx, bool previous) { _ctx = ctx; _previous = previous; }
+            public void Dispose() => _ctx.SuppressOutputContext = _previous;
         }
 
         /// <summary>

@@ -6,7 +6,7 @@ import { getActiveSyncUri, withSyncCommandBusy } from '../sync/workspaceSynchron
 import { lspClient } from '../services/lspClient';
 import { LspMethods, TelemetryEventsKeys } from '../constants';
 import { Change, DiffRequest, DiscardLocalChangesResponse, DiscardResult, SyncResponse } from '../types';
-import logger from '../services/logger';
+import logger, { formatPii, PiiRedactionType } from '../services/logger';
 
 /** Accepted invocation argument shapes (title bar passes nothing; tree/tests may pass a workspace). */
 type WorkspaceArg = { ws: CopilotStudioWorkspace } | CopilotStudioWorkspace | null | undefined;
@@ -162,7 +162,7 @@ function reportResult(agentName: string, result: DiscardResult | undefined, rema
   const remainingCount = remainingPaths.length;
   logger.logWarning(
     TelemetryEventsKeys.SyncWorkspaceError,
-    `${revertedText} ${remainingCount} item${remainingCount === 1 ? '' : 's'} couldn't be reverted offline and can be restored with Get: <pii>${remainingNames}</pii>.`,
+    `${revertedText} ${remainingCount} item${remainingCount === 1 ? '' : 's'} couldn't be reverted offline and can be restored with Get: ${formatPii(remainingNames, PiiRedactionType.FileUri)}.`,
     { syncOperation: DISCARD_OPERATION },
   );
 }

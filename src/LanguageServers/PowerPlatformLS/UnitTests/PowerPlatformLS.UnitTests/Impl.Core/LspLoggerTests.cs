@@ -109,6 +109,31 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
             var errorLog = Assert.Single(_testLogger.Error);
             Assert.Contains("[Req: 19] Failed handler for: powerplatformls/syncPull", errorLog);
             Assert.DoesNotContain("duration=", errorLog);
+            Assert.DoesNotContain("error=", errorLog);
+        }
+
+        [Fact]
+        public void LogEndContext_Includes_Error_Message_As_Scope_Dimension_On_Failure()
+        {
+            LspRequestContext.CurrentRequestId = 20;
+
+            _logger.LogEndContext("powerplatformls/syncPull", 50, HandlerOutcome.Failure, "Object reference not set");
+
+            var errorLog = Assert.Single(_testLogger.Error);
+            Assert.Contains("[Req: 20] Failed handler for: powerplatformls/syncPull", errorLog);
+            // Error message goes as a telemetry scope dimension (ErrorMessage), not in the log string
+            Assert.DoesNotContain("Object reference not set", errorLog);
+        }
+
+        [Fact]
+        public void LogEndContext_Omits_Error_Message_On_Success()
+        {
+            LspRequestContext.CurrentRequestId = 22;
+
+            _logger.LogEndContext("powerplatformls/syncPull", 10, HandlerOutcome.Success, "some message");
+
+            var infoLog = Assert.Single(_testLogger.Info);
+            Assert.DoesNotContain("some message", infoLog);
         }
 
         [Fact]

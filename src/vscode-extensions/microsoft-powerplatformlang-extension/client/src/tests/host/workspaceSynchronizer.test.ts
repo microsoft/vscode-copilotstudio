@@ -35,10 +35,9 @@ describe('workspaceSynchronizer: sync success telemetry', () => {
 			syncOperation: successLog.data.syncOperation,
 		});
 
-		assert.strictEqual(prepared.displayMessage, 'Completed applying changes for Contoso Support in 42ms');
-		assert.strictEqual(prepared.telemetryProperties.message, 'Completed applying changes for [REDACTED AGENT NAME] in 42ms');
-		assert.strictEqual(prepared.telemetryProperties.agent, '[REDACTED AGENT NAME]');
-		assert.strictEqual(prepared.telemetryProperties.operation, 'applying changes');
+		assert.strictEqual(prepared.displayMessage, 'Completed applying changes for Contoso Support');
+		assert.strictEqual(prepared.telemetryProperties.message, 'Completed applying changes for [REDACTED AGENT NAME]');
+		assert.strictEqual(prepared.telemetryProperties.syncOperation, 'applying changes');
 	});
 
 	test('does not allow PII values to close their redaction marker', () => {
@@ -49,12 +48,11 @@ describe('workspaceSynchronizer: sync success telemetry', () => {
 			agentId: successLog.data.agentId,
 		});
 
-		assert.strictEqual(prepared.displayMessage, `Completed applying changes for ${agentName} in 42ms`);
+		assert.strictEqual(prepared.displayMessage, `Completed applying changes for ${agentName}`);
 		assert.strictEqual(
 			prepared.telemetryProperties.message,
-			'Completed applying changes for [REDACTED AGENT NAME] in 42ms',
+			'Completed applying changes for [REDACTED AGENT NAME]',
 		);
-		assert.strictEqual(prepared.telemetryProperties.agent, '[REDACTED AGENT NAME]');
 	});
 
 	test('identifies an MCS YAML file name while preserving a safe file error', () => {

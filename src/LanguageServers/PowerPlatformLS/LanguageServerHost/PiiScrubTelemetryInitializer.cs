@@ -25,6 +25,7 @@ namespace Microsoft.PowerPlatformLS.LanguageServerHost
                     EnrichWithAgentContext(trace.Properties);
                     break;
                 case ExceptionTelemetry ex:
+                    ScrubExceptionTelemetry(ex);
                     ScrubProperties(ex.Properties);
                     EnrichWithAgentContext(ex.Properties);
                     break;
@@ -38,12 +39,12 @@ namespace Microsoft.PowerPlatformLS.LanguageServerHost
                 return message ?? string.Empty;
             }
 
-            // Step 1: Process <pii>...</pii> tags — known patterns → named placeholder, unknown → <redacted>
+            // Step 1: Process <pii>...</pii> tags — known patterns → named placeholder, unknown → [REDACTED]
             message = PiiTagRegex().Replace(message, match =>
             {
                 var inner = System.Net.WebUtility.HtmlDecode(match.Groups[1].Value.Trim());
                 var sanitized = ApplyKnownPatterns(inner);
-                return sanitized != inner ? sanitized : "<redacted>";
+                return sanitized != inner ? sanitized : "[REDACTED]";
             });
 
             // Step 2: Apply known patterns to remaining untagged content
@@ -58,18 +59,23 @@ namespace Microsoft.PowerPlatformLS.LanguageServerHost
         /// </summary>
         private static string ApplyKnownPatterns(string text)
         {
-            text = WindowsPathRegex().Replace(text, "<path>");
-            text = UnixPathRegex().Replace(text, "<path>");
-            text = EmailRegex().Replace(text, "<email>");
-            text = UrlQueryStringRegex().Replace(text, "$1?<query>");
-            text = GuidRegex().Replace(text, "<id>");
+            // URL patterns first (before path patterns that could partially match URL segments)
+            text = UrlQueryStringRegex().Replace(text, "$1?[REDACTED: query-string]");
+            text = WindowsPathRegex().Replace(text, "[REDACTED: file-path]");
+            text = WindowsForwardSlashPathRegex().Replace(text, "[REDACTED: file-path]");
+            text = UnixPathRegex().Replace(text, "[REDACTED: file-path]");
+            text = EmailRegex().Replace(text, "[REDACTED: email]");
+            text = GuidRegex().Replace(text, "[REDACTED: id]");
             return text;
         }
 
         private static void ScrubProperties(IDictionary<string, string> properties)
         {
-            // Scrub known property keys that may contain PII
-            string[] sensitiveKeys = ["FormattedMessage", "Message", "{OriginalFormat}", "Agent", "ErrorMessage", "Error", "Source", "ContentRoot"];
+            // Scrub known property keys that may contain PII.
+            // - FormattedMessage: rendered log message (always in customDimensions for traces/exceptions)
+            // - {OriginalFormat}: log template string (always in customDimensions)
+            // - errorMessage/ErrorMessage: handler error message from LogEndContext BeginScope
+            string[] sensitiveKeys = ["FormattedMessage", "{OriginalFormat}", TelemetryDimensions.ErrorMessage, "ErrorMessage"];
             foreach (var key in sensitiveKeys)
             {
                 if (properties.TryGetValue(key, out var value) && !string.IsNullOrEmpty(value))
@@ -79,13 +85,37 @@ namespace Microsoft.PowerPlatformLS.LanguageServerHost
             }
         }
 
+        /// <summary>
+        /// Scrubs PII from exception messages in ExceptionTelemetry.
+        /// App Insights sends Exception.Message and ExceptionDetailsInfos, so both must be scrubbed.
+        /// </summary>
+        private static void ScrubExceptionTelemetry(ExceptionTelemetry ex)
+        {
+            if (ex.Exception is not null)
+            {
+                ex.Message = ScrubMessage(ex.Exception.Message);
+            }
+
+            foreach (var detail in ex.ExceptionDetailsInfoList)
+            {
+                if (!string.IsNullOrEmpty(detail.Message))
+                {
+                    detail.Message = ScrubMessage(detail.Message);
+                }
+            }
+        }
+
         // Matches <pii>...</pii> tagged content, with optional type and encoded attributes
         [GeneratedRegex(@"<pii(?:\s+type=""[^""]*"")?(?:\s+encoded=""[^""]*"")?>(.*?)</pii>", RegexOptions.Singleline)]
         private static partial Regex PiiTagRegex();
 
-        // Matches Windows paths like C:\Users\username\... or D:\folder\file.ext
-        [GeneratedRegex(@"[A-Za-z]:\\(?:[\w\-.]+\\)*[\w\-.]+")]
+        // Matches Windows backslash paths like C:\Users\name\file.txt
+        [GeneratedRegex(@"(?<![A-Za-z])[A-Za-z]:\\(?:[\w\-. ]+\\)*[\w\-.]+")]
         private static partial Regex WindowsPathRegex();
+
+        // Matches Windows forward-slash paths like c:/Users/name/Test Agent/ — allows spaces, terminates at quotes/end
+        [GeneratedRegex(@"(?<![A-Za-z])[A-Za-z]:/(?:[^\r\n:*?""<>|']+?/)*[^\r\n:*?""<>|/'\s]*(?=['"",;)\]}>\s]|$)")]
+        private static partial Regex WindowsForwardSlashPathRegex();
 
         // Matches Unix paths starting with /home/, /Users/, or /tmp/ (common user-specific roots)
         [GeneratedRegex(@"(?:/home/|/Users/|/tmp/)[\w\-./]+")]

@@ -51,7 +51,7 @@
             _logger.LogInformation("[Req: {reqId}] Started handler for: {lspMethod}", reqId, methodName);
         }
 
-        public void LogEndContext(string methodName, long durationMs = -1, HandlerOutcome outcome = HandlerOutcome.Success)
+        public void LogEndContext(string methodName, long durationMs = -1, HandlerOutcome outcome = HandlerOutcome.Success, string? errorMessage = null)
         {
             if (IsBuiltInLspMethod(methodName))
             {
@@ -66,18 +66,33 @@
                 _ => "Completed",
             };
 
-            if (durationMs >= 0)
+            // Error message goes as a telemetry dimension only (not output channel)
+            // to avoid duplicating the FE "[LSP] Request failed:" line.
+            IDisposable? errorScope = null;
+            if (!string.IsNullOrEmpty(errorMessage) && outcome != HandlerOutcome.Success)
             {
-                using (LspRequestContext.WithDuration(durationMs, _logger))
+                errorScope = _logger.BeginScope(new Dictionary<string, object> { [TelemetryDimensions.ErrorMessage] = errorMessage });
+            }
+
+            try
+            {
+                if (durationMs >= 0)
+                {
+                    using (LspRequestContext.WithDuration(durationMs, _logger))
+                    {
+                        LogAtOutcomeLevel(outcome, "[Req: {reqId}] {outcome} handler for: {lspMethod}",
+                            reqId, outcomeText, methodName);
+                    }
+                }
+                else
                 {
                     LogAtOutcomeLevel(outcome, "[Req: {reqId}] {outcome} handler for: {lspMethod}",
                         reqId, outcomeText, methodName);
                 }
             }
-            else
+            finally
             {
-                LogAtOutcomeLevel(outcome, "[Req: {reqId}] {outcome} handler for: {lspMethod}",
-                    reqId, outcomeText, methodName);
+                errorScope?.Dispose();
             }
         }
 

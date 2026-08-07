@@ -53,8 +53,8 @@
                     }
                     else
                     {
-                        _logger.LogError($"[Req: {{reqId}}] HTTP request #{httpId} {{outcome}}: {{httpMethod}} {{httpEndpoint}}, status={{httpStatusCode}}",
-                            reqId, "failed", request.Method.ToString(), endpoint, (int)response.StatusCode);
+                        _logger.LogError($"[Req: {{reqId}}] HTTP request #{httpId} {{outcome}}: {{httpMethod}} {{httpEndpoint}}, status={{httpStatusCode}}, reason={{httpReason}}",
+                            reqId, "failed", request.Method.ToString(), endpoint, (int)response.StatusCode, response.ReasonPhrase ?? "unknown");
                     }
                 }
                 return response;
