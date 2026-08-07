@@ -3,7 +3,7 @@ import { RemoteFileRequest, GetFileResponse } from '../types';
 import { findWorkspaceForUri, tryRepairAgentManagementEndpoint } from './localWorkspaces';
 import { lspClient, buildLspRequestPayload } from "../services/lspClient";
 import { LspMethods, TelemetryEventsKeys } from "../constants";
-import logger, { formatPii, PiiRedactionType, sanitizeErrorDetails } from "../services/logger";
+import logger, { formatPii, PiiRedactionType } from "../services/logger";
 
 export const REMOTE_STATE_SCHEME = 'mcs-remote';
 
@@ -59,11 +59,7 @@ export class RemoteFileSystem implements FileSystemProvider {
             const result = await lspClient.sendRequest<GetFileResponse>(LspMethods.GET_REMOTE_FILE, request);
             return Buffer.from(result.content ?? '', 'utf8');
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            logger.logError(
-                TelemetryEventsKeys.GetRemoteFileError,
-                `Error fetching file: ${sanitizeErrorDetails(errorMessage, agentName ? [agentName] : [])}`,
-            );
+            logger.logError(TelemetryEventsKeys.GetRemoteFileError, 'Error fetching file', { error });
             return new Uint8Array();
         }
     }

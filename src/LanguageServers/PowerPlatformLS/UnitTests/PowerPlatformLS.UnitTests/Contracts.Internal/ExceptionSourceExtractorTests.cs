@@ -1,6 +1,6 @@
-namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
+namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.Internal
 {
-    using Microsoft.PowerPlatformLS.Impl.PullAgent;
+    using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using System;
     using Xunit;
 

@@ -23,41 +23,33 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         {
             return ex switch
             {
-                // HTTP failures: already logged at Error by LoggingHttpHandler — don't duplicate.
+                // No logging — already logged by an instrumented layer or propagated to FE directly.
                 HttpRequestException hre =>
                     NoLog(MapHttpStatusCode(hre), hre.Message),
 
-                // User-recoverable: the user can fix this by performing an action (resync, reclone, etc.).
                 FileNotFoundException fnf =>
-                    LogTypedError(logger, 400, fnf),
+                    NoLog(400, fnf.Message),
 
                 DirectoryNotFoundException dnf =>
-                    LogTypedError(logger, 400, dnf),
+                    NoLog(400, dnf.Message),
 
-                // User validation: caller explicitly threw to signal bad input.
                 InvalidOperationException ioe =>
-                    LogTypedError(logger, 400, ioe),
+                    NoLog(400, ioe.Message),
 
-                // Service rejected the request (known Dataverse error with status code).
-                // Message may contain customer data — use safe telemetry message.
-                DataverseBadRequestException dbre =>
-                    LogTypedSensitiveError(logger, dbre.StatusCode, dbre, $"Dataverse request failed with status {dbre.StatusCode}."),
-
-                // Service temporarily unavailable.
-                DataverseServiceUnavailableException dsue =>
-                    LogTypedError(logger, 503, dsue,
-                        "The Copilot Studio service is temporarily unavailable. Please try again in a moment."),
-
-                // Cancellation: distinguish user-initiated from timeout.
                 OperationCanceledException when cancellationToken.IsCancellationRequested =>
                     NoLog(499, "Operation was cancelled."),
 
                 OperationCanceledException =>
                     NoLog(504, "Operation timed out."),
 
-                // Unexpected: genuine bugs or unhandled conditions.
-                // Log at Error WITH full stack trace for diagnostics.
-                _ => LogErrorWithTrace(logger, ex),
+                // Logged — service or unexpected errors go to exceptions table.
+                DataverseBadRequestException dbre =>
+                    LogAsException(logger, dbre, code: dbre.StatusCode),
+
+                DataverseServiceUnavailableException dsue =>
+                    LogAsException(logger, dsue, code: 503, message: "The Copilot Studio service is temporarily unavailable. Please try again in a moment."),
+
+                _ => LogAsException(logger, ex),
             };
         }
 
@@ -70,63 +62,18 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         }
 
         /// <summary>
-        /// Logs error with [ExceptionType], message, and source location.
+        /// Logs to exceptions table (full stack trace).
+        /// Defaults to code 500 and ex.Message if not overridden.
         /// </summary>
-        private static (int Code, string Message) LogTypedError(ILspLogger logger, int code, Exception ex)
+        private static (int Code, string Message) LogAsException(ILspLogger logger, Exception ex, int code = 500, string? message = null)
         {
-            string message = ex.Message;
-            string typeName = ex.GetType().Name;
-            var source = ExceptionSourceExtractor.FormatSource(ex);
-            logger.LogError($"[{typeName}] {message}{source}");
-            return (code, message);
-        }
-
-        /// <summary>
-        /// Logs error with explicit override message (for cases where the exception message isn't user-facing).
-        /// </summary>
-        private static (int Code, string Message) LogTypedError(ILspLogger logger, int code, Exception ex, string displayMessage)
-        {
-            string typeName = ex.GetType().Name;
-            var source = ExceptionSourceExtractor.FormatSource(ex);
-            logger.LogError($"[{typeName}] {displayMessage}{source}");
-            return (code, displayMessage);
-        }
-
-        /// <summary>
-        /// Logs error with [ExceptionType] and source. The exception message may contain customer data,
-        /// so the safe message goes to telemetry and the full message stays in the output channel.
-        /// </summary>
-        private static (int Code, string Message) LogTypedSensitiveError(ILspLogger logger, int code, Exception ex, string safeMessage)
-        {
-            string message = ex.Message;
-            string typeName = ex.GetType().Name;
-            var source = ExceptionSourceExtractor.FormatSource(ex);
-            logger.LogSensitiveError($"[{typeName}] {message}{source}", $"[{typeName}] {safeMessage}{source}");
-            return (code, message);
-        }
-
-        private static (int Code, string Message) LogErrorWithTrace(ILspLogger logger, Exception ex)
-        {
-            string typeName = ex.GetType().Name;
-            var source = ExceptionSourceExtractor.FormatSource(ex);
-            logger.LogException(ex, $"[{typeName}] {ex.Message}{source}");
-            return (500, ex.Message);
+            logger.LogException(ex);
+            return (code, message ?? ex.Message);
         }
 
         private static int MapHttpStatusCode(HttpRequestException hre)
         {
-            if (hre.StatusCode.HasValue)
-            {
-                return (int)hre.StatusCode.Value switch
-                {
-                    401 or 403 => 401,
-                    429 => 429,
-                    >= 500 => 502,
-                    _ => 502,
-                };
-            }
-
-            return 502;
+            return hre.StatusCode.HasValue ? (int)hre.StatusCode.Value : 502;
         }
     }
 }

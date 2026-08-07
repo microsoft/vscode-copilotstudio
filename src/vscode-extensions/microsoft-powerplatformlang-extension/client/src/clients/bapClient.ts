@@ -157,7 +157,8 @@ export async function listEnvironmentsAsync(
                     if (!(error instanceof Error && error.name === 'AbortError')) {
                         logger.logError(
                             TelemetryEventsKeys.LoadEnvironmentError,
-                            `[ListEnvironments] Failed to load ${sku} environments: <pii>${(error as Error)?.message || error}</pii>`
+                            `Failed to load ${sku} environments`,
+                            { sku, error }
                         );
                     }
                     return [] as EnvironmentInfo[];

@@ -3,7 +3,7 @@ import { GetFileRequest, GetFileResponse } from "../types";
 import { getWorkspaceByUri } from "./localWorkspaces";
 import { lspClient } from "../services/lspClient";
 import { LspMethods, TelemetryEventsKeys } from "../constants";
-import logger, { formatPii, PiiRedactionType, sanitizeErrorDetails } from "../services/logger";
+import logger, { formatPii, PiiRedactionType } from "../services/logger";
 
 export const LOCAL_STATE_SCHEME = "mcs";
 
@@ -45,11 +45,7 @@ export class OriginalFileSystem implements FileSystemProvider {
 
             return Buffer.from(result.content ?? '', 'utf8');
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            logger.logError(
-                TelemetryEventsKeys.GetLocalFileError,
-                `Error fetching file: ${sanitizeErrorDetails(errorMessage, agentName ? [agentName] : [])}`,
-            );
+            logger.logError(TelemetryEventsKeys.GetLocalFileError, 'Error fetching file', { error });
             return new Uint8Array();
         }
     }

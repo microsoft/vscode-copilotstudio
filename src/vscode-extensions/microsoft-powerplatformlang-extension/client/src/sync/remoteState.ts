@@ -4,7 +4,7 @@ import { RemoteFileRequest, GetFileResponse } from '../types';
 import { findWorkspaceForUri } from './localWorkspaces';
 import { lspClient, buildLspRequestPayload } from "../services/lspClient";
 import { LspMethods, TelemetryEventsKeys } from "../constants";
-import logger, { formatPii, PiiRedactionType, sanitizeErrorDetails } from "../services/logger";
+import logger, { formatPii, PiiRedactionType } from "../services/logger";
 
 export const REMOTE_STATE_SCHEME = 'mcs-remote';
 
@@ -53,11 +53,7 @@ async function getRemoteFileContent(uri: Uri): Promise<string | null> {
     const result = await lspClient.sendRequest<GetFileResponse>(LspMethods.GET_REMOTE_FILE, request);
     return result.content;
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logger.logError(
-      TelemetryEventsKeys.GetRemoteFileError,
-      `Error fetching file: ${sanitizeErrorDetails(errorMessage, [workspace.displayName])}`,
-    );
+    logger.logError(TelemetryEventsKeys.GetRemoteFileError, 'Error fetching file', { error });
     return null;
   }
 }

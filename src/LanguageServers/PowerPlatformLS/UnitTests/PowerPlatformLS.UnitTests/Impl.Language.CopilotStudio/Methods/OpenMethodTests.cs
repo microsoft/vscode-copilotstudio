@@ -26,7 +26,7 @@
                 var documentUri = new Uri("file:///c:/ws/topics/test.mcs.yml");
                 var diagParams = await context.OpenDocumentWithTextAsync(documentUri, "kind: AdaptiveDialog");
                 Assert.Empty(diagParams.Diagnostics.Where(x => x.Severity < DiagnosticSeverity.Warning));
-                AssertAgentResolvingEvent(context, "Agent directory initialized with 1 documents tracked: 'c:/ws/topics/'");
+                AssertAgentResolvingEvent(context, "Agent directory initialized with 1 documents tracked for 'c:/ws/topics/'");
                 AssertAgentDirectoryChangeNotification(context);
                 context.Logs.Clear();
             }
@@ -36,7 +36,7 @@
                 var documentUri = new Uri("file:///c:/ws/test.mcs.yml");
                 var diagParams = await context.OpenDocumentWithTextAsync(documentUri, "kind: AdaptiveDialog");
                 Assert.Empty(diagParams.Diagnostics.Where(x => x.Severity < DiagnosticSeverity.Warning));
-                AssertAgentResolvingEvent(context, "Agent directory initialized with 1 documents tracked: 'c:/ws/'");
+                AssertAgentResolvingEvent(context, "Agent directory initialized with 1 documents tracked for 'c:/ws/'");
                 AssertAgentDirectoryChangeNotification(context);
                 context.Logs.Clear();
             }

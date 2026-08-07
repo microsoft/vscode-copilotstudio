@@ -2,6 +2,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
 {
     using Microsoft.Extensions.Logging;
     using Microsoft.PowerPlatformLS.Contracts.Internal;
+    using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
     using System;
     using System.Collections.Concurrent;
@@ -188,15 +189,23 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
 
                 if (exception != null)
                 {
-                    message = string.IsNullOrEmpty(message)
-                        ? exception.ToString()
-                        : $"{message}\n{exception}";
+                    var typeName = exception.GetType().Name;
+                    var source = ExceptionSourceExtractor.FormatSource(exception);
+                    var exMessage = exception.Message;
+                    var exFormatted = $"[{typeName}] {exMessage}{source}";
+                    message = string.IsNullOrWhiteSpace(message)
+                        ? exFormatted
+                        : $"{message.TrimEnd()} {exFormatted}";
                 }
 
                 if (string.IsNullOrEmpty(message))
                 {
                     return;
                 }
+
+                // Append output-channel-only metadata (duration, agent/env context).
+                // Telemetry (App Insights) gets the base message only; duration and agent/env are separate dimensions there.
+                message = AppendOutputContext(message);
 
                 // LSP MessageType: Error = 1, Warning = 2, Info = 3, Trace = 4, Debug = 5.
                 int messageType = logLevel switch
@@ -218,6 +227,77 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
                 public static NullScope Instance { get; } = new NullScope();
 
                 public void Dispose() { }
+            }
+
+            /// <summary>
+            /// Appends output-channel-only metadata to the message: agent/env and duration context.
+            /// Format: "message, agent='Name'[id], env='Name'[id], duration=Xms"
+            /// Duration is always appended when available.
+            /// <see cref="LspRequestContext.IsOutputContextSuppressed"/>.
+            /// </summary>
+            private static string AppendOutputContext(string message)
+            {
+                var durationMs = LspRequestContext.PendingDurationMs;
+
+                if (LspRequestContext.IsOutputContextSuppressed)
+                {
+                    return durationMs.HasValue ? $"{message}, duration={durationMs.Value}ms" : message;
+                }
+
+                var agentName = LspRequestContext.AgentName;
+                var agentId = LspRequestContext.AgentId;
+                var envName = LspRequestContext.EnvironmentName;
+                var envId = LspRequestContext.EnvironmentId;
+
+                string agentLabel;
+                if (!string.IsNullOrEmpty(agentName) && !string.IsNullOrEmpty(agentId))
+                {
+                    agentLabel = $"agent='{agentName}'[{agentId}]";
+                }
+                else if (!string.IsNullOrEmpty(agentName))
+                {
+                    agentLabel = $"agent='{agentName}'";
+                }
+                else if (!string.IsNullOrEmpty(agentId))
+                {
+                    agentLabel = $"agent=[{agentId}]";
+                }
+                else
+                {
+                    agentLabel = string.Empty;
+                }
+
+                string envLabel;
+                if (!string.IsNullOrEmpty(envName) && !string.IsNullOrEmpty(envId))
+                {
+                    envLabel = $"env='{envName}'[{envId}]";
+                }
+                else if (!string.IsNullOrEmpty(envName))
+                {
+                    envLabel = $"env='{envName}'";
+                }
+                else if (!string.IsNullOrEmpty(envId))
+                {
+                    envLabel = $"env=[{envId}]";
+                }
+                else
+                {
+                    envLabel = string.Empty;
+                }
+
+                if (!string.IsNullOrEmpty(agentLabel))
+                {
+                    message = $"{message}, {agentLabel}";
+                }
+                if (!string.IsNullOrEmpty(envLabel))
+                {
+                    message = $"{message}, {envLabel}";
+                }
+                if (durationMs.HasValue)
+                {
+                    message = $"{message}, duration={durationMs.Value}ms";
+                }
+                return message;
             }
         }
     }

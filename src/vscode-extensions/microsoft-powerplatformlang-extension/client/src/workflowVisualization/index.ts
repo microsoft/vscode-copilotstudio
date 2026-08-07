@@ -22,7 +22,8 @@ export function initializeWorkflowVisualization(context: vscode.ExtensionContext
       } catch (error) {
         logger.logError(
           TelemetryEventsKeys.WorkflowVisualizeError,
-          `Failed to open workflow visualizer: <pii>${error instanceof Error ? error.message : String(error)}</pii>`,
+          'Failed to open workflow visualizer',
+          { error },
         );
       }
     }),

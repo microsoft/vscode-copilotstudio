@@ -45,7 +45,8 @@ try
     var sessionId = ParseSessionIdFromArgs(args);
     var sessionInfo = new SessionInformation
     {
-        SessionId = sessionId
+        SessionId = sessionId,
+        IsDevMode = isDebuggerRequested
     };
     builder.Services.AddSingleton(sessionInfo);
 
@@ -68,17 +69,18 @@ finally
 // Most logging is done via ILspLogger, so use that. 
 void LogStartup(ILspLogger logger, bool isDev, string? sessionId, bool isTelemetryEnabled)
 {
+    // Startup dims are message-only (not separate telemetry dimensions).
     // AppInsights will automatically capture machine name as "cloud_RoleInstance";
-    var id = System.Diagnostics.Process.GetCurrentProcess().Id;
+    var pid = System.Diagnostics.Process.GetCurrentProcess().Id;
     string osver = Environment.OSVersion.VersionString;
     string dotnetver = Environment.Version.ToString();
-    string osArch = System.Runtime.InteropServices.RuntimeInformation.OSArchitecture.ToString(); // "X64", etc 
+    string osArch = System.Runtime.InteropServices.RuntimeInformation.OSArchitecture.ToString();
     string processArch = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString();
-    string os = System.Runtime.InteropServices.RuntimeInformation.OSDescription; // "Windows 10 Pro", etc
+    string os = System.Runtime.InteropServices.RuntimeInformation.OSDescription;
     string sid = sessionId ?? string.Empty;
     string telemetry = isTelemetryEnabled ? "enabled" : "disabled";
 
-    logger.LogInformation("MCS-LSP Startup: pid={id}, sessionId={sid}, telemetry={telemetry}, dev={isDev}, os={os}, osVersion={osver}, dotnet={dotnetver}, arch={osArch}/{processArch}", id, sid, telemetry, isDev, os, osver, dotnetver, osArch, processArch);
+    logger.LogInformation($"MCS-LSP Startup: pid={pid}, sessionId={sid}, telemetry={telemetry}, dev={isDev}, os={os}, osVersion={osver}, dotnet={dotnetver}, arch={osArch}/{processArch}");
 }
 
 // Helper method to parse sessionId from command line arguments

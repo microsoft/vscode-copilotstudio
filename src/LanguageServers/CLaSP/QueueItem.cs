@@ -166,10 +166,10 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
             // Restore the request ID into ambient context — it was captured at enqueue time
             // but doesn't flow across the queue boundary via AsyncLocal.
             _logger.SetCurrentRequestId(RequestId);
-            string? agentName = context is IHasAgentName hasAgent ? hasAgent.AgentName : null;
-            _logger.LogStartContext(MethodName, agentName);
+            _logger.LogStartContext(MethodName);
             Stopwatch stopwatch = Stopwatch.StartNew();
             HandlerOutcome outcome = HandlerOutcome.Success;
+            string? errorMessage = null;
 
             try
             {
@@ -185,8 +185,9 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
                     // If that turns out to be the case, we could defer to the individual handler to decide
                     // what to do.
                     outcome = HandlerOutcome.Failure;
-                    _requestTelemetryScope?.RecordWarning($"Could not get request context for {MethodName}");
-                    _logger.LogWarning($"Could not get request context for {MethodName}");
+                    errorMessage = $"Could not get request context for {MethodName}";
+                    _requestTelemetryScope?.RecordWarning(errorMessage);
+                    _logger.LogWarning(errorMessage);
 
                     _completionSource.TrySetException(new InvalidOperationException($"Unable to create request context for {MethodName}"));
                 }
@@ -198,11 +199,23 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
                 {
                     var result = await requestHandler.HandleRequestAsync(request, context, cancellationToken).ConfigureAwait(false);
 
+                    if (result is HandlerResponse response && !response.IsSuccess)
+                    {
+                        outcome = HandlerOutcome.Failure;
+                        errorMessage = response.Message;
+                    }
+
                     _completionSource.TrySetResult(result);
                 }
                 else if (handler is IRequestHandler<TResponse, TRequestContext> parameterlessRequestHandler)
                 {
                     var result = await parameterlessRequestHandler.HandleRequestAsync(context, cancellationToken).ConfigureAwait(false);
+
+                    if (result is HandlerResponse response && !response.IsSuccess)
+                    {
+                        outcome = HandlerOutcome.Failure;
+                        errorMessage = response.Message;
+                    }
 
                     _completionSource.TrySetResult(result);
                 }
@@ -229,8 +242,8 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
             {
                 // Record logs + metrics on cancellation.
                 outcome = HandlerOutcome.Canceled;
+                errorMessage = ex.Message;
                 _requestTelemetryScope?.RecordCancellation();
-
                 _completionSource.TrySetCanceled(ex.CancellationToken);
             }
             catch (Exception ex)
@@ -238,6 +251,7 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
                 // Record logs and metrics on the exception.
                 // It's important that this can NEVER throw, or the queue will hang.
                 outcome = HandlerOutcome.Failure;
+                errorMessage = ex.Message;
                 _requestTelemetryScope?.RecordException(ex);
                 _logger.LogException(ex);
 
@@ -246,7 +260,7 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
             finally
             {
                 _requestTelemetryScope?.Dispose();
-                _logger.LogEndContext(MethodName, stopwatch.ElapsedMilliseconds, outcome, agentName);
+                _logger.LogEndContext(MethodName, stopwatch.ElapsedMilliseconds, outcome, errorMessage);
             }
 
             // Return the result of this completion source to the caller

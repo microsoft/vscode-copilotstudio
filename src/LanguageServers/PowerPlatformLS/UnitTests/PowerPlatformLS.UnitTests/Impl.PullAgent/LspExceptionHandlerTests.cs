@@ -56,13 +56,13 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
         }
 
         [Fact]
-        public void Handle_HttpRequestException_403_Maps_To_401()
+        public void Handle_HttpRequestException_403_Passes_Through()
         {
             var ex = new HttpRequestException("Forbidden", null, HttpStatusCode.Forbidden);
 
             var (code, _) = LspExceptionHandler.Handle(ex, _logger);
 
-            Assert.Equal(401, code);
+            Assert.Equal(403, code);
         }
 
         [Fact]
@@ -76,17 +76,17 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
         }
 
         [Fact]
-        public void Handle_HttpRequestException_500_Maps_To_502()
+        public void Handle_HttpRequestException_500_Passes_Through()
         {
             var ex = new HttpRequestException("Server Error", null, HttpStatusCode.InternalServerError);
 
             var (code, _) = LspExceptionHandler.Handle(ex, _logger);
 
-            Assert.Equal(502, code);
+            Assert.Equal(500, code);
         }
 
         [Fact]
-        public void Handle_FileNotFoundException_Returns_400_And_Logs_Error()
+        public void Handle_FileNotFoundException_Returns_400_Without_Logging()
         {
             var ex = new FileNotFoundException("agent.mcs.yml not found");
 
@@ -94,24 +94,22 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
 
             Assert.Equal(400, code);
             Assert.Equal("agent.mcs.yml not found", message);
-            var errorLog = Assert.Single(_testLogger.Error);
-            Assert.Contains("[FileNotFoundException]", errorLog);
-            Assert.Contains("agent.mcs.yml not found", errorLog);
+            Assert.Empty(_testLogger.Error);
         }
 
         [Fact]
-        public void Handle_DirectoryNotFoundException_Returns_400_And_Logs_Error()
+        public void Handle_DirectoryNotFoundException_Returns_400_Without_Logging()
         {
             var ex = new DirectoryNotFoundException("workspace dir missing");
 
             var (code, message) = LspExceptionHandler.Handle(ex, _logger);
 
             Assert.Equal(400, code);
-            Assert.Contains("[DirectoryNotFoundException]", Assert.Single(_testLogger.Error));
+            Assert.Empty(_testLogger.Error);
         }
 
         [Fact]
-        public void Handle_InvalidOperationException_Returns_400_And_Logs_Error()
+        public void Handle_InvalidOperationException_Returns_400_Without_Logging()
         {
             var ex = new InvalidOperationException("Agent is not connected");
 
@@ -119,8 +117,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
 
             Assert.Equal(400, code);
             Assert.Equal("Agent is not connected", message);
-            var errorLog = Assert.Single(_testLogger.Error);
-            Assert.Contains("[InvalidOperationException]", errorLog);
+            Assert.Empty(_testLogger.Error);
         }
 
         [Fact]
@@ -161,7 +158,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
             Assert.Equal(500, code);
             Assert.Equal("oops", message);
             var errorLog = Assert.Single(_testLogger.Error);
-            Assert.Contains("[NullReferenceException]", errorLog);
+            Assert.Contains("NullReferenceException", errorLog);
+            Assert.Contains("oops", errorLog);
         }
 
         private static void ResetLspLoggerState()

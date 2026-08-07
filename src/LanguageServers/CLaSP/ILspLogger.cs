@@ -6,9 +6,6 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
 {
     using System;
 
-    /// <summary>
-    /// Outcome of an LSP request handler execution.
-    /// </summary>
     public enum HandlerOutcome
     {
         Success,
@@ -18,40 +15,36 @@ namespace Microsoft.CommonLanguageServerProtocol.Framework
 
     public interface ILspLogger
     {
-        void LogStartContext(string methodName, string? agentName = null);
-        void LogEndContext(string methodName, long durationMs = -1, HandlerOutcome outcome = HandlerOutcome.Success, string? agentName = null);
-        void LogDebug(string message, params object[] @params);
+        // -------------------------------------------------------------------
+        // Request lifecycle
+        // -------------------------------------------------------------------
+
+        void SetCurrentRequestId(int requestId) { }
+        void LogStartContext(string methodName);
+        void LogEndContext(string methodName, long durationMs = -1, HandlerOutcome outcome = HandlerOutcome.Success, string? errorMessage = null);
+
+        // -------------------------------------------------------------------
+        // Standard logging
+        // -------------------------------------------------------------------
+
         void LogTrace(string message, params object[] @params) { }
+        void LogDebug(string message, params object[] @params);
         void LogInformation(string message, params object[] @params);
 
-        /// <summary>
-        /// Log sensitive information. This should be used for logging information that may contain sensitive data like PII or other secrets.
-        /// This will only be logged in debug mode when the logs are only surfaced to the local client.
-        /// </summary>
-        void LogSensitiveInformation(string message, string? altSafeMessage = null);
+        // -------------------------------------------------------------------
+        // Warning/Error logging
+        // -------------------------------------------------------------------
 
-        /// <summary>
-        /// Log a warning that may contain sensitive data (file paths, agent names, Dataverse error payloads).
-        /// In Release: the safe message is logged at Warning level to telemetry.
-        /// In Debug: the full message is logged at Warning level (visible locally).
-        /// </summary>
-        void LogSensitiveWarning(string message, string safeMessage) { }
-
-        /// <summary>
-        /// Log an error that may contain sensitive data (exception messages with customer content, OData error bodies).
-        /// In Release: the safe message is logged at Error level to telemetry.
-        /// In Debug: the full message is logged at Error level (visible locally).
-        /// </summary>
-        void LogSensitiveError(string message, string safeMessage) { }
         void LogWarning(string message, params object[] @params);
         void LogError(string message, params object[] @params);
         void LogException(Exception exception, string? message = null, params object[] @params);
 
-        /// <summary>
-        /// Sets the ambient request ID for the current execution context.
-        /// Called by the queue before handler execution to restore correlation context
-        /// that cannot flow via AsyncLocal across queue boundaries.
-        /// </summary>
-        void SetCurrentRequestId(int requestId) { }
+        // -------------------------------------------------------------------
+        // Sensitive logging (PII-safe in production, full in debug/test)
+        // -------------------------------------------------------------------
+
+        void LogSensitiveInformation(string message, string safeMessage);
+        void LogSensitiveWarning(string message, string safeMessage) { }
+        void LogSensitiveError(string message, string safeMessage) { }
     }
 }

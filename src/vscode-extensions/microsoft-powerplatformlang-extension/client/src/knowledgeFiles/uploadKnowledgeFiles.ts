@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { CopilotStudioWorkspace, tryRepairAgentManagementEndpoint } from '../sync/localWorkspaces';
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import { LspMethods, TelemetryEventsKeys } from '../constants';
-import logger from '../services/logger';
+import logger, { formatPii, PiiRedactionType } from '../services/logger';
 import { UploadKnowledgeFilesRequest, UploadKnowledgeFilesResponse } from '../types';
 
 const PROGRESS_NOTIFICATION_DELAY_MS = 600;
@@ -52,7 +52,7 @@ export async function uploadKnowledgeFiles(ws: CopilotStudioWorkspace): Promise<
       : await uploadPromise;
 
     if (result.uploaded.length) {
-      logger.logInfo(TelemetryEventsKeys.UploadKnowledgeFileSuccess, `Uploaded (${result.uploaded.length}): <pii>${result.uploaded.join(', ')}</pii>`);
+      logger.logInfo(TelemetryEventsKeys.UploadKnowledgeFileSuccess, `Uploaded (${result.uploaded.length}): ${formatPii(result.uploaded.join(', '), PiiRedactionType.FileUri)}`);
     }
   } finally {
     cancellationSource.dispose();

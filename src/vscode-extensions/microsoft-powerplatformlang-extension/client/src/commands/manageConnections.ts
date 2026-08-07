@@ -81,9 +81,7 @@ export const registerDeclareConnectionReferenceCommand = (context: vscode.Extens
         }
         void vscode.window.showInformationMessage(`Connection reference '${logicalName.trim()}' declared.`);
       } catch (error) {
-        const message = (error as Error).message ?? 'Failed to declare the connection reference.';
-        logger.logError(TelemetryEventsKeys.ConnectionCreationError, `Failed to declare connection reference: <pii>${message}</pii>`);
-        void vscode.window.showErrorMessage(message);
+        logger.logError(TelemetryEventsKeys.ConnectionCreationError, 'Failed to declare connection reference', { error });
       }
     }
   );

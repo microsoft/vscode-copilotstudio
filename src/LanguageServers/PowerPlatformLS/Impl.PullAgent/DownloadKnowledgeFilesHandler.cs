@@ -42,9 +42,9 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         {
             try
             {
-                ConnectionHelper.ApplyConnectionContext(_islandControlPlaneService, _dataverseTokenManager, _dataverseHttpClientAccessor, _dataverseClient, request);
-
                 var workspace = (IMcsWorkspace)context.Workspace;
+                await ConnectionHelper.ApplyConnectionContext(_islandControlPlaneService, _dataverseTokenManager, _dataverseHttpClientAccessor, _dataverseClient, request, _synchronizer, workspace);
+
                 var downloaded = await _synchronizer.DownloadKnowledgeFilesAsync(workspace.FolderPath, _dataverseClient, request.SchemaNames, cancellationToken);
 
                 return new DownloadKnowledgeFilesResponse

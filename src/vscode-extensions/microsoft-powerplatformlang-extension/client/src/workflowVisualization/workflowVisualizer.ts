@@ -113,7 +113,8 @@ export class WorkflowVisualizerController {
     } catch (error) {
       logger.logError(
         TelemetryEventsKeys.WorkflowVisualizeError,
-        `Failed to build workflow graph model: <pii>${error instanceof Error ? error.message : String(error)}</pii>`,
+        'Failed to build workflow graph model',
+        { error },
       );
     }
   }

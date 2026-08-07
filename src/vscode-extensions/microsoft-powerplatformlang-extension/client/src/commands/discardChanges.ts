@@ -6,7 +6,7 @@ import { getActiveSyncUri, withSyncCommandBusy } from '../sync/workspaceSynchron
 import { lspClient } from '../services/lspClient';
 import { LspMethods, TelemetryEventsKeys } from '../constants';
 import { Change, DiffRequest, DiscardLocalChangesResponse, DiscardResult, SyncResponse } from '../types';
-import logger from '../services/logger';
+import logger, { formatPii, PiiRedactionType } from '../services/logger';
 
 /** Accepted invocation argument shapes (title bar passes nothing; tree/tests may pass a workspace). */
 type WorkspaceArg = { ws: CopilotStudioWorkspace } | CopilotStudioWorkspace | null | undefined;
@@ -35,7 +35,7 @@ function resolveWorkspaceArg(arg?: WorkspaceArg): CopilotStudioWorkspace | undef
 export const registerDiscardChangesCommand = (context: ExtensionContext) => {
   const command = commands.registerCommand('microsoft-copilot-studio.discardChanges', async (arg?: WorkspaceArg) => {
     try {
-      logger.logInfo(TelemetryEventsKeys.SyncWorkspaceClick, undefined, { message: `${DISCARD_OPERATION} operation initiated`, operation: DISCARD_OPERATION });
+      logger.logInfo(TelemetryEventsKeys.SyncWorkspaceClick, undefined, { message: `${DISCARD_OPERATION} operation initiated`, syncOperation: DISCARD_OPERATION });
 
       // Never discard while a sync is running (the button is gated by !mcs.isSyncing,
       // but the command palette can still reach us).
@@ -43,7 +43,7 @@ export const registerDiscardChangesCommand = (context: ExtensionContext) => {
         logger.logWarning(
           TelemetryEventsKeys.SyncWorkspaceCancel,
           'Cannot discard while a sync operation is in progress.',
-          { operation: DISCARD_OPERATION },
+          { syncOperation: DISCARD_OPERATION },
         );
         return;
       }
@@ -115,7 +115,8 @@ export const registerDiscardChangesCommand = (context: ExtensionContext) => {
     } catch (error) {
       logger.logError(
         TelemetryEventsKeys.SyncWorkspaceError,
-        formatDiscardErrorMessage(error),
+        `Failed to execute ${DISCARD_OPERATION.toLowerCase()} operation`,
+        { error, syncOperation: DISCARD_OPERATION },
       );
     }
   });
@@ -138,7 +139,8 @@ async function getLocalChangeCount(workspaceUri: string): Promise<number> {
     return response.localChanges.length;
   } catch (error) {
     logger.logWarning(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-      message: `Failed to recompute local changes for ${DISCARD_OPERATION.toLowerCase()}; falling back to cached tree state: ${error instanceof Error ? error.message : String(error)}`,
+      message: `Failed to recompute local changes for ${DISCARD_OPERATION.toLowerCase()}; falling back to cached tree state.`,
+      error,
     });
     return getWorkspaceChanges(workspaceUri)?.localChanges.length ?? 0;
   }
@@ -151,7 +153,7 @@ function reportResult(agentName: string, result: DiscardResult | undefined, rema
   const revertedText = formatDiscardResultMessage(agentName, result);
 
   if (isDiscardComplete(result, remainingChanges)) {
-    logger.logInfo(TelemetryEventsKeys.SyncWorkspaceSuccess, revertedText, { operation: DISCARD_OPERATION });
+    logger.logInfo(TelemetryEventsKeys.SyncWorkspaceSuccess, revertedText, { syncOperation: DISCARD_OPERATION });
     return;
   }
 
@@ -160,8 +162,8 @@ function reportResult(agentName: string, result: DiscardResult | undefined, rema
   const remainingCount = remainingPaths.length;
   logger.logWarning(
     TelemetryEventsKeys.SyncWorkspaceError,
-    `${revertedText} ${remainingCount} item${remainingCount === 1 ? '' : 's'} couldn't be reverted offline and can be restored with Get: <pii>${remainingNames}</pii>.`,
-    { operation: DISCARD_OPERATION },
+    `${revertedText} ${remainingCount} item${remainingCount === 1 ? '' : 's'} couldn't be reverted offline and can be restored with Get: ${formatPii(remainingNames, PiiRedactionType.FileUri)}.`,
+    { syncOperation: DISCARD_OPERATION },
   );
 }
 
@@ -174,11 +176,6 @@ export function getRemainingDiscardPaths(result: DiscardResult, remainingChanges
     ...result.skipped.map(change => change.path),
     ...remainingChanges.map(change => change.uri),
   ])];
-}
-
-export function formatDiscardErrorMessage(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return `Failed to execute ${DISCARD_OPERATION.toLowerCase()} operation: <pii>${message}</pii>`;
 }
 
 export function formatDiscardResultMessage(agentName: string, result: DiscardResult): string {

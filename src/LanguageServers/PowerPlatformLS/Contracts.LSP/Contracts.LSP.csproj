@@ -15,4 +15,8 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\CLaSP\Microsoft.CommonLanguageServerProtocol.Framework.csproj" />
+  </ItemGroup>
+
 </Project>

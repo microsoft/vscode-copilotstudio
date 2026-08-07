@@ -2,7 +2,6 @@ import * as assert from 'node:assert';
 import { describe, test } from 'node:test';
 
 import {
-	formatDiscardErrorMessage,
 	formatDiscardResultMessage,
 	getRemainingDiscardPaths,
 	isDiscardComplete,
@@ -17,12 +16,6 @@ describe('discardChanges: telemetry', () => {
 		});
 
 		assert.match(message, /<pii>Contoso Support<\/pii>/);
-	});
-
-	test('non-Error rejections retain their message and PII protection', () => {
-		const message = formatDiscardErrorMessage('request rejected');
-
-		assert.match(message, /<pii>request rejected<\/pii>/);
 	});
 
 	test('remaining local changes prevent a success outcome', () => {

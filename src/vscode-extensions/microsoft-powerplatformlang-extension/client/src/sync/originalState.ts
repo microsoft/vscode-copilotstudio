@@ -3,7 +3,7 @@ import { getWorkspaceByUri } from "./localWorkspaces";
 import { lspClient } from "../services/lspClient";
 import { LspMethods, TelemetryEventsKeys } from "../constants";
 import { GetFileRequest, GetFileResponse } from "../types";
-import logger, { formatPii, PiiRedactionType, sanitizeErrorDetails } from "../services/logger";
+import logger, { formatPii, PiiRedactionType } from "../services/logger";
 
 export const LOCAL_STATE_SCHEME = 'mcs';
 
@@ -39,11 +39,7 @@ async function retrieveLastSyncedFile(uri: Uri): Promise<string | null> {
     const result = await lspClient.sendRequest<GetFileResponse>(LspMethods.GET_CACHED_FILE, request);
     return result.content;
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logger.logError(
-      TelemetryEventsKeys.GetLocalFileError,
-      `Error retrieving file: ${sanitizeErrorDetails(errorMessage, [workspace.displayName])}`,
-    );
+    logger.logError(TelemetryEventsKeys.GetLocalFileError, 'Error retrieving file', { error });
     return null;
   }
 }

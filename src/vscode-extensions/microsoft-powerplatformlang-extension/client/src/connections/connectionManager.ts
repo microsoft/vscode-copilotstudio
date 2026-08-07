@@ -109,8 +109,7 @@ export class ConnectionManagerController {
     try {
       return await listWorkflowStatus(this.workspace);
     } catch (workflowError) {
-      const message = (workflowError as Error).message ?? 'Failed to load workflow status.';
-      logger.logError(TelemetryEventsKeys.ConnectionCreationError, `Failed to load workflow status: <pii>${message}</pii>`);
+      logger.logError(TelemetryEventsKeys.ConnectionCreationError, 'Failed to load workflow status', { error: workflowError });
       return [];
     }
   }
@@ -347,7 +346,7 @@ export class ConnectionManagerController {
 
   private reportError(error: unknown, fallback: string, logLabel: string): void {
     const message = (error as Error).message ?? fallback;
-    logger.logError(TelemetryEventsKeys.ConnectionCreationError, `${logLabel}: <pii>${message}</pii>`);
+    logger.logError(TelemetryEventsKeys.ConnectionCreationError, logLabel, { error });
     this.post({ type: 'error', message });
   }
 
@@ -375,8 +374,7 @@ export const autoBindAgentConnections = async (workspace: CopilotStudioWorkspace
   try {
     views = await listAgentConnections(workspace);
   } catch (error) {
-    const message = (error as Error).message ?? 'Failed to list agent connections.';
-    logger.logError(TelemetryEventsKeys.ConnectionCreationError, `Failed to auto-bind connections: <pii>${message}</pii>`);
+    logger.logError(TelemetryEventsKeys.ConnectionCreationError, 'Failed to auto-bind connections. Listing agent connections failed', { error });
     return { boundCount: 0, needsNewCount: 0, enabledWorkflowCount: 0, disabledWorkflowNames: [] };
   }
 
@@ -403,8 +401,7 @@ export const autoBindAgentConnections = async (workspace: CopilotStudioWorkspace
     try {
       await applyConnectionBindings(workspace, bindings);
     } catch (error) {
-      const message = (error as Error).message ?? 'Failed to bind existing connections.';
-      logger.logError(TelemetryEventsKeys.ConnectionCreationError, `Failed to auto-bind connections: <pii>${message}</pii>`);
+      logger.logError(TelemetryEventsKeys.ConnectionCreationError, 'Failed to auto-bind connections. Binding existing connections failed', { error });
       return { boundCount: 0, needsNewCount, enabledWorkflowCount: 0, disabledWorkflowNames: [] };
     }
   }
@@ -426,8 +423,7 @@ const listDisabledWorkflowNames = async (workspace: CopilotStudioWorkspace): Pro
   try {
     workflows = await listWorkflowStatus(workspace);
   } catch (error) {
-    const message = (error as Error).message ?? 'Failed to list workflow status.';
-    logger.logError(TelemetryEventsKeys.ConnectionCreationError, `Failed to list workflow status: <pii>${message}</pii>`);
+    logger.logError(TelemetryEventsKeys.ConnectionCreationError, 'Failed to list workflow status', { error });
     return [];
   }
 
@@ -441,8 +437,7 @@ const enableEligibleDraftWorkflows = async (workspace: CopilotStudioWorkspace): 
   try {
     workflows = await listWorkflowStatus(workspace);
   } catch (error) {
-    const message = (error as Error).message ?? 'Failed to list workflow status.';
-    logger.logError(TelemetryEventsKeys.ConnectionCreationError, `Failed to enable workflows: <pii>${message}</pii>`);
+    logger.logError(TelemetryEventsKeys.ConnectionCreationError, 'Failed to enable workflows. Listing workflow status failed', { error });
     return { enabledCount: 0, disabledWorkflowNames: [] };
   }
 
@@ -460,8 +455,7 @@ const enableEligibleDraftWorkflows = async (workspace: CopilotStudioWorkspace): 
     const result = await setWorkflowStates(workspace, toEnable.map(w => ({ workflowId: w.workflowId, activate: true })));
     refreshed = result.workflows;
   } catch (error) {
-    const message = (error as Error).message ?? 'Failed to enable the workflows.';
-    logger.logError(TelemetryEventsKeys.ConnectionCreationError, `Failed to enable workflows: <pii>${message}</pii>`);
+    logger.logError(TelemetryEventsKeys.ConnectionCreationError, 'Failed to enable workflows. Activating workflow states failed', { error });
     return { enabledCount: 0, disabledWorkflowNames: [...disabledWorkflowNames, ...toEnable.map(w => w.displayName)] };
   }
 
@@ -487,7 +481,7 @@ export const promptManageConnectionsForWorkspaces = async (context: vscode.Exten
   const manageNow = 'Manage now';
   const message = workspaces.length === 1
     ? `This ${getWorkspaceKindLabel(workspaces[0])} has connections that still need to be set up before it can run.`
-    : `Connections still need to be set up before these can run: ${workspaces.map(workspace => workspace.displayName).join(', ')}. Their connection managers will open one at a time.`;
+    : `Connections still need to be set up before these can run: ${workspaces.map(workspace => `'${workspace.displayName}'`).join(', ')}. Their connection managers will open one at a time.`;
   const choice = await vscode.window.showInformationMessage(message, { modal: true }, manageNow);
   if (choice !== manageNow) {
     return;
@@ -497,4 +491,3 @@ export const promptManageConnectionsForWorkspaces = async (context: vscode.Exten
     await ConnectionManagerController.show(context, workspace);
   }
 };
-

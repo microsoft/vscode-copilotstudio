@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { AuthError, clearAuthAccountState } from '../clients/account';
 import { CopilotStudioWorkspace } from './localWorkspaces';
 import { TelemetryEventsKeys } from '../constants';
-import logger from '../services/logger';
+import logger, { formatPii, PiiRedactionType } from '../services/logger';
 
 const REATTACH_COMMAND = 'microsoft-copilot-studio.reattachAgent';
 
@@ -15,7 +15,7 @@ export async function handleSyncAuthError(workspace: CopilotStudioWorkspace, err
   const accountLabel = accountInfo?.accountEmail ?? error.accountEmail ?? accountInfo?.accountId ?? error.accountId ?? 'the linked account';
 
   if (error.classification === 'cancelled') {
-    logger.logInfo(TelemetryEventsKeys.AuthPromptSuppressed, undefined, { message: `Auth prompt cancelled for <pii>${accountLabel}</pii>` });
+    logger.logInfo(TelemetryEventsKeys.AuthPromptSuppressed, undefined, { message: `Auth prompt cancelled for ${formatPii(accountLabel, PiiRedactionType.EmailAddress)}` });
     return true;
   }
 

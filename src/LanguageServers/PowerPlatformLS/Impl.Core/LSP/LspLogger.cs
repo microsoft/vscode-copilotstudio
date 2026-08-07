@@ -1,31 +1,29 @@
-﻿
-namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
+﻿namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
 {
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.Extensions.Logging;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using System;
+    using System.Collections.Generic;
     using System.Threading;
 
     internal class LspLogger : ILspLogger
     {
+        private static int _lspRequestCounter;
         private readonly ILogger<LspLogger> _logger;
         private readonly bool _isTestLogger;
-
-        // Sequential counter for custom LSP request correlation.
-        private static int _lspRequestCounter;
 
         public LspLogger(ILogger<LspLogger> logger, BuildVersionInfo? gitInfo = null, SessionInformation? sessionInformation = null)
         {
             if (gitInfo != null)
             {
-                // This will add as a custom dimension to all logs. 
                 logger.BeginScope(new Dictionary<string, object>
                 {
-                    ["GitHash"] = gitInfo.Hash ?? string.Empty,
-                    ["Vsix"] = gitInfo.VsixVersion ?? string.Empty,
-                    ["pid"] = Environment.ProcessId,
-                    ["SessionId"] = sessionInformation?.SessionId ?? string.Empty
+                    [TelemetryDimensions.GitHash] = gitInfo.Hash ?? string.Empty,
+                    [TelemetryDimensions.Version] = gitInfo.VsixVersion ?? string.Empty,
+                    [TelemetryDimensions.Pid] = Environment.ProcessId,
+                    [TelemetryDimensions.SessionId] = sessionInformation?.SessionId ?? string.Empty,
+                    [TelemetryDimensions.IsDevMode] = (sessionInformation?.IsDevMode ?? false).ToString().ToLowerInvariant()
                 });
             }
 
@@ -33,17 +31,16 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
             _isTestLogger = _logger.GetType().AssemblyQualifiedName?.StartsWith("Microsoft.PowerPlatformLS.UnitTests") == true;
         }
 
-        /// <summary>
-        /// Allocates the next sequential ID for a custom LSP method.
-        /// Called by JsonRpcStream on receive; the ID flows through the
-        /// AsyncLocal → ExecuteAsync → QueueItem.RequestId → SetCurrentRequestId.
-        /// </summary>
-        internal static int AllocateRequestId()
+        // -------------------------------------------------------------------
+        // Request lifecycle
+        // -------------------------------------------------------------------
+
+        public void SetCurrentRequestId(int requestId)
         {
-            return Interlocked.Increment(ref _lspRequestCounter);
+            LspRequestContext.CurrentRequestId = requestId;
         }
 
-        public void LogStartContext(string methodName, string? agentName = null)
+        public void LogStartContext(string methodName)
         {
             if (IsBuiltInLspMethod(methodName))
             {
@@ -51,17 +48,10 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
             }
 
             int reqId = LspRequestContext.CurrentRequestId;
-            if (agentName != null)
-            {
-                _logger.LogInformation("[Req: {ReqId}] Started handler for: {Method}, agent='{Agent}'", reqId, methodName, agentName);
-            }
-            else
-            {
-                _logger.LogInformation("[Req: {ReqId}] Started handler for: {Method}", reqId, methodName);
-            }
+            _logger.LogInformation("[Req: {reqId}] Started handler for: {lspMethod}", reqId, methodName);
         }
 
-        public void LogEndContext(string methodName, long durationMs = -1, HandlerOutcome outcome = HandlerOutcome.Success, string? agentName = null)
+        public void LogEndContext(string methodName, long durationMs = -1, HandlerOutcome outcome = HandlerOutcome.Success, string? errorMessage = null)
         {
             if (IsBuiltInLspMethod(methodName))
             {
@@ -75,65 +65,44 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
                 HandlerOutcome.Failure => "Failed",
                 _ => "Completed",
             };
-            if (agentName != null)
+
+            // Error message goes as a telemetry dimension only (not output channel)
+            // to avoid duplicating the FE "[LSP] Request failed:" line.
+            IDisposable? errorScope = null;
+            if (!string.IsNullOrEmpty(errorMessage) && outcome != HandlerOutcome.Success)
+            {
+                errorScope = _logger.BeginScope(new Dictionary<string, object> { [TelemetryDimensions.ErrorMessage] = errorMessage });
+            }
+
+            try
             {
                 if (durationMs >= 0)
                 {
-                    _logger.LogInformation("[Req: {ReqId}] {Outcome} handler for: {Method}, agent='{Agent}', duration={Duration}ms", reqId, outcomeText, methodName, agentName, durationMs);
+                    using (LspRequestContext.WithDuration(durationMs, _logger))
+                    {
+                        LogAtOutcomeLevel(outcome, "[Req: {reqId}] {outcome} handler for: {lspMethod}",
+                            reqId, outcomeText, methodName);
+                    }
                 }
                 else
                 {
-                    _logger.LogInformation("[Req: {ReqId}] {Outcome} handler for: {Method}, agent='{Agent}'", reqId, outcomeText, methodName, agentName);
+                    LogAtOutcomeLevel(outcome, "[Req: {reqId}] {outcome} handler for: {lspMethod}",
+                        reqId, outcomeText, methodName);
                 }
             }
-            else
+            finally
             {
-                if (durationMs >= 0)
-                {
-                    _logger.LogInformation("[Req: {ReqId}] {Outcome} handler for: {Method}, duration={Duration}ms", reqId, outcomeText, methodName, durationMs);
-                }
-                else
-                {
-                    _logger.LogInformation("[Req: {ReqId}] {Outcome} handler for: {Method}", reqId, outcomeText, methodName);
-                }
+                errorScope?.Dispose();
             }
         }
 
-        internal static bool IsBuiltInLspMethod(string message)
-        {
-            return message.StartsWith("textDocument/", StringComparison.Ordinal)
-                || message.StartsWith("$/", StringComparison.Ordinal)
-                || message.StartsWith("initialize", StringComparison.Ordinal)
-                || message.StartsWith("shutdown", StringComparison.Ordinal)
-                || message.StartsWith("exit", StringComparison.Ordinal)
-                || message.StartsWith("workspace/didChange", StringComparison.Ordinal)
-                || message.StartsWith("workspace/didRename", StringComparison.Ordinal);
-        }
+        // -------------------------------------------------------------------
+        // Standard logging
+        // -------------------------------------------------------------------
 
-        public void LogError(string message, params object[] @params)
+        public void LogTrace(string message, params object[] @params)
         {
-            int reqId = LspRequestContext.CurrentRequestId;
-            if (reqId > 0)
-            {
-                _logger.LogError("[Req: {ReqId}] {Message}", reqId, message);
-            }
-            else
-            {
-                _logger.LogError(message, @params);
-            }
-        }
-
-        public void LogException(Exception exception, string? message = null, params object[] @params)
-        {
-            int reqId = LspRequestContext.CurrentRequestId;
-            if (reqId > 0)
-            {
-                _logger.LogError(exception, "[Req: {ReqId}] {Message}", reqId, message ?? exception.Message);
-            }
-            else
-            {
-                _logger.LogError(exception, message ?? exception.Message, @params);
-            }
+            _logger.LogTrace(message, @params);
         }
 
         public void LogDebug(string message, params object[] @params)
@@ -141,85 +110,108 @@ namespace Microsoft.PowerPlatformLS.Impl.Core.Lsp
             _logger.LogDebug(message, @params);
         }
 
-        public void LogTrace(string message, params object[] @params)
-        {
-            _logger.LogTrace(message, @params);
-        }
-
-        public void SetCurrentRequestId(int requestId)
-        {
-            LspRequestContext.CurrentRequestId = requestId;
-        }
-
         public void LogInformation(string message, params object[] @params)
         {
             _logger.LogInformation(message, @params);
         }
 
-        public void LogSensitiveInformation(string message, string? altSafeMsg = null)
+        // -------------------------------------------------------------------
+        // Warning/Error logging (with [Req: X] prefix for output channel)
+        // reqId dimension is handled globally by PiiScrubTelemetryInitializer.
+        // -------------------------------------------------------------------
+
+        public void LogWarning(string message, params object[] @params)
+        {
+            _logger.LogWarning(GetReqPrefix() + message, @params);
+        }
+
+        public void LogError(string message, params object[] @params)
+        {
+            _logger.LogError(GetReqPrefix() + message, @params);
+        }
+
+        public void LogException(Exception exception, string? message = null, params object[] @params)
+        {
+            _logger.LogError(exception, GetReqPrefix() + (message ?? string.Empty), @params);
+        }
+
+        // -------------------------------------------------------------------
+        // Sensitive logging (full message in debug/test, safe message in prod)
+        // -------------------------------------------------------------------
+
+        public void LogSensitiveInformation(string message, string safeMessage)
         {
 #if DEBUG
             _logger.LogInformation(message);
 #else
-            if (_isTestLogger)
-            {
-                _logger.LogInformation(message);
-            }
-            else if (altSafeMsg != null)
-            {
-                _logger.LogInformation(altSafeMsg);
-            }
+            _logger.LogInformation(_isTestLogger ? message : safeMessage);
 #endif
         }
 
         public void LogSensitiveWarning(string message, string safeMessage)
         {
-            int reqId = LspRequestContext.CurrentRequestId;
-            string prefix = reqId > 0 ? $"[Req: {reqId}] " : "";
+            string prefix = GetReqPrefix();
 #if DEBUG
-            _logger.LogWarning("{Prefix}{Message}", prefix, message);
+            _logger.LogWarning(prefix + message);
 #else
-            if (_isTestLogger)
-            {
-                _logger.LogWarning("{Prefix}{Message}", prefix, message);
-            }
-            else
-            {
-                // Safe message to telemetry (Warning level — reaches App Insights).
-                _logger.LogWarning("{Prefix}{Message}", prefix, safeMessage);
-            }
+            _logger.LogWarning(prefix + (_isTestLogger ? message : safeMessage));
 #endif
         }
 
         public void LogSensitiveError(string message, string safeMessage)
         {
-            int reqId = LspRequestContext.CurrentRequestId;
-            string prefix = reqId > 0 ? $"[Req: {reqId}] " : "";
+            string prefix = GetReqPrefix();
 #if DEBUG
-            _logger.LogError("{Prefix}{Message}", prefix, message);
+            _logger.LogError(prefix + message);
 #else
-            if (_isTestLogger)
-            {
-                _logger.LogError("{Prefix}{Message}", prefix, message);
-            }
-            else
-            {
-                // Safe message to telemetry (Error level — reaches App Insights).
-                _logger.LogError("{Prefix}{Message}", prefix, safeMessage);
-            }
+            _logger.LogError(prefix + (_isTestLogger ? message : safeMessage));
 #endif
         }
 
-        public void LogWarning(string message, params object[] @params)
+        // -------------------------------------------------------------------
+        // Internal/Private helpers
+        // -------------------------------------------------------------------
+
+        /// <summary>
+        /// Allocates the next sequential ID for a custom LSP method.
+        /// Called by JsonRpcStream on receive; the ID flows through the
+        /// AsyncLocal -> ExecuteAsync -> QueueItem.RequestId -> SetCurrentRequestId.
+        /// </summary>
+        internal static int AllocateRequestId()
+        {
+            return Interlocked.Increment(ref _lspRequestCounter);
+        }
+
+        internal static bool IsBuiltInLspMethod(string method)
+        {
+            return method.StartsWith("textDocument/", StringComparison.Ordinal)
+                || method.StartsWith("$/", StringComparison.Ordinal)
+                || method.StartsWith("initialize", StringComparison.Ordinal)
+                || method.StartsWith("shutdown", StringComparison.Ordinal)
+                || method.StartsWith("exit", StringComparison.Ordinal)
+                || method.StartsWith("workspace/didChange", StringComparison.Ordinal)
+                || method.StartsWith("workspace/didRename", StringComparison.Ordinal);
+        }
+
+        private static string GetReqPrefix()
         {
             int reqId = LspRequestContext.CurrentRequestId;
-            if (reqId > 0)
+            return reqId > 0 ? $"[Req: {reqId}] " : "";
+        }
+
+        private void LogAtOutcomeLevel(HandlerOutcome outcome, string message, params object[] args)
+        {
+            switch (outcome)
             {
-                _logger.LogWarning("[Req: {ReqId}] {Message}", reqId, message);
-            }
-            else
-            {
-                _logger.LogWarning(message, @params);
+                case HandlerOutcome.Failure:
+                    _logger.LogError(message, args);
+                    break;
+                case HandlerOutcome.Canceled:
+                    _logger.LogWarning(message, args);
+                    break;
+                default:
+                    _logger.LogInformation(message, args);
+                    break;
             }
         }
     }

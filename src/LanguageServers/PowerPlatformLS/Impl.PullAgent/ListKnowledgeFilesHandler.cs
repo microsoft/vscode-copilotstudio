@@ -1,8 +1,10 @@
 namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 {
+    using Microsoft.Agents.ObjectModel;
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
+    using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using System;
     using System.Threading;
@@ -27,6 +29,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             try
             {
                 var workspace = (IMcsWorkspace)context.Workspace;
+                await ConnectionHelper.SetAgentContextAsync(request, _synchronizer, workspace);
+
                 var files = await _synchronizer.ListKnowledgeFilesAsync(workspace.FolderPath, cancellationToken);
 
                 return new ListKnowledgeFilesResponse

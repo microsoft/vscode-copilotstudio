@@ -40,6 +40,10 @@
                     // Trace/Debug logs are diagnostic-only and stay in the output channel.
                     builder.AddFilter<Microsoft.Extensions.Logging.ApplicationInsights.ApplicationInsightsLoggerProvider>(
                         null, LogLevel.Information);
+
+                    // Suppress noisy .NET hosting lifecycle messages (e.g., "Content root path: ...") from telemetry.
+                    builder.AddFilter<Microsoft.Extensions.Logging.ApplicationInsights.ApplicationInsightsLoggerProvider>(
+                        "Microsoft.Hosting.Lifetime", LogLevel.Warning);
                 });
             }
         }

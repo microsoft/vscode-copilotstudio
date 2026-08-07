@@ -1,5 +1,5 @@
 import { authentication, Uri, Disposable, EventEmitter } from "vscode";
-import logger from "../services/logger";
+import logger, { formatPii, PiiRedactionType } from "../services/logger";
 import { CoreServicesClusterCategory, TelemetryEventsKeys } from "../constants";
 
 export interface TokenInfo {
@@ -307,7 +307,7 @@ async function ensureInteractiveSession(
             const classification = classifyAuthError(error);
             setAuthAccountState(classification, accountId, accountHint);
             if (classification !== 'cancelled') {
-                logger.logError(TelemetryEventsKeys.SignInError, `Interactive sign-in failed (${classification}): <pii>${message}</pii>`);
+                logger.logError(TelemetryEventsKeys.SignInError, `Interactive sign-in failed (${classification})`, { error });
             }
             return undefined;
         }
@@ -490,7 +490,7 @@ export async function switchAccount(clusterCategory: CoreServicesClusterCategory
                     accountId: session.account.id,
                     accountEmail: session.account.label
                 };
-                logger.logInfo(TelemetryEventsKeys.SwitchAccountSuccess, undefined, { message: `Switched account successfully to <pii>${session.account.label}</pii>` });
+                logger.logInfo(TelemetryEventsKeys.SwitchAccountSuccess, undefined, { message: `Switched account successfully to ${formatPii(session.account.label, PiiRedactionType.EmailAddress)}` });
                 try {
                     const { clearWhoAmICache } = await import('./dataverseClient.js');
                     clearWhoAmICache();
@@ -502,8 +502,7 @@ export async function switchAccount(clusterCategory: CoreServicesClusterCategory
             if (isCancellationError(error)) {
                 logger.logInfo(TelemetryEventsKeys.SwitchAccountCancel, undefined, { message: 'Switch account cancelled by user.'});
             } else {
-                const message = error instanceof Error ? error.message : String(error);
-                logger.logError(TelemetryEventsKeys.SwitchAccountError, `Failed to sign in: <pii>${message}</pii>`);
+                logger.logError(TelemetryEventsKeys.SwitchAccountError, 'Failed to sign in', { error });
             }
             return false;
         } finally {

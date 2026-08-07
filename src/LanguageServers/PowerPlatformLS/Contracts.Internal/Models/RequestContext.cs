@@ -1,6 +1,5 @@
 namespace Microsoft.PowerPlatformLS.Contracts.Internal.Models
 {
-    using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models.Lsp;
 
     /// <summary>
@@ -12,7 +11,7 @@ namespace Microsoft.PowerPlatformLS.Contracts.Internal.Models
     /// Copying a struct ensures that each method receives its own independent copy, which can help avoid issues related to shared state and **make the code easier to reason about**.
     /// We should measure the trade-off between performance and code clarity for our implementation.
     /// </remarks>
-    public readonly struct RequestContext : IHasAgentName
+    public readonly struct RequestContext
     {
         private readonly ILanguageAbstraction? _language;
         private readonly Workspace? _workspace;
@@ -43,21 +42,5 @@ namespace Microsoft.PowerPlatformLS.Contracts.Internal.Models
         public bool IsUnsupported => _language == null;
         public int Index { get; }
         public bool IsInvalid => _document == null || Index < 0;
-
-        /// <summary>
-        /// Extracts the agent folder name from the workspace path (last path segment).
-        /// </summary>
-        public string? AgentName
-        {
-            get
-            {
-                if (_workspace == null) return null;
-                var path = _workspace.FolderPath.ToString();
-                if (path.Length < 2) return path;
-                var trimmed = path.TrimEnd('/');
-                var lastSlash = trimmed.LastIndexOf('/');
-                return lastSlash >= 0 ? trimmed.Substring(lastSlash + 1) : trimmed;
-            }
-        }
     }
 }
