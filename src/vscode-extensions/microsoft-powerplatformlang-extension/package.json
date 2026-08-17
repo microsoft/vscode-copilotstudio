@@ -401,18 +401,18 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/vscode": "^1.108.0",
-    "@typescript-eslint/eslint-plugin": "^8.30.0",
+    "@typescript-eslint/eslint-plugin": "^8.67.0",
     "@typescript-eslint/parser": "^8.30.0",
     "@vscode/test-electron": "^2.4.1",
-    "esbuild": "0.28.1",
-    "eslint": "^10.7.0",
+    "esbuild": "0.28.2",
+    "eslint": "^10.8.1",
     "nerdbank-gitversioning": "^3.10.91",
-    "npm-run-all2": "^9.0.2",
+    "npm-run-all2": "^9.0.3",
     "shared": "file:../shared",
     "typescript": "^5.7.2"
   },
   "dependencies": {
-    "@types/semver": "^7.7.0",
+    "@types/semver": "^7.8.0",
     "@vscode/extension-telemetry": "^1.5.2",
     "jsonc-parser": "^3.3.1",
     "semver": "^7.8.5"
