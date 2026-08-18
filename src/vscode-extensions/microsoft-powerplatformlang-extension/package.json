@@ -303,7 +303,7 @@
         "command": "microsoft-copilot-studio.applyChanges",
         "title": "Copilot Studio: Apply changes",
         "icon": "$(cloud-upload)",
-        "enablement": "!mcs.agentChangesView.hasRemoteChanges && !mcs.isSyncing"
+        "enablement": "!mcs.isSyncing"
       },
       {
         "command": "microsoft-copilot-studio.discardChanges",
