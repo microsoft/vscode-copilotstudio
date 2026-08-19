@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
       - name: dotnet restore
@@ -36,7 +36,7 @@ jobs:
           dotnet test ${{ env.BuildProjectFile }} --no-build --no-restore --configuration ${{ env.BuildConfiguration }} --logger trx --collect "Code coverage" --results-directory ${{ github.workspace }}/TestResults --blame
 
       - name: Publish test results
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@3eeb9fc888e82e8be2fb356bbeec2750231672bc # v1
         if: always()
         with:
           name: .NET Test Results
