@@ -23,8 +23,9 @@
         private readonly ILspLogger _logger;
         private readonly IReferenceResolver _referenceResolver;
         private readonly IFileAccessorFactory _fileAccessorFactory;
+        private readonly IComponentPathResolver _componentPathResolver;
 
-        public McsWorkspaceCompiler(ILspLogger logger, IFeatureConfiguration featureConfiguration, IClientInformation clientInfo, Contracts.FileLayout.IMcsFileParser fileParser, IAgentFilesAnalyzer fileReader, IReferenceResolver referenceResolver, IFileAccessorFactory fileAccessorFactory)
+        public McsWorkspaceCompiler(ILspLogger logger, IFeatureConfiguration featureConfiguration, IClientInformation clientInfo, Contracts.FileLayout.IMcsFileParser fileParser, IAgentFilesAnalyzer fileReader, IReferenceResolver referenceResolver, IFileAccessorFactory fileAccessorFactory, IComponentPathResolver componentPathResolver)
         {
             _logger = logger;
             _featureConfiguration = featureConfiguration;
@@ -34,6 +35,7 @@
             _fileReader = fileReader;
             _referenceResolver = referenceResolver;
             _fileAccessorFactory = fileAccessorFactory;
+            _componentPathResolver = componentPathResolver;
         }
 
         public Compilation<DefinitionBase> Compile(IReadOnlyDictionary<FilePath, LspDocument> documents, DirectoryPath workspacePath, bool isFull = false)
@@ -100,6 +102,7 @@
                 skillIdentityDefinition = skillIdentityDefinition.WithEntity(settings);
             }
             var skillSchemaLinks = SkillLink.ReadSchemaLinks(fileAccessor, skillIdentityDefinition);
+            var cachedComponentsByPath = BuildCachedComponentsByPath(baseDefinition);
 
             foreach (var document in documents.Values)  
             {
@@ -131,10 +134,24 @@
                     ? linkedSkillSchema
                     : null;
 
-                var (component, error) = _fileParser.CompileFile(mcsDocument, projectionContext, authoringShape, childAgentSchemaOverride ?? skillSchemaOverride);
+                var cachedComponentOverride = cachedComponentsByPath.TryGetValue(mcsDocument.RelativePath.ToString(), out var cachedComponent) ? cachedComponent : null;
+
+                var (component, error) = _fileParser.CompileFile(mcsDocument, projectionContext, authoringShape, childAgentSchemaOverride ?? skillSchemaOverride ?? cachedComponentOverride?.SchemaNameString);
 
                 if (component != null)
                 {
+                    if (cachedComponentOverride != null)
+                    {
+                        var (fileDisplayName, fileDescription) = McsFileParserCore.TryGetMcsMetadata(mcsDocument.FileModel);
+                        if (fileDisplayName == null || fileDescription == null)
+                        {
+                            var builder = component.ToBuilder();
+                            builder.DisplayName = fileDisplayName ?? cachedComponentOverride.DisplayName;
+                            builder.Description = fileDescription ?? cachedComponentOverride.Description;
+                            component = builder.Build();
+                        }
+                    }
+
                     components.Add(component);
                 }
 
@@ -225,7 +242,13 @@
 
             result = result.WithEnvironmentVariables(workspaceEnvironmentVariables);
 
-            var additionalComponentsNotInWorkspace = result.Components.Where(IsReusableOrNonCustomizableComponent);
+            var workspaceSchemaNames = components
+                .Where(component => !string.IsNullOrEmpty(component.SchemaNameString))
+                .Select(component => component.SchemaNameString!)
+                .ToHashSet(StringComparer.Ordinal);
+            var additionalComponentsNotInWorkspace = result.Components
+                .Where(IsReusableOrNonCustomizableComponent)
+                .Where(component => string.IsNullOrEmpty(component.SchemaNameString) || !workspaceSchemaNames.Contains(component.SchemaNameString!));
             var workspaceComponents = additionalComponentsNotInWorkspace.Concat(components);
             result = result.WithComponents(workspaceComponents);
             
@@ -263,6 +286,48 @@
             }
 
             return (result, validateAcrossComponents);
+
+            IReadOnlyDictionary<string, BotComponentBase> BuildCachedComponentsByPath(DefinitionBase? definition)
+            {
+                if (definition == null)
+                {
+                    return new Dictionary<string, BotComponentBase>(StringComparer.OrdinalIgnoreCase);
+                }
+
+                var cacheBotDefinition = definition as BotDefinition;
+                var cacheShape = cacheBotDefinition == null ? (AuthoringShape?)null : AgentClassifier.DetectAuthoringShape(cacheBotDefinition.Entity);
+                var componentsByPath = new Dictionary<string, List<BotComponentBase>>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var component in definition.Components)
+                {
+                    if (string.IsNullOrEmpty(component.SchemaNameString))
+                    {
+                        continue;
+                    }
+
+                    string path;
+                    try
+                    {
+                        path = cacheShape.HasValue ? _componentPathResolver.GetComponentPath(component, definition, cacheShape.Value) : _componentPathResolver.GetComponentPath(component, definition);
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        continue;
+                    }
+
+                    if (!componentsByPath.TryGetValue(path, out var matchingComponents))
+                    {
+                        matchingComponents = new List<BotComponentBase>();
+                        componentsByPath[path] = matchingComponents;
+                    }
+
+                    matchingComponents.Add(component);
+                }
+
+                return componentsByPath
+                    .Where(entry => entry.Value.Select(component => component.SchemaNameString).Distinct(StringComparer.Ordinal).Count() == 1)
+                    .ToDictionary(entry => entry.Key, entry => entry.Value[0], StringComparer.OrdinalIgnoreCase);
+            }
 
             T? FirstOrDefaultDocumentOfType<T>() where T : BotElement
             {

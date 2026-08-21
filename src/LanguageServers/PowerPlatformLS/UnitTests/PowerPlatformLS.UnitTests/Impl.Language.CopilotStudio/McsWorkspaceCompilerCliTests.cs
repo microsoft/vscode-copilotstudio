@@ -115,6 +115,107 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
         }
 
         [Fact]
+        public void CliWorkspace_CachedComponentSchemas_ArePreservedByProjectedPath()
+        {
+            var (compiler, language) = BuildCompiler();
+            var entity = ReadEntity(CliBotDefinitionJson);
+
+            const string simpleConnectedAgentSchema = "test_cliagent.action.Default_NAgentA3_ZRrFOV_n-RdV0ap";
+            const string nestedConnectedAgentSchema = "test_cliagent.tool.connected-agent.test_cliagent.action.NestedAgent_ab12";
+            const string settingsSchema = "Default_FeedbackCollectionBotSettings_hrPTVO";
+
+            const string baseDefinitionJson = """
+            {
+              "$kind": "BotDefinition",
+              "entity": {
+                "$kind": "BotEntity",
+                "schemaName": "test_cliagent",
+                "template": "cliagent-1.0.0",
+                "configuration": {
+                  "$kind": "BotConfiguration",
+                  "recognizer": { "$kind": "CLICopilotRecognizer" },
+                  "agentSettings": {
+                    "$kind": "AgentSettings",
+                    "instructions": {
+                      "$kind": "Instructions",
+                      "segments": [
+                        { "$kind": "StaticSegment", "value": "You are a helpful agent." }
+                      ]
+                    },
+                    "model": { "$kind": "ModelConfig", "series": "gpt-4o" }
+                  }
+                }
+              },
+              "components": [
+                {
+                  "$kind": "DialogComponent",
+                  "id": "11111111-1111-1111-1111-111111111111",
+                  "managedProperties": {
+                    "$kind": "ManagedProperties",
+                    "isCustomizable": false,
+                    "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+                  },
+                  "schemaName": "test_cliagent.action.Default_NAgentA3_ZRrFOV_n-RdV0ap",
+                  "dialog": "kind: ConnectedAgentTool\nhistoryType:\n  kind: ConversationHistory\nbotSchemaName: Default_NAgentA3_ZRrFOV\n"
+                },
+                {
+                  "$kind": "DialogComponent",
+                  "id": "22222222-2222-2222-2222-222222222222",
+                  "managedProperties": {
+                    "$kind": "ManagedProperties",
+                    "isCustomizable": false,
+                    "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+                  },
+                  "schemaName": "test_cliagent.tool.connected-agent.test_cliagent.action.NestedAgent_ab12",
+                  "dialog": "kind: ConnectedAgentTool\nhistoryType:\n  kind: ConversationHistory\nbotSchemaName: NestedAgent\n"
+                },
+                {
+                  "$kind": "BotSettingsComponent",
+                  "id": "33333333-3333-3333-3333-333333333333",
+                  "managedProperties": {
+                    "$kind": "ManagedProperties",
+                    "isCustomizable": false,
+                    "solutionId": "fd140aae-4df4-11dd-bd17-0019b9312238"
+                  },
+                  "schemaName": "Default_FeedbackCollectionBotSettings_hrPTVO",
+                  "settings": "kind: DefaultFeedbackCollection\n"
+                }
+              ]
+            }
+            """;
+
+            var documents = new Dictionary<FilePath, LspDocument>();
+            AddDocument(documents, language, ".mcs/botdefinition.json", baseDefinitionJson);
+            AddDocument(documents, language, "settings.mcs.yml", CodeSerializer.Serialize(entity));
+            AddDocument(documents, language, "capabilities/tools/action.Default_NAgentA3_ZRrFOV_n-RdV0ap.mcs.yml",
+                "kind: ConnectedAgentTool\nhistoryType:\n  kind: ConversationHistory\nbotSchemaName: Default_NAgentA3_ZRrFOV\n");
+            AddDocument(documents, language, "capabilities/tools/action.NestedAgent_ab12.mcs.yml",
+                "kind: ConnectedAgentTool\nhistoryType:\n  kind: ConversationHistory\nbotSchemaName: NestedAgent\n");
+            AddDocument(documents, language, "settings/Default_FeedbackCollectionBotSettings_hrPTVO.mcs.yml",
+                "kind: DefaultFeedbackCollection\n");
+
+            var compilation = compiler.Compile(documents, new DirectoryPath("c:/agent"));
+
+            Assert.NotNull(compilation.Model);
+            Assert.Empty(compilation.Errors);
+
+            var simpleConnectedAgent = Assert.Single(compilation.Model.Components, component => component.SchemaNameString == simpleConnectedAgentSchema);
+            var nestedConnectedAgent = Assert.Single(compilation.Model.Components, component => component.SchemaNameString == nestedConnectedAgentSchema);
+            var settingsComponent = Assert.Single(compilation.Model.Components, component => component.SchemaNameString == settingsSchema);
+
+            Assert.Null(simpleConnectedAgent.DisplayName);
+            Assert.Null(simpleConnectedAgent.Description);
+            Assert.Null(nestedConnectedAgent.DisplayName);
+            Assert.Null(nestedConnectedAgent.Description);
+            Assert.Null(settingsComponent.DisplayName);
+            Assert.Null(settingsComponent.Description);
+
+            var schemaNames = compilation.Model.Components.Select(component => component.SchemaNameString).ToList();
+            Assert.DoesNotContain($"{CliBotSchemaName}.tool.connected-agent.{CliBotSchemaName}.action.Default_NAgentA3_ZRrFOV_n-RdV0ap", schemaNames);
+            Assert.DoesNotContain($"{CliBotSchemaName}.BotSettingsComponent.{settingsSchema}", schemaNames);
+        }
+
+        [Fact]
         public void SyncYamlOverlays_RouteToGenericYaml_NotMcsCompiler()
         {
             // .sync.yaml connection overlays must NOT be MCS components, so they never reach
@@ -160,6 +261,77 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
                 c => c.SchemaNameString == $"{CliBotSchemaName}.file.file22txt_dBKwq");
             Assert.DoesNotContain(compilation.Model.Components,
                 c => c.SchemaNameString == "file22txt_dBKwq");
+        }
+
+        /// <summary>
+        /// Two cached schemas can project to the same <c>capabilities/tools/action.{name}.mcs.yml</c>
+        /// file, so neither can be matched to it. The cached-identity map must drop the ambiguous entry
+        /// rather than pick one arbitrarily, which would silently rename the component to whichever
+        /// cached schema happened to be enumerated first.
+        /// </summary>
+        [Fact]
+        public void CliWorkspace_TwoCachedComponentsShareAProjectedPath_AreNotUsedAsCachedIdentity()
+        {
+            var (compiler, language) = BuildCompiler();
+            var entity = ReadEntity(CliBotDefinitionJson);
+
+            const string nestedSchema = "test_cliagent.tool.connected-agent.test_cliagent.action.Shared_Uq";
+            const string otherNestedSchema = "test_cliagent.subagent.test_cliagent.action.Shared_Uq";
+            const string derivedSchema = "test_cliagent.action.Shared_Uq";
+            const string toolBody = "kind: ConnectedAgentTool\\nhistoryType:\\n  kind: ConversationHistory\\nbotSchemaName: crf9a_child\\n";
+
+            var cacheJson = $$"""
+            {
+              "$kind": "BotDefinition",
+              "entity": {
+                "$kind": "BotEntity",
+                "schemaName": "test_cliagent",
+                "template": "cliagent-1.0.0",
+                "configuration": {
+                  "$kind": "BotConfiguration",
+                  "recognizer": { "$kind": "CLICopilotRecognizer" },
+                  "agentSettings": {
+                    "$kind": "AgentSettings",
+                    "instructions": {
+                      "$kind": "Instructions",
+                      "segments": [ { "$kind": "StaticSegment", "value": "You are a helpful agent." } ]
+                    },
+                    "model": { "$kind": "ModelConfig", "series": "gpt-4o" }
+                  }
+                }
+              },
+              "components": [
+                {
+                  "$kind": "DialogComponent",
+                  "id": "66666666-6666-6666-6666-666666666666",
+                  "version": 1,
+                  "schemaName": "{{nestedSchema}}",
+                  "dialog": "{{toolBody}}"
+                },
+                {
+                  "$kind": "DialogComponent",
+                  "id": "77777777-7777-7777-7777-777777777777",
+                  "version": 1,
+                  "schemaName": "{{otherNestedSchema}}",
+                  "dialog": "{{toolBody}}"
+                }
+              ]
+            }
+            """;
+
+            var documents = new Dictionary<FilePath, LspDocument>();
+            AddDocument(documents, language, ".mcs/botdefinition.json", cacheJson);
+            AddDocument(documents, language, "settings.mcs.yml", CodeSerializer.Serialize(entity));
+            AddDocument(documents, language, "capabilities/tools/action.Shared_Uq.mcs.yml", "kind: ConnectedAgentTool\nhistoryType:\n  kind: ConversationHistory\nbotSchemaName: crf9a_child\n");
+
+            var compilation = compiler.Compile(documents, new DirectoryPath("c:/agent"));
+
+            Assert.NotNull(compilation.Model);
+
+            var schemaNames = compilation.Model.Components.Select(component => component.SchemaNameString).ToList();
+            Assert.Contains(derivedSchema, schemaNames);
+            Assert.DoesNotContain(nestedSchema, schemaNames);
+            Assert.DoesNotContain(otherNestedSchema, schemaNames);
         }
 
         [Fact]

@@ -462,9 +462,9 @@ internal static class LspProjection
             return new SchemaNameResult($"{botName}.topic.{name}", PreserveQualifiedSchemaName: false);
         }
 
-        if (TryRestoreNestedQualifier(rule, fileName, botName, out var nestedSchemaName))
+        if (TryGetAlternateInfixSchemaName(rule, fileName, botName, out var alternateSchemaName))
         {
-            return new SchemaNameResult(nestedSchemaName, PreserveQualifiedSchemaName: false);
+            return new SchemaNameResult(alternateSchemaName, PreserveQualifiedSchemaName: false);
         }
 
         // Dot handling: follow legacy rules for dotted filenames
@@ -572,6 +572,12 @@ internal static class LspProjection
         var preserveQualifiedSchemaName = allowPreserve
             && (IsAlreadyQualifiedPath(rule, pathWithoutExtension)
                 || (rule.PreserveBotPrefixedFiles && IsBotPrefixedFile(pathWithoutExtension, botName)));
+
+        if (!preserveQualifiedSchemaName && TryGetAlternateInfixLeaf(rule, schemaName, botName, out var alternateLeaf))
+        {
+            return $"{prefix}{rule.Folder}{alternateLeaf}.mcs.yml";
+        }
+
         var shortName = DeriveShortName(schemaName, rule.Infix, botName, allowPreserve, preserveQualifiedSchemaName);
 
         if (IsAgentsTopicRule(rule) && !preserveQualifiedSchemaName)
@@ -579,9 +585,9 @@ internal static class LspProjection
             shortName = $"topic.{shortName}";
         }
 
-        if (!preserveQualifiedSchemaName && TryStripNestedQualifier(rule, shortName, botName, out var strippedShortName))
+        if (!preserveQualifiedSchemaName && CollidesWithAlternateInfixLeaf(rule, shortName))
         {
-            shortName = strippedShortName;
+            shortName = schemaName;
         }
 
         return $"{prefix}{rule.Folder}{shortName}.mcs.yml";
@@ -1079,12 +1085,12 @@ internal static class LspProjection
         return schemaName!;
     }
 
-    private static bool TryStripNestedQualifier(Rule rule, string shortName, string? botName, out string stripped)
+    private static bool TryGetAlternateInfixLeaf(Rule rule, string? schemaName, string? botName, out string leaf)
     {
-        stripped = string.Empty;
+        leaf = string.Empty;
 
         var alternates = rule.AlternateInfixes;
-        if (alternates == null || alternates.Length == 0 || string.IsNullOrEmpty(shortName) || string.IsNullOrEmpty(botName))
+        if (alternates == null || alternates.Length == 0 || string.IsNullOrEmpty(schemaName) || string.IsNullOrEmpty(botName))
         {
             return false;
         }
@@ -1092,19 +1098,26 @@ internal static class LspProjection
         foreach (var alternate in alternates)
         {
             var qualifier = botName + alternate;
-            if (!shortName.StartsWith(qualifier, StringComparison.OrdinalIgnoreCase) || shortName.Length <= qualifier.Length)
+            var index = schemaName!.IndexOf(qualifier, StringComparison.OrdinalIgnoreCase);
+            if (index < 0)
             {
                 continue;
             }
 
-            stripped = shortName.Substring(botName!.Length + 1);
+            var rest = schemaName.Substring(index + qualifier.Length);
+            if (rest.Length == 0)
+            {
+                continue;
+            }
+
+            leaf = $"{TrimDots(alternate)}.{rest}";
             return true;
         }
 
         return false;
     }
 
-    private static bool TryRestoreNestedQualifier(Rule rule, string fileName, string? botName, out string schemaName)
+    private static bool TryGetAlternateInfixSchemaName(Rule rule, string fileName, string? botName, out string schemaName)
     {
         schemaName = string.Empty;
         var alternates = rule.AlternateInfixes;
@@ -1121,8 +1134,28 @@ internal static class LspProjection
                 continue;
             }
 
-            schemaName = $"{botName}{rule.Infix}{botName}.{fileName}";
+            schemaName = $"{botName}{alternate}{fileName.Substring(leafPrefix.Length)}";
             return true;
+        }
+
+        return false;
+    }
+
+    private static bool CollidesWithAlternateInfixLeaf(Rule rule, string shortName)
+    {
+        var alternates = rule.AlternateInfixes;
+        if (alternates == null || alternates.Length == 0 || string.IsNullOrEmpty(shortName))
+        {
+            return false;
+        }
+
+        foreach (var alternate in alternates)
+        {
+            var leafPrefix = TrimDots(alternate) + ".";
+            if (shortName.StartsWith(leafPrefix, StringComparison.OrdinalIgnoreCase) && shortName.Length > leafPrefix.Length)
+            {
+                return true;
+            }
         }
 
         return false;

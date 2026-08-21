@@ -479,14 +479,14 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private static bool IsSameContent(BotComponentBase component, BotComponentBase originalComponent)
     {
-        var root = component.RootElement;
-        var originalRoot = originalComponent.RootElement;
+        var root = component.RootElement == null ? null : StripMetaInfo(component.RootElement);
+        var originalRoot = originalComponent.RootElement == null ? null : StripMetaInfo(originalComponent.RootElement);
         if (root is null || originalRoot is null || !root.Equals(originalRoot, NodeComparison.Structural))
         {
             return false;
         }
 
-        return IsMetadataChanged(component.DisplayName, originalComponent.DisplayName, isRemoteChange: true) && IsMetadataChanged(component.Description, originalComponent.Description, isRemoteChange: true);
+        return IsMetadataUnchanged(component.DisplayName, originalComponent.DisplayName, isRemoteChange: true) && IsMetadataUnchanged(component.Description, originalComponent.Description, isRemoteChange: true);
     }
 
     /// <summary>
@@ -5192,7 +5192,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 // In new and old ... --> possible Update
                 var r1 = localComponent.RootElement == null ? null : StripMetaInfo(localComponent.RootElement);
                 var r2 = cloudComponent.RootElement == null ? null : StripMetaInfo(cloudComponent.RootElement);
-                var same = IsMetadataChanged(localComponent.DisplayName, cloudComponent.DisplayName, isRemoteChange) && IsMetadataChanged(localComponent.Description, cloudComponent.Description, isRemoteChange);
+                var same = IsMetadataUnchanged(localComponent.DisplayName, cloudComponent.DisplayName, isRemoteChange) && IsMetadataUnchanged(localComponent.Description, cloudComponent.Description, isRemoteChange);
 
                 if (localComponent is not FileAttachmentComponent)
                 {
@@ -5596,7 +5596,17 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private static string NormalizeString(string? value) => string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().Trim('"').Replace("\r\n", "\n").Replace("\r", "\n");
         
-    private static bool IsMetadataChanged(string? metadata, string? cached, bool isRemoteChange)
+    /// <summary>
+    /// True when one <c>mcs.metadata</c> field (display name or description) is unchanged against the
+    /// cloud cache.
+    /// </summary>
+    /// <param name="metadata">Value carried by the component being compared.</param>
+    /// <param name="cached">Value recorded in the cloud cache.</param>
+    /// <param name="isRemoteChange">
+    /// When false the candidate is a locally read component, whose header the reader may not have
+    /// populated, so a blank local value is treated as "not stated" rather than as a change.
+    /// </param>
+    private static bool IsMetadataUnchanged(string? metadata, string? cached, bool isRemoteChange)
     {
         if (!isRemoteChange && string.IsNullOrWhiteSpace(metadata))
         {

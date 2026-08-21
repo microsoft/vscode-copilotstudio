@@ -28,6 +28,16 @@ public class CliFileParserTests
 
     private static readonly LspProjectorService Service = LspProjectorService.Instance;
 
+    /// <summary>
+    /// Each case compiles a CLI element from a workspace path and asserts the schema name derived for
+    /// it.
+    /// </summary>
+    /// <remarks>
+    /// An <c>action.{name}</c> leaf resolves to the simple <c>{bot}.action.{name}</c> schema. That is
+    /// the shape the server assigns to newly created tools and, unlike the nested connected-agent
+    /// shape, it cannot overflow the 100-character schema-name limit. Callers holding the cloud cache
+    /// correlate an existing file to its exact cached schema before falling back to this derivation.
+    /// </remarks>
     [Theory]
     [InlineData("kind: WorkflowTool\nworkflowId: 4f66c140-e032-f111-88b4-7ced8d3b6119\n",
                 "capabilities/tools/AgentFlow1.mcs.yml",
@@ -46,10 +56,10 @@ public class CliFileParserTests
                 "Default_draft_ECaOPZ.tool.WorkIQCopilotPreview")]
     [InlineData("kind: ConnectedAgentTool\nbotSchemaName: cr5ab_endeffect2\n",
                 "capabilities/tools/action.cr5ab_endeffect2_OPyYm1_UqzqxqiJ.mcs.yml",
-                "Default_draft_ECaOPZ.tool.connected-agent.Default_draft_ECaOPZ.action.cr5ab_endeffect2_OPyYm1_UqzqxqiJ")]
+                "Default_draft_ECaOPZ.action.cr5ab_endeffect2_OPyYm1_UqzqxqiJ")]
     [InlineData("kind: ConnectorTool\nconnectionReference: shared_x\noperationId: GetRow\n",
                 "capabilities/tools/action.Getarow_ab12.mcs.yml",
-                "Default_draft_ECaOPZ.tool.Default_draft_ECaOPZ.action.Getarow_ab12")]
+                "Default_draft_ECaOPZ.action.Getarow_ab12")]
     public void CompileFile_CliKind_RoutesToExpectedComponent(string yaml, string filePath, string expectedSchemaName)
     {
         var model = CodeSerializer.Deserialize<BotElement>(yaml);

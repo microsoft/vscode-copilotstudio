@@ -481,6 +481,37 @@ public class CliAgentNodeGMergeTests
             c => c.Component?.SchemaNameString == schema);
     }
 
+    /// <summary>
+    /// A merged component carries the local file's <c>mcs.metadata</c> header while the cloud cache
+    /// snapshot never does. Remote change detection strips that header before comparing, so it reports
+    /// no change; this filter must strip it too. If it does not, the upsert survives and a full
+    /// (non-delta) server response overwrites the file it was merged from.
+    /// </summary>
+    [Fact]
+    public void ApplyThreeWayMerge_RemoteDiffersOnlyByMetadataHeader_IsStillFilteredOut()
+    {
+        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+
+        const string schema = "cr834_n2a8_PwdEI5.action.crf9a_nagentn1_T2U1EY_iL5CJBUv";
+        const string bodyWithHeader = "kind: ConnectedAgentTool\nmcs.metadata:\n  componentName: NAgent N1\n  description: same\nhistoryType:\n  kind: ConversationHistory\nbotSchemaName: crf9a_nagentn1_T2U1EY\n";
+
+        var cloud = new BotDefinition().WithComponents(new[]
+        {
+            MakeDialogComponent(schema, ConnectedAgentToolBody, id: null, version: 1, displayName: "NAgent N1", description: "same"),
+        });
+
+        var remoteComp = MakeDialogComponent(schema, bodyWithHeader, id: null, version: 2, displayName: "NAgent N1", description: "same");
+        var localChanges = (
+            new PvaComponentChangeSet(new List<BotComponentChange>(), bot: null, changeToken: "t"),
+            ImmutableArray<Change>.Empty);
+
+        var merged = sync.ApplyThreeWayMerge(localChanges, MakeUpdateChanges(remoteComp), cloud);
+
+        Assert.DoesNotContain(
+            merged.BotComponentChanges.OfType<BotComponentUpsert>(),
+            c => c.Component?.SchemaNameString == schema);
+    }
+
     // --- Classic regression: the merge engine is unchanged for classic shapes -------
     // The seam extraction's behaviour-preservation for the orchestration path is
     // guarded by the full pre-existing suite (222/222). This test additionally
