@@ -69,7 +69,10 @@ internal static class LspProjection
     /// are preserved as-is instead of being normalized/expanded with the infix. Used by
     /// the CLI knowledge/file three-layer rules (TDD D21).
     /// </param>
-    internal readonly record struct Rule(string Infix, string Folder, bool DotPassthrough = false, string[]? DotInfixBlocklist = null, RuleOverride[]? Overrides = null, bool PreserveBotPrefixedFiles = false);
+    /// <param name="AlternateInfixes">
+    /// Optional additional schema-name infixes.
+    /// </param>
+    internal readonly record struct Rule(string Infix, string Folder, bool DotPassthrough = false, string[]? DotInfixBlocklist = null, RuleOverride[]? Overrides = null, bool PreserveBotPrefixedFiles = false, string[]? AlternateInfixes = null);
 
     /// <summary>
     /// Graph-aware context available to projection rules.
@@ -256,6 +259,10 @@ internal static class LspProjection
             //},
         }.ToFrozenDictionary();
 
+    private static readonly string[] CliToolAlternateInfixes = { ".action." };
+
+    private static readonly string[] CliToolDotInfixBlocklist = { "tool" };
+
     /// <summary>
     /// CLI-agent (<see cref="AuthoringShape.CliCopilot"/>) projection overrides,
     /// consulted before the shared classic <see cref="Rules"/> when projecting a CLI
@@ -284,20 +291,20 @@ internal static class LspProjection
             // Tools -> capabilities/tools/
             {
                 typeof(ConnectorTool),
-                new Rule(".tool.", "capabilities/tools/", true, new[] { "tool" })
+                new Rule(".tool.", "capabilities/tools/", true, CliToolDotInfixBlocklist, AlternateInfixes: CliToolAlternateInfixes)
             },
             {
                 typeof(WorkflowTool),
-                new Rule(".tool.", "capabilities/tools/", true, new[] { "tool" })
+                new Rule(".tool.", "capabilities/tools/", true, CliToolDotInfixBlocklist, AlternateInfixes: CliToolAlternateInfixes)
             },
             {
                 typeof(McpTool),
-                new Rule(".tool.", "capabilities/tools/", true, new[] { "tool" })
+                new Rule(".tool.", "capabilities/tools/", true, CliToolDotInfixBlocklist, AlternateInfixes: CliToolAlternateInfixes)
             },
             // D10: connected agents route to capabilities/tools/, NOT capabilities/agents/.
             {
                 typeof(ConnectedAgentTool),
-                new Rule(".tool.connected-agent.", "capabilities/tools/", true, new[] { "tool" })
+                new Rule(".tool.connected-agent.", "capabilities/tools/", true, CliToolDotInfixBlocklist, AlternateInfixes: CliToolAlternateInfixes)
             },
 
             // Knowledge (shared type) -> capabilities/knowledge/ (D21). PreserveBotPrefixedFiles
@@ -455,6 +462,11 @@ internal static class LspProjection
             return new SchemaNameResult($"{botName}.topic.{name}", PreserveQualifiedSchemaName: false);
         }
 
+        if (TryGetAlternateInfixSchemaName(rule, fileName, botName, out var alternateSchemaName))
+        {
+            return new SchemaNameResult(alternateSchemaName, PreserveQualifiedSchemaName: false);
+        }
+
         // Dot handling: follow legacy rules for dotted filenames
         if (fileName.Contains('.'))
         {
@@ -560,11 +572,22 @@ internal static class LspProjection
         var preserveQualifiedSchemaName = allowPreserve
             && (IsAlreadyQualifiedPath(rule, pathWithoutExtension)
                 || (rule.PreserveBotPrefixedFiles && IsBotPrefixedFile(pathWithoutExtension, botName)));
+
+        if (!preserveQualifiedSchemaName && TryGetAlternateInfixLeaf(rule, schemaName, botName, out var alternateLeaf))
+        {
+            return $"{prefix}{rule.Folder}{alternateLeaf}.mcs.yml";
+        }
+
         var shortName = DeriveShortName(schemaName, rule.Infix, botName, allowPreserve, preserveQualifiedSchemaName);
 
         if (IsAgentsTopicRule(rule) && !preserveQualifiedSchemaName)
         {
             shortName = $"topic.{shortName}";
+        }
+
+        if (!preserveQualifiedSchemaName && CollidesWithAlternateInfixLeaf(rule, shortName))
+        {
+            shortName = schemaName;
         }
 
         return $"{prefix}{rule.Folder}{shortName}.mcs.yml";
@@ -824,12 +847,13 @@ internal static class LspProjection
                         folder,
                         rule.DotPassthrough,
                         ruleOverride.DotInfixBlocklist ?? rule.DotInfixBlocklist,
-                        PreserveBotPrefixedFiles: rule.PreserveBotPrefixedFiles);
+                        PreserveBotPrefixedFiles: rule.PreserveBotPrefixedFiles,
+                        AlternateInfixes: rule.AlternateInfixes);
                 }
             }
         }
 
-        return new Rule(rule.Infix, rule.Folder, rule.DotPassthrough, rule.DotInfixBlocklist, PreserveBotPrefixedFiles: rule.PreserveBotPrefixedFiles);
+        return new Rule(rule.Infix, rule.Folder, rule.DotPassthrough, rule.DotInfixBlocklist, PreserveBotPrefixedFiles: rule.PreserveBotPrefixedFiles, AlternateInfixes: rule.AlternateInfixes);
     }
 
     private static RuleOverride[] CreateCliFileAttachmentOverrides() =>
@@ -1059,6 +1083,82 @@ internal static class LspProjection
         // that passed through GetSchemaName without expansion).
         // schemaName non-null by early-return; ! is compile-time only.
         return schemaName!;
+    }
+
+    private static bool TryGetAlternateInfixLeaf(Rule rule, string? schemaName, string? botName, out string leaf)
+    {
+        leaf = string.Empty;
+
+        var alternates = rule.AlternateInfixes;
+        if (alternates == null || alternates.Length == 0 || string.IsNullOrEmpty(schemaName) || string.IsNullOrEmpty(botName))
+        {
+            return false;
+        }
+
+        foreach (var alternate in alternates)
+        {
+            var qualifier = botName + alternate;
+            var index = schemaName!.IndexOf(qualifier, StringComparison.OrdinalIgnoreCase);
+            if (index < 0)
+            {
+                continue;
+            }
+
+            var rest = schemaName.Substring(index + qualifier.Length);
+            if (rest.Length == 0)
+            {
+                continue;
+            }
+
+            leaf = $"{TrimDots(alternate)}.{rest}";
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryGetAlternateInfixSchemaName(Rule rule, string fileName, string? botName, out string schemaName)
+    {
+        schemaName = string.Empty;
+        var alternates = rule.AlternateInfixes;
+        if (alternates == null || alternates.Length == 0 || string.IsNullOrEmpty(fileName) || string.IsNullOrEmpty(botName))
+        {
+            return false;
+        }
+
+        foreach (var alternate in alternates)
+        {
+            var leafPrefix = TrimDots(alternate) + ".";
+            if (!fileName.StartsWith(leafPrefix, StringComparison.OrdinalIgnoreCase) || fileName.Length <= leafPrefix.Length)
+            {
+                continue;
+            }
+
+            schemaName = $"{botName}{alternate}{fileName.Substring(leafPrefix.Length)}";
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool CollidesWithAlternateInfixLeaf(Rule rule, string shortName)
+    {
+        var alternates = rule.AlternateInfixes;
+        if (alternates == null || alternates.Length == 0 || string.IsNullOrEmpty(shortName))
+        {
+            return false;
+        }
+
+        foreach (var alternate in alternates)
+        {
+            var leafPrefix = TrimDots(alternate) + ".";
+            if (shortName.StartsWith(leafPrefix, StringComparison.OrdinalIgnoreCase) && shortName.Length > leafPrefix.Length)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool IsReservedShortName(string shortName, string infix)

@@ -96,6 +96,16 @@ internal static class McsFileParserCore
         return (displayName, description);
     }
 
+    internal static (string? DisplayName, string? Description) TryGetMcsMetadata(BotElement? fileModel)
+    {
+        if (fileModel?.ExtensionData is not RecordDataValue record || !record.Properties.TryGetValue("mcs.metadata", out var metadataValue) || metadataValue is not RecordDataValue metadataRecord)
+        {
+            return (null, null);
+        }
+
+        return (GetRecordString(metadataRecord, "componentName"), GetRecordString(metadataRecord, "description"));
+    }
+
     private static string? GetRecordString(RecordDataValue record, string key) => record.Properties.TryGetValue(key, out var value) && value is StringDataValue s ? s.Value : null;
 
     /// <summary>

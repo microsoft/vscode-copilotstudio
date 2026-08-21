@@ -432,15 +432,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             if (change is BotComponentUpsert upsert && upsert.Component is BotComponentBase component)
             {
-                if (originalSnapshot.TryGetComponentBySchemaName(component.SchemaNameString, out var originalComponent))
+                if (originalSnapshot.TryGetComponentBySchemaName(component.SchemaNameString, out var originalComponent) && IsSameContent(component, originalComponent))
                 {
-                    var r1 = component.RootElement;
-                    var r2 = originalComponent.RootElement;
-                    if (r1 is not null && r2 is not null && r1.Equals(r2, NodeComparison.Structural))
-                    {
-                        anyRemoved = true;
-                        continue;
-                    }
+                    anyRemoved = true;
+                    continue;
                 }
             }
 
@@ -480,6 +475,18 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             result = result.WithBot(null);
         }
         return result;
+    }
+
+    private static bool IsSameContent(BotComponentBase component, BotComponentBase originalComponent)
+    {
+        var root = component.RootElement == null ? null : StripMetaInfo(component.RootElement);
+        var originalRoot = originalComponent.RootElement == null ? null : StripMetaInfo(originalComponent.RootElement);
+        if (root is null || originalRoot is null || !root.Equals(originalRoot, NodeComparison.Structural))
+        {
+            return false;
+        }
+
+        return IsMetadataUnchanged(component.DisplayName, originalComponent.DisplayName, isRemoteChange: true) && IsMetadataUnchanged(component.Description, originalComponent.Description, isRemoteChange: true);
     }
 
     /// <summary>
@@ -5185,8 +5192,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 // In new and old ... --> possible Update
                 var r1 = localComponent.RootElement == null ? null : StripMetaInfo(localComponent.RootElement);
                 var r2 = cloudComponent.RootElement == null ? null : StripMetaInfo(cloudComponent.RootElement);
-                var same = (string.IsNullOrWhiteSpace(localComponent.DisplayName) || NormalizeString(localComponent.DisplayName) == NormalizeString(cloudComponent.DisplayName)) &&
-                                    (string.IsNullOrWhiteSpace(localComponent.Description) || NormalizeString(localComponent.Description) == NormalizeString(cloudComponent.Description));
+                var same = IsMetadataUnchanged(localComponent.DisplayName, cloudComponent.DisplayName, isRemoteChange) && IsMetadataUnchanged(localComponent.Description, cloudComponent.Description, isRemoteChange);
 
                 if (localComponent is not FileAttachmentComponent)
                 {
@@ -5589,6 +5595,26 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     }
 
     private static string NormalizeString(string? value) => string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().Trim('"').Replace("\r\n", "\n").Replace("\r", "\n");
+        
+    /// <summary>
+    /// True when one <c>mcs.metadata</c> field (display name or description) is unchanged against the
+    /// cloud cache.
+    /// </summary>
+    /// <param name="metadata">Value carried by the component being compared.</param>
+    /// <param name="cached">Value recorded in the cloud cache.</param>
+    /// <param name="isRemoteChange">
+    /// When false the candidate is a locally read component, whose header the reader may not have
+    /// populated, so a blank local value is treated as "not stated" rather than as a change.
+    /// </param>
+    private static bool IsMetadataUnchanged(string? metadata, string? cached, bool isRemoteChange)
+    {
+        if (!isRemoteChange && string.IsNullOrWhiteSpace(metadata))
+        {
+            return true;
+        }
+
+        return NormalizeString(metadata) == NormalizeString(cached);
+    }
 
     private static BotElement StripMetaInfo(BotElement botElement)
     {
@@ -6741,7 +6767,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 continue;
             }
 
-            var (parsed, error) = _fileParser.CompileFileModel(component.SchemaNameString, deserialized, component.DisplayName, component.Description);
+            var (fileDisplayName, fileDescription) = McsFileParserCore.TryGetMcsMetadata(deserialized);
+            var (parsed, error) = _fileParser.CompileFileModel(
+                component.SchemaNameString,
+                deserialized,
+                fileDisplayName ?? component.DisplayName,
+                fileDescription ?? component.Description);
 
             if (error != null || parsed == null)
             {
