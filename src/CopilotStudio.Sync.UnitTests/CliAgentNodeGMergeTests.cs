@@ -60,6 +60,12 @@ public class CliAgentNodeGMergeTests
         "  kind: WebsiteKnowledgeSource\n" +
         "  siteUrl: https://en.wikipedia.org/wiki/Sodium\n";
 
+    private const string ConnectedAgentToolBody =
+        "kind: ConnectedAgentTool\n" +
+        "historyType:\n" +
+        "  kind: ConversationHistory\n" +
+        "botSchemaName: crf9a_nagentn1_T2U1EY\n";
+
     private readonly ITestOutputHelper _output;
 
     public CliAgentNodeGMergeTests(ITestOutputHelper output)
@@ -404,6 +410,77 @@ public class CliAgentNodeGMergeTests
         Assert.DoesNotContain("<<<<<<<", mergedYaml);
     }
 
+    [Fact]
+    public void ApplyThreeWayMerge_RemoteDescriptionOnlyChange_IsNotFilteredOut()
+    {
+        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+
+        const string schema = "cr834_n2a8_PwdEI5.action.crf9a_nagentn1_T2U1EY_iL5CJBUv";
+        var cloud = new BotDefinition().WithComponents(new[]
+        {
+            MakeDialogComponent(schema, ConnectedAgentToolBody, id: null, version: 1, displayName: "NAgent N1", description: "connect agent n1 local 4"),
+        });
+
+        var remoteComp = MakeDialogComponent(schema, ConnectedAgentToolBody, id: null, version: 2, displayName: "NAgent N1", description: "connect agent n1 Cloud 5");
+        var localChanges = (
+            new PvaComponentChangeSet(new List<BotComponentChange>(), bot: null, changeToken: "t"),
+            ImmutableArray<Change>.Empty);
+
+        var merged = sync.ApplyThreeWayMerge(localChanges, MakeUpdateChanges(remoteComp), cloud);
+
+        var mergedComp = merged.BotComponentChanges.OfType<BotComponentUpsert>()
+            .SingleOrDefault(c => c.Component?.SchemaNameString == schema)?.Component;
+        Assert.NotNull(mergedComp);
+        Assert.Equal("connect agent n1 Cloud 5", mergedComp!.Description);
+    }
+
+    [Fact]
+    public void ApplyThreeWayMerge_RemoteDisplayNameOnlyChange_IsNotFilteredOut()
+    {
+        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+
+        const string schema = "cr834_n2a8_PwdEI5.action.crf9a_nagentn1_T2U1EY_iL5CJBUv";
+        var cloud = new BotDefinition().WithComponents(new[]
+        {
+            MakeDialogComponent(schema, ConnectedAgentToolBody, id: null, version: 1, displayName: "NAgent N1", description: "same"),
+        });
+
+        var remoteComp = MakeDialogComponent(schema, ConnectedAgentToolBody, id: null, version: 2, displayName: "NAgent N1 renamed", description: "same");
+        var localChanges = (
+            new PvaComponentChangeSet(new List<BotComponentChange>(), bot: null, changeToken: "t"),
+            ImmutableArray<Change>.Empty);
+
+        var merged = sync.ApplyThreeWayMerge(localChanges, MakeUpdateChanges(remoteComp), cloud);
+
+        var mergedComp = merged.BotComponentChanges.OfType<BotComponentUpsert>()
+            .SingleOrDefault(c => c.Component?.SchemaNameString == schema)?.Component;
+        Assert.NotNull(mergedComp);
+        Assert.Equal("NAgent N1 renamed", mergedComp!.DisplayName);
+    }
+
+    [Fact]
+    public void ApplyThreeWayMerge_RemoteComponentIdenticalToCache_IsStillFilteredOut()
+    {
+        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+
+        const string schema = "cr834_n2a8_PwdEI5.action.crf9a_nagentn1_T2U1EY_iL5CJBUv";
+        var cloud = new BotDefinition().WithComponents(new[]
+        {
+            MakeDialogComponent(schema, ConnectedAgentToolBody, id: null, version: 1, displayName: "NAgent N1", description: "unchanged"),
+        });
+
+        var remoteComp = MakeDialogComponent(schema, ConnectedAgentToolBody, id: null, version: 2, displayName: "NAgent N1", description: "unchanged");
+        var localChanges = (
+            new PvaComponentChangeSet(new List<BotComponentChange>(), bot: null, changeToken: "t"),
+            ImmutableArray<Change>.Empty);
+
+        var merged = sync.ApplyThreeWayMerge(localChanges, MakeUpdateChanges(remoteComp), cloud);
+
+        Assert.DoesNotContain(
+            merged.BotComponentChanges.OfType<BotComponentUpsert>(),
+            c => c.Component?.SchemaNameString == schema);
+    }
+
     // --- Classic regression: the merge engine is unchanged for classic shapes -------
     // The seam extraction's behaviour-preservation for the orchestration path is
     // guarded by the full pre-existing suite (222/222). This test additionally
@@ -558,8 +635,23 @@ public class CliAgentNodeGMergeTests
 
     private static DialogComponent MakeDialogComponent(
         string schemaName, string dialogYaml, Guid? id = null, long version = 1)
+        => MakeDialogComponent(schemaName, dialogYaml, id, version, displayName: null, description: null);
+
+    private static DialogComponent MakeDialogComponent(
+        string schemaName, string dialogYaml, Guid? id, long version, string? displayName, string? description)
     {
         var idValue = (id ?? Guid.Parse("00000000-0000-0000-0000-000000000001")).ToString();
+        var metadata = new StringBuilder();
+        if (displayName != null)
+        {
+            metadata.Append($",\"displayName\": {System.Text.Json.JsonSerializer.Serialize(displayName)}");
+        }
+
+        if (description != null)
+        {
+            metadata.Append($",\"description\": {System.Text.Json.JsonSerializer.Serialize(description)}");
+        }
+
         var json = $$"""
         {
           "$kind": "BotDefinition",
@@ -569,7 +661,7 @@ public class CliAgentNodeGMergeTests
               "id": "{{idValue}}",
               "version": {{version}},
               "schemaName": {{System.Text.Json.JsonSerializer.Serialize(schemaName)}},
-              "dialog": {{System.Text.Json.JsonSerializer.Serialize(dialogYaml)}}
+              "dialog": {{System.Text.Json.JsonSerializer.Serialize(dialogYaml)}}{{metadata}}
             }
           ]
         }

@@ -69,7 +69,10 @@ internal static class LspProjection
     /// are preserved as-is instead of being normalized/expanded with the infix. Used by
     /// the CLI knowledge/file three-layer rules (TDD D21).
     /// </param>
-    internal readonly record struct Rule(string Infix, string Folder, bool DotPassthrough = false, string[]? DotInfixBlocklist = null, RuleOverride[]? Overrides = null, bool PreserveBotPrefixedFiles = false);
+    /// <param name="AlternateInfixes">
+    /// Optional additional schema-name infixes.
+    /// </param>
+    internal readonly record struct Rule(string Infix, string Folder, bool DotPassthrough = false, string[]? DotInfixBlocklist = null, RuleOverride[]? Overrides = null, bool PreserveBotPrefixedFiles = false, string[]? AlternateInfixes = null);
 
     /// <summary>
     /// Graph-aware context available to projection rules.
@@ -256,6 +259,10 @@ internal static class LspProjection
             //},
         }.ToFrozenDictionary();
 
+    private static readonly string[] CliToolAlternateInfixes = { ".action." };
+
+    private static readonly string[] CliToolDotInfixBlocklist = { "tool" };
+
     /// <summary>
     /// CLI-agent (<see cref="AuthoringShape.CliCopilot"/>) projection overrides,
     /// consulted before the shared classic <see cref="Rules"/> when projecting a CLI
@@ -284,20 +291,20 @@ internal static class LspProjection
             // Tools -> capabilities/tools/
             {
                 typeof(ConnectorTool),
-                new Rule(".tool.", "capabilities/tools/", true, new[] { "tool" })
+                new Rule(".tool.", "capabilities/tools/", true, CliToolDotInfixBlocklist, AlternateInfixes: CliToolAlternateInfixes)
             },
             {
                 typeof(WorkflowTool),
-                new Rule(".tool.", "capabilities/tools/", true, new[] { "tool" })
+                new Rule(".tool.", "capabilities/tools/", true, CliToolDotInfixBlocklist, AlternateInfixes: CliToolAlternateInfixes)
             },
             {
                 typeof(McpTool),
-                new Rule(".tool.", "capabilities/tools/", true, new[] { "tool" })
+                new Rule(".tool.", "capabilities/tools/", true, CliToolDotInfixBlocklist, AlternateInfixes: CliToolAlternateInfixes)
             },
             // D10: connected agents route to capabilities/tools/, NOT capabilities/agents/.
             {
                 typeof(ConnectedAgentTool),
-                new Rule(".tool.connected-agent.", "capabilities/tools/", true, new[] { "tool" })
+                new Rule(".tool.connected-agent.", "capabilities/tools/", true, CliToolDotInfixBlocklist, AlternateInfixes: CliToolAlternateInfixes)
             },
 
             // Knowledge (shared type) -> capabilities/knowledge/ (D21). PreserveBotPrefixedFiles
@@ -455,6 +462,11 @@ internal static class LspProjection
             return new SchemaNameResult($"{botName}.topic.{name}", PreserveQualifiedSchemaName: false);
         }
 
+        if (TryRestoreNestedQualifier(rule, fileName, botName, out var nestedSchemaName))
+        {
+            return new SchemaNameResult(nestedSchemaName, PreserveQualifiedSchemaName: false);
+        }
+
         // Dot handling: follow legacy rules for dotted filenames
         if (fileName.Contains('.'))
         {
@@ -565,6 +577,11 @@ internal static class LspProjection
         if (IsAgentsTopicRule(rule) && !preserveQualifiedSchemaName)
         {
             shortName = $"topic.{shortName}";
+        }
+
+        if (!preserveQualifiedSchemaName && TryStripNestedQualifier(rule, shortName, botName, out var strippedShortName))
+        {
+            shortName = strippedShortName;
         }
 
         return $"{prefix}{rule.Folder}{shortName}.mcs.yml";
@@ -824,12 +841,13 @@ internal static class LspProjection
                         folder,
                         rule.DotPassthrough,
                         ruleOverride.DotInfixBlocklist ?? rule.DotInfixBlocklist,
-                        PreserveBotPrefixedFiles: rule.PreserveBotPrefixedFiles);
+                        PreserveBotPrefixedFiles: rule.PreserveBotPrefixedFiles,
+                        AlternateInfixes: rule.AlternateInfixes);
                 }
             }
         }
 
-        return new Rule(rule.Infix, rule.Folder, rule.DotPassthrough, rule.DotInfixBlocklist, PreserveBotPrefixedFiles: rule.PreserveBotPrefixedFiles);
+        return new Rule(rule.Infix, rule.Folder, rule.DotPassthrough, rule.DotInfixBlocklist, PreserveBotPrefixedFiles: rule.PreserveBotPrefixedFiles, AlternateInfixes: rule.AlternateInfixes);
     }
 
     private static RuleOverride[] CreateCliFileAttachmentOverrides() =>
@@ -1059,6 +1077,55 @@ internal static class LspProjection
         // that passed through GetSchemaName without expansion).
         // schemaName non-null by early-return; ! is compile-time only.
         return schemaName!;
+    }
+
+    private static bool TryStripNestedQualifier(Rule rule, string shortName, string? botName, out string stripped)
+    {
+        stripped = string.Empty;
+
+        var alternates = rule.AlternateInfixes;
+        if (alternates == null || alternates.Length == 0 || string.IsNullOrEmpty(shortName) || string.IsNullOrEmpty(botName))
+        {
+            return false;
+        }
+
+        foreach (var alternate in alternates)
+        {
+            var qualifier = botName + alternate;
+            if (!shortName.StartsWith(qualifier, StringComparison.OrdinalIgnoreCase) || shortName.Length <= qualifier.Length)
+            {
+                continue;
+            }
+
+            stripped = shortName.Substring(botName!.Length + 1);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryRestoreNestedQualifier(Rule rule, string fileName, string? botName, out string schemaName)
+    {
+        schemaName = string.Empty;
+        var alternates = rule.AlternateInfixes;
+        if (alternates == null || alternates.Length == 0 || string.IsNullOrEmpty(fileName) || string.IsNullOrEmpty(botName))
+        {
+            return false;
+        }
+
+        foreach (var alternate in alternates)
+        {
+            var leafPrefix = TrimDots(alternate) + ".";
+            if (!fileName.StartsWith(leafPrefix, StringComparison.OrdinalIgnoreCase) || fileName.Length <= leafPrefix.Length)
+            {
+                continue;
+            }
+
+            schemaName = $"{botName}{rule.Infix}{botName}.{fileName}";
+            return true;
+        }
+
+        return false;
     }
 
     private static bool IsReservedShortName(string shortName, string infix)

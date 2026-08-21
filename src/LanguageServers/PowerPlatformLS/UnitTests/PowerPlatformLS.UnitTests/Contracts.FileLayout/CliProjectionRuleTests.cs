@@ -70,6 +70,79 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
             Assert.Equal("capabilities/tools/", folder);
         }
 
+        // Real cloud shape: the server names a connected-agent tool
+        // "{bot}.tool.connected-agent.{bot}.action.{name}" - the segment after the canonical infix
+        // is itself a fully-qualified schema name. Stripping only the infix leaves a leaf that
+        // still repeats the whole bot prefix, which is what produced the long file names (and, for
+        // a long bot name, a derived SchemaName over the 100-character limit).
+
+        [Theory]
+        [InlineData(typeof(ConnectedAgentTool), "Default_draft_ECaOPZ.tool.connected-agent.Default_draft_ECaOPZ.action.cre98_AgentC4_UqzqxqiJ", "capabilities/tools/action.cre98_AgentC4_UqzqxqiJ.mcs.yml")]
+        [InlineData(typeof(ConnectorTool), "Default_draft_ECaOPZ.tool.Default_draft_ECaOPZ.action.SendEmail_ab12", "capabilities/tools/action.SendEmail_ab12.mcs.yml")]
+        [InlineData(typeof(WorkflowTool), "Default_draft_ECaOPZ.tool.Default_draft_ECaOPZ.action.AgentFlow1_x9", "capabilities/tools/action.AgentFlow1_x9.mcs.yml")]
+        [InlineData(typeof(McpTool), "Default_draft_ECaOPZ.tool.Default_draft_ECaOPZ.action.WorkIQ_x9", "capabilities/tools/action.WorkIQ_x9.mcs.yml")]
+        public void GetFilePath_NestedQualifiedToolSchema_DropsRepeatedBotPrefix(System.Type elementType, string schema, string expectedPath)
+        {
+            var path = LspProjection.GetFilePath(elementType, schema, Bot, subAgentFolder: null, pathWithoutExtension: null, Cli);
+
+            Assert.Equal(expectedPath, path);
+            Assert.DoesNotContain(Bot, System.IO.Path.GetFileName(path!), System.StringComparison.Ordinal);
+        }
+
+        [Theory]
+        [InlineData(typeof(ConnectedAgentTool), "Default_draft_ECaOPZ.tool.connected-agent.Default_draft_ECaOPZ.action.cre98_AgentC4_UqzqxqiJ")]
+        [InlineData(typeof(ConnectorTool), "Default_draft_ECaOPZ.tool.Default_draft_ECaOPZ.action.SendEmail_ab12")]
+        [InlineData(typeof(WorkflowTool), "Default_draft_ECaOPZ.tool.Default_draft_ECaOPZ.action.AgentFlow1_x9")]
+        [InlineData(typeof(McpTool), "Default_draft_ECaOPZ.tool.Default_draft_ECaOPZ.action.WorkIQ_x9")]
+        public void NestedQualifiedToolSchema_RoundTripsExactly(System.Type elementType, string schema)
+        {
+            var path = LspProjection.GetFilePath(elementType, schema, Bot, subAgentFolder: null, pathWithoutExtension: null, Cli);
+            var recovered = LspProjection.GetSchemaName(
+                path!.Substring(0, path.Length - ".mcs.yml".Length), Bot, elementType, Cli);
+
+            Assert.Equal(schema, recovered);
+        }
+
+        [Fact]
+        public void NestedQualifiedConnectedAgent_LongBotName_StaysUnderSchemaNameLimit()
+        {
+            // Reported repro: the derived schema previously re-expanded to 164 characters and
+            // tripped the PropertyLengthTooLong diagnostic right after clone.
+            const string bot = "hardware_IGTS_DFMEA_superskilled_agent2.1_t4RnpS";
+            const string schema = "hardware_IGTS_DFMEA_superskilled_agent2.1_t4RnpS.tool.connected-agent.cr5ab_endeffect2_rmmv4";
+
+            var path = LspProjection.GetFilePath(typeof(ConnectedAgentTool), schema, bot, subAgentFolder: null, pathWithoutExtension: null, Cli);
+            Assert.Equal("capabilities/tools/cr5ab_endeffect2_rmmv4.mcs.yml", path);
+
+            var recovered = LspProjection.GetSchemaName(
+                path!.Substring(0, path.Length - ".mcs.yml".Length), bot, typeof(ConnectedAgentTool), Cli);
+            Assert.Equal(schema, recovered);
+            Assert.True(recovered!.Length <= 100);
+        }
+
+        [Fact]
+        public void PlainToolSchema_WithoutNestedQualifier_KeepsBareShortName()
+        {
+            const string schema = "Default_draft_ECaOPZ.tool.connected-agent.cre98_AgentC4";
+
+            var path = LspProjection.GetFilePath(typeof(ConnectedAgentTool), schema, Bot, subAgentFolder: null, pathWithoutExtension: null, Cli);
+            Assert.Equal("capabilities/tools/cre98_AgentC4.mcs.yml", path);
+
+            var recovered = LspProjection.GetSchemaName(
+                path!.Substring(0, path.Length - ".mcs.yml".Length), Bot, typeof(ConnectedAgentTool), Cli);
+            Assert.Equal(schema, recovered);
+        }
+
+        [Fact]
+        public void PortalAuthoredTool_KeepsClassicProjection_ForNonCliShapes()
+        {
+            const string schema = "Default_draft_ECaOPZ.action.SendEmail_ab12";
+
+            var classic = LspProjection.GetFilePath(typeof(TaskDialog), schema, Bot, subAgentFolder: null, pathWithoutExtension: null);
+
+            Assert.Equal("actions/SendEmail_ab12.mcs.yml", classic);
+        }
+
         // CLI shared types (knowledge + file attachments) project to the three-layer
         // capabilities/knowledge[/files]/ folders under CliCopilot (D21).
 

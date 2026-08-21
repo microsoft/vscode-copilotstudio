@@ -44,6 +44,12 @@ public class CliFileParserTests
     [InlineData("kind: McpTool\nserverUrl: https://example/mcp\n",
                 "capabilities/tools/WorkIQCopilotPreview.mcs.yml",
                 "Default_draft_ECaOPZ.tool.WorkIQCopilotPreview")]
+    [InlineData("kind: ConnectedAgentTool\nbotSchemaName: cr5ab_endeffect2\n",
+                "capabilities/tools/action.cr5ab_endeffect2_OPyYm1_UqzqxqiJ.mcs.yml",
+                "Default_draft_ECaOPZ.tool.connected-agent.Default_draft_ECaOPZ.action.cr5ab_endeffect2_OPyYm1_UqzqxqiJ")]
+    [InlineData("kind: ConnectorTool\nconnectionReference: shared_x\noperationId: GetRow\n",
+                "capabilities/tools/action.Getarow_ab12.mcs.yml",
+                "Default_draft_ECaOPZ.tool.Default_draft_ECaOPZ.action.Getarow_ab12")]
     public void CompileFile_CliKind_RoutesToExpectedComponent(string yaml, string filePath, string expectedSchemaName)
     {
         var model = CodeSerializer.Deserialize<BotElement>(yaml);
