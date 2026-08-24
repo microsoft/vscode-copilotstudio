@@ -1,6 +1,5 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 
-using System.Collections.Concurrent;
 using Microsoft.Agents.ObjectModel;
 using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync.Dataverse;
@@ -28,16 +27,11 @@ public class CollectionKnowledgeFileExclusionTests
         return builder.Build();
     }
 
-    private static Mock<ISyncDataverseClient> CreateDownloadRecordingDataverse(ConcurrentBag<string> downloadedFileNames)
+    private static Mock<ISyncDataverseClient> CreateDownloadRecordingDataverse()
     {
         var mockDataverse = new Mock<ISyncDataverseClient>();
-        mockDataverse
-            .Setup(x => x.DownloadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<BotComponentId>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .Returns<string, BotComponentId, string, CancellationToken>((_, _, fileName, _) =>
-            {
-                downloadedFileNames.Add(fileName);
-                return Task.CompletedTask;
-            });
+        mockDataverse.As<IStreamingKnowledgeFileClient>().Setup(x => x.DownloadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<BotComponentId>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
         return mockDataverse;
     }
 
@@ -55,11 +49,11 @@ public class CollectionKnowledgeFileExclusionTests
             .WithComponents(new BotComponentBase[] { agentOwnedFile, collectionOwnedFile });
         WorkspaceSynchronizer.WriteCloudCache(fileAccessorFactory.Create(workspace), cloudCache);
 
-        var downloadedFileNames = new ConcurrentBag<string>();
-        var mockDataverse = CreateDownloadRecordingDataverse(downloadedFileNames);
+        var mockDataverse = CreateDownloadRecordingDataverse();
 
-        await synchronizer.DownloadKnowledgeFilesAsync(workspace, mockDataverse.Object, schemaNames: null, CancellationToken.None);
+        var downloaded = await synchronizer.DownloadKnowledgeFilesAsync(workspace, mockDataverse.Object, schemaNames: null, CancellationToken.None);
 
+        var downloadedFileNames = downloaded.Select(info => info.FileName).ToList();
         Assert.Contains("AgentOwned.txt", downloadedFileNames);
         Assert.DoesNotContain("CollectionOwned.txt", downloadedFileNames);
     }
@@ -75,12 +69,11 @@ public class CollectionKnowledgeFileExclusionTests
         var cloudCache = new BotComponentCollectionDefinition().WithComponents(new BotComponentBase[] { collectionOwnedFile });
         WorkspaceSynchronizer.WriteCloudCache(fileAccessorFactory.Create(workspace), cloudCache);
 
-        var downloadedFileNames = new ConcurrentBag<string>();
-        var mockDataverse = CreateDownloadRecordingDataverse(downloadedFileNames);
+        var mockDataverse = CreateDownloadRecordingDataverse();
 
-        await synchronizer.DownloadKnowledgeFilesAsync(workspace, mockDataverse.Object, schemaNames: null, CancellationToken.None);
+        var downloaded = await synchronizer.DownloadKnowledgeFilesAsync(workspace, mockDataverse.Object, schemaNames: null, CancellationToken.None);
 
-        Assert.Contains("CollectionOwned.txt", downloadedFileNames);
+        Assert.Contains("CollectionOwned.txt", downloaded.Select(info => info.FileName).ToList());
     }
 
     [Fact]

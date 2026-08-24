@@ -12,7 +12,7 @@ using YamlDotNet.Serialization;
 
 namespace Microsoft.CopilotStudio.Sync.Dataverse;
 
-public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectionDataverseClient
+public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectionDataverseClient, IStreamingKnowledgeFileClient
 {
     private readonly IDataverseHttpClientAccessor _httpClientAccessor;
     private readonly AsyncLocal<string> _dataverseUrl = new();
@@ -945,8 +945,6 @@ public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectio
 
     public async Task DownloadKnowledgeFileAsync(string knowledgeFileFolder, BotComponentId botComponentId, string fileName, CancellationToken cancellationToken = default)
     {
-        var requestUri = new Uri(new Uri(DataverseUrl), $"/api/data/v9.2/botcomponents({botComponentId})/filedata/$value");
-
         var localPath = GetKnowledgeFileLocalPath(knowledgeFileFolder, fileName);
         var dir = Path.GetDirectoryName(localPath);
 
@@ -954,6 +952,15 @@ public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectio
         {
             Directory.CreateDirectory(dir);
         }
+
+        await DownloadKnowledgeFileCoreAsync(async ct => await CreateWritableFileStreamWithRetryAsync(localPath, ct).ConfigureAwait(false), disposeDestination: true, botComponentId, cancellationToken).ConfigureAwait(false);
+    }
+
+    public Task DownloadKnowledgeFileAsync(Stream destination, BotComponentId botComponentId, CancellationToken cancellationToken = default) => DownloadKnowledgeFileCoreAsync(_ => Task.FromResult(destination), disposeDestination: false, botComponentId, cancellationToken);
+
+    private async Task DownloadKnowledgeFileCoreAsync(Func<CancellationToken, Task<Stream>> destinationFactory, bool disposeDestination, BotComponentId botComponentId, CancellationToken cancellationToken)
+    {
+        var requestUri = new Uri(new Uri(DataverseUrl), $"/api/data/v9.2/botcomponents({botComponentId})/filedata/$value");
 
         var httpClient = _httpClientAccessor.CreateClient();
 
@@ -972,9 +979,19 @@ public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectio
 
         using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
 
-        using var fileStream = await CreateWritableFileStreamWithRetryAsync(localPath, cancellationToken).ConfigureAwait(false);
+        var destination = await destinationFactory(cancellationToken).ConfigureAwait(false);
 
-        await stream.CopyToAsync(fileStream, 81920, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await stream.CopyToAsync(destination, 81920, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (disposeDestination)
+            {
+                destination.Dispose();
+            }
+        }
     }
 
     private static async Task<FileStream> CreateWritableFileStreamWithRetryAsync(string localPath, CancellationToken cancellationToken)
@@ -1005,13 +1022,19 @@ public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectio
 
     public async Task UploadKnowledgeFileAsync(string knowledgeFileFolder, Guid botComponentId, string fileName, CancellationToken cancellationToken = default)
     {
+        using var fileStream = new FileStream(GetKnowledgeFileLocalPath(knowledgeFileFolder, fileName), FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 81920, useAsync: true);
+
+        await UploadKnowledgeFileAsync(fileStream, botComponentId, fileName, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task UploadKnowledgeFileAsync(Stream content, Guid botComponentId, string fileName, CancellationToken cancellationToken = default)
+    {
         var requestUri = new Uri(new Uri(DataverseUrl), $"/api/data/v9.2/botcomponents({botComponentId})/filedata/");
         var httpClient = _httpClientAccessor.CreateClient();
-        using var fileStream = new FileStream(GetKnowledgeFileLocalPath(knowledgeFileFolder, fileName), FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 81920, useAsync: true);
 
         using var request = new HttpRequestMessage(HttpMethodHelper.Patch, requestUri)
         {
-            Content = new StreamContent(fileStream, bufferSize: 81920)
+            Content = new StreamContent(new NonDisposingStream(content), bufferSize: 81920)
         };
 
         request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
@@ -1031,6 +1054,44 @@ public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectio
     private static string GetKnowledgeFileLocalPath(string knowledgeFileFolder, string fileName)
     {
         return KnowledgeFilePath.GetLocalPath(knowledgeFileFolder, fileName);
+    }
+
+    private sealed class NonDisposingStream : Stream
+    {
+        private readonly Stream _inner;
+
+        public NonDisposingStream(Stream inner) => _inner = inner;
+
+        public override bool CanRead => _inner.CanRead;
+
+        public override bool CanSeek => _inner.CanSeek;
+
+        public override bool CanWrite => _inner.CanWrite;
+
+        public override long Length => _inner.Length;
+
+        public override long Position
+        {
+            get => _inner.Position;
+            set => _inner.Position = value;
+        }
+
+        public override void Flush() => _inner.Flush();
+
+        public override int Read(byte[] buffer, int offset, int count) => _inner.Read(buffer, offset, count);
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            => _inner.ReadAsync(buffer, offset, count, cancellationToken);
+
+        public override long Seek(long offset, SeekOrigin origin) => _inner.Seek(offset, origin);
+
+        public override void SetLength(long value) => _inner.SetLength(value);
+
+        public override void Write(byte[] buffer, int offset, int count) => _inner.Write(buffer, offset, count);
+
+        protected override void Dispose(bool disposing)
+        {
+        }
     }
 
     public virtual async Task<AIPromptMetadata[]> DownloadAllAIPromptsForAgentAsync(AgentSyncInfo syncInfo, CancellationToken cancellationToken)

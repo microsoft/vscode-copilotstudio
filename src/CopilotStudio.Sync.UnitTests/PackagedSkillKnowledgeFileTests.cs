@@ -30,13 +30,12 @@ public class PackagedSkillKnowledgeFileTests
         var mockDataverse = new Mock<ISyncDataverseClient>();
         mockDataverse.Setup(x => x.DownloadAllWorkflowsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<WorkflowMetadata>());
         mockDataverse.Setup(x => x.DownloadAllAIPromptsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<AIPromptMetadata>());
-        mockDataverse.Setup(x => x.DownloadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<BotComponentId>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .Returns<string, BotComponentId, string, CancellationToken>((folder, _, fileName, cancellationToken) =>
+        mockDataverse.As<IStreamingKnowledgeFileClient>().Setup(x => x.DownloadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<BotComponentId>(), It.IsAny<CancellationToken>()))
+            .Returns<Stream, BotComponentId, CancellationToken>((destination, componentId, cancellationToken) =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                using var stream = fileAccessor.OpenWrite(new AgentFilePath($"{GetRelativeFolder(workspace, folder)}/{fileName.Replace('\\', '/')}"));
-                var payload = Encoding.UTF8.GetBytes($"payload:{fileName}");
-                stream.Write(payload, 0, payload.Length);
+                var payload = Encoding.UTF8.GetBytes($"payload:{componentId}");
+                destination.Write(payload, 0, payload.Length);
                 return Task.CompletedTask;
             });
         var operationContext = ComponentWriterDefensiveTests.CreateMockOperationContext();
@@ -96,7 +95,7 @@ public class PackagedSkillKnowledgeFileTests
         var mockDataverse = new Mock<ISyncDataverseClient>();
         mockDataverse.Setup(x => x.DownloadAllWorkflowsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<WorkflowMetadata>());
         mockDataverse.Setup(x => x.DownloadAllAIPromptsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<AIPromptMetadata>());
-        mockDataverse.Setup(x => x.DownloadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<BotComponentId>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        mockDataverse.As<IStreamingKnowledgeFileClient>().Setup(x => x.DownloadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<BotComponentId>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         var operationContext = ComponentWriterDefensiveTests.CreateMockOperationContext();
         var syncInfo = new AgentSyncInfo { AgentId = Guid.NewGuid() };
         await synchronizer.CloneChangesAsync(workspace, new ReferenceTracker(), operationContext, mockDataverse.Object, syncInfo, CancellationToken.None);
@@ -129,15 +128,14 @@ public class PackagedSkillKnowledgeFileTests
         mockDataverse.Setup(x => x.DownloadAllWorkflowsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<WorkflowMetadata>());
         mockDataverse.Setup(x => x.DownloadAllAIPromptsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<AIPromptMetadata>());
         var downloadGate = new object();
-        mockDataverse.Setup(x => x.DownloadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<BotComponentId>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .Returns<string, BotComponentId, string, CancellationToken>((folder, _, fileName, cancellationToken) =>
+        mockDataverse.As<IStreamingKnowledgeFileClient>().Setup(x => x.DownloadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<BotComponentId>(), It.IsAny<CancellationToken>()))
+            .Returns<Stream, BotComponentId, CancellationToken>((destination, componentId, cancellationToken) =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 lock (downloadGate)
                 {
-                    using var stream = fileAccessor.OpenWrite(new AgentFilePath($"{GetRelativeFolder(workspace, folder)}/{fileName.Replace('\\', '/')}"));
-                    var payload = Encoding.UTF8.GetBytes($"payload:{fileName}");
-                    stream.Write(payload, 0, payload.Length);
+                    var payload = Encoding.UTF8.GetBytes($"payload:{componentId}");
+                    destination.Write(payload, 0, payload.Length);
                 }
                 return Task.CompletedTask;
             });
@@ -176,15 +174,14 @@ public class PackagedSkillKnowledgeFileTests
         mockDataverse.Setup(x => x.DownloadAllWorkflowsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<WorkflowMetadata>());
         mockDataverse.Setup(x => x.DownloadAllAIPromptsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<AIPromptMetadata>());
         var downloadGate = new object();
-        mockDataverse.Setup(x => x.DownloadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<BotComponentId>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .Returns<string, BotComponentId, string, CancellationToken>((folder, _, fileName, cancellationToken) =>
+        mockDataverse.As<IStreamingKnowledgeFileClient>().Setup(x => x.DownloadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<BotComponentId>(), It.IsAny<CancellationToken>()))
+            .Returns<Stream, BotComponentId, CancellationToken>((destination, componentId, cancellationToken) =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 lock (downloadGate)
                 {
-                    using var stream = fileAccessor.OpenWrite(new AgentFilePath($"{GetRelativeFolder(workspace, folder)}/{fileName.Replace('\\', '/')}"));
-                    var payload = Encoding.UTF8.GetBytes($"payload:{fileName}");
-                    stream.Write(payload, 0, payload.Length);
+                    var payload = Encoding.UTF8.GetBytes($"payload:{componentId}");
+                    destination.Write(payload, 0, payload.Length);
                 }
                 return Task.CompletedTask;
             });
@@ -244,16 +241,14 @@ public class PackagedSkillKnowledgeFileTests
             .Setup(x => x.DownloadAllAIPromptsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<AIPromptMetadata>());
         var downloadGate = new object();
-        mockDataverse
-            .Setup(x => x.DownloadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<BotComponentId>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .Returns<string, BotComponentId, string, CancellationToken>((folder, _, fileName, cancellationToken) =>
+        mockDataverse.As<IStreamingKnowledgeFileClient>().Setup(x => x.DownloadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<BotComponentId>(), It.IsAny<CancellationToken>()))
+            .Returns<Stream, BotComponentId, CancellationToken>((destination, componentId, cancellationToken) =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 lock (downloadGate)
                 {
-                    using var stream = fileAccessor.OpenWrite(new AgentFilePath($"{GetRelativeFolder(workspace, folder)}/{fileName.Replace('\\', '/')}"));
-                    var payload = Encoding.UTF8.GetBytes($"payload:{fileName}");
-                    stream.Write(payload, 0, payload.Length);
+                    var payload = Encoding.UTF8.GetBytes($"payload:{componentId}");
+                    destination.Write(payload, 0, payload.Length);
                 }
 
                 return Task.CompletedTask;
@@ -966,15 +961,6 @@ public class PackagedSkillKnowledgeFileTests
         var builder = suffixed.ToBuilder();
         builder.Id = Guid.NewGuid();
         return builder.Build();
-    }
-
-    private static string GetRelativeFolder(DirectoryPath workspace, string folder)
-    {
-        var root = workspace.ToString().TrimEnd('\\', '/').Replace('\\', '/');
-        var normalizedFolder = folder.TrimEnd('\\', '/').Replace('\\', '/');
-        return normalizedFolder.StartsWith(root + "/", StringComparison.OrdinalIgnoreCase)
-            ? normalizedFolder.Substring(root.Length + 1)
-            : normalizedFolder;
     }
 
     private static DialogComponent CreateInlineSkillComponent(string schemaName, Guid id, string displayName = "pptx")

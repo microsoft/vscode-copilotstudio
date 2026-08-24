@@ -4,12 +4,7 @@ using Microsoft.Agents.ObjectModel;
 using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Moq;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using Xunit;
 
 namespace Microsoft.CopilotStudio.Sync.UnitTests;
@@ -59,7 +54,7 @@ public class KnowledgeFileUnifyTests
             await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
 
         var dataverse = new Mock<ISyncDataverseClient>();
-        dataverse.Setup(d => d.DownloadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<BotComponentId>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        dataverse.As<IStreamingKnowledgeFileClient>().Setup(d => d.DownloadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<BotComponentId>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
         var listed = await synchronizer.ListKnowledgeFilesAsync(workspace, CancellationToken.None);
@@ -78,10 +73,10 @@ public class KnowledgeFileUnifyTests
 
         var fileComponent = definition.Components.OfType<FileAttachmentComponent>().Single();
 
-        var downloadedFolders = new List<string>();
+        var downloadedComponentIds = new List<BotComponentId>();
         var dataverse = new Mock<ISyncDataverseClient>();
-        dataverse.Setup(d => d.DownloadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<BotComponentId>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .Callback<string, BotComponentId, string, CancellationToken>((folder, _, _, _) => downloadedFolders.Add(folder))
+        dataverse.As<IStreamingKnowledgeFileClient>().Setup(d => d.DownloadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<BotComponentId>(), It.IsAny<CancellationToken>()))
+            .Callback<Stream, BotComponentId, CancellationToken>((_, componentId, _) => downloadedComponentIds.Add(componentId))
             .Returns(Task.CompletedTask);
 
         var downloaded = await synchronizer.DownloadKnowledgeFilesAsync(workspace, dataverse.Object, schemaNames: null, CancellationToken.None);
@@ -89,8 +84,8 @@ public class KnowledgeFileUnifyTests
         var info = Assert.Single(downloaded);
         Assert.Equal(fileComponent.SchemaNameString, info.SchemaName);
         Assert.Equal($"capabilities/knowledge/files/{fileComponent.DisplayName}", info.RelativePath);
-        Assert.Single(downloadedFolders);
-        Assert.EndsWith("capabilities/knowledge/files", downloadedFolders[0].Replace('\\', '/').TrimEnd('/'));
+        var downloadedComponentId = Assert.Single(downloadedComponentIds);
+        Assert.Equal(fileComponent.Id, downloadedComponentId);
     }
 
     [Fact]
@@ -100,7 +95,7 @@ public class KnowledgeFileUnifyTests
             await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
 
         var dataverse = new Mock<ISyncDataverseClient>();
-        dataverse.Setup(d => d.DownloadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<BotComponentId>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        dataverse.As<IStreamingKnowledgeFileClient>().Setup(d => d.DownloadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<BotComponentId>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new DataverseRequestException(System.Net.HttpStatusCode.NotFound, "{\"error\":{\"message\":\"No file attachment found for attribute: filedata\"}}"));
 
         var downloaded = await synchronizer.DownloadKnowledgeFilesAsync(workspace, dataverse.Object, schemaNames: null, CancellationToken.None);
@@ -117,7 +112,7 @@ public class KnowledgeFileUnifyTests
         var fileComponent = definition.Components.OfType<FileAttachmentComponent>().Single();
 
         var dataverse = new Mock<ISyncDataverseClient>();
-        dataverse.Setup(d => d.DownloadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<BotComponentId>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        dataverse.As<IStreamingKnowledgeFileClient>().Setup(d => d.DownloadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<BotComponentId>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new DataverseRequestException(System.Net.HttpStatusCode.NotFound, "{\"error\":{\"message\":\"No file attachment found for attribute: filedata\"}}"));
 
         await Assert.ThrowsAsync<DataverseRequestException>(() => synchronizer.DownloadKnowledgeFilesAsync(
@@ -131,12 +126,13 @@ public class KnowledgeFileUnifyTests
             await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
 
         var dataverse = new Mock<ISyncDataverseClient>(MockBehavior.Strict);
+        var streaming = dataverse.As<IStreamingKnowledgeFileClient>();
 
         var downloaded = await synchronizer.DownloadKnowledgeFilesAsync(
             workspace, dataverse.Object, schemaNames: new[] { "cr1d_foodlogger.file.does_not_exist" }, CancellationToken.None);
 
         Assert.Empty(downloaded);
-        dataverse.Verify(d => d.DownloadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<BotComponentId>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        streaming.Verify(d => d.DownloadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<BotComponentId>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -148,14 +144,14 @@ public class KnowledgeFileUnifyTests
         var fileComponent = definition.Components.OfType<FileAttachmentComponent>().Single();
 
         var dataverse = new Mock<ISyncDataverseClient>();
-        dataverse.Setup(d => d.DownloadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<BotComponentId>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        dataverse.As<IStreamingKnowledgeFileClient>().Setup(d => d.DownloadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<BotComponentId>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
         var downloaded = await synchronizer.DownloadKnowledgeFilesAsync(
             workspace, dataverse.Object, schemaNames: new[] { fileComponent.SchemaNameString }, CancellationToken.None);
 
         Assert.Single(downloaded);
-        dataverse.Verify(d => d.DownloadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<BotComponentId>(), fileComponent.DisplayName!, It.IsAny<CancellationToken>()), Times.Once);
+        dataverse.As<IStreamingKnowledgeFileClient>().Verify(d => d.DownloadKnowledgeFileAsync(It.IsAny<Stream>(), fileComponent.Id, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -170,8 +166,8 @@ public class KnowledgeFileUnifyTests
 
         var uploadedFileNames = new List<string>();
         var dataverse = new Mock<ISyncDataverseClient>();
-        dataverse.Setup(d => d.UploadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .Callback<string, Guid, string, CancellationToken>((_, _, fileName, _) => uploadedFileNames.Add(fileName))
+        dataverse.As<IStreamingKnowledgeFileClient>().Setup(d => d.UploadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<Stream, Guid, string, CancellationToken>((_, _, fileName, _) => uploadedFileNames.Add(fileName))
             .Returns(Task.CompletedTask);
 
         var uploaded = await synchronizer.UploadKnowledgeFilesAsync(workspace, dataverse.Object, CancellationToken.None);
@@ -187,12 +183,13 @@ public class KnowledgeFileUnifyTests
             await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
 
         var dataverse = new Mock<ISyncDataverseClient>(MockBehavior.Strict);
+        var streaming = dataverse.As<IStreamingKnowledgeFileClient>();
 
         var uploaded = await synchronizer.UploadKnowledgeFilesAsync(workspace, dataverse.Object, CancellationToken.None);
 
         Assert.Empty(uploaded);
-        dataverse.Verify(
-            d => d.UploadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+        streaming.Verify(
+            d => d.UploadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -207,7 +204,7 @@ public class KnowledgeFileUnifyTests
             new AgentFilePath($"capabilities/knowledge/files/{fileComponent.DisplayName}"), FileBytes, CancellationToken.None);
 
         var dataverse = new Mock<ISyncDataverseClient>();
-        dataverse.Setup(d => d.UploadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        dataverse.As<IStreamingKnowledgeFileClient>().Setup(d => d.UploadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
         var first = await synchronizer.UploadKnowledgeFilesAsync(workspace, dataverse.Object, CancellationToken.None);
@@ -215,8 +212,8 @@ public class KnowledgeFileUnifyTests
 
         Assert.Single(first);
         Assert.Empty(second);
-        dataverse.Verify(
-            d => d.UploadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+        dataverse.As<IStreamingKnowledgeFileClient>().Verify(
+            d => d.UploadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
@@ -231,7 +228,7 @@ public class KnowledgeFileUnifyTests
         await accessor.WriteAsync(contentPath, FileBytes, CancellationToken.None);
 
         var dataverse = new Mock<ISyncDataverseClient>();
-        dataverse.Setup(d => d.UploadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        dataverse.As<IStreamingKnowledgeFileClient>().Setup(d => d.UploadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
         await synchronizer.UploadKnowledgeFilesAsync(workspace, dataverse.Object, CancellationToken.None);
@@ -240,8 +237,8 @@ public class KnowledgeFileUnifyTests
         var second = await synchronizer.UploadKnowledgeFilesAsync(workspace, dataverse.Object, CancellationToken.None);
 
         Assert.Single(second);
-        dataverse.Verify(
-            d => d.UploadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+        dataverse.As<IStreamingKnowledgeFileClient>().Verify(
+            d => d.UploadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Exactly(2));
     }
 

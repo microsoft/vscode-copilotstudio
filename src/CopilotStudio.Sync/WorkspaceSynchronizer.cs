@@ -145,6 +145,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     /// </summary>
     private static readonly AgentFilePath IconPath = new AgentFilePath("icon.png");
 
+    private const string KnowledgeDownloadStagingSuffix = ".download.tmp";
+
+    private const int DefaultCopyBufferSize = 81920;
+
     private readonly IMcsFileParser _fileParser;
     private readonly IComponentPathResolver _pathResolver;
     private readonly IFileAccessorFactory _fileAccessorFactory;
@@ -376,13 +380,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             foreach (var localComponent in fileComponents)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var componentPath = GetStickyComponentPath(localComponent, newSnapshot, knowledgeFolderOverrides);
-                await dataverseClient.DownloadKnowledgeFileAsync(
-                    Path.Combine(workspaceFolder.ToString(), componentPath.ParentDirectoryName),
-                    localComponent.Id,
-                    localComponent.DisplayName ?? localComponent.Id.Value.ToString(),
-                    cancellationToken
-                ).ConfigureAwait(false);
+                await DownloadSingleKnowledgeFileAsync(fileAccessor, dataverseClient, localComponent, newSnapshot, knowledgeFolderOverrides, cancellationToken).ConfigureAwait(false);
             }
 #else
             await Parallel.ForEachAsync(fileComponents, new ParallelOptions
@@ -391,13 +389,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 CancellationToken = cancellationToken
             }, async (localComponent, cancellationToken) =>
             {
-                var componentPath = GetStickyComponentPath(localComponent, newSnapshot, knowledgeFolderOverrides);
-                await dataverseClient.DownloadKnowledgeFileAsync(
-                    Path.Combine(workspaceFolder.ToString(), componentPath.ParentDirectoryName),
-                    localComponent.Id,
-                    localComponent.DisplayName ?? localComponent.Id.Value.ToString(),
-                    cancellationToken
-                ).ConfigureAwait(false);
+                await DownloadSingleKnowledgeFileAsync(fileAccessor, dataverseClient, localComponent, newSnapshot, knowledgeFolderOverrides, cancellationToken).ConfigureAwait(false);
             }).ConfigureAwait(false);
 #endif
 
@@ -803,7 +795,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 foreach (var newFileComponent in newFileComponents)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    await UploadKnowledgeFileIfChangedAsync(fileAccessor, workspaceFolder, postPushSnapshot, newFileComponent, baseline, newHashes, uploaded, dataverseClient, folderOverrides, cancellationToken).ConfigureAwait(false);
+                    await UploadKnowledgeFileIfChangedAsync(fileAccessor, postPushSnapshot, newFileComponent, baseline, newHashes, uploaded, dataverseClient, folderOverrides, cancellationToken).ConfigureAwait(false);
                 }
 #else
                 await Parallel.ForEachAsync(newFileComponents, new ParallelOptions
@@ -813,7 +805,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 },
                 async (newFileComponent, cancellationToken) =>
                 {
-                    await UploadKnowledgeFileIfChangedAsync(fileAccessor, workspaceFolder, postPushSnapshot, newFileComponent, baseline, newHashes, uploaded, dataverseClient, folderOverrides, cancellationToken).ConfigureAwait(false);
+                    await UploadKnowledgeFileIfChangedAsync(fileAccessor, postPushSnapshot, newFileComponent, baseline, newHashes, uploaded, dataverseClient, folderOverrides, cancellationToken).ConfigureAwait(false);
                 }).ConfigureAwait(false);
 #endif
 
@@ -1046,7 +1038,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                var info = await DownloadSingleKnowledgeFileAsync(workspaceFolder, dataverseClient, component, snapshot, folderOverrides, cancellationToken).ConfigureAwait(false);
+                var info = await DownloadSingleKnowledgeFileAsync(fileAccessor, dataverseClient, component, snapshot, folderOverrides, cancellationToken).ConfigureAwait(false);
                 downloaded.Add(info);
             }
             catch (DataverseRequestException ex) when (skipMissingAttachments && IsMissingFileAttachment(ex))
@@ -1063,7 +1055,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             try
             {
-                var info = await DownloadSingleKnowledgeFileAsync(workspaceFolder, dataverseClient, component, snapshot, folderOverrides, ct).ConfigureAwait(false);
+                var info = await DownloadSingleKnowledgeFileAsync(fileAccessor, dataverseClient, component, snapshot, folderOverrides, ct).ConfigureAwait(false);
                 downloaded.Add(info);
             }
             catch (DataverseRequestException ex) when (skipMissingAttachments && IsMissingFileAttachment(ex))
@@ -1102,7 +1094,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         foreach (var component in fileComponents)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await UploadKnowledgeFileIfChangedAsync(fileAccessor, workspaceFolder, snapshot, component, baseline, newHashes, uploaded, dataverseClient, folderOverrides, cancellationToken).ConfigureAwait(false);
+            await UploadKnowledgeFileIfChangedAsync(fileAccessor, snapshot, component, baseline, newHashes, uploaded, dataverseClient, folderOverrides, cancellationToken).ConfigureAwait(false);
         }
 #else
         await Parallel.ForEachAsync(fileComponents, new ParallelOptions
@@ -1111,7 +1103,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             CancellationToken = cancellationToken
         }, async (component, ct) =>
         {
-            await UploadKnowledgeFileIfChangedAsync(fileAccessor, workspaceFolder, snapshot, component, baseline, newHashes, uploaded, dataverseClient, folderOverrides, ct).ConfigureAwait(false);
+            await UploadKnowledgeFileIfChangedAsync(fileAccessor, snapshot, component, baseline, newHashes, uploaded, dataverseClient, folderOverrides, ct).ConfigureAwait(false);
         }).ConfigureAwait(false);
 
 #endif
@@ -1126,7 +1118,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private async Task UploadKnowledgeFileIfChangedAsync(
         IFileAccessor fileAccessor,
-        DirectoryPath workspaceFolder,
         DefinitionBase snapshot,
         FileAttachmentComponent component,
         IReadOnlyDictionary<string, string> baseline,
@@ -1155,11 +1146,40 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             return;
         }
 
-        await dataverseClient.UploadKnowledgeFileAsync(
-            Path.Combine(workspaceFolder.ToString(), componentPath.ParentDirectoryName),
-            component.Id.Value,
-            component.DisplayName!,
-            cancellationToken).ConfigureAwait(false);
+        if (dataverseClient is IStreamingKnowledgeFileClient streamingClient)
+        {
+            using var contentStream = fileAccessor.OpenRead(contentPath);
+            await streamingClient.UploadKnowledgeFileAsync(
+                contentStream,
+                component.Id.Value,
+                component.DisplayName!,
+                cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            var stagingFolder = CreateTempFolder("mcs-knowledge-upload-");
+            try
+            {
+                var stagedFile = KnowledgeFilePath.GetLocalPath(stagingFolder, component.DisplayName!);
+                Directory.CreateDirectory(Path.GetDirectoryName(stagedFile)!);
+
+                using (var source = fileAccessor.OpenRead(contentPath))
+                using (var staged = new FileStream(stagedFile, FileMode.Create, FileAccess.Write, FileShare.None, DefaultCopyBufferSize, useAsync: true))
+                {
+                    await source.CopyToAsync(staged, DefaultCopyBufferSize, cancellationToken).ConfigureAwait(false);
+                }
+
+                await dataverseClient.UploadKnowledgeFileAsync(
+                    stagingFolder,
+                    component.Id.Value,
+                    component.DisplayName!,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                TryDeleteDirectory(stagingFolder);
+            }
+        }
 
         if (hash != null)
         {
@@ -1170,7 +1190,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     }
 
     private async Task<KnowledgeFileInfo> DownloadSingleKnowledgeFileAsync(
-        DirectoryPath workspaceFolder,
+        IFileAccessor fileAccessor,
         ISyncDataverseClient dataverseClient,
         FileAttachmentComponent component,
         DefinitionBase snapshot,
@@ -1178,23 +1198,136 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         CancellationToken cancellationToken)
     {
         var componentPath = GetStickyComponentPath(component, snapshot, folderOverrides);
-        var parentDirectory = componentPath.ParentDirectoryName;
         var displayName = component.DisplayName!;
         var localDisplayName = KnowledgeFilePath.NormalizeDisplayName(displayName);
-
-        await dataverseClient.DownloadKnowledgeFileAsync(
-            Path.Combine(workspaceFolder.ToString(), parentDirectory),
-            component.Id,
-            localDisplayName,
-            cancellationToken).ConfigureAwait(false);
-
         var contentPath = GetKnowledgeContentFilePath(componentPath, displayName);
+
+        var stagingPath = new AgentFilePath($"{contentPath}.{Guid.NewGuid():N}{KnowledgeDownloadStagingSuffix}");
+        var staged = false;
+        var promotionStarted = false;
+        var destinationExistedBeforePromotion = false;
+        try
+        {
+            if (dataverseClient is IStreamingKnowledgeFileClient streamingClient)
+            {
+                using (var destination = fileAccessor.OpenWrite(stagingPath))
+                {
+                    await streamingClient.DownloadKnowledgeFileAsync(destination, component.Id, cancellationToken).ConfigureAwait(false);
+                }
+
+                staged = true;
+            }
+            else
+            {
+                var downloadFolder = CreateTempFolder("mcs-knowledge-download-");
+                try
+                {
+                    await dataverseClient.DownloadKnowledgeFileAsync(
+                        downloadFolder,
+                        component.Id,
+                        localDisplayName,
+                        cancellationToken).ConfigureAwait(false);
+
+                    var downloadedFile = Path.Combine(downloadFolder, localDisplayName);
+                    if (File.Exists(downloadedFile))
+                    {
+                        using (var source = new FileStream(downloadedFile, FileMode.Open, FileAccess.Read, FileShare.Read, DefaultCopyBufferSize, useAsync: true))
+                        using (var destination = fileAccessor.OpenWrite(stagingPath))
+                        {
+                            await source.CopyToAsync(destination, DefaultCopyBufferSize, cancellationToken).ConfigureAwait(false);
+                        }
+
+                        staged = true;
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(downloadFolder);
+                }
+            }
+
+            if (staged)
+            {
+                destinationExistedBeforePromotion = fileAccessor.Exists(contentPath);
+                promotionStarted = true;
+                await PromoteStagedKnowledgeFileAsync(fileAccessor, stagingPath, contentPath, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch
+        {
+            var destinationWasLost = promotionStarted && destinationExistedBeforePromotion && !fileAccessor.Exists(contentPath);
+            if (!destinationWasLost)
+            {
+                TryDeleteKnowledgeContent(fileAccessor, stagingPath);
+            }
+
+            throw;
+        }
+
         return new KnowledgeFileInfo
         {
             SchemaName = component.SchemaNameString,
             FileName = localDisplayName,
             RelativePath = PathHelper.ToInternalCanonicalPath(contentPath.ToString()),
         };
+    }
+
+    private static async Task PromoteStagedKnowledgeFileAsync(IFileAccessor fileAccessor, AgentFilePath stagingPath, AgentFilePath contentPath, CancellationToken cancellationToken)
+    {
+        const int maxAttempts = 3;
+        const int baseDelayMilliseconds = 100;
+
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                fileAccessor.Replace(stagingPath, contentPath);
+                return;
+            }
+            catch (IOException exception) when (attempt < maxAttempts && IsSharingViolation(exception))
+            {
+                await Task.Delay(baseDelayMilliseconds * attempt, cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private static bool IsSharingViolation(IOException exception)
+    {
+        const int errorSharingViolation = 32;
+        const int errorLockViolation = 33;
+        var errorCode = exception.HResult & 0xFFFF;
+        return errorCode == errorSharingViolation || errorCode == errorLockViolation;
+    }
+
+    private static bool IsKnowledgeDownloadStagingFile(AgentFilePath file) => file.FileName.EndsWith(KnowledgeDownloadStagingSuffix, StringComparison.OrdinalIgnoreCase);
+
+    private static void TryDeleteKnowledgeContent(IFileAccessor fileAccessor, AgentFilePath contentPath)
+    {
+        try
+        {
+            fileAccessor.Delete(contentPath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
+
+    private static void TryDeleteDirectory(string folder)
+    {
+        try
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
+        {
+        }
+    }
+
+    private static string CreateTempFolder(string prefix)
+    {
+        var folder = Path.Combine(Path.GetTempPath(), prefix + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        return folder;
     }
 
     private static bool IsMissingFileAttachment(DataverseRequestException ex)
@@ -1436,7 +1569,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
         var cloudCache = ReadCloudCacheSnapshot(fileAccessor, allowMissing: true);
         var effectiveDefinition = OverlayCliConnectionReferences(definition, fileAccessor, cancellationToken);
-        
+        if (effectiveDefinition.ConnectionReferences.IsDefaultOrEmpty)
+        {
+            effectiveDefinition = effectiveDefinition.WithConnectionReferences(ReadDeclaredConnectionReferencesFromDisk(fileAccessor, effectiveDefinition));
+        }
+
         var newRefs = FilterNewConnectionReferences(effectiveDefinition, cloudCache);
         if (newRefs.IsDefaultOrEmpty)
         {
@@ -4131,6 +4268,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             var icon = Convert.FromBase64String(entity.IconBase64);
             await fileAccessor.WriteAsync(IconPath, icon, cancellationToken).ConfigureAwait(false);
         }
+        else if (fileAccessor.Exists(IconPath))
+        {
+            fileAccessor.Delete(IconPath);
+        }
 
         // CLI and classic agents both persist the BotEntity identity to the
         // language-recognized settings.mcs.yml via the OM serializer. The CLI
@@ -5799,17 +5940,15 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }
         }
 
-        var workflowsDir = Path.Combine(workspaceFolder.ToString(), WorkflowFolder);
-        if (Directory.Exists(workflowsDir))
         {
             var deserializer = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
             var workflowsToUpload = new List<WorkflowMetadata>();
             var workflowMetadataRelativePaths = new Dictionary<Guid, string>();
 
-            foreach (var workflowFolder in Directory.EnumerateDirectories(workflowsDir))
+            foreach (var workflowFolder in EnumerateComponentFolders(fileAccessor, WorkflowFolder))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var workflowName = Path.GetFileName(workflowFolder);
+                var workflowName = GetComponentFolderName(workflowFolder);
                 var workflowId = ExtractWorkflowIdFromFileName(workflowName);
 
                 if (workflowId == null)
@@ -5817,27 +5956,27 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                     continue;
                 }
 
-                var jsonFile = Path.Combine(workflowFolder, "workflow.json");
-                var metadataFile = Path.Combine(workflowFolder, "metadata.yml");
-                if (!File.Exists(jsonFile) || !File.Exists(metadataFile))
+                var jsonPath = new AgentFilePath($"{workflowFolder}/workflow.json");
+                var metadataPath = new AgentFilePath($"{workflowFolder}/metadata.yml");
+                if (!fileAccessor.Exists(jsonPath) || !fileAccessor.Exists(metadataPath))
                 {
                     continue;
                 }
 
-                var workflowUploadSize = new FileInfo(jsonFile).Length + new FileInfo(metadataFile).Length;
+                var workflowUploadSize = GetFileSize(fileAccessor, jsonPath) + GetFileSize(fileAccessor, metadataPath);
                 if (workflowUploadSize > MaxWorkflowUploadSizeBytes)
                 {
                     _syncProgress.Report($"Workflow '{workflowName}' exceeded the upload size limit of 125MB and will be skipped.");
                     continue;
                 }
 
-                var clientDataJson = await FileShim.ReadAllTextAsync(jsonFile, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
-                var yamlText = await FileShim.ReadAllTextAsync(metadataFile, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+                var clientDataJson = await fileAccessor.ReadStringAsync(jsonPath, cancellationToken).ConfigureAwait(false);
+                var yamlText = await fileAccessor.ReadStringAsync(metadataPath, cancellationToken).ConfigureAwait(false);
                 var metadata = deserializer.Deserialize<WorkflowMetadata>(yamlText)
                     ?? throw new InvalidOperationException($"Workflow metadata file is empty or invalid.");
                 metadata.ClientData = clientDataJson;
                 workflows.Add(metadata);
-                workflowMetadataRelativePaths[metadata.WorkflowId] = Path.Combine(WorkflowFolder, workflowName, "metadata.yml").Replace("\\", "/");
+                workflowMetadataRelativePaths[metadata.WorkflowId] = $"{WorkflowFolder}/{workflowName}/metadata.yml";
 
                 _ = GetFlowDefinition(metadata);
 
@@ -6095,11 +6234,87 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         foreach (var folderPath in folderPaths)
         {
-            if (Directory.Exists(folderPath))
+            fileAccessor.DeleteDirectory(new AgentFilePath(folderPath));
+        }
+    }
+
+    private static IEnumerable<string> EnumerateComponentFolders(IFileAccessor fileAccessor, string relativeRoot)
+    {
+        var prefix = relativeRoot + "/";
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in fileAccessor.ListFiles(relativeRoot))
+        {
+            var rel = file.ToString();
+            if (!rel.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             {
-                Directory.Delete(folderPath, true);
+                continue;
+            }
+
+            var rest = rel.Substring(prefix.Length);
+            var slash = rest.IndexOf('/');
+            if (slash < 0)
+            {
+                continue;
+            }
+
+            var folder = prefix + rest.Substring(0, slash);
+            if (seen.Add(folder))
+            {
+                yield return folder;
             }
         }
+    }
+
+    private static string GetComponentFolderName(string relativeFolder)
+    {
+        var slash = relativeFolder.LastIndexOf('/');
+        return slash < 0 ? relativeFolder : relativeFolder.Substring(slash + 1);
+    }
+
+    private static long GetFileSize(IFileAccessor fileAccessor, AgentFilePath path)
+    {
+        using var stream = fileAccessor.OpenRead(path);
+        return stream.Length;
+    }
+
+    private static void MoveComponentFolder(IFileAccessor fileAccessor, string sourceFolder, string targetFolder)
+    {
+        var sourcePrefix = sourceFolder + "/";
+        var targetPrefix = targetFolder + "/";
+
+        var sourceFiles = fileAccessor.ListFiles(sourceFolder)
+            .Where(file => file.ToString().StartsWith(sourcePrefix, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        fileAccessor.DeleteDirectory(new AgentFilePath(targetFolder));
+
+        var moved = new List<(AgentFilePath Source, AgentFilePath Target)>(sourceFiles.Count);
+        try
+        {
+            foreach (var file in sourceFiles)
+            {
+                var target = new AgentFilePath(targetPrefix + file.ToString().Substring(sourcePrefix.Length));
+                fileAccessor.Replace(file, target);
+                moved.Add((file, target));
+            }
+        }
+        catch
+        {
+            for (var index = moved.Count - 1; index >= 0; index--)
+            {
+                try
+                {
+                    fileAccessor.Replace(moved[index].Target, moved[index].Source);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FileNotFoundException)
+                {
+                }
+            }
+
+            throw;
+        }
+
+        fileAccessor.DeleteDirectory(new AgentFilePath(sourceFolder));
     }
 
     public async Task<CloudFlowMetadata> GetWorkflowsAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, IFileAccessor fileAccessor, CancellationToken cancellationToken)
@@ -6112,14 +6327,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         try
         {
             var remote = await dataverseClient.DownloadAllWorkflowsForAgentAsync(syncInfo, cancellationToken).ConfigureAwait(false);
-            var workflowsRoot = Path.Combine(workspaceFolder.ToString(), WorkflowFolder);
-
-            Directory.CreateDirectory(workflowsRoot);
             var existingFolders = new Dictionary<Guid, string>();
 
-            foreach (var folder in Directory.EnumerateDirectories(workflowsRoot))
+            foreach (var folder in EnumerateComponentFolders(fileAccessor, WorkflowFolder))
             {
-                var workflowId = ExtractWorkflowIdFromFileName(Path.GetFileName(folder));
+                var workflowId = ExtractWorkflowIdFromFileName(GetComponentFolderName(folder));
                 if (workflowId.HasValue)
                 {
                     existingFolders[workflowId.Value] = folder;
@@ -6146,27 +6358,18 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 var (definition, _) = GetFlowDefinition(workflow);
                 cloudFlowDefinitions.Add(definition);
                 var folderName = $"{new string(((workflow.Name ?? string.Empty)).Where(c => !Path.GetInvalidFileNameChars().Contains(c) && !char.IsWhiteSpace(c)).ToArray()).TrimEnd('.', ' ')}-{workflow.WorkflowId}";
-                var folderPath = Path.Combine(workflowsRoot, folderName);
+                var folderPath = $"{WorkflowFolder}/{folderName}";
 
                 if (existingFolders.TryGetValue(workflow.WorkflowId, out var existingFolderPath))
                 {
                     if (!string.Equals(existingFolderPath, folderPath, StringComparison.OrdinalIgnoreCase))
                     {
-                        try
-                        {
-                            Directory.Move(existingFolderPath, folderPath);
-                        }
-                        catch (IOException) when (Directory.Exists(folderPath))
-                        {
-                            Directory.Delete(folderPath, true);
-                            Directory.Move(existingFolderPath, folderPath);
-                        }
+                        MoveComponentFolder(fileAccessor, existingFolderPath, folderPath);
                     }
                     existingFolders[workflow.WorkflowId] = folderPath;
                 }
                 else
                 {
-                    Directory.CreateDirectory(folderPath);
                     existingFolders[workflow.WorkflowId] = folderPath;
                 }
 
@@ -6231,18 +6434,13 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             var remotePrompts = knownAiModelIds != null
                 ? await dataverseClient.DownloadAIPromptsByModelIdsAsync(knownAiModelIds, cancellationToken).ConfigureAwait(false)
                 : await dataverseClient.DownloadAllAIPromptsForAgentAsync(syncInfo, cancellationToken).ConfigureAwait(false);
-            var promptsRoot = Path.Combine(workspaceFolder.ToString(), PromptsFolder);
-
             var existingFolders = new Dictionary<Guid, string>();
-            if (Directory.Exists(promptsRoot))
+            foreach (var folder in EnumerateComponentFolders(fileAccessor, PromptsFolder))
             {
-                foreach (var folder in Directory.EnumerateDirectories(promptsRoot))
+                var modelId = AiPromptProjection.ExtractTrailingGuidFromFileName(GetComponentFolderName(folder));
+                if (modelId.HasValue)
                 {
-                    var modelId = AiPromptProjection.ExtractTrailingGuidFromFileName(Path.GetFileName(folder));
-                    if (modelId.HasValue)
-                    {
-                        existingFolders[modelId.Value] = folder;
-                    }
+                    existingFolders[modelId.Value] = folder;
                 }
             }
 
@@ -6251,11 +6449,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 DeleteLocalComponentFolders(fileAccessor, existingFolders.Values);
 
                 return ImmutableArray<AIPromptMetadata>.Empty;
-            }
-
-            if (remotePrompts.Any(prompt => !prompt.IsUnreadableReferencePlaceholder))
-            {
-                Directory.CreateDirectory(promptsRoot);
             }
 
             var downloadedHashes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -6271,31 +6464,22 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 }
 
                 var folderName = $"{SanitizeFolderSegment(prompt.Name ?? string.Empty)}-{prompt.AIModelId}";
-                var folderPath = Path.Combine(promptsRoot, folderName);
+                var folderPath = $"{PromptsFolder}/{folderName}";
 
                 if (existingFolders.TryGetValue(prompt.AIModelId, out var existingFolderPath))
                 {
                     if (!string.Equals(existingFolderPath, folderPath, StringComparison.OrdinalIgnoreCase))
                     {
-                        try
-                        {
-                            Directory.Move(existingFolderPath, folderPath);
-                        }
-                        catch (IOException) when (Directory.Exists(folderPath))
-                        {
-                            Directory.Delete(folderPath, true);
-                            Directory.Move(existingFolderPath, folderPath);
-                        }
+                        MoveComponentFolder(fileAccessor, existingFolderPath, folderPath);
                     }
                     existingFolders[prompt.AIModelId] = folderPath;
                 }
                 else
                 {
-                    Directory.CreateDirectory(folderPath);
                     existingFolders[prompt.AIModelId] = folderPath;
                 }
 
-                var promptFolderRelative = Path.Combine(PromptsFolder, folderName).Replace("\\", "/");
+                var promptFolderRelative = folderPath;
 
                 string? promptJson = null;
                 var promptJsonPath = new AgentFilePath($"{promptFolderRelative}/prompt.json");
@@ -6345,37 +6529,31 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     {
         var responses = ImmutableArray.CreateBuilder<AIPromptResponse>();
         var prompts = ImmutableArray.CreateBuilder<AIPromptMetadata>();
-        var promptsDir = Path.Combine(workspaceFolder.ToString(), PromptsFolder);
-        if (!Directory.Exists(promptsDir))
-        {
-            return (responses.ToImmutable(), prompts.ToImmutable());
-        }
-
         var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
         var baseline = ReadAiPromptSyncState(fileAccessor);
         var updatedState = new Dictionary<string, string>(baseline, StringComparer.OrdinalIgnoreCase);
         var stateChanged = false;
 
-        foreach (var promptFolder in Directory.EnumerateDirectories(promptsDir))
+        foreach (var promptFolder in EnumerateComponentFolders(fileAccessor, PromptsFolder))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var folderName = Path.GetFileName(promptFolder);
+            var folderName = GetComponentFolderName(promptFolder);
             var aiModelId = AiPromptProjection.ExtractTrailingGuidFromFileName(folderName);
             if (aiModelId == null)
             {
                 continue;
             }
 
-            var promptJsonFile = Path.Combine(promptFolder, "prompt.json");
-            var metadataFile = Path.Combine(promptFolder, "metadata.yml");
-            if (!File.Exists(metadataFile))
+            var promptJsonPath = new AgentFilePath($"{promptFolder}/prompt.json");
+            var metadataPath = new AgentFilePath($"{promptFolder}/metadata.yml");
+            if (!fileAccessor.Exists(metadataPath))
             {
                 continue;
             }
 
-            var yamlText = await FileShim.ReadAllTextAsync(metadataFile, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
-            var promptJsonText = File.Exists(promptJsonFile)
-                ? await FileShim.ReadAllTextAsync(promptJsonFile, Encoding.UTF8, cancellationToken).ConfigureAwait(false)
+            var yamlText = await fileAccessor.ReadStringAsync(metadataPath, cancellationToken).ConfigureAwait(false);
+            var promptJsonText = fileAccessor.Exists(promptJsonPath)
+                ? await fileAccessor.ReadStringAsync(promptJsonPath, cancellationToken).ConfigureAwait(false)
                 : null;
 
             var key = aiModelId.Value.ToString("N");
@@ -6390,7 +6568,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }
             catch (Exception ex)
             {
-                _syncProgress.Report($"Failed to parse {metadataFile}: {ex.Message}");
+                _syncProgress.Report($"Failed to parse {metadataPath}: {ex.Message}");
                 continue;
             }
 
@@ -6879,10 +7057,29 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             updatedConnectionRefs = overlaid.ToImmutableArray();
         }
 
-        return definition
+        var readDefinition = definition
             .WithComponents(updatedComponents)
             .WithEnvironmentVariables(updatedEnvVars)
             .WithConnectionReferences(updatedConnectionRefs);
+
+        if (readDefinition is BotDefinition botDefinitionWithIcon && botDefinitionWithIcon.Entity != null)
+        {
+            string? localIconBase64 = null;
+            if (fileAccessor.Exists(IconPath))
+            {
+                var iconBytes = await fileAccessor.ReadBytesAsync(IconPath, cancellationToken).ConfigureAwait(false);
+                localIconBase64 = Convert.ToBase64String(iconBytes);
+            }
+
+            if (!string.Equals(botDefinitionWithIcon.Entity.IconBase64, localIconBase64, StringComparison.Ordinal))
+            {
+                var entityBuilder = botDefinitionWithIcon.Entity.ToBuilder();
+                entityBuilder.IconBase64 = localIconBase64;
+                readDefinition = botDefinitionWithIcon.WithEntity(entityBuilder.Build());
+            }
+        }
+
+        return readDefinition;
     }
 
     private static DefinitionBase? ReadCachelessCliDefinitionOrNull(IFileAccessor fileAccessor)
@@ -7154,6 +7351,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             return false;
         }
 
+        if (IsKnowledgeDownloadStagingFile(knowledgeFile))
+        {
+            return false;
+        }
+
         if (!fileAccessor.Exists(knowledgeFile))
         {
             return false;
@@ -7210,30 +7412,21 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     private async Task<CloudFlowMetadata> GetLocalWorkflowContentAsync(DirectoryPath workspaceFolder, CancellationToken cancellationToken)
     {
         var cloudFlowDefinitions = new List<CloudFlowDefinition>();
-        var workflowsDir = Path.Combine(workspaceFolder.ToString(), WorkflowFolder);
+        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
 
-        if (!Directory.Exists(workflowsDir))
-        {
-            return new CloudFlowMetadata
-            {
-                Workflows = ImmutableArray<CloudFlowDefinition>.Empty,
-                ConnectionReferences = ImmutableArray<ConnectionReference>.Empty
-            };
-        }
-
-        foreach (var workflowFolder in Directory.EnumerateDirectories(workflowsDir))
+        foreach (var workflowFolder in EnumerateComponentFolders(fileAccessor, WorkflowFolder))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var metadataFile = Path.Combine(workflowFolder, "metadata.yml");
-            var jsonFile = Path.Combine(workflowFolder, "workflow.json");
+            var metadataPath = new AgentFilePath($"{workflowFolder}/metadata.yml");
+            var jsonPath = new AgentFilePath($"{workflowFolder}/workflow.json");
 
-            if (!File.Exists(metadataFile) || !File.Exists(jsonFile))
+            if (!fileAccessor.Exists(metadataPath) || !fileAccessor.Exists(jsonPath))
             {
                 continue;
             }
 
-            var yaml = await FileShim.ReadAllTextAsync(metadataFile, cancellationToken).ConfigureAwait(false);
-            var json = await FileShim.ReadAllTextAsync(jsonFile, cancellationToken).ConfigureAwait(false);
+            var yaml = await fileAccessor.ReadStringAsync(metadataPath, cancellationToken).ConfigureAwait(false);
+            var json = await fileAccessor.ReadStringAsync(jsonPath, cancellationToken).ConfigureAwait(false);
             var deserializer = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
             var metadata = deserializer.Deserialize<WorkflowMetadata>(yaml)
                 ?? throw new InvalidOperationException($"Workflow metadata file is empty or invalid.");
@@ -7924,13 +8117,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             : connectorVersions == null ? null : new HashSet<Guid>(connectorVersions.Select(c => c.ConnectorId));
 
         var presentConnectorIds = new HashSet<Guid>();
-        var connectorsRoot = Path.Combine(workspaceFolder.ToString(), ConnectorsFolder);
 
         void TryDeleteConnectorFolder(string folderPath, string folderName)
         {
             try
             {
-                Directory.Delete(folderPath, recursive: true);
+                fileAccessor.DeleteDirectory(new AgentFilePath(folderPath));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -7938,27 +8130,24 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }
         }
 
-        if (Directory.Exists(connectorsRoot))
+        foreach (var existing in EnumerateComponentFolders(fileAccessor, ConnectorsFolder))
         {
-            foreach (var existing in Directory.EnumerateDirectories(connectorsRoot))
+            cancellationToken.ThrowIfCancellationRequested();
+            var folderName = GetComponentFolderName(existing);
+            var guid = ExtractTrailingGuid(folderName);
+
+            if (guid == null)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                var folderName = Path.GetFileName(existing);
-                var guid = ExtractTrailingGuid(folderName);
-
-                if (guid == null)
-                {
-                    continue;
-                }
-
-                if (existingConnectorRowIds == null || existingConnectorRowIds.Contains(guid.Value))
-                {
-                    presentConnectorIds.Add(guid.Value);
-                    continue;
-                }
-
-                TryDeleteConnectorFolder(existing, folderName);
+                continue;
             }
+
+            if (existingConnectorRowIds == null || existingConnectorRowIds.Contains(guid.Value))
+            {
+                presentConnectorIds.Add(guid.Value);
+                continue;
+            }
+
+            TryDeleteConnectorFolder(existing, folderName);
         }
 
         if (internalIdToConnectorId.Count == 0)
@@ -8015,13 +8204,13 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }
         }
 
-        if (connectorVersions == null && Directory.Exists(connectorsRoot))
+        if (connectorVersions == null)
         {
             var downloadedRowIds = new HashSet<Guid>(connectors.Select(connector => connector.ConnectorId));
-            foreach (var existing in Directory.EnumerateDirectories(connectorsRoot))
+            foreach (var existing in EnumerateComponentFolders(fileAccessor, ConnectorsFolder))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var folderName = Path.GetFileName(existing);
+                var folderName = GetComponentFolderName(existing);
                 var guid = ExtractTrailingGuid(folderName);
                 if (guid == null || downloadedRowIds.Contains(guid.Value))
                 {
@@ -8345,19 +8534,15 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     public async Task<CustomConnectorPushResult> PushCustomConnectorsAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
     {
         var pushedRowIds = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
-        var connectorsRoot = Path.Combine(workspaceFolder.ToString(), ConnectorsFolder);
-        if (!Directory.Exists(connectorsRoot))
-        {
-            return new CustomConnectorPushResult { PushedRowIds = pushedRowIds };
-        }
+        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
 
         var localConnectors = new List<CustomConnectorMetadata>();
 
-        foreach (var folder in Directory.EnumerateDirectories(connectorsRoot))
+        foreach (var folder in EnumerateComponentFolders(fileAccessor, ConnectorsFolder))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var folderName = Path.GetFileName(folder);
-            var local = await TryLoadLocalConnectorAsync(folder, cancellationToken).ConfigureAwait(false);
+            var folderName = GetComponentFolderName(folder);
+            var local = await TryLoadLocalConnectorAsync(fileAccessor, folder, cancellationToken).ConfigureAwait(false);
             if (local == null)
             {
                 continue;
@@ -8384,7 +8569,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             return new CustomConnectorPushResult { PushedRowIds = pushedRowIds };
         }
 
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
         var baseline = ReadConnectorSyncState(fileAccessor);
         var updatedState = new Dictionary<string, string>(baseline, StringComparer.OrdinalIgnoreCase);
         var stateChanged = false;
@@ -8436,10 +8620,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return new CustomConnectorPushResult { PushedRowIds = pushedRowIds };
     }
 
-    private static async Task<CustomConnectorMetadata?> TryLoadLocalConnectorAsync(string folder, CancellationToken cancellationToken)
+    private static async Task<CustomConnectorMetadata?> TryLoadLocalConnectorAsync(IFileAccessor fileAccessor, string folder, CancellationToken cancellationToken)
     {
-        var metadataPath = Path.Combine(folder, "metadata.yml");
-        if (!File.Exists(metadataPath))
+        var metadataPath = new AgentFilePath($"{folder}/metadata.yml");
+        if (!fileAccessor.Exists(metadataPath))
         {
             return null;
         }
@@ -8447,7 +8631,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         string metadataText;
         try
         {
-            metadataText = await FileShim.ReadAllTextAsync(metadataPath, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+            metadataText = await fileAccessor.ReadStringAsync(metadataPath, cancellationToken).ConfigureAwait(false);
         }
         catch (IOException)
         {
@@ -8469,73 +8653,69 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             return null;
         }
 
-        meta.OpenApiDefinition = await ReadConnectorMetadataAsync(folder, meta.OpenApiDefinition, cancellationToken).ConfigureAwait(false);
-        meta.ConnectionParameters = await ReadConnectorMetadataAsync(folder, meta.ConnectionParameters, cancellationToken).ConfigureAwait(false);
-        meta.PolicyTemplateInstances = await ReadConnectorMetadataAsync(folder, meta.PolicyTemplateInstances, cancellationToken).ConfigureAwait(false);
-        meta.IconBlobBase64 = await ReadConnectorIconAsync(folder, meta.IconBlobBase64, cancellationToken).ConfigureAwait(false);
+        meta.OpenApiDefinition = await ReadConnectorMetadataAsync(fileAccessor, folder, meta.OpenApiDefinition, cancellationToken).ConfigureAwait(false);
+        meta.ConnectionParameters = await ReadConnectorMetadataAsync(fileAccessor, folder, meta.ConnectionParameters, cancellationToken).ConfigureAwait(false);
+        meta.PolicyTemplateInstances = await ReadConnectorMetadataAsync(fileAccessor, folder, meta.PolicyTemplateInstances, cancellationToken).ConfigureAwait(false);
+        meta.IconBlobBase64 = await ReadConnectorIconAsync(fileAccessor, folder, meta.IconBlobBase64, cancellationToken).ConfigureAwait(false);
 
         return meta;
     }
 
-    private static async Task<string?> ReadConnectorMetadataAsync(string connectorFolder, string? value, CancellationToken cancellationToken)
+    private static async Task<string?> ReadConnectorMetadataAsync(IFileAccessor fileAccessor, string connectorFolder, string? value, CancellationToken cancellationToken)
     {
-        var fullPath = TryResolveConnectorRelativePath(connectorFolder, value);
-        if (fullPath == null)
+        var relativePath = TryResolveConnectorRelativePath(connectorFolder, value);
+        if (relativePath == null)
         {
             return value;
         }
 
-        return await FileShim.ReadAllTextAsync(fullPath, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+        var path = new AgentFilePath(relativePath);
+        if (!fileAccessor.Exists(path))
+        {
+            return value;
+        }
+
+        return await fileAccessor.ReadStringAsync(path, cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task<string?> ReadConnectorIconAsync(string connectorFolder, string? value, CancellationToken cancellationToken)
+    private static async Task<string?> ReadConnectorIconAsync(IFileAccessor fileAccessor, string connectorFolder, string? value, CancellationToken cancellationToken)
     {
-        var fullPath = TryResolveConnectorRelativePath(connectorFolder, value);
-        if (fullPath == null)
+        var relativePath = TryResolveConnectorRelativePath(connectorFolder, value);
+        if (relativePath == null)
         {
             return value;
         }
 
-#if NETSTANDARD2_0
-        var bytes = File.ReadAllBytes(fullPath);
-        await Task.CompletedTask.ConfigureAwait(false);
-#else
-        var bytes = await File.ReadAllBytesAsync(fullPath, cancellationToken).ConfigureAwait(false);
-#endif
+        var path = new AgentFilePath(relativePath);
+        if (!fileAccessor.Exists(path))
+        {
+            return value;
+        }
+
+        var bytes = await fileAccessor.ReadBytesAsync(path, cancellationToken).ConfigureAwait(false);
         return Convert.ToBase64String(bytes);
     }
 
     private static string? TryResolveConnectorRelativePath(string connectorFolder, string? value)
     {
-        var workspaceRoot = Path.GetDirectoryName(Path.GetDirectoryName(connectorFolder));
-        if (string.IsNullOrWhiteSpace(value) || !value!.StartsWith($"{ConnectorsFolder}/", StringComparison.OrdinalIgnoreCase) || workspaceRoot == null)
+        if (string.IsNullOrWhiteSpace(value) || !value!.StartsWith($"{ConnectorsFolder}/", StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
 
-        string fullPath;
-        string connectorRoot;
-        try
-        {
-            fullPath = Path.GetFullPath(Path.Combine(workspaceRoot, value.Replace('/', Path.DirectorySeparatorChar)));
-            connectorRoot = Path.GetFullPath(connectorFolder);
-        }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        var normalizedValue = value.Replace('\\', '/');
+        if (normalizedValue.Split('/').Any(segment => segment == ".." || segment == "."))
         {
             return null;
         }
 
-        if (!connectorRoot.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal))
-        {
-            connectorRoot += Path.DirectorySeparatorChar;
-        }
-
-        if (!fullPath.StartsWith(connectorRoot, StringComparison.OrdinalIgnoreCase))
+        var normalizedFolder = connectorFolder.Replace('\\', '/').TrimEnd('/');
+        if (!normalizedValue.StartsWith($"{normalizedFolder}/", StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
 
-        return File.Exists(fullPath) ? fullPath : null;
+        return normalizedValue;
     }
 
     private static string SanitizeConnectorFolderName(string raw)
@@ -8604,8 +8784,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }
 
             var folder = rootFolder.GetChildDirectoryPath(folderName);
-            var folderPath = folder.ToString();
-            if (Directory.Exists(folderPath) && Directory.GetFiles(folderPath).Length > 0)
+            if (_fileAccessorFactory.Create(folder).ListFiles().Any())
             {
                 throw new InvalidOperationException($"Destination path '{folder}' already exists and is not an empty directory.");
             }
@@ -8696,6 +8875,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
         finally
         {
+            (_fileAccessorFactory as InMemoryFileAccessorFactory)?.Release(tempWorkspace);
+
             try { Directory.Delete(tempDir, recursive: true); } catch { /* best-effort cleanup */ }
         }
     }

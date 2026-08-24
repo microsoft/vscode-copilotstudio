@@ -34,6 +34,27 @@
             file.EndsWith(".mcs.yml", StringComparison.OrdinalIgnoreCase) ||
             file.EndsWith(".mcs.yaml", StringComparison.OrdinalIgnoreCase);
 
+        private static async Task SeedWorkflowAsync(
+            IFileAccessorFactory filesystem,
+            DirectoryPath workspaceFolder,
+            string folderName,
+            string? workflowJson,
+            string? metadataYaml,
+            CancellationToken cancel)
+        {
+            var accessor = filesystem.Create(workspaceFolder);
+
+            if (workflowJson != null)
+            {
+                await accessor.WriteAsync(new AgentFilePath($"workflows/{folderName}/workflow.json"), workflowJson, cancel);
+            }
+
+            if (metadataYaml != null)
+            {
+                await accessor.WriteAsync(new AgentFilePath($"workflows/{folderName}/metadata.yml"), metadataYaml, cancel);
+            }
+        }
+
         [Fact]
         public async Task WriteConnections()
         {
@@ -1163,18 +1184,19 @@ beginDialog:
             var workspacePath = tempWorkspace.Path.Replace("\\", "/");
             var workspaceFolder = new DirectoryPath(workspacePath);
             var islandControlPlaneServiceMock = new Mock<IIslandControlPlaneService>();
-            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)new InMemoryFileWriter(), islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+            var filesystem = new InMemoryFileWriter();
+            var synchronizer = new WorkspaceSynchronizer(new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance), (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem, islandControlPlaneServiceMock.Object, Mock.Of<ISyncProgress>(), new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
 
             var workflowId = Guid.NewGuid();
             var agentId = Guid.NewGuid();
-            var workflowFolder = $"{workspaceFolder}/workflows/{workflowId}";
-            Directory.CreateDirectory(workflowFolder.Replace("/", Path.DirectorySeparatorChar.ToString()));
 
-            var workflowJsonPath = $"{workflowFolder}/workflow.json";
-            var workflowMetadataPath = $"{workflowFolder}/metadata.yml";
-
-            await File.WriteAllTextAsync(workflowJsonPath.Replace("/", Path.DirectorySeparatorChar.ToString()), @"{ ""property"": ""clientdata"" }");
-            await File.WriteAllTextAsync(workflowMetadataPath.Replace("/", Path.DirectorySeparatorChar.ToString()), $"workflowId: {workflowId}\nname: TestWorkflow");
+            await SeedWorkflowAsync(
+                filesystem,
+                workspaceFolder,
+                workflowId.ToString(),
+                @"{ ""property"": ""clientdata"" }",
+                $"workflowId: {workflowId}\nname: TestWorkflow",
+                CancellationToken.None);
 
             var mockDataverse = new MockDataverseClient();
 
@@ -1791,17 +1813,21 @@ beginDialog:
             var workspaceFolder = new DirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
             var workflowId = Guid.NewGuid();
             var agentId = Guid.NewGuid();
-            var workflowDir = Path.Combine(workspaceFolder.ToString(), "workflows", $"TestWorkflow-{workflowId}");
-            Directory.CreateDirectory(workflowDir);
+            var filesystem = new InMemoryFileWriter();
 
-            await File.WriteAllTextAsync(Path.Combine(workflowDir, "workflow.json"), "{ \"test\": \"data\" }");
-            await File.WriteAllTextAsync(Path.Combine(workflowDir, "metadata.yml"), $"workflowId: {workflowId}\nname: TestWorkflow");
+            await SeedWorkflowAsync(
+                filesystem,
+                workspaceFolder,
+                $"TestWorkflow-{workflowId}",
+                "{ \"test\": \"data\" }",
+                $"workflowId: {workflowId}\nname: TestWorkflow",
+                CancellationToken.None);
 
             var mockDataverse = new MockDataverseClient();
 
             var synchronizer = new WorkspaceSynchronizer(
                 new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
-                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)new InMemoryFileWriter(),
+                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem,
                 Mock.Of<IIslandControlPlaneService>(),
                 Mock.Of<ISyncProgress>(),
                 new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
@@ -1819,16 +1845,21 @@ beginDialog:
             var workspaceFolder = new DirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
             var workflowId = Guid.NewGuid();
             var agentId = Guid.NewGuid();
-            var workflowDir = Path.Combine(workspaceFolder.ToString(), "workflows", $"TestWorkflow-{workflowId}");
-            Directory.CreateDirectory(workflowDir);
+            var filesystem = new InMemoryFileWriter();
 
-            await File.WriteAllTextAsync(Path.Combine(workflowDir, "metadata.yml"), $"workflowId: {workflowId}\nname: TestWorkflow");
+            await SeedWorkflowAsync(
+                filesystem,
+                workspaceFolder,
+                $"TestWorkflow-{workflowId}",
+                workflowJson: null,
+                metadataYaml: $"workflowId: {workflowId}\nname: TestWorkflow",
+                CancellationToken.None);
 
             var mockDataverse = new MockDataverseClient();
 
             var synchronizer = new WorkspaceSynchronizer(
                 new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
-                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)new InMemoryFileWriter(),
+                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem,
                 Mock.Of<IIslandControlPlaneService>(),
                 Mock.Of<ISyncProgress>(),
                 new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
@@ -1845,17 +1876,21 @@ beginDialog:
             using var tempWorkspace = new TempDirectory();
             var workspaceFolder = new DirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
             var workflowId = Guid.NewGuid();
-            var workflowDir = Path.Combine(workspaceFolder.ToString(), "workflows", $"TestWorkflow-{workflowId}");
-            Directory.CreateDirectory(workflowDir);
+            var filesystem = new InMemoryFileWriter();
 
-            await File.WriteAllTextAsync(Path.Combine(workflowDir, "workflow.json"), "{ \"test\": \"data\" }");
-            await File.WriteAllTextAsync(Path.Combine(workflowDir, "metadata.yml"), $"workflowId: {workflowId}\nname: TestWorkflow");
+            await SeedWorkflowAsync(
+                filesystem,
+                workspaceFolder,
+                $"TestWorkflow-{workflowId}",
+                "{ \"test\": \"data\" }",
+                $"workflowId: {workflowId}\nname: TestWorkflow",
+                CancellationToken.None);
 
             var mockDataverse = new MockDataverseClient();
 
             var synchronizer = new WorkspaceSynchronizer(
                 new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
-                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)new InMemoryFileWriter(),
+                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem,
                 Mock.Of<IIslandControlPlaneService>(),
                 Mock.Of<ISyncProgress>(),
                 new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
@@ -1875,17 +1910,21 @@ beginDialog:
             using var tempWorkspace = new TempDirectory();
             var workspaceFolder = new DirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
             var workflowId = Guid.NewGuid();
-            var workflowDir = Path.Combine(workspaceFolder.ToString(), "workflows", $"TestWorkflow-{workflowId}");
-            Directory.CreateDirectory(workflowDir);
+            var filesystem = new InMemoryFileWriter();
 
-            await File.WriteAllTextAsync(Path.Combine(workflowDir, "workflow.json"), "{ \"test\": \"data\" }");
-            await File.WriteAllTextAsync(Path.Combine(workflowDir, "metadata.yml"), $"workflowId: {workflowId}\nname: TestWorkflow");
+            await SeedWorkflowAsync(
+                filesystem,
+                workspaceFolder,
+                $"TestWorkflow-{workflowId}",
+                "{ \"test\": \"data\" }",
+                $"workflowId: {workflowId}\nname: TestWorkflow",
+                CancellationToken.None);
 
             var mockDataverse = new MockDataverseClient();
 
             var synchronizer = new WorkspaceSynchronizer(
                 new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
-                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)new InMemoryFileWriter(),
+                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem,
                 Mock.Of<IIslandControlPlaneService>(),
                 Mock.Of<ISyncProgress>(),
                 new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
@@ -2027,11 +2066,6 @@ beginDialog:
             var workflowId = Guid.NewGuid();
             var agentId = Guid.NewGuid();
             var cancel = CancellationToken.None;
-            var workflowDir = Path.Combine(workspaceFolder.ToString(), "workflows", $"Test-{workflowId}");
-            Directory.CreateDirectory(workflowDir);
-
-            await File.WriteAllTextAsync(Path.Combine(workflowDir, "workflow.json"), "{ \"test\": \"data\" }");
-            await File.WriteAllTextAsync(Path.Combine(workflowDir, "metadata.yml"), $"workflowId: {workflowId}\nname: Test");
 
             var botEntity = new BotEntity().WithSchemaName(new BotEntitySchemaName("cr123"));
             var emptyBotDefinition = new BotDefinition.Builder
@@ -2040,6 +2074,14 @@ beginDialog:
             }.Build();
 
             var filesystem = new InMemoryFileWriter();
+
+            await SeedWorkflowAsync(
+                filesystem,
+                workspaceFolder,
+                $"Test-{workflowId}",
+                "{ \"test\": \"data\" }",
+                $"workflowId: {workflowId}\nname: Test",
+                cancel);
 
             await ((Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem).Create(workspaceFolder).WriteAsync(
                 new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/botdefinition.json"),
@@ -2112,14 +2154,10 @@ beginDialog:
             await ((Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem).Create(workspaceFolder).WriteAsync(new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/changetoken.txt"), "token", cancel);
 
             var workflowsDir = Path.Combine(workspaceFolder.ToString(), "workflows");
-            Directory.CreateDirectory(workflowsDir);
-            var workflowFolder = Path.Combine(workflowsDir, $"Flow-{workflowId}");
-            Directory.CreateDirectory(workflowFolder);
             var updatedJson = "{ \"version\": 2 }";
             var metadataYaml = $"workflowId: {workflowId}\nname: Flow";
 
-            await File.WriteAllTextAsync(Path.Combine(workflowFolder, "workflow.json"), updatedJson);
-            await File.WriteAllTextAsync(Path.Combine(workflowFolder, "metadata.yml"), metadataYaml);
+            await SeedWorkflowAsync(filesystem, workspaceFolder, $"Flow-{workflowId}", updatedJson, metadataYaml, cancel);
 
             var workspaceDefinition = new BotDefinition.Builder
             {
@@ -2365,17 +2403,18 @@ beginDialog:
             var workflowId = Guid.NewGuid();
             var agentId = Guid.NewGuid();
 
-            var workflowsRoot = Path.Combine(workspaceFolder.ToString(), "workflows");
-            var workflowFolder = Path.Combine(workflowsRoot, $"Test-{workflowId}");
-
-            Directory.CreateDirectory(workflowFolder);
-            await File.WriteAllTextAsync(Path.Combine(workflowFolder, "workflow.json"), "{ \"test\": true }");
-            await File.WriteAllTextAsync(Path.Combine(workflowFolder, "metadata.yml"), $"workflowId: {workflowId}\nname: Test");
-
             var mockDataverse = new MockDataverseClient();
             mockDataverse.SetWorkflowsForAgent(Array.Empty<WorkflowMetadata>());
 
             var filesystem = new InMemoryFileWriter();
+
+            await SeedWorkflowAsync(
+                filesystem,
+                workspaceFolder,
+                $"Test-{workflowId}",
+                "{ \"test\": true }",
+                $"workflowId: {workflowId}\nname: Test",
+                CancellationToken.None);
 
             var synchronizer = new WorkspaceSynchronizer(
                 new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
@@ -2392,7 +2431,9 @@ beginDialog:
                 CancellationToken.None);
 
             Assert.Empty(metadata.Workflows);
-            Assert.False(Directory.Exists(workflowFolder));
+            Assert.DoesNotContain(
+                filesystem.Filenames,
+                file => file.StartsWith($"workflows/Test-{workflowId}/", StringComparison.OrdinalIgnoreCase));
         }
 
         [Fact]

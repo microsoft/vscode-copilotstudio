@@ -145,57 +145,49 @@ public class CustomConnectorDownloadGateTests
     [Fact]
     public async Task SyncWorkspace_PrunesStaleConnectorFolder_WhenProbeFailsButDownloadSucceeds()
     {
-        var (synchronizer, _, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
-        var workspaceRoot = Path.Combine(Path.GetTempPath(), "conn-gate-probefail-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(workspaceRoot);
-        var workspace = new DirectoryPath(workspaceRoot.Replace('\\', '/') + "/");
+        var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath("c:/test/conn-gate-probefail-" + Guid.NewGuid().ToString("N") + "/");
+        var fileAccessor = fileAccessorFactory.Create(workspace);
 
-        try
+        var currentRowId = Guid.NewGuid();
+        var staleRowId = Guid.NewGuid();
+        var connectionReference = new ConnectionReference(
+            connectionReferenceLogicalName: "cr1.shared_test." + Guid.NewGuid().ToString("N"),
+            connectionId: string.Empty,
+            connectorId: "/providers/Microsoft.PowerApps/apis/shared_test");
+        var cloudFlowMetadata = new CloudFlowMetadata
         {
-            var currentRowId = Guid.NewGuid();
-            var staleRowId = Guid.NewGuid();
-            var connectionReference = new ConnectionReference(
-                connectionReferenceLogicalName: "cr1.shared_test." + Guid.NewGuid().ToString("N"),
-                connectionId: string.Empty,
-                connectorId: "/providers/Microsoft.PowerApps/apis/shared_test");
-            var cloudFlowMetadata = new CloudFlowMetadata
-            {
-                Workflows = ImmutableArray<CloudFlowDefinition>.Empty,
-                ConnectionReferences = ImmutableArray.Create(connectionReference),
-            };
+            Workflows = ImmutableArray<CloudFlowDefinition>.Empty,
+            ConnectionReferences = ImmutableArray.Create(connectionReference),
+        };
 
-            var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1")!;
-            mockIsland
-                .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(new PvaComponentChangeSet(null, botEntity, "token-1"));
+        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1")!;
+        mockIsland
+            .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PvaComponentChangeSet(null, botEntity, "token-1"));
 
-            var mockDataverse = new Mock<ISyncDataverseClient>();
-            mockDataverse
-                .Setup(x => x.DownloadAllAIPromptsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(Array.Empty<AIPromptMetadata>());
-            mockDataverse
-                .Setup(x => x.GetConnectorVersionsByInternalIdsAsync(It.IsAny<IEnumerable<string>>(), false, It.IsAny<CancellationToken>()))
-                .ThrowsAsync(new InvalidOperationException("probe failed"));
-            mockDataverse
-                .Setup(x => x.DownloadConnectorsByInternalIdsAsync(It.IsAny<IEnumerable<string>>(), false, It.IsAny<CancellationToken>()))
-                .ReturnsAsync(() => new[] { new CustomConnectorMetadata { ConnectorId = currentRowId, ConnectorInternalId = "shared_test", VersionNumber = 5L, Name = "TestConnector" } });
+        var mockDataverse = new Mock<ISyncDataverseClient>();
+        mockDataverse
+            .Setup(x => x.DownloadAllAIPromptsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<AIPromptMetadata>());
+        mockDataverse
+            .Setup(x => x.GetConnectorVersionsByInternalIdsAsync(It.IsAny<IEnumerable<string>>(), false, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("probe failed"));
+        mockDataverse
+            .Setup(x => x.DownloadConnectorsByInternalIdsAsync(It.IsAny<IEnumerable<string>>(), false, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new[] { new CustomConnectorMetadata { ConnectorId = currentRowId, ConnectorInternalId = "shared_test", VersionNumber = 5L, Name = "TestConnector" } });
 
-            var staleFolder = Path.Combine(workspaceRoot, "connectors", "OldConnector-" + staleRowId);
-            Directory.CreateDirectory(staleFolder);
+        var stalePath = new AgentFilePath($"connectors/OldConnector-{staleRowId}/metadata.yml");
+        await fileAccessor.WriteAsync(stalePath, $"connectorId: {staleRowId}\nname: OldConnector", CancellationToken.None);
 
-            var opContext = ComponentWriterDefensiveTests.CreateMockOperationContext();
-            var syncInfo = new AgentSyncInfo { AgentId = Guid.NewGuid() };
+        var opContext = ComponentWriterDefensiveTests.CreateMockOperationContext();
+        var syncInfo = new AgentSyncInfo { AgentId = Guid.NewGuid() };
 
-            await synchronizer.SyncWorkspaceAsync(workspace, opContext, null, false, mockDataverse.Object, syncInfo, cloudFlowMetadata, CancellationToken.None);
+        await synchronizer.SyncWorkspaceAsync(workspace, opContext, null, false, mockDataverse.Object, syncInfo, cloudFlowMetadata, CancellationToken.None);
 
-            Assert.False(Directory.Exists(staleFolder), "stale connector folder should be pruned after a successful fallback download");
-        }
-        finally
-        {
-            if (Directory.Exists(workspaceRoot))
-            {
-                Directory.Delete(workspaceRoot, true);
-            }
-        }
+        Assert.False(fileAccessor.Exists(stalePath), "stale connector folder should be pruned after a successful fallback download");
+        Assert.True(
+            fileAccessor.ListFiles("connectors").Any(file => file.ToString().Contains(currentRowId.ToString())),
+            "the current connector should still be downloaded into the workspace");
     }
 }

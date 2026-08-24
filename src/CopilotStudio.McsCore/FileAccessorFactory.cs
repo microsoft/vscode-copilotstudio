@@ -27,8 +27,7 @@ internal class FileAccessorFactory : IFileAccessorFactory
             }
 
             Directory.CreateDirectory(dir);
-            var stream = File.Create(fullPath);
-            return stream;
+            return new FileStream(fullPath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 81920, useAsync: true);
         }
 
         public void Delete(AgentFilePath path)
@@ -59,7 +58,7 @@ internal class FileAccessorFactory : IFileAccessorFactory
         {
             try
             {
-                return File.Open(FullPath(path).ToString(), FileMode.Open, FileAccess.Read, FileShare.Read);
+                return new FileStream(FullPath(path).ToString(), FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 81920, useAsync: true);
             }
             catch (DirectoryNotFoundException e)
             {

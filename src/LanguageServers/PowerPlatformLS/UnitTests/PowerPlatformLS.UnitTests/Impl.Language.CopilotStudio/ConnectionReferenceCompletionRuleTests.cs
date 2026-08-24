@@ -9,7 +9,6 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Completion;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models;
-    using Microsoft.PowerPlatformLS.UnitTests.TestUtilities;
     using System;
     using System.Collections.Generic;
     using System.Globalization;
@@ -17,6 +16,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
     using System.Linq;
     using System.Text;
     using Xunit;
+    using InMemoryFileAccessorFactory = Microsoft.PowerPlatformLS.UnitTests.TestUtilities.InMemoryFileAccessorFactory;
 
     public class ConnectionReferenceCompletionRuleTests
     {

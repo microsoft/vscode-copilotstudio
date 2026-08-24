@@ -1,4 +1,4 @@
-﻿namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models
+namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models
 {
     using Microsoft.Agents.ObjectModel;
     using Microsoft.Agents.ObjectModel.Abstractions;
@@ -196,6 +196,11 @@
                 {
                     var entityWithIcon = entity.WithIconBase64(iconBase64);
                     entity = BotElementRewriterWithSyntaxDataPreservation.WithOriginalSyntaxData(entity, entityWithIcon) as BotEntity;
+                }
+                else if (entity != null && !fileAccessor.Exists(new AgentFilePath("icon.png")))
+                {
+                    var entityWithoutIcon = entity.WithIconBase64(null);
+                    entity = BotElementRewriterWithSyntaxDataPreservation.WithOriginalSyntaxData(entity, entityWithoutIcon) as BotEntity;
                 }
 
                 result = baseAgentDefinition.WithEntity(entity);

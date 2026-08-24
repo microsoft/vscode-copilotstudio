@@ -4,7 +4,7 @@
 
 namespace Microsoft.CopilotStudio.McsCore;
 
-internal interface IFileAccessorFactory
+public interface IFileAccessorFactory
 {
     IFileAccessor Create(DirectoryPath root);
 }

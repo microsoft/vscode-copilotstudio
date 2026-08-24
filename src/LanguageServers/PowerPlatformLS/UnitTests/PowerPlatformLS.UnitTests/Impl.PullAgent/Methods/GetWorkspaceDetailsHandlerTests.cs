@@ -13,6 +13,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
     using Xunit;
     using Microsoft.CopilotStudio.McsCore;
     using WorkspaceType = Microsoft.PowerPlatformLS.Impl.PullAgent.WorkspaceType;
+    using InMemoryFileAccessorFactory = Microsoft.PowerPlatformLS.UnitTests.TestUtilities.InMemoryFileAccessorFactory;
 
     public class GetWorkspaceDetailsHandlerTests
     {
