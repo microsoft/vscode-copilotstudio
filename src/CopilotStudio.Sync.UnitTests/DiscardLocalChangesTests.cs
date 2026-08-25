@@ -607,6 +607,12 @@ public class DiscardLocalChangesTests
             _faultDeletePath = faultDeletePath;
         }
 
+        public bool IsMemoryBacked => false;
+
+        public void Release(DirectoryPath root)
+        {
+        }
+
         public IFileAccessor Create(DirectoryPath workspaceFolder)
         {
             var key = workspaceFolder.ToString();

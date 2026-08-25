@@ -20,7 +20,12 @@ public static class SyncServiceRegistrations
     /// <see cref="Microsoft.Agents.Platform.Content.Abstractions.IDataverseHttpClientAccessor"/>
     /// before calling this method.
     /// </summary>
-    public static void AddSyncServices(this IServiceCollection services, string userAgent = "CopilotStudio.Sync", bool isIslandPreauthorized = false)
+    /// <param name="services">The container to register into.</param>
+    /// <param name="userAgent">The user agent reported on Dataverse requests.</param>
+    /// <param name="isIslandPreauthorized">Whether the island control plane is already authorized.</param>
+    /// <param name="storageMode">Where workspaces are held. <see cref="SyncStorageMode.InMemory"/> keeps
+    /// workspace content in process and retains it until the container scope ends.</param>
+    public static void AddSyncServices(this IServiceCollection services, string userAgent = "CopilotStudio.Sync", bool isIslandPreauthorized = false, SyncStorageMode storageMode = SyncStorageMode.Physical)
     {
         services.AddSingleton<IIslandControlPlaneService>(sp =>
             new IslandControlPlaneService(
@@ -32,7 +37,14 @@ public static class SyncServiceRegistrations
         services.AddSingleton(sp => new SyncDataverseClient(sp.GetRequiredService<IDataverseHttpClientAccessor>(), userAgent));
         services.AddSingleton<ISyncDataverseClient>(sp => sp.GetRequiredService<SyncDataverseClient>());
         services.AddSingleton<ISyncComponentCollectionDataverseClient>(sp => sp.GetRequiredService<SyncDataverseClient>());
-        services.AddSingleton<IFileAccessorFactory, FileAccessorFactory>();
+        if (storageMode == SyncStorageMode.InMemory)
+        {
+            services.AddSingleton<IFileAccessorFactory, InMemoryFileAccessorFactory>();
+        }
+        else
+        {
+            services.AddSingleton<IFileAccessorFactory, FileAccessorFactory>();
+        }
         services.AddSingleton(LspProjectorService.Instance);
         services.AddSingleton<IMcsFileParser, SyncMcsFileParser>();
         services.AddSingleton<IComponentPathResolver, LspComponentPathResolver>();

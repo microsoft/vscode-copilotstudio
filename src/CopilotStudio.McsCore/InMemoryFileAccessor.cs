@@ -8,36 +8,77 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
-public sealed class InMemoryFileAccessorFactory : IFileAccessorFactory
+public sealed class InMemoryFileAccessorFactory : IFileAccessorFactory, IDisposable
 {
     private readonly ConcurrentDictionary<string, InMemoryFileAccessor> accessors = new ConcurrentDictionary<string, InMemoryFileAccessor>(StringComparer.OrdinalIgnoreCase);
 
+    /// <inheritdoc/>
+    public bool IsMemoryBacked => true;
+
+    /// <inheritdoc/>
     public IFileAccessor Create(DirectoryPath root) => this.accessors.GetOrAdd(root.ToString(), _ => new InMemoryFileAccessor());
 
-    /// <summary>
-    /// Drops the in-memory store for a workspace root.
-    /// </summary>
-    public bool Release(DirectoryPath root) => this.accessors.TryRemove(root.ToString(), out _);
+    /// <inheritdoc/>
+    public void Release(DirectoryPath root)
+    {
+        if (this.accessors.TryRemove(root.ToString(), out var accessor))
+        {
+            accessor.Clear();
+        }
+    }
 
     /// <summary>
-    /// Drops every in-memory workspace store held by this factory.
+    /// Drops every workspace held by this factory and discards the content each one holds.
     /// </summary>
-    public void ReleaseAll() => this.accessors.Clear();
+    public void ReleaseAll()
+    {
+        foreach (var key in this.accessors.Keys.ToList())
+        {
+            if (this.accessors.TryRemove(key, out var accessor))
+            {
+                accessor.Clear();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Releases every workspace held by this factory. A dependency injection container that owns the
+    /// factory calls this when its scope ends.
+    /// </summary>
+    public void Dispose() => this.ReleaseAll();
 }
 
+/// <summary>
+/// An agent workspace held in process memory. Content is committed when the stream returned by
+/// <see cref="OpenWrite"/> is disposed.
+/// </summary>
 public sealed class InMemoryFileAccessor : IFileAccessor
 {
-    private readonly ConcurrentDictionary<string, byte[]> files = new ConcurrentDictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, WorkspaceFile> files = new ConcurrentDictionary<string, WorkspaceFile>(StringComparer.OrdinalIgnoreCase);
 
-    public IReadOnlyDictionary<string, byte[]> Files => this.files;
+    /// <summary>
+    /// Gets the number of files held for this workspace.
+    /// </summary>
+    public int Count => this.files.Count;
 
+    /// <summary>
+    /// Gets the path of every file held for this workspace.
+    /// </summary>
+    public IReadOnlyCollection<string> FilePaths => this.files.Keys.ToList();
+
+    /// <summary>
+    /// Discards every file held for this workspace.
+    /// </summary>
+    public void Clear() => this.files.Clear();
+
+    /// <inheritdoc/>
     public bool Exists(AgentFilePath path) => this.files.ContainsKey(Normalize(path));
 
     public Stream OpenRead(AgentFilePath path)
     {
-        if (this.files.TryGetValue(Normalize(path), out var data))
+        if (this.files.TryGetValue(Normalize(path), out var file))
         {
-            return new MemoryStream(data, writable: false);
+            return new MemoryStream(file.Buffer, 0, file.Length, writable: false);
         }
 
         throw new FileNotFoundException($"File not found: {path}");
@@ -62,17 +103,17 @@ public sealed class InMemoryFileAccessor : IFileAccessor
 
     public void Replace(AgentFilePath sourcePath, AgentFilePath targetPath)
     {
-        if (!this.files.TryRemove(Normalize(sourcePath), out var data))
+        if (!this.files.TryRemove(Normalize(sourcePath), out var file))
         {
             throw new FileNotFoundException($"File not found: {sourcePath}");
         }
 
-        this.files[Normalize(targetPath)] = data;
+        this.files[Normalize(targetPath)] = file;
     }
 
     public IEnumerable<AgentFilePath> ListFiles(string? relativeFolder = null, string filePattern = "*.*")
     {
-        var folderPrefix = string.IsNullOrEmpty(relativeFolder) ? null : relativeFolder!.Replace('\\', '/').TrimEnd('/') + "/";
+        var folderPrefix = string.IsNullOrEmpty(relativeFolder) ? null : relativeFolder!.TrimEnd('/') + "/";
         foreach (var key in this.files.Keys)
         {
             if (folderPrefix != null && !key.StartsWith(folderPrefix, StringComparison.OrdinalIgnoreCase))
@@ -80,16 +121,14 @@ public sealed class InMemoryFileAccessor : IFileAccessor
                 continue;
             }
 
-            if (!MatchesPattern(key, filePattern))
+            if (MatchesPattern(key, filePattern))
             {
-                continue;
+                yield return new AgentFilePath(key);
             }
-
-            yield return new AgentFilePath(key);
         }
     }
 
-    private static string Normalize(AgentFilePath path) => path.ToString().Replace('\\', '/');
+    private static string Normalize(AgentFilePath path) => path.ToString();
 
     private static bool MatchesPattern(string key, string filePattern)
     {
@@ -99,20 +138,29 @@ public sealed class InMemoryFileAccessor : IFileAccessor
         }
 
         var fileName = key.Substring(key.LastIndexOf('/') + 1);
-        if (filePattern.StartsWith("*", StringComparison.Ordinal))
+        return filePattern.StartsWith("*", StringComparison.Ordinal) ? fileName.EndsWith(filePattern.Substring(1), StringComparison.OrdinalIgnoreCase) : string.Equals(fileName, filePattern, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private readonly struct WorkspaceFile
+    {
+        public WorkspaceFile(byte[] buffer, int length)
         {
-            return fileName.EndsWith(filePattern.Substring(1), StringComparison.OrdinalIgnoreCase);
+            this.Buffer = buffer;
+            this.Length = length;
         }
 
-        return string.Equals(fileName, filePattern, StringComparison.OrdinalIgnoreCase);
+        public byte[] Buffer { get; }
+
+        public int Length { get; }
     }
 
     private sealed class WriteCapturingStream : MemoryStream
     {
         private readonly string key;
-        private readonly ConcurrentDictionary<string, byte[]> store;
+        private readonly ConcurrentDictionary<string, WorkspaceFile> store;
+        private bool committed;
 
-        public WriteCapturingStream(string key, ConcurrentDictionary<string, byte[]> store)
+        public WriteCapturingStream(string key, ConcurrentDictionary<string, WorkspaceFile> store)
         {
             this.key = key;
             this.store = store;
@@ -120,9 +168,10 @@ public sealed class InMemoryFileAccessor : IFileAccessor
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing)
+            if (disposing && !this.committed)
             {
-                this.store[this.key] = this.ToArray();
+                this.committed = true;
+                this.store[this.key] = new WorkspaceFile(this.GetBuffer(), (int)this.Length);
             }
 
             base.Dispose(disposing);

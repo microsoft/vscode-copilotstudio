@@ -138,7 +138,7 @@ public class KnowledgeFileDownloadAtomicityTests
 
         var contentPath = new AgentFilePath(Assert.Single(seeded).RelativePath);
 
-        var orphan = new AgentFilePath($"{contentPath}.deadbeefdeadbeef.download.tmp");
+        var orphan = new AgentFilePath($"{contentPath}.deadbeefdeadbeefdeadbeefdeadbeef.download.tmp");
         await fileAccessor.WriteAsync(orphan, "half-written", CancellationToken.None);
         Assert.True(fileAccessor.Exists(orphan));
 
@@ -156,6 +156,12 @@ public class KnowledgeFileDownloadAtomicityTests
     {
         private readonly InMemoryFileAccessorFactory _inner = new InMemoryFileAccessorFactory();
         private readonly Dictionary<string, AlwaysFailReplaceAccessor> _wrapped = new Dictionary<string, AlwaysFailReplaceAccessor>(StringComparer.OrdinalIgnoreCase);
+
+        public bool IsMemoryBacked => false;
+
+        public void Release(DirectoryPath root)
+        {
+        }
 
         public IFileAccessor Create(DirectoryPath root)
         {
@@ -201,6 +207,12 @@ public class KnowledgeFileDownloadAtomicityTests
         private readonly Dictionary<string, FailOnFirstReplaceAccessor> _wrapped = new Dictionary<string, FailOnFirstReplaceAccessor>(StringComparer.OrdinalIgnoreCase);
 
         public int TotalFailures => _wrapped.Values.Sum(accessor => accessor.FailureCount);
+
+        public bool IsMemoryBacked => false;
+
+        public void Release(DirectoryPath root)
+        {
+        }
 
         public IFileAccessor Create(DirectoryPath root)
         {

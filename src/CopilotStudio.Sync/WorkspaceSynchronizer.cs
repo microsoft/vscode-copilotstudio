@@ -147,11 +147,19 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private const string KnowledgeDownloadStagingSuffix = ".download.tmp";
 
+    private const int KnowledgeDownloadStagingTokenLength = 32;
+
+    private const long MaxKnowledgeFileSizeBytes = 125L * 1024 * 1024;
+
+    private const int MaxParallelMemoryBackedKnowledgeDownloads = 2;
+
     private const int DefaultCopyBufferSize = 81920;
 
     private readonly IMcsFileParser _fileParser;
     private readonly IComponentPathResolver _pathResolver;
     private readonly IFileAccessorFactory _fileAccessorFactory;
+
+    private int MaxParallelKnowledgeDownloads => _fileAccessorFactory.IsMemoryBacked ? MaxParallelMemoryBackedKnowledgeDownloads : MaxParallelSyncOperations;
     private readonly IIslandControlPlaneService _islandControlPlaneService;
     private readonly ISyncProgress _syncProgress;
 
@@ -1045,11 +1053,16 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             {
                 continue;
             }
+            catch (KnowledgeFileTooLargeException tooLarge)
+            {
+                _syncProgress.Report(tooLarge.Message);
+                continue;
+            }
         }
 #else
         await Parallel.ForEachAsync(fileComponents, new ParallelOptions
         {
-            MaxDegreeOfParallelism = MaxParallelSyncOperations,
+            MaxDegreeOfParallelism = this.MaxParallelKnowledgeDownloads,
             CancellationToken = cancellationToken
         }, async (component, ct) =>
         {
@@ -1060,6 +1073,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }
             catch (DataverseRequestException ex) when (skipMissingAttachments && IsMissingFileAttachment(ex))
             {
+                return;
+            }
+            catch (KnowledgeFileTooLargeException tooLarge)
+            {
+                _syncProgress.Report(tooLarge.Message);
                 return;
             }
         }).ConfigureAwait(false);
@@ -1157,6 +1175,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
         else
         {
+            EnsureDiskStagingAllowed();
             var stagingFolder = CreateTempFolder("mcs-knowledge-upload-");
             try
             {
@@ -1210,7 +1229,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             if (dataverseClient is IStreamingKnowledgeFileClient streamingClient)
             {
-                using (var destination = fileAccessor.OpenWrite(stagingPath))
+                using (var destination = new BoundedWriteStream(fileAccessor.OpenWrite(stagingPath), MaxKnowledgeFileSizeBytes, displayName))
                 {
                     await streamingClient.DownloadKnowledgeFileAsync(destination, component.Id, cancellationToken).ConfigureAwait(false);
                 }
@@ -1219,6 +1238,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }
             else
             {
+                EnsureDiskStagingAllowed();
                 var downloadFolder = CreateTempFolder("mcs-knowledge-download-");
                 try
                 {
@@ -1232,7 +1252,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                     if (File.Exists(downloadedFile))
                     {
                         using (var source = new FileStream(downloadedFile, FileMode.Open, FileAccess.Read, FileShare.Read, DefaultCopyBufferSize, useAsync: true))
-                        using (var destination = fileAccessor.OpenWrite(stagingPath))
+                        using (var destination = new BoundedWriteStream(fileAccessor.OpenWrite(stagingPath), MaxKnowledgeFileSizeBytes, displayName))
                         {
                             await source.CopyToAsync(destination, DefaultCopyBufferSize, cancellationToken).ConfigureAwait(false);
                         }
@@ -1299,7 +1319,31 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return errorCode == errorSharingViolation || errorCode == errorLockViolation;
     }
 
-    private static bool IsKnowledgeDownloadStagingFile(AgentFilePath file) => file.FileName.EndsWith(KnowledgeDownloadStagingSuffix, StringComparison.OrdinalIgnoreCase);
+    internal static bool IsKnowledgeDownloadStagingFile(AgentFilePath file)
+    {
+        var fileName = file.FileName;
+        if (!fileName.EndsWith(KnowledgeDownloadStagingSuffix, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var tokenEnd = fileName.Length - KnowledgeDownloadStagingSuffix.Length;
+        var tokenStart = tokenEnd - KnowledgeDownloadStagingTokenLength;
+        if (tokenStart <= 0 || fileName[tokenStart - 1] != '.')
+        {
+            return false;
+        }
+
+        for (var index = tokenStart; index < tokenEnd; index++)
+        {
+            if (!Uri.IsHexDigit(fileName[index]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 
     private static void TryDeleteKnowledgeContent(IFileAccessor fileAccessor, AgentFilePath contentPath)
     {
@@ -1320,6 +1364,14 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
         {
+        }
+    }
+
+    private void EnsureDiskStagingAllowed()
+    {
+        if (_fileAccessorFactory.IsMemoryBacked)
+        {
+            throw new InvalidOperationException("Knowledge file transfer requires a client implementing IStreamingKnowledgeFileClient when workspaces are held in memory, because the non-streaming path stages content on disk.");
         }
     }
 
@@ -6274,19 +6326,41 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     private static long GetFileSize(IFileAccessor fileAccessor, AgentFilePath path)
     {
         using var stream = fileAccessor.OpenRead(path);
-        return stream.Length;
+        return GetStreamLength(stream);
     }
 
-    private static void MoveComponentFolder(IFileAccessor fileAccessor, string sourceFolder, string targetFolder)
+    private static long GetStreamLength(Stream stream)
+    {
+        if (stream.CanSeek)
+        {
+            return stream.Length;
+        }
+
+        var buffer = new byte[DefaultCopyBufferSize];
+        long total = 0;
+        int read;
+        while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
+        {
+            total += read;
+        }
+
+        return total;
+    }
+
+    internal static void MoveComponentFolder(IFileAccessor fileAccessor, string sourceFolder, string targetFolder)
     {
         var sourcePrefix = sourceFolder + "/";
         var targetPrefix = targetFolder + "/";
+        var sourceFiles = fileAccessor.ListFiles(sourceFolder).Where(file => file.ToString().StartsWith(sourcePrefix, StringComparison.OrdinalIgnoreCase)).ToList();
+        var preservedPrefix = targetFolder + ".move." + Guid.NewGuid().ToString("N") + "/";
+        var preserved = new List<(AgentFilePath Original, AgentFilePath Preserved)>();
 
-        var sourceFiles = fileAccessor.ListFiles(sourceFolder)
-            .Where(file => file.ToString().StartsWith(sourcePrefix, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-        fileAccessor.DeleteDirectory(new AgentFilePath(targetFolder));
+        foreach (var file in fileAccessor.ListFiles(targetFolder).Where(file => file.ToString().StartsWith(targetPrefix, StringComparison.OrdinalIgnoreCase)).ToList())
+        {
+            var preservedPath = new AgentFilePath(preservedPrefix + file.ToString().Substring(targetPrefix.Length));
+            fileAccessor.Replace(file, preservedPath);
+            preserved.Add((file, preservedPath));
+        }
 
         var moved = new List<(AgentFilePath Source, AgentFilePath Target)>(sourceFiles.Count);
         try
@@ -6300,21 +6374,45 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
         catch
         {
-            for (var index = moved.Count - 1; index >= 0; index--)
-            {
-                try
-                {
-                    fileAccessor.Replace(moved[index].Target, moved[index].Source);
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FileNotFoundException)
-                {
-                }
-            }
-
+            RollbackComponentFolderMove(fileAccessor, moved, preserved);
             throw;
         }
 
+        foreach (var entry in preserved)
+        {
+            fileAccessor.Delete(entry.Preserved);
+        }
+
+        if (preserved.Count > 0)
+        {
+            fileAccessor.DeleteDirectory(new AgentFilePath(preservedPrefix.TrimEnd('/')));
+        }
+
         fileAccessor.DeleteDirectory(new AgentFilePath(sourceFolder));
+    }
+
+    private static void RollbackComponentFolderMove(IFileAccessor fileAccessor, List<(AgentFilePath Source, AgentFilePath Target)> moved, List<(AgentFilePath Original, AgentFilePath Preserved)> preserved)
+    {
+        for (var index = moved.Count - 1; index >= 0; index--)
+        {
+            TryAccessorOperation(() => fileAccessor.Replace(moved[index].Target, moved[index].Source));
+        }
+
+        foreach (var entry in preserved)
+        {
+            TryAccessorOperation(() => fileAccessor.Replace(entry.Preserved, entry.Original));
+        }
+    }
+
+    private static void TryAccessorOperation(Action accessorOperation)
+    {
+        try
+        {
+            accessorOperation();
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or FileNotFoundException)
+        {
+        }
     }
 
     public async Task<CloudFlowMetadata> GetWorkflowsAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, IFileAccessor fileAccessor, CancellationToken cancellationToken)
@@ -7344,8 +7442,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private bool IsValidFileToUpload(IFileAccessor fileAccessor, AgentFilePath knowledgeFile)
     {
-        const long maxFileSize = 125L * 1024 * 1024; // 125 MB
-
         if (string.Equals(knowledgeFile.FileName, SkillLink.LinkFileName, StringComparison.OrdinalIgnoreCase))
         {
             return false;
@@ -7364,15 +7460,14 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         long length = 0;
         try
         {
-            using var stream = fileAccessor.OpenRead(knowledgeFile);
-            length = stream.Length;
+            length = GetFileSize(fileAccessor, knowledgeFile);
         }
         catch (FileNotFoundException)
         {
             return false;
         }
 
-        if (length > maxFileSize)
+        if (length > MaxKnowledgeFileSizeBytes)
         {
             _syncProgress.Report($"File '{knowledgeFile.FileName}' exceeded file size limit of 125MB and will be skipped.");
             return false;
@@ -8837,48 +8932,36 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         // Read the pushed (expected) workspace definition
         var expectedDefinition = await ReadWorkspaceDefinitionAsync(workspaceFolder, cancellationToken).ConfigureAwait(false);
 
-        // Clone to a temp workspace to get the server's current state
-        var tempDir = Path.Combine(Path.GetTempPath(), "mcs-verify-" + Guid.NewGuid().ToString("N").Substring(0, 8));
-        Directory.CreateDirectory(tempDir);
-        var tempWorkspace = new DirectoryPath(tempDir.Replace('\\', '/'));
+        using var verificationWorkspace = _fileAccessorFactory.LeaseTemporaryWorkspace("mcs-verify-");
+        var tempWorkspace = verificationWorkspace.Root;
+        var referenceTracker = new ReferenceTracker();
+        await CloneChangesAsync(tempWorkspace, referenceTracker, operationContext, dataverseClient, syncInfo, cancellationToken).ConfigureAwait(false);
 
-        try
+        var serverDefinition = await ReadWorkspaceDefinitionAsync(tempWorkspace, cancellationToken).ConfigureAwait(false);
+
+        // Compare per-entity-type: group expected changes by ChangeKind, count matches in server state
+        var (_, expectedChanges) = await GetLocalChangesAsync(tempWorkspace, expectedDefinition, dataverseClient, syncInfo, cancellationToken).ConfigureAwait(false);
+
+        // If there are no local differences between pushed state and server state, everything was accepted
+        if (expectedChanges.IsEmpty)
         {
-            var referenceTracker = new ReferenceTracker();
-            await CloneChangesAsync(tempWorkspace, referenceTracker, operationContext, dataverseClient, syncInfo, cancellationToken).ConfigureAwait(false);
-
-            var serverDefinition = await ReadWorkspaceDefinitionAsync(tempWorkspace, cancellationToken).ConfigureAwait(false);
-
-            // Compare per-entity-type: group expected changes by ChangeKind, count matches in server state
-            var (_, expectedChanges) = await GetLocalChangesAsync(tempWorkspace, expectedDefinition, dataverseClient, syncInfo, cancellationToken).ConfigureAwait(false);
-
-            // If there are no local differences between pushed state and server state, everything was accepted
-            if (expectedChanges.IsEmpty)
-            {
-                return new PushVerificationResult { IsFullyAccepted = true };
-            }
-
-            // Group differences by change kind to produce per-entity-type results
-            var changesByKind = expectedChanges.GroupBy(c => c.ChangeKind);
-            var entityTypes = changesByKind.Select(g => new EntityTypeVerification
-            {
-                ChangeKind = g.Key,
-                PushedCount = g.Count(),
-                VerifiedCount = 0 // differences mean these were NOT accepted
-            }).ToImmutableArray();
-
-            return new PushVerificationResult
-            {
-                IsFullyAccepted = false,
-                EntityTypes = entityTypes
-            };
+            return new PushVerificationResult { IsFullyAccepted = true };
         }
-        finally
+
+        // Group differences by change kind to produce per-entity-type results
+        var changesByKind = expectedChanges.GroupBy(c => c.ChangeKind);
+        var entityTypes = changesByKind.Select(g => new EntityTypeVerification
         {
-            (_fileAccessorFactory as InMemoryFileAccessorFactory)?.Release(tempWorkspace);
+            ChangeKind = g.Key,
+            PushedCount = g.Count(),
+            VerifiedCount = 0 // differences mean these were NOT accepted
+        }).ToImmutableArray();
 
-            try { Directory.Delete(tempDir, recursive: true); } catch { /* best-effort cleanup */ }
-        }
+        return new PushVerificationResult
+        {
+            IsFullyAccepted = false,
+            EntityTypes = entityTypes
+        };
     }
 
     private sealed class ChildAgentFolderCorrelation

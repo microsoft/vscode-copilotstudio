@@ -102,6 +102,12 @@ public class RestoreRemoteBindingAtomicityTests
             _failDeletePath = failDeletePath;
         }
 
+        public bool IsMemoryBacked => false;
+
+        public void Release(DirectoryPath root)
+        {
+        }
+
         public IFileAccessor Create(DirectoryPath root) => new FaultingFileAccessor(_inner.Create(root), this);
 
         public InMemoryFileAccessor Inner(DirectoryPath root) => (InMemoryFileAccessor)_inner.Create(root);
