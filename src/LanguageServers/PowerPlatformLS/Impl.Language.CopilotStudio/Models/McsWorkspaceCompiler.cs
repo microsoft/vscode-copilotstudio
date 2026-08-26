@@ -134,9 +134,11 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models
                     ? linkedSkillSchema
                     : null;
 
+                var authoredSchemaOverride = McsFileParserCore.ReadMcsMetadata(mcsDocument.FileModel).SchemaName;
+
                 var cachedComponentOverride = cachedComponentsByPath.TryGetValue(mcsDocument.RelativePath.ToString(), out var cachedComponent) ? cachedComponent : null;
 
-                var (component, error) = _fileParser.CompileFile(mcsDocument, projectionContext, authoringShape, childAgentSchemaOverride ?? skillSchemaOverride ?? cachedComponentOverride?.SchemaNameString);
+                var (component, error) = _fileParser.CompileFile(mcsDocument, projectionContext, authoringShape, childAgentSchemaOverride ?? skillSchemaOverride ?? authoredSchemaOverride ?? cachedComponentOverride?.SchemaNameString);
 
                 if (component != null)
                 {

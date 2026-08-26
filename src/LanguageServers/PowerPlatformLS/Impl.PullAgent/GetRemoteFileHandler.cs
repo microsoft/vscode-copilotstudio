@@ -6,8 +6,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.CopilotStudio.Sync.Dataverse;
     using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
-    using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
+    using Microsoft.PowerPlatformLS.Contracts.Internal.Models.Lsp;
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
     using System.Threading;
@@ -28,6 +28,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     [LanguageServerEndpoint("powerplatformls/getRemoteFile", LanguageServerConstants.DefaultLanguageName)]
     internal class GetRemoteFileHandler : IRequestHandler<GetFileRequest, GetFileResponse, RequestContext>
     {
+        private const string CloudCacheRelativePath = ".mcs/botdefinition.json";
+
         private readonly ITokenManager _dataverseTokenManager;
         private readonly CopilotStudio.Sync.IOperationContextProvider _operationContextProvider;
         private readonly ILspLogger _logger;
@@ -55,6 +57,30 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         }
 
         public bool MutatesSolutionState => false;
+
+        internal static DefinitionBase BuildRemoteCloudImage(IMcsWorkspace workspace, PvaComponentChangeSet changeSet)
+        {
+            var cachedCloudDefinition = GetCachedCloudDefinition(workspace);
+            var remoteDefinition = cachedCloudDefinition != null ? cachedCloudDefinition.ApplyChanges(changeSet) : new BotDefinition().WithComponents(changeSet.BotComponentChanges.OfType<BotComponentUpsert>().Select(upsert => upsert.Component).OfType<BotComponentBase>());
+
+            if (remoteDefinition is BotDefinition botDefinition && changeSet.Bot != null)
+            {
+                remoteDefinition = botDefinition.WithEntity(changeSet.Bot);
+            }
+
+            return remoteDefinition;
+        }
+
+        private static DefinitionBase? GetCachedCloudDefinition(IMcsWorkspace workspace)
+        {
+            if (workspace is not Workspace trackedWorkspace)
+            {
+                return null;
+            }
+
+            var cachePath = workspace.FolderPath.GetChildFilePath(CloudCacheRelativePath);
+            return (trackedWorkspace.GetDocument(cachePath) as LspDocument<BotElement>)?.FileModel as DefinitionBase;
+        }
 
         public async Task<GetFileResponse> HandleRequestAsync(GetFileRequest request, RequestContext context, CancellationToken cancellationToken)
         {
@@ -101,6 +127,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 }
 
                 using var sw = new StringWriter();
+                string? componentBody = null;
                 if (request.SchemaName.Equals("entity", StringComparison.OrdinalIgnoreCase))
                 {
                     if (changeSet.Bot != null)
@@ -120,9 +147,10 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 else
                 {
                     var component = changeSet.BotComponentChanges.OfType<BotComponentUpsert>().FirstOrDefault(b => b.Component?.SchemaNameString == request.SchemaName);
-                    if (component != null)
+                    if (component?.Component != null)
                     {
-                        CodeSerializer.SerializeAsMcsYml(sw, component.Component);
+                        var remoteDefinition = BuildRemoteCloudImage(workspace, changeSet);
+                        componentBody = McsComponentBodyWriter.SerializeComponent(component.Component, remoteDefinition, new AgentFilePath(new LspComponentPathResolver().GetComponentPath(component.Component, remoteDefinition)));
                     }
 
                     var environmentVariable = changeSet.EnvironmentVariableChanges.OfType<EnvironmentVariableUpsert>().FirstOrDefault(b => b.EnvironmentVariable?.SchemaName.Value == request.SchemaName);
@@ -135,7 +163,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 return new GetFileResponse
                 {
                     Code = 200,
-                    Content = sw.ToString(),
+                    Content = componentBody ?? sw.ToString(),
                 };
 
             }

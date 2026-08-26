@@ -84,6 +84,26 @@ namespace Microsoft.PowerPlatformLS.Contracts.Internal.Models
         }
 
         /// <summary>
+        /// Removes tracked documents whose files no longer exist and rebuilds the compilation once.
+        /// </summary>
+        public bool RemoveMissingDocuments(IClientWorkspaceFileProvider fileProvider)
+        {
+            var missingPaths = _documents.Keys.Where(path => !fileProvider.GetFileInfo(path).Exists).ToList();
+            if (missingPaths.Count == 0)
+            {
+                return false;
+            }
+
+            foreach (var path in missingPaths)
+            {
+                _documents.Remove(path);
+            }
+
+            BuildCompilationModel();
+            return true;
+        }
+
+        /// <summary>
         /// Compute and emit diagnostics for all files in the workspace.
         /// </summary>
         public virtual IEnumerable<DiagnosticsParams> GetDiagnostics(RequestContext requestContext)
@@ -94,10 +114,20 @@ namespace Microsoft.PowerPlatformLS.Contracts.Internal.Models
         public virtual LspDocument UpsertDocumentFromFile(FilePath documentPath, IFileInfo fileInfo, ILanguageAbstraction language, CultureInfo cultureInfo)
             => GetOrCreateDocument(documentPath, fileInfo.ReadAllText(), language, cultureInfo);
 
-        public bool RemoveDocumentsUnderFolder(FilePath folderPath)
+        /// <summary>
+        /// Untracks documents under a deleted folder. Only documents whose files are actually gone
+        /// are removed: a watched-file delete event can name a folder that was rewritten rather than
+        /// removed (a sync that replaces a component's files, for example), and dropping a document
+        /// whose file still exists strands the editor - the client keeps the tab open, and its next
+        /// textDocument/didChange resolves to a context with no document.
+        /// </summary>
+        public bool RemoveDocumentsUnderFolder(FilePath folderPath, IClientWorkspaceFileProvider fileProvider)
         {
             var folder = folderPath.ToString().Replace('\\', '/').TrimEnd('/') + "/";
-            var toRemove = _documents.Keys.Where(p => p.ToString().Replace('\\', '/').StartsWith(folder, StringComparison.OrdinalIgnoreCase)).ToList();
+            var toRemove = _documents.Keys
+                .Where(p => p.ToString().Replace('\\', '/').StartsWith(folder, StringComparison.OrdinalIgnoreCase))
+                .Where(p => !fileProvider.GetFileInfo(p).Exists)
+                .ToList();
 
             if (toRemove.Count == 0)
             {

@@ -77,10 +77,10 @@ internal static class McsFileParserCore
 
         try
         {
-            if (fileModel.ExtensionData is RecordDataValue record && record.Properties.TryGetValue("mcs.metadata", out var metadataValue) && metadataValue is RecordDataValue metadataRecord)
+            if (fileModel.ExtensionData is RecordDataValue record && record.Properties.TryGetValue(McsMetadata.PropertyName, out var metadataValue) && metadataValue is RecordDataValue metadataRecord)
             {
-                displayName = GetRecordString(metadataRecord, "componentName");
-                description = GetRecordString(metadataRecord, "description");
+                displayName = GetRecordString(metadataRecord, McsMetadata.ComponentNameKey);
+                description = GetRecordString(metadataRecord, McsMetadata.DescriptionKey);
             }
 
             CodeSerializer.ParseYamlHeader(fileModel, out var ymlDisplayName, out var ymlDescription);
@@ -98,12 +98,23 @@ internal static class McsFileParserCore
 
     internal static (string? DisplayName, string? Description) TryGetMcsMetadata(BotElement? fileModel)
     {
-        if (fileModel?.ExtensionData is not RecordDataValue record || !record.Properties.TryGetValue("mcs.metadata", out var metadataValue) || metadataValue is not RecordDataValue metadataRecord)
+        var metadata = ReadMcsMetadata(fileModel);
+        return (metadata.ComponentName, metadata.Description);
+    }
+
+    internal static McsMetadata ReadMcsMetadata(BotElement? fileModel)
+    {
+        if (fileModel?.ExtensionData is not RecordDataValue record || !record.Properties.TryGetValue(McsMetadata.PropertyName, out var metadataValue) || metadataValue is not RecordDataValue metadataRecord)
         {
-            return (null, null);
+            return default;
         }
 
-        return (GetRecordString(metadataRecord, "componentName"), GetRecordString(metadataRecord, "description"));
+        return new McsMetadata(
+            GetRecordString(metadataRecord, McsMetadata.ComponentNameKey),
+            GetRecordString(metadataRecord, McsMetadata.DescriptionKey),
+            GetRecordString(metadataRecord, McsMetadata.SchemaNameKey),
+            GetRecordString(metadataRecord, McsMetadata.BundleKey),
+            GetRecordString(metadataRecord, McsMetadata.ManifestSchemaNameKey));
     }
 
     private static string? GetRecordString(RecordDataValue record, string key) => record.Properties.TryGetValue(key, out var value) && value is StringDataValue s ? s.Value : null;

@@ -41,7 +41,7 @@ public class ChildAgentFolderPruneTests
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
         var keysAfterClone = NormalizedKeys(fileAccessor);
         Assert.Contains("agents/Balance Agent/agent.mcs.yml", keysAfterClone);
-        Assert.Contains("agents/Balance Agent/.agent.json", keysAfterClone);
+        Assert.DoesNotContain("agents/Balance Agent/.agent.json", keysAfterClone);
 
         // The user deletes the child agent in the browser: pull a changeset that removes it.
         var cachedDefinition = ReadCache(fileAccessor);

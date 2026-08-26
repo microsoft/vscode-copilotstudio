@@ -237,7 +237,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
             var skillPayloadFileCount = 0;
             foreach (var skillFolder in _mcsFilesAnalyzer.EnumeratePackagedSkillFolders(agentDirectoryPath))
             {
-                foreach (var file in _mcsFilesAnalyzer.EnumerateMcsFiles(skillFolder))
+                foreach (var file in _mcsFilesAnalyzer.EnumerateMcsFilesRecursive(skillFolder))
                 {
                     RemoveDocumentFromPreviousAgent(file);
                     AddDocumentToAgent(_fileProvider.GetFileInfo(file), file);

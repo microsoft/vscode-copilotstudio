@@ -341,7 +341,7 @@ public class ChildAgentFolderStickyTests
         await synchronizer.CloneChangesAsync(workspace, new ReferenceTracker(), opContext, mockDataverse.Object, syncInfo, CancellationToken.None);
 
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        Assert.Contains("agents/Balance Agent/.agent.json", NormalizedKeys(fileAccessor));
+        Assert.Contains("agents/Balance Agent/agent.mcs.yml", NormalizedKeys(fileAccessor));
 
         var cached = ReadCache(fileAccessor);
         var cachedAgent = cached.Components.OfType<DialogComponent>().Single(c => c.RootElement is AgentDialog);
@@ -351,12 +351,12 @@ public class ChildAgentFolderStickyTests
 
         var keys = NormalizedKeys(fileAccessor);
         Assert.Contains("agents/Balance Agent/agent.mcs.yml", keys);
-        Assert.Contains("agents/Balance Agent/.agent.json", keys);
+        Assert.DoesNotContain("agents/Balance Agent/.agent.json", keys);
         Assert.DoesNotContain(keys, k => k.StartsWith("agents/Renamed Balance/", StringComparison.Ordinal));
     }
 
     [Fact]
-    public async Task Pull_ChildAgentFolderRenamedWithStaleLink_IsRejected()
+    public async Task Pull_ChildAgentFolderRenamed_KeepsIdentityInRenamedFolder()
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-sticky-stalelink-{Guid.NewGuid():N}/");
@@ -378,8 +378,7 @@ public class ChildAgentFolderStickyTests
         var cachedDefinition = ReadCache(fileAccessor);
         SetupIslandChangeset(mockIsland, Array.Empty<BotComponentChange>(), botEntity, "token-2");
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            synchronizer.PullExistingChangesAsync(workspace, opContext, cachedDefinition, mockDataverse.Object, syncInfo, CancellationToken.None));
+        await synchronizer.PullExistingChangesAsync(workspace, opContext, cachedDefinition, mockDataverse.Object, syncInfo, CancellationToken.None);
 
         var keys = NormalizedKeys(fileAccessor);
         Assert.Contains("agents/Renamed/agent.mcs.yml", keys);
@@ -531,7 +530,7 @@ public class ChildAgentFolderStickyTests
     }
 
     [Fact]
-    public async Task UploadKnowledgeFiles_ChildAgentFolderRenamedWithStaleLink_IsRejected()
+    public async Task UploadKnowledgeFiles_ChildAgentFolderRenamed_UsesRenamedFolder()
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-sticky-upload-stale-{Guid.NewGuid():N}/");
@@ -555,12 +554,11 @@ public class ChildAgentFolderStickyTests
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
         RelocateChildAgentFolder(fileAccessor, "agents/Balance Agent", "agents/Renamed");
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            synchronizer.UploadKnowledgeFilesAsync(workspace, mockDataverse.Object, CancellationToken.None));
+        Assert.Null(await Record.ExceptionAsync(() => synchronizer.UploadKnowledgeFilesAsync(workspace, mockDataverse.Object, CancellationToken.None)));
     }
 
     [Fact]
-    public async Task DownloadKnowledgeFiles_ChildAgentFolderRenamedWithStaleLink_IsRejected()
+    public async Task DownloadKnowledgeFiles_ChildAgentFolderRenamed_UsesRenamedFolder()
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-sticky-download-stale-{Guid.NewGuid():N}/");
@@ -584,8 +582,7 @@ public class ChildAgentFolderStickyTests
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
         RelocateChildAgentFolder(fileAccessor, "agents/Balance Agent", "agents/Renamed");
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            synchronizer.DownloadKnowledgeFilesAsync(workspace, mockDataverse.Object, schemaNames: null, CancellationToken.None));
+        Assert.Null(await Record.ExceptionAsync(() => synchronizer.DownloadKnowledgeFilesAsync(workspace, mockDataverse.Object, schemaNames: null, CancellationToken.None)));
     }
 
     private static void WriteRawKnowledgeFile(InMemoryFileAccessor fileAccessor, string path, string content)

@@ -3,6 +3,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
     using Microsoft.Agents.ObjectModel;
     using Microsoft.Agents.ObjectModel.FileProjection;
     using Microsoft.CopilotStudio.McsCore;
+    using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Exceptions;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models;
     using System;
@@ -108,7 +109,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
 
             var path = LspProjection.GetFilePath(typeof(InlineAgentSkill), component.SchemaNameString!, Bot, subAgentFolder: null, pathWithoutExtension: null, AuthoringShape.CliCopilot, component, definition: null);
 
-            Assert.Equal("behaviors/get-us-weather.mcs.yml", path);
+            Assert.Equal("behaviors/get-us-weather/skill.mcs.yml", path);
         }
 
         [Fact]
@@ -121,8 +122,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
             var firstPath = LspProjection.GetFilePath(typeof(InlineAgentSkill), first.SchemaNameString!, Bot, subAgentFolder: null, pathWithoutExtension: null, AuthoringShape.CliCopilot, first, definition);
             var secondPath = LspProjection.GetFilePath(typeof(InlineAgentSkill), second.SchemaNameString!, Bot, subAgentFolder: null, pathWithoutExtension: null, AuthoringShape.CliCopilot, second, definition);
 
-            Assert.Equal("behaviors/get-us-weather.mcs.yml", firstPath);
-            Assert.Equal("behaviors/get-us-weather_peu.mcs.yml", secondPath);
+            Assert.Equal("behaviors/get-us-weather/skill.mcs.yml", firstPath);
+            Assert.Equal("behaviors/get-us-weather_peu/skill.mcs.yml", secondPath);
         }
 
         [Fact]
@@ -135,8 +136,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
             var fallbackPath = LspProjection.GetFilePath(typeof(InlineAgentSkill), fallback.SchemaNameString!, Bot, subAgentFolder: null, pathWithoutExtension: null, AuthoringShape.CliCopilot, fallback, definition);
             var displayPath = LspProjection.GetFilePath(typeof(InlineAgentSkill), display.SchemaNameString!, Bot, subAgentFolder: null, pathWithoutExtension: null, AuthoringShape.CliCopilot, display, definition);
 
-            Assert.Equal("behaviors/get-us-weather.mcs.yml", fallbackPath);
-            Assert.Equal("behaviors/other.mcs.yml", displayPath);
+            Assert.Equal("behaviors/get-us-weather/skill.mcs.yml", fallbackPath);
+            Assert.Equal("behaviors/other/skill.mcs.yml", displayPath);
         }
 
         [Fact]
@@ -204,6 +205,68 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
             Assert.Equal(skill.Id, script.ParentBotComponentId);
         }
 
+        [Fact]
+        public void NestedSkillWorkspace_OnDisk_ResolvesAuthoredSchemas()
+        {
+            var dir = Path.GetFullPath(Path.Combine("TestData", "Workspace", "NestedSkillWorkspace"));
+
+            var world = new World(dir);
+            var workspace = world.GetWorkspace();
+            workspace.BuildCompilationModel();
+
+            var definition = workspace.Definition;
+            var skill = Assert.Single(definition.Components.OfType<DialogComponent>().Where(component => component.Dialog is InlineAgentSkill));
+            var script = Assert.Single(definition.Components.OfType<FileAttachmentComponent>().Where(component => component.DisplayName == "scripts/Get-UsWeather.ps1"));
+
+            Assert.Equal($"{Bot}.skill.get-us-weather_e1W", skill.SchemaNameString);
+            Assert.Equal($"{Bot}.file.scriptsgetusweatherps1_GNNvS", script.SchemaNameString);
+            Assert.Equal(skill.Id, script.ParentBotComponentId);
+        }
+
+        [Fact]
+        public void NestedSkillWorkspace_OnDisk_AnchorIsRootedInCompiledDefinition()
+        {
+            var dir = Path.GetFullPath(Path.Combine("TestData", "Workspace", "NestedSkillWorkspace"));
+
+            var world = new World(dir);
+            var workspace = world.GetWorkspace();
+            workspace.BuildCompilationModel();
+
+            var anchor = world.GetDocument(new Uri(Path.Combine(dir, "behaviors", "get-us-weather", "skill.mcs.yml")));
+            Assert.NotNull(anchor);
+
+            var diagnostics = workspace.GetDiagnostics(world.GetRequestContext(anchor!, 0))
+                .Where(parameters => parameters.Uri.ToString().EndsWith("skill.mcs.yml", StringComparison.OrdinalIgnoreCase))
+                .SelectMany(parameters => parameters.Diagnostics)
+                .ToList();
+
+            Assert.Empty(diagnostics);
+        }
+
+        [Fact]
+        public void RemoveMissingDocuments_AfterSkillFolderDelete_RemovesSkillFromDefinition()
+        {
+            var source = Path.GetFullPath(Path.Combine("TestData", "Workspace", "NestedSkillWorkspace"));
+            var destination = Path.Combine(Path.GetTempPath(), "nested-skill-" + Guid.NewGuid().ToString("N"));
+            CopyDirectory(source, destination);
+
+            try
+            {
+                var world = new World(destination);
+                var workspace = world.GetWorkspace();
+                Assert.Contains(workspace.Definition.Components.OfType<DialogComponent>(), component => component.Dialog is InlineAgentSkill);
+
+                Directory.Delete(Path.Combine(destination, "behaviors", "get-us-weather"), recursive: true);
+
+                Assert.True(workspace.RemoveMissingDocuments(world.GetRequiredService<IClientWorkspaceFileProvider>()));
+                Assert.DoesNotContain(workspace.Definition.Components.OfType<DialogComponent>(), component => component.Dialog is InlineAgentSkill);
+            }
+            finally
+            {
+                Directory.Delete(destination, recursive: true);
+            }
+        }
+
         private static DialogComponent CreateInlineSkillComponent(string schemaName, string displayName)
         {
             var dialog = (DialogBase)CodeSerializer.Deserialize<BotElement>("kind: InlineAgentSkill\ncontent: placeholder\n")!;
@@ -214,6 +277,20 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
                 id: new BotComponentId(Guid.NewGuid()),
                 parentBotComponentId: default,
                 dialog: dialog);
+        }
+
+        private static void CopyDirectory(string source, string destination)
+        {
+            Directory.CreateDirectory(destination);
+            foreach (var file in Directory.EnumerateFiles(source))
+            {
+                File.Copy(file, Path.Combine(destination, Path.GetFileName(file)));
+            }
+
+            foreach (var directory in Directory.EnumerateDirectories(source))
+            {
+                CopyDirectory(directory, Path.Combine(destination, Path.GetFileName(directory)));
+            }
         }
     }
 }

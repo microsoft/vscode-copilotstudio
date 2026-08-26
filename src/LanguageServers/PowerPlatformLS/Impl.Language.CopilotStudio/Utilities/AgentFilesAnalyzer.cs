@@ -1,4 +1,4 @@
-﻿namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Utilities
+namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Utilities
 {
     using Microsoft.Agents.ObjectModel;
     using Microsoft.Agents.ObjectModel.Yaml;
@@ -20,6 +20,9 @@
         /// Given a directory path, enumerates all mcs files in the directory.
         /// </summary>
         IEnumerable<FilePath> EnumerateMcsFiles(DirectoryPath path);
+
+
+        IEnumerable<FilePath> EnumerateMcsFilesRecursive(DirectoryPath path);
 
         /// <summary>
         /// Given a directory, check if it is a root agent directory. The classic signal is a
@@ -225,6 +228,36 @@
             foreach (var fileInfo in directoryContents)
             {
                 if (!fileInfo.IsDirectory && CompoundExtensionNames.Any(ext => fileInfo.Name.EndsWith(ext, StringComparison.OrdinalIgnoreCase)) && fileInfo.PhysicalPath != null)
+                {
+                    yield return fileInfo.ToFilePath();
+                }
+            }
+        }
+
+        public IEnumerable<FilePath> EnumerateMcsFilesRecursive(DirectoryPath path)
+        {
+            IDirectoryContents directoryContents = _fileProvider.GetDirectoryContents(path);
+
+            if (!directoryContents.Exists)
+            {
+                yield break;
+            }
+
+            foreach (var fileInfo in directoryContents)
+            {
+                if (fileInfo.PhysicalPath == null)
+                {
+                    continue;
+                }
+
+                if (fileInfo.IsDirectory)
+                {
+                    foreach (var nested in EnumerateMcsFilesRecursive(fileInfo.ToDirectoryPath()))
+                    {
+                        yield return nested;
+                    }
+                }
+                else if (CompoundExtensionNames.Any(ext => fileInfo.Name.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
                 {
                     yield return fileInfo.ToFilePath();
                 }

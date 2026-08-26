@@ -26,6 +26,86 @@ const workspaceMap: Map<string, WorkspaceScm> = new Map<string, WorkspaceScm>();
 // Tracks in-flight setup promises keyed by workspace URI to avoid concurrent initialization races
 const workspaceSetupPromises: Map<string, Promise<void>> = new Map<string, Promise<void>>();
 
+interface LocalChangeRefreshState {
+  timer?: ReturnType<typeof setTimeout>;
+  pending?: () => Promise<void>;
+  running: boolean;
+}
+
+const localChangeRefreshStates: Map<string, LocalChangeRefreshState> = new Map();
+const localChangeRefreshDelayMs = 150;
+
+function getLocalChangeRefreshState(workspaceUri: string): LocalChangeRefreshState {
+  let state = localChangeRefreshStates.get(workspaceUri);
+  if (!state) {
+    state = { running: false };
+    localChangeRefreshStates.set(workspaceUri, state);
+  }
+
+  return state;
+}
+
+function releaseLocalChangeRefreshState(workspaceUri: string, state: LocalChangeRefreshState): void {
+  if (!state.running && !state.timer && !state.pending) {
+    localChangeRefreshStates.delete(workspaceUri);
+  }
+}
+
+async function runLocalChangeRefresh(workspaceUri: string, state: LocalChangeRefreshState, refresh: () => Promise<void>): Promise<void> {
+  state.running = true;
+  try {
+    let next: (() => Promise<void>) | undefined = refresh;
+    while (next) {
+      try {
+        await next();
+      } catch (error) {
+        logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
+          message: 'onLocalChange failed',
+          error,
+        });
+      }
+
+      next = state.pending;
+      state.pending = undefined;
+    }
+  } finally {
+    state.running = false;
+    releaseLocalChangeRefreshState(workspaceUri, state);
+  }
+}
+
+export function scheduleLocalChangeRefresh(workspaceUri: string, refresh: () => Promise<void>, delayMs = localChangeRefreshDelayMs): void {
+  const state = getLocalChangeRefreshState(workspaceUri);
+  if (state.timer) {
+    clearTimeout(state.timer);
+  }
+
+  state.timer = setTimeout(() => {
+    state.timer = undefined;
+    if (state.running) {
+      state.pending = refresh;
+      return;
+    }
+
+    void runLocalChangeRefresh(workspaceUri, state, refresh);
+  }, delayMs);
+}
+
+function cancelLocalChangeRefresh(workspaceUri: string): void {
+  const state = localChangeRefreshStates.get(workspaceUri);
+  if (!state) {
+    return;
+  }
+
+  if (state.timer) {
+    clearTimeout(state.timer);
+    state.timer = undefined;
+  }
+
+  state.pending = undefined;
+  releaseLocalChangeRefreshState(workspaceUri, state);
+}
+
 /**
  * Get the local and remote changes for a workspace.
  * Used by the Agent Changes tree view.
@@ -69,16 +149,10 @@ export function onWorkspaceChange(uri: string): void {
   // Find the matching workspace by checking if the uri is a child of any workspace uri
   for (const [workspaceUri, scm] of workspaceMap.entries()) {
     if (isChildUri(uri, workspaceUri)) {
-      // Fire-and-forget; we intentionally don't await to avoid blocking file events.
-      // Errors are caught to prevent unhandled promise rejections.
-      void scm.onLocalChange()
-        .then(() => refreshAgentChangesTree())
-        .catch(error => {
-          logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, {
-            message: 'onLocalChange failed',
-            error,
-          });
-        });
+      scheduleLocalChangeRefresh(workspaceUri, async () => {
+        await scm.onLocalChange();
+        refreshAgentChangesTree();
+      });
       return;
     }
   }
@@ -172,6 +246,7 @@ export async function refreshWorkspaces(workspaces: CopilotStudioWorkspace[], co
 
   for (const [uri, scmInstance] of workspaceMap.entries()) {
     if (!desiredUris.has(uri)) {
+      cancelLocalChangeRefresh(uri);
       scmInstance.dispose();
       workspaceMap.delete(uri);
     }
@@ -192,6 +267,7 @@ export async function pushNewWorkspace(context: ExtensionContext, ws: CopilotStu
 
   const staleTracking = workspaceMap.get(ws.workspaceUri);
   if (staleTracking) {
+    cancelLocalChangeRefresh(ws.workspaceUri);
     staleTracking.dispose();
     workspaceMap.delete(ws.workspaceUri);
   }
@@ -393,6 +469,7 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
       return remoteChangeGroup ? remoteChangeGroup.resourceStates as Resource[] : remoteChangesStore;
     },
     dispose: () => {
+      cancelLocalChangeRefresh(workspaceUri);
       localChangeGroup?.dispose();
       remoteChangeGroup?.dispose();
       scmView?.dispose();

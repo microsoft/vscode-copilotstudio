@@ -24,27 +24,27 @@ public class ChildAgentLinkFileTests
     // ---- ChildAgentLinkFile.WriteLink / ListFolders (file I/O) ----------------------
 
     [Fact]
-    public void WriteLink_WritesNoBom_AndListFoldersRoundTrips()
+    public void ListFolders_SchemaFromAnchorMetadata_RoundTrips()
     {
         var accessor = CreateAccessor();
-        WriteAgentDefinition(accessor, "agents/Transfer Funds/agent.mcs.yml");
-
-        ChildAgentLinkFile.WriteLink(
-            accessor,
-            new AgentFilePath("agents/Transfer Funds/agent.mcs.yml"),
-            $"{Bot}.agent.TransferFunds");
-
-        // JSON must not start with a UTF-8 BOM.
-        using (var stream = accessor.OpenRead(new AgentFilePath("agents/Transfer Funds/.agent.json")))
-        {
-            Assert.Equal((byte)'{', stream.ReadByte());
-        }
+        WriteText(accessor, "agents/Transfer Funds/agent.mcs.yml", $"mcs.metadata:\n  componentName: Transfer Funds\n  schemaName: {Bot}.agent.TransferFunds\nkind: AgentDialog\n");
 
         var folder = Assert.Single(ChildAgentLinkFile.ListFolders(accessor));
         Assert.Equal("Transfer Funds", folder.FolderName);
         Assert.NotNull(folder.Link);
         Assert.Equal($"{Bot}.agent.TransferFunds", folder.Link!.SchemaName);
         Assert.Equal("Transfer Funds", folder.Link.FolderName);
+    }
+
+    [Fact]
+    public void ListFolders_LegacyLinkFile_StillResolves()
+    {
+        var accessor = CreateAccessor();
+        WriteAgentDefinition(accessor, "agents/Transfer Funds/agent.mcs.yml");
+        WriteText(accessor, "agents/Transfer Funds/.agent.json", $"{{ \"schemaName\": \"{Bot}.agent.TransferFunds\", \"folderName\": \"Transfer Funds\" }}");
+
+        var folder = Assert.Single(ChildAgentLinkFile.ListFolders(accessor));
+        Assert.Equal($"{Bot}.agent.TransferFunds", folder.Link!.SchemaName);
     }
 
     [Fact]
@@ -79,16 +79,12 @@ public class ChildAgentLinkFileTests
     {
         var accessor = CreateAccessor();
         WriteAgentDefinition(accessor, "agents/Transfer Funds/agent.mcs.yml");
-        ChildAgentLinkFile.WriteLink(
-            accessor,
-            new AgentFilePath("agents/Transfer Funds/agent.mcs.yml"),
-            $"{Bot}.agent.TransferFunds");
+        WriteText(accessor, "agents/Transfer Funds/.agent.json", $"{{ \"schemaName\": \"{Bot}.agent.TransferFunds\", \"folderName\": \"Transfer Funds\" }}");
         Assert.True(accessor.Exists(new AgentFilePath("agents/Transfer Funds/.agent.json")));
 
         ChildAgentLinkFile.DeleteLink(accessor, new AgentFilePath("agents/Transfer Funds/agent.mcs.yml"));
 
         Assert.False(accessor.Exists(new AgentFilePath("agents/Transfer Funds/.agent.json")));
-        // The agent definition itself is untouched (it is deleted separately as a component).
         Assert.True(accessor.Exists(new AgentFilePath("agents/Transfer Funds/agent.mcs.yml")));
     }
 

@@ -1,0 +1,7 @@
+mcs.metadata:
+  componentName: get-us-weather
+  description: Get the current weather.
+  schemaName: crf9a_nagentn1_T2U1EY.skill.get-us-weather_e1W
+  bundle: crf9a_nagentn1_T2U1EY.file.getusweatherzip_hq06y
+  manifestSchemaName: crf9a_nagentn1_T2U1EY.file.skillmd_49zNm
+kind: InlineAgentSkill

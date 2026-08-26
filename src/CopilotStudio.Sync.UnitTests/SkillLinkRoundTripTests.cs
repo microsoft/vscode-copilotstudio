@@ -10,17 +10,33 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests;
 public class SkillLinkRoundTripTests
 {
     [Fact]
-    public void SkillLinkFile_DeleteLink_RemovesHiddenSchemaLink()
+    public void SkillLinkFile_DeleteLink_RemovesLegacySchemaLink()
     {
         var (_, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/ws-skill-link-delete/"));
-        var skillPath = new AgentFilePath("behaviors/get-us-weather.mcs.yml");
         var linkPath = new AgentFilePath("behaviors/get-us-weather/.skill.json");
-        SkillLinkFile.WriteLink(fileAccessor, skillPath, "crd1c_agent.skill.get-us-weather_peu");
+        WriteText(fileAccessor, "behaviors/get-us-weather/.skill.json", "{ \"schemaName\": \"crd1c_agent.skill.get-us-weather_peu\", \"folderName\": \"get-us-weather\" }");
 
-        SkillLinkFile.DeleteLink(fileAccessor, skillPath);
+        SkillLinkFile.DeleteLink(fileAccessor, new AgentFilePath("behaviors/get-us-weather/skill.mcs.yml"));
 
         Assert.False(fileAccessor.Exists(linkPath));
+    }
+
+    [Fact]
+    public void GetLocalChanges_NestedAnchorWithSchemaName_RemapsSchema_NoChurn()
+    {
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/ws-skill-anchor-remap/"));
+
+        WriteText(fileAccessor, "behaviors/get-us-weather/skill.mcs.yml", "mcs.metadata:\n  componentName: get-us-weather\n  schemaName: crd1c_agent.skill.get-us-weather_peu\nkind: InlineAgentSkill\n");
+
+        var cloud = CreateDefinitionWithSkill("crd1c_agent.skill.get-us-weather_peu", "get-us-weather");
+        var local = CreateDefinitionWithSkill("crd1c_agent.skill.get-us-weather", "get-us-weather");
+
+        var (_, changes) = synchronizer.GetLocalChanges(local, cloud, fileAccessor, "token-1");
+
+        Assert.DoesNotContain(changes, c => c.ChangeType == ChangeType.Create && c.SchemaName.Contains(".skill."));
+        Assert.DoesNotContain(changes, c => c.ChangeType == ChangeType.Delete && c.SchemaName.Contains(".skill."));
     }
 
     [Fact]

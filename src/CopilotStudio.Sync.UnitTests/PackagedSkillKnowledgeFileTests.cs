@@ -57,7 +57,7 @@ public class PackagedSkillKnowledgeFileTests
             using var reader = new StreamReader(stream);
             var yaml = reader.ReadToEnd();
             var pathWithoutExtension = new AgentFilePath(key.Substring(0, key.Length - ".mcs.yml".Length));
-            var model = LspProjectionLayout.TryGetPackagedSkillPayloadTypes(pathWithoutExtension, out _)
+            var model = LspProjectionLayout.TryGetPackagedSkillPayloadTypes(pathWithoutExtension, out var payloadTypes) && payloadTypes.First() == typeof(FileAttachmentComponent)
                 ? CodeSerializer.Deserialize<FileAttachmentComponent>(yaml)
                 : CodeSerializer.Deserialize<BotElement>(yaml);
             if (model == null)
@@ -65,7 +65,7 @@ public class PackagedSkillKnowledgeFileTests
                 continue;
             }
 
-            var (component, error) = parser.CompileFile(relativePath, model, context, AuthoringShape.CliCopilot);
+            var (component, error) = parser.CompileFile(relativePath, model, context, AuthoringShape.CliCopilot, McsFileParserCore.ReadMcsMetadata(model).SchemaName);
             Assert.Null(error);
             if (component != null)
             {
@@ -99,7 +99,7 @@ public class PackagedSkillKnowledgeFileTests
         var operationContext = ComponentWriterDefensiveTests.CreateMockOperationContext();
         var syncInfo = new AgentSyncInfo { AgentId = Guid.NewGuid() };
         await synchronizer.CloneChangesAsync(workspace, new ReferenceTracker(), operationContext, mockDataverse.Object, syncInfo, CancellationToken.None);
-        Assert.True(fileAccessor.Exists(new AgentFilePath("behaviors/pptx/.skill.json")));
+        Assert.True(fileAccessor.Exists(new AgentFilePath("behaviors/pptx/skill.mcs.yml")));
 
         var cachedDefinition = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
         mockIsland.Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>())).ReturnsAsync(new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentDelete(skill.Id, skill.Version), new BotComponentDelete(skillMarkdown.Id, skillMarkdown.Version), new BotComponentDelete(script.Id, script.Version) }, botEntity, "token-2"));
@@ -108,12 +108,17 @@ public class PackagedSkillKnowledgeFileTests
 
         Assert.DoesNotContain(fileAccessor.Files.Keys, path => path.StartsWith("behaviors/pptx/", StringComparison.Ordinal));
         Assert.False(fileAccessor.Exists(new AgentFilePath("behaviors/pptx.mcs.yml")));
-        Assert.True(fileAccessor.Exists(new AgentFilePath("behaviors/word.mcs.yml")));
-        Assert.True(fileAccessor.Exists(new AgentFilePath("behaviors/word/.skill.json")));
+        Assert.True(fileAccessor.Exists(new AgentFilePath("behaviors/word/skill.mcs.yml")));
     }
 
+    // Nested layout: the anchor lives inside the skill folder, so removing it leaves a folder
+    // that is structurally identical to a hand-authored new skill. The reader resolves the
+    // folder against the cloud cache and restores the existing skill, so the removal is a no-op
+    // rather than a delete or a re-create. Deleting the whole folder is the delete gesture -
+    // see SkillFolderDeletedLocally_EmitsDeleteForSkillAndAssets. This supersedes the flat
+    // layout's contract, where the anchor sat outside the folder and its removal meant "delete".
     [Fact]
-    public async Task GetLocalChangesAsync_PackagedSkillAnchorDeletedButPayloadRemains_EmitsSkillDeleteNotCreate()
+    public async Task GetLocalChangesAsync_PackagedSkillAnchorDeletedButPayloadRemains_RestoresSkillAndEmitsNoCreate()
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/packaged-skill-anchor-delete-{Guid.NewGuid():N}/");
@@ -142,24 +147,27 @@ public class PackagedSkillKnowledgeFileTests
         var operationContext = ComponentWriterDefensiveTests.CreateMockOperationContext();
         var syncInfo = new AgentSyncInfo { AgentId = Guid.NewGuid() };
         await synchronizer.CloneChangesAsync(workspace, new ReferenceTracker(), operationContext, mockDataverse.Object, syncInfo, CancellationToken.None);
-        Assert.True(fileAccessor.Exists(new AgentFilePath("behaviors/pptx.mcs.yml")));
+        Assert.True(fileAccessor.Exists(new AgentFilePath("behaviors/pptx/skill.mcs.yml")));
 
-        fileAccessor.Delete(new AgentFilePath("behaviors/pptx.mcs.yml"));
+        fileAccessor.Delete(new AgentFilePath("behaviors/pptx/skill.mcs.yml"));
         Assert.True(fileAccessor.Exists(new AgentFilePath("behaviors/pptx/SKILL.md")));
 
         var read = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
-        Assert.DoesNotContain(read.Components, c => c.SchemaNameString == skill.SchemaNameString);
+        Assert.Contains(read.Components, c => c.SchemaNameString == skill.SchemaNameString);
 
         var (changeSet, changes) = await synchronizer.GetLocalChangesAsync(workspace, read, mockDataverse.Object, syncInfo, CancellationToken.None);
 
-        Assert.Contains(changes, change => change.ChangeType == ChangeType.Delete && change.SchemaName == skill.SchemaNameString);
         Assert.DoesNotContain(changes, change => change.ChangeType == ChangeType.Create && change.SchemaName == skill.SchemaNameString);
-        Assert.Single(changeSet.BotComponentChanges.OfType<BotComponentDelete>());
+        Assert.DoesNotContain(changes, change => change.ChangeType == ChangeType.Delete && change.SchemaName == skill.SchemaNameString);
+        Assert.DoesNotContain(changeSet.BotComponentChanges.OfType<BotComponentDelete>(), delete => delete.BotComponentId == skill.Id);
         Assert.True(fileAccessor.Exists(new AgentFilePath("behaviors/pptx/SKILL.md")));
     }
 
+    // See the note above: the naturally-derived-schema case resolves the same way. The nested
+    // anchor always carries the authored schema in mcs.metadata, so this case no longer depends
+    // on a redundant .skill.json sidecar surviving the write - that sidecar is legacy-only now.
     [Fact]
-    public async Task GetLocalChangesAsync_NaturallyNamedSkillAnchorDeletedButPayloadRemains_EmitsSkillDeleteNotCreate()
+    public async Task GetLocalChangesAsync_NaturallyNamedSkillAnchorDeletedButPayloadRemains_RestoresSkillAndEmitsNoCreate()
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/packaged-skill-natural-anchor-delete-{Guid.NewGuid():N}/");
@@ -188,22 +196,19 @@ public class PackagedSkillKnowledgeFileTests
         var operationContext = ComponentWriterDefensiveTests.CreateMockOperationContext();
         var syncInfo = new AgentSyncInfo { AgentId = Guid.NewGuid() };
         await synchronizer.CloneChangesAsync(workspace, new ReferenceTracker(), operationContext, mockDataverse.Object, syncInfo, CancellationToken.None);
-        Assert.True(fileAccessor.Exists(new AgentFilePath("behaviors/pptx.mcs.yml")));
 
-        // Naturally-derived schema: the writer would previously have deleted the
-        // sidecar here since it's redundant, leaving no discriminator on delete.
-        Assert.True(fileAccessor.Exists(new AgentFilePath("behaviors/pptx/.skill.json")));
+        Assert.True(fileAccessor.Exists(new AgentFilePath("behaviors/pptx/skill.mcs.yml")));
 
-        fileAccessor.Delete(new AgentFilePath("behaviors/pptx.mcs.yml"));
+        fileAccessor.Delete(new AgentFilePath("behaviors/pptx/skill.mcs.yml"));
 
         var read = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
-        Assert.DoesNotContain(read.Components, c => c.SchemaNameString == skill.SchemaNameString);
+        Assert.Contains(read.Components, c => c.SchemaNameString == skill.SchemaNameString);
 
         var (changeSet, changes) = await synchronizer.GetLocalChangesAsync(workspace, read, mockDataverse.Object, syncInfo, CancellationToken.None);
 
-        Assert.Contains(changes, change => change.ChangeType == ChangeType.Delete && change.SchemaName == skill.SchemaNameString);
         Assert.DoesNotContain(changes, change => change.ChangeType == ChangeType.Create && change.SchemaName == skill.SchemaNameString);
-        Assert.Single(changeSet.BotComponentChanges.OfType<BotComponentDelete>());
+        Assert.DoesNotContain(changes, change => change.ChangeType == ChangeType.Delete && change.SchemaName == skill.SchemaNameString);
+        Assert.DoesNotContain(changeSet.BotComponentChanges.OfType<BotComponentDelete>(), delete => delete.BotComponentId == skill.Id);
         Assert.True(fileAccessor.Exists(new AgentFilePath("behaviors/pptx/SKILL.md")));
     }
 
@@ -263,10 +268,10 @@ public class PackagedSkillKnowledgeFileTests
             CancellationToken.None);
 
         var keys = fileAccessor.Files.Keys.Select(k => k.Replace('\\', '/')).ToList();
-        Assert.Contains("behaviors/pptx.mcs.yml", keys);
-        Assert.Contains("behaviors/pptx/.skill.json", keys);
-        Assert.Contains("behaviors/pptx/skillmd_123.mcs.yml", keys);
-        Assert.Contains("behaviors/pptx/scriptsaddslidepy_456.mcs.yml", keys);
+        Assert.Contains("behaviors/pptx/skill.mcs.yml", keys);
+        Assert.DoesNotContain("behaviors/pptx/.skill.json", keys);
+        Assert.DoesNotContain("behaviors/pptx/SKILL.md.mcs.yml", keys);
+        Assert.Contains("behaviors/pptx/scripts/add_slide.py.mcs.yml", keys);
         Assert.Contains("behaviors/pptx/SKILL.md", keys);
         Assert.Contains("behaviors/pptx/scripts/add_slide.py", keys);
 
@@ -313,15 +318,14 @@ public class PackagedSkillKnowledgeFileTests
         var workspaceDefinition = new BotDefinition().WithEntity(botEntity);
 
         await synchronizer.PushLocalChangesAsync(workspace, operationContext, workspaceDefinition, mockDataverse.Object, syncInfo, cloudFlowMetadata: null, ImmutableArray<AIPromptMetadata>.Empty, CancellationToken.None);
-
         var finalCache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
         var skill = finalCache.Components.OfType<DialogComponent>().SingleOrDefault(component => component.Dialog is InlineAgentSkill);
         Assert.NotNull(skill);
-        Assert.True(fileAccessor.Exists(new AgentFilePath("behaviors/get-us-weather-2.mcs.yml")));
+        Assert.True(fileAccessor.Exists(new AgentFilePath("behaviors/get-us-weather-2/skill.mcs.yml")));
 
         var skillMdSidecars = fileAccessor.Files.Keys.Where(key => key.Replace('\\', '/').StartsWith("behaviors/get-us-weather-2/SKILL.md", StringComparison.Ordinal) && key.EndsWith(".mcs.yml", StringComparison.Ordinal)).ToList();
-        Assert.Single(skillMdSidecars);
-        Assert.Single(finalCache.Components.OfType<FileAttachmentComponent>());
+        Assert.Empty(skillMdSidecars);
+        Assert.Empty(finalCache.Components.OfType<FileAttachmentComponent>());
     }
 
     [Fact]
@@ -348,21 +352,28 @@ public class PackagedSkillKnowledgeFileTests
                 return Task.FromResult(new PvaComponentChangeSet(confirmed, incoming.Bot, Guid.NewGuid().ToString("N")));
             });
 
+        var uploadedFileNames = new List<string>();
         var mockDataverse = new Mock<ISyncDataverseClient>();
+        mockDataverse.Setup(client => client.UploadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<string, Guid, string, CancellationToken>((_, _, fileName, _) => uploadedFileNames.Add(fileName))
+            .Returns(Task.CompletedTask);
         var operationContext = ComponentWriterDefensiveTests.CreateMockOperationContext();
         var syncInfo = new AgentSyncInfo { AgentId = Guid.NewGuid() };
 
         var workspaceDefinition = new BotDefinition().WithEntity(botEntity);
 
         await synchronizer.PushLocalChangesAsync(workspace, operationContext, workspaceDefinition, mockDataverse.Object, syncInfo, cloudFlowMetadata: null, ImmutableArray<AIPromptMetadata>.Empty, CancellationToken.None);
+        await synchronizer.UploadKnowledgeFilesAsync(workspace, mockDataverse.Object, CancellationToken.None);
 
         var finalCache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
         var fileComponents = finalCache.Components.OfType<FileAttachmentComponent>().ToList();
         Assert.Equal(2, fileComponents.Count);
         Assert.Single(fileComponents, component => component.DisplayName == "SKILL.md");
         Assert.Single(fileComponents, component => component.DisplayName == "scripts/Get-UsWeather.ps1");
+        Assert.Contains("SKILL.md", uploadedFileNames);
+        Assert.Contains("scripts/Get-UsWeather.ps1", uploadedFileNames);
 
-        var scriptSidecars = fileAccessor.Files.Keys.Where(key => key.Replace('\\', '/').StartsWith("behaviors/get-us-weather-2/scriptsGet-UsWeather.ps1", StringComparison.Ordinal) && key.EndsWith(".mcs.yml", StringComparison.Ordinal)).ToList();
+        var scriptSidecars = fileAccessor.Files.Keys.Where(key => key.Replace('\\', '/').StartsWith("behaviors/get-us-weather-2/scripts/Get-UsWeather.ps1", StringComparison.Ordinal) && key.EndsWith(".mcs.yml", StringComparison.Ordinal)).ToList();
         Assert.Single(scriptSidecars);
     }
 
@@ -489,8 +500,8 @@ public class PackagedSkillKnowledgeFileTests
 
         var finalCache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
         var skillMdSidecars = fileAccessor.Files.Keys.Where(key => key.Replace('\\', '/').StartsWith("behaviors/get-us-weather-2/SKILL.md", StringComparison.Ordinal) && key.EndsWith(".mcs.yml", StringComparison.Ordinal)).ToList();
-        Assert.Single(skillMdSidecars);
-        Assert.Single(finalCache.Components.OfType<FileAttachmentComponent>());
+        Assert.Empty(skillMdSidecars);
+        Assert.Empty(finalCache.Components.OfType<FileAttachmentComponent>());
     }
 
     [Fact]
@@ -533,9 +544,9 @@ public class PackagedSkillKnowledgeFileTests
         Assert.Equal(2, skills.Count);
         var skill1 = skills.Single(component => component.DisplayName == "get-us-temperature");
         var skill1FileComponents = finalCache.Components.OfType<FileAttachmentComponent>().Where(component => component.ParentBotComponentId == skill1.Id).ToList();
-        Assert.Single(skill1FileComponents);
+        Assert.Empty(skill1FileComponents);
         var skill1MdSidecars = fileAccessor.Files.Keys.Where(key => key.Replace('\\', '/').StartsWith("behaviors/get-us-temperature/SKILL.md", StringComparison.Ordinal) && key.EndsWith(".mcs.yml", StringComparison.Ordinal)).ToList();
-        Assert.Single(skill1MdSidecars);
+        Assert.Empty(skill1MdSidecars);
     }
 
     [Fact]
@@ -579,9 +590,9 @@ public class PackagedSkillKnowledgeFileTests
         Assert.Equal(2, skills.Count);
         var skill1 = skills.Single(component => component.DisplayName == "get-us-temperature");
         var skill1FileComponents = finalCache.Components.OfType<FileAttachmentComponent>().Where(component => component.ParentBotComponentId == skill1.Id).ToList();
-        Assert.Single(skill1FileComponents);
+        Assert.Empty(skill1FileComponents);
         var skill1MdSidecars2 = fileAccessor.Files.Keys.Where(key => key.Replace('\\', '/').StartsWith("behaviors/get-us-temperature/SKILL.md", StringComparison.Ordinal) && key.EndsWith(".mcs.yml", StringComparison.Ordinal)).ToList();
-        Assert.Single(skill1MdSidecars2);
+        Assert.Empty(skill1MdSidecars2);
     }
 
     [Fact]
@@ -628,8 +639,8 @@ public class PackagedSkillKnowledgeFileTests
         var weatherSkill = skills.Single(component => component.DisplayName == "get-us-weather-2");
         var temperatureFileComponents = finalCache.Components.OfType<FileAttachmentComponent>().Where(component => component.ParentBotComponentId == temperatureSkill.Id).ToList();
         var weatherFileComponents = finalCache.Components.OfType<FileAttachmentComponent>().Where(component => component.ParentBotComponentId == weatherSkill.Id).ToList();
-        Assert.Single(temperatureFileComponents);
-        Assert.Single(weatherFileComponents);
+        Assert.Empty(temperatureFileComponents);
+        Assert.Empty(weatherFileComponents);
     }
 
     [Fact]
@@ -682,8 +693,7 @@ public class PackagedSkillKnowledgeFileTests
             new AgentFilePath("settings.mcs.yml"),
             "displayName: Repro\nschemaName: cre98_Repro\nconfiguration:\n  recognizer:\n    kind: CLICopilotRecognizer\n  agentSettings:\n    model:\n      series: Sonnet46\n    instructions:\n      segments:\n        - kind: StaticSegment\n          value: Test.\ntemplate: cliagent-1.0.0\nlanguage: 1033\n",
             CancellationToken.None);
-        await fileAccessor.WriteAsync(new AgentFilePath("behaviors/get-us-weather-2.mcs.yml"), "mcs.metadata:\n  componentName: get-us-weather-2\nkind: InlineAgentSkill\ncontent: placeholder\n", CancellationToken.None);
-        await fileAccessor.WriteAsync(new AgentFilePath("behaviors/get-us-weather-2/.skill.json"), "{ \"schemaName\": \"cre98_Repro.skill.get-us-weather-2\", \"folderName\": \"get-us-weather-2\" }", CancellationToken.None);
+        await fileAccessor.WriteAsync(new AgentFilePath("behaviors/get-us-weather-2/skill.mcs.yml"), "mcs.metadata:\n  componentName: get-us-weather-2\n  schemaName: cre98_Repro.skill.get-us-weather-2\nkind: InlineAgentSkill\n", CancellationToken.None);
         await fileAccessor.WriteAsync(new AgentFilePath("behaviors/get-us-weather-2/SKILL.md"), "weather body\n", CancellationToken.None);
 
         var localDefinition = new BotDefinition().WithEntity(botEntity).WithComponents(new BotComponentBase[]
@@ -709,8 +719,7 @@ public class PackagedSkillKnowledgeFileTests
             new AgentFilePath("settings.mcs.yml"),
             "displayName: Repro\nschemaName: cre98_Repro\nconfiguration:\n  recognizer:\n    kind: CLICopilotRecognizer\n  agentSettings:\n    model:\n      series: Sonnet46\n    instructions:\n      segments:\n        - kind: StaticSegment\n          value: Test.\ntemplate: cliagent-1.0.0\nlanguage: 1033\n",
             CancellationToken.None);
-        await fileAccessor.WriteAsync(new AgentFilePath("behaviors/get-us-weather-2.mcs.yml"), "mcs.metadata:\n  componentName: get-us-weather-2\nkind: InlineAgentSkill\ncontent: placeholder\n", CancellationToken.None);
-        await fileAccessor.WriteAsync(new AgentFilePath("behaviors/get-us-weather-2/.skill.json"), "{ \"schemaName\": \"cre98_Repro.skill.get-us-weather-2\", \"folderName\": \"get-us-weather-2\" }", CancellationToken.None);
+        await fileAccessor.WriteAsync(new AgentFilePath("behaviors/get-us-weather-2/skill.mcs.yml"), "mcs.metadata:\n  componentName: get-us-weather-2\n  schemaName: cre98_Repro.skill.get-us-weather-2\nkind: InlineAgentSkill\n", CancellationToken.None);
         await fileAccessor.WriteAsync(new AgentFilePath("behaviors/get-us-weather-2/SKILL.md"), "weather body\n", CancellationToken.None);
         await fileAccessor.WriteAsync(new AgentFilePath("behaviors/get-us-weather-2/scripts/Get-UsWeather.ps1"), "weather script\n", CancellationToken.None);
 
@@ -801,8 +810,8 @@ public class PackagedSkillKnowledgeFileTests
 
         var finalCache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
         var fileComponents = finalCache.Components.OfType<FileAttachmentComponent>().ToList();
-        Assert.Equal(2, fileComponents.Count);
-        Assert.Single(fileComponents, component => component.DisplayName == "SKILL.md");
+        Assert.Single(fileComponents);
+        Assert.DoesNotContain(fileComponents, component => component.DisplayName == "SKILL.md");
         Assert.Single(fileComponents, component => component.DisplayName == "scripts/Get-Weather.ps1");
 
         Assert.Contains(fileAccessor.Files.Keys, key => key.Replace('\\', '/').StartsWith("behaviors/weather.v2/", StringComparison.Ordinal) && key.EndsWith(".mcs.yml", StringComparison.Ordinal));
@@ -879,12 +888,12 @@ public class PackagedSkillKnowledgeFileTests
         var finalCache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
         var cloudSkill = Assert.Single(finalCache.Components.OfType<DialogComponent>(), component => component.Dialog is InlineAgentSkill);
         Assert.EndsWith("_cLd", cloudSkill.SchemaNameString, StringComparison.Ordinal);
-        Assert.Equal(2, finalCache.Components.OfType<FileAttachmentComponent>().Count(component => component.ParentBotComponentId == cloudSkill.Id));
+        Assert.Equal(1, finalCache.Components.OfType<FileAttachmentComponent>().Count(component => component.ParentBotComponentId == cloudSkill.Id));
 
         var projectedPaths = fileAccessor.Files.Keys.Select(key => key.Replace('\\', '/')).ToList();
-        Assert.Contains("behaviors/weather.v2.mcs.yml", projectedPaths);
-        Assert.Contains("behaviors/weather.v2/.skill.json", projectedPaths);
-        Assert.Contains(projectedPaths, path => path.StartsWith("behaviors/weather.v2/", StringComparison.Ordinal) && path.Contains("SKILL.md", StringComparison.Ordinal) && path.EndsWith(".mcs.yml", StringComparison.Ordinal));
+        Assert.Contains("behaviors/weather.v2/skill.mcs.yml", projectedPaths);
+        Assert.DoesNotContain("behaviors/weather.v2/.skill.json", projectedPaths);
+        Assert.DoesNotContain(projectedPaths, path => path.StartsWith("behaviors/weather.v2/", StringComparison.Ordinal) && path.Contains("SKILL.md", StringComparison.Ordinal) && path.EndsWith(".mcs.yml", StringComparison.Ordinal));
         Assert.Contains(projectedPaths, path => path.StartsWith("behaviors/weather.v2/", StringComparison.Ordinal) && path.Contains("Get-Weather.ps1", StringComparison.Ordinal) && path.EndsWith(".mcs.yml", StringComparison.Ordinal));
         Assert.DoesNotContain(projectedPaths, path => path.StartsWith("behaviors/weatherv2", StringComparison.Ordinal));
     }
@@ -909,7 +918,7 @@ public class PackagedSkillKnowledgeFileTests
     }
 
     [Fact]
-    public async Task GetLocalChangesAsync_BareSkillFoldersWithNonAlphanumericNames_ProduceDistinctNonEmptyBundleMarkers()
+    public async Task GetLocalChangesAsync_SkillFoldersWithNonAlphanumericNames_KeepManifestContentVerbatim()
     {
         var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/bare-skill-bundle-collision-{Guid.NewGuid():N}/");
@@ -921,8 +930,10 @@ public class PackagedSkillKnowledgeFileTests
             "displayName: Repro\nschemaName: cre98_Repro\nconfiguration:\n  recognizer:\n    kind: CLICopilotRecognizer\n  agentSettings:\n    model:\n      series: Sonnet46\n    instructions:\n      segments:\n        - kind: StaticSegment\n          value: Test.\ntemplate: cliagent-1.0.0\nlanguage: 1033\n",
             CancellationToken.None);
         WorkspaceSynchronizer.WriteCloudCache(fileAccessor, new BotDefinition().WithEntity(botEntity));
-        await fileAccessor.WriteAsync(new AgentFilePath("behaviors/---/SKILL.md"), "skill body\n", CancellationToken.None);
-        await fileAccessor.WriteAsync(new AgentFilePath("behaviors/___/SKILL.md"), "skill body\n", CancellationToken.None);
+        await fileAccessor.WriteAsync(new AgentFilePath("behaviors/---/SKILL.md"), "first skill body\n", CancellationToken.None);
+        await fileAccessor.WriteAsync(new AgentFilePath("behaviors/---/scripts/run.ps1"), "one\n", CancellationToken.None);
+        await fileAccessor.WriteAsync(new AgentFilePath("behaviors/___/SKILL.md"), "second skill body\n", CancellationToken.None);
+        await fileAccessor.WriteAsync(new AgentFilePath("behaviors/___/scripts/run.ps1"), "two\n", CancellationToken.None);
 
         var mockDataverse = new Mock<ISyncDataverseClient>();
         var syncInfo = new AgentSyncInfo { AgentId = Guid.NewGuid() };
@@ -939,8 +950,8 @@ public class PackagedSkillKnowledgeFileTests
             .ToList();
 
         Assert.Equal(2, skillContents.Count);
-        Assert.All(skillContents, content => Assert.DoesNotContain($"{LspProjection.FileAttachmentInfix}zip", content));
-        Assert.Equal(2, skillContents.Distinct().Count());
+        Assert.All(skillContents, content => Assert.StartsWith(SkillLayout.BundleMarkerPrefix, content, StringComparison.Ordinal));
+        Assert.Equal(2, skillContents.Distinct(StringComparer.Ordinal).Count());
     }
 
     private static BotComponentBase AssignNewId(BotComponentBase component)
