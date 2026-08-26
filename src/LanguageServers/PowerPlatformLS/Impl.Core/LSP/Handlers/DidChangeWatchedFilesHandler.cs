@@ -61,7 +61,7 @@
                     {
                         var workspace = language.ResolveWorkspace(filePath);
 
-                        if (workspace.RemoveDocumentsUnderFolder(filePath))
+                        if (workspace.RemoveDocumentsUnderFolder(filePath, _fileProvider))
                         {
                             dirtyWorkspaces.TryAdd(workspace.FolderPath, new RequestContext(language, workspace, null, 0));
                             continue;

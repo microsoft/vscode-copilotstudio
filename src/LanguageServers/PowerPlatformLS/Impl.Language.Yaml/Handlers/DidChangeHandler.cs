@@ -1,6 +1,7 @@
 ﻿
 namespace Microsoft.PowerPlatformLS.Impl.Language.Yaml.Handlers
 {
+    using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.PowerPlatformLS.Contracts.Internal;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common.Framework;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common.Handlers;
@@ -9,8 +10,8 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.Yaml.Handlers
     [LspMethodHandler(LspMethods.DidChange)]
     class DidChangeHandler : BaseDidChangeMethodHandler<YamlLspDocument>
     {
-        public DidChangeHandler(IDiagnosticsPublisher publisher)
-            : base(publisher)
+        public DidChangeHandler(IDiagnosticsPublisher publisher, ILspLogger logger)
+            : base(publisher, logger)
         {
         }
     }

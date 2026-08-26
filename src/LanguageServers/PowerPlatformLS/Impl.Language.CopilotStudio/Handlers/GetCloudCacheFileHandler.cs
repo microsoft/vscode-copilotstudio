@@ -1,7 +1,8 @@
-﻿namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Handlers
+namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Handlers
 {
     using Microsoft.Agents.ObjectModel;
     using Microsoft.CommonLanguageServerProtocol.Framework;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models;
@@ -33,6 +34,9 @@
         }
 
         public bool MutatesSolutionState => false;
+
+        private static string SerializeComponentBody(BotComponentBase component, DefinitionBase definition)
+            => McsComponentBodyWriter.SerializeComponent(component, definition, new AgentFilePath(new LspComponentPathResolver().GetComponentPath(component, definition)));
 
         public Task<GetFileResponse> HandleRequestAsync(GetFileRequest request, RequestContext context, CancellationToken cancellationToken)
         {
@@ -83,6 +87,7 @@
                 }
 
                 using var sw = new StringWriter();
+                string? componentBody = null;
                 if (request.SchemaName.Equals("entity", StringComparison.OrdinalIgnoreCase) && originalDefinition is BotDefinition bd && bd.Entity is not null)
                 {
                     CodeSerializer.SerializeWithoutKind(sw, bd.Entity.WithOnlySettingsYamlProperties());
@@ -93,13 +98,13 @@
                 }
                 else if (originalDefinition != null && originalDefinition.TryGetComponentBySchemaName(request.SchemaName, out var component))
                 {
-                    CodeSerializer.SerializeAsMcsYml(sw, component);
+                    componentBody = SerializeComponentBody(component, originalDefinition);
                 }
 
                 // Fallback to context definition if not found in original definition. File has been added but not yet pushed.
                 else if (contextDefinition != null && contextDefinition.TryGetComponentBySchemaName(request.SchemaName, out var componentByName))
                 {
-                    CodeSerializer.SerializeAsMcsYml(sw, componentByName);
+                    componentBody = SerializeComponentBody(componentByName, contextDefinition);
                 }
                 else if (originalDefinition != null && originalDefinition.TryGetEnvironmentVariableDefinitionBySchemaName(request.SchemaName, out var environmentVariable) && environmentVariable.Id.HasValue)
                 {
@@ -124,7 +129,7 @@
                 return Task.FromResult(new GetFileResponse
                 {
                     Code = 200,
-                    Content = sw.ToString(),
+                    Content = componentBody ?? sw.ToString(),
                 });
             }
             catch (Exception ex)

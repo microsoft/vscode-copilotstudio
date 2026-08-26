@@ -328,11 +328,11 @@ internal static class LspProjection
             // this rule relocates metadata + content together.
             {
                 typeof(FileAttachmentComponentMetadata),
-                new Rule(FileAttachmentInfix, "capabilities/knowledge/files/", true, new[] { "file" }, CreateCliFileAttachmentOverrides(), PreserveBotPrefixedFiles: true)
+                new Rule(FileAttachmentInfix, "capabilities/knowledge/files/", true, new[] { "file" }, PreserveBotPrefixedFiles: true)
             },
             {
                 typeof(FileAttachmentComponent),
-                new Rule(FileAttachmentInfix, "capabilities/knowledge/files/", true, new[] { "file" }, CreateCliFileAttachmentOverrides(), PreserveBotPrefixedFiles: true)
+                new Rule(FileAttachmentInfix, "capabilities/knowledge/files/", true, new[] { "file" }, PreserveBotPrefixedFiles: true)
             },
         }.ToFrozenDictionary();
 
@@ -434,6 +434,19 @@ internal static class LspProjection
     internal static SchemaNameResult GetSchemaNameResult(string pathWithoutExtension, string? botName, Type elementType, AuthoringShape shape = AuthoringShape.Classic)
     {
         var normalized = pathWithoutExtension.Replace('\\', '/');
+
+        if (shape == AuthoringShape.CliCopilot)
+        {
+            if (typeof(InlineAgentSkill).IsAssignableFrom(elementType))
+            {
+                normalized = TrimSkillAnchorLeaf(normalized);
+            }
+            else if (TryGetSkillAssetSchemaName(normalized, botName, elementType, out var assetSchemaName))
+            {
+                return new SchemaNameResult(assetSchemaName, PreserveQualifiedSchemaName: false);
+            }
+        }
+
         var fileName = System.IO.Path.GetFileName(normalized);
 
         // GPT special case: always "{botName}.gpt.default"
@@ -544,13 +557,19 @@ internal static class LspProjection
             return $"{prefix}{AgentsFolder}{agentName}/agent.mcs.yml";
         }
 
-        if (shape == AuthoringShape.CliCopilot && typeof(InlineAgentSkill).IsAssignableFrom(elementType) && component != null && string.IsNullOrEmpty(subAgentFolder))
+        if (shape == AuthoringShape.CliCopilot && typeof(InlineAgentSkill).IsAssignableFrom(elementType) && string.IsNullOrEmpty(subAgentFolder))
         {
-            var skillName = SubAgentFolderNaming.FromDisplayName(component.DisplayName, keepSpaces: true);
-            if (skillName != null && !HasInlineAgentSkillFolderCollision(definition, skillName, botName))
+            var preferredFolder = SubAgentFolderNaming.FromDisplayName(component?.DisplayName, keepSpaces: true);
+            var skillFolder = preferredFolder != null && !HasInlineAgentSkillFolderCollision(definition, preferredFolder, botName) ? preferredFolder : DeriveShortName(schemaName, ".skill.", botName);
+            if (!string.IsNullOrEmpty(skillFolder))
             {
-                return $"{BehaviorsFolder}{skillName}.mcs.yml";
+                return SkillLayout.GetAnchorPath(skillFolder).ToString();
             }
+        }
+
+        if (shape == AuthoringShape.CliCopilot && string.IsNullOrEmpty(subAgentFolder) && TryGetSkillAssetPath(elementType, botName, component, definition, out var skillAssetPath))
+        {
+            return skillAssetPath;
         }
 
         // Look up rule
@@ -596,6 +615,69 @@ internal static class LspProjection
     private static bool HasInlineAgentSkillFolderCollision(BotDefinition? definition, string folderName, string? botName) => definition?.Components.OfType<DialogComponent>().Where(component => component.Dialog is InlineAgentSkill && string.Equals(GetPreferredInlineAgentSkillFolder(component, botName), folderName, StringComparison.OrdinalIgnoreCase)).Select(component => component.SchemaNameString).Distinct(StringComparer.Ordinal).Count() > 1;
 
     internal static string? GetPreferredInlineAgentSkillFolder(DialogComponent component, string? botName) => SubAgentFolderNaming.FromDisplayName(component.DisplayName, keepSpaces: true) ?? DeriveShortName(component.SchemaNameString, ".skill.", botName);
+
+    internal static string GetSchemaLeaf(string? schemaName, string infix, string? botName) => DeriveShortName(schemaName, infix, botName);
+
+    private static bool TryGetSkillAssetPath(Type elementType, string? botName, BotComponentBase? component, BotDefinition? definition, out string assetPath)
+    {
+        assetPath = string.Empty;
+        if (component == null || string.IsNullOrEmpty(component.DisplayName) || (!typeof(FileAttachmentComponentMetadata).IsAssignableFrom(elementType) && !typeof(FileAttachmentComponent).IsAssignableFrom(elementType)))
+        {
+            return false;
+        }
+
+        var skillFolder = GetOwningSkillFolder(component, definition, botName);
+        if (skillFolder == null)
+        {
+            return false;
+        }
+
+        var candidate = SkillLayout.GetAssetSidecarPath(skillFolder, component.DisplayName!);
+        assetPath = candidate.Equals(SkillLayout.GetAnchorPath(skillFolder)) ? SkillLayout.GetAssetSidecarPath(skillFolder, DeriveShortName(component.SchemaNameString, FileAttachmentInfix, botName)).ToString() : candidate.ToString();
+        
+        return true;
+    }
+
+    private static string? GetOwningSkillFolder(BotComponentBase component, BotDefinition? definition, string? botName)
+    {
+        if (definition == null || !component.ParentBotComponentId.HasValue || !definition.TryGetBotComponentById(component.ParentBotComponentId.Value, out var parent) || parent is not DialogComponent { Dialog: InlineAgentSkill } skillParent)
+        {
+            return null;
+        }
+
+        var parentPath = GetFilePath(typeof(InlineAgentSkill), skillParent.SchemaNameString ?? string.Empty, botName, subAgentFolder: null, pathWithoutExtension: null, AuthoringShape.CliCopilot, skillParent, definition);
+        return parentPath != null && SkillLayout.TryGetFolderFromAnchorPath(parentPath, out var folderName) ? folderName : null;
+    }
+
+    private static string TrimSkillAnchorLeaf(string pathWithoutExtension)
+    {
+        const string anchorLeaf = "/skill";
+        return pathWithoutExtension.StartsWith(BehaviorsFolder, StringComparison.OrdinalIgnoreCase) && pathWithoutExtension.EndsWith(anchorLeaf, StringComparison.OrdinalIgnoreCase)
+            ? pathWithoutExtension.Substring(0, pathWithoutExtension.Length - anchorLeaf.Length)
+            : pathWithoutExtension;
+    }
+
+    private static bool TryGetSkillAssetSchemaName(string pathWithoutExtension, string? botName, Type elementType, out string? schemaName)
+    {
+        schemaName = null;
+        if (string.IsNullOrEmpty(botName)
+            || !pathWithoutExtension.StartsWith(BehaviorsFolder, StringComparison.OrdinalIgnoreCase)
+            || (!typeof(FileAttachmentComponentMetadata).IsAssignableFrom(elementType) && !typeof(FileAttachmentComponent).IsAssignableFrom(elementType)))
+        {
+            return false;
+        }
+
+        var remainder = pathWithoutExtension.Substring(BehaviorsFolder.Length);
+        var slash = remainder.IndexOf('/');
+        if (slash <= 0)
+        {
+            return false;
+        }
+
+        var relativeName = remainder.Substring(slash + 1);
+        schemaName = $"{botName}{FileAttachmentInfix}{relativeName.Replace("/", string.Empty)}";
+        return relativeName.Length > 0;
+    }
 
     /// <summary>
     /// Gets component ID and parent ID for a dialog element.
@@ -854,46 +936,6 @@ internal static class LspProjection
         }
 
         return new Rule(rule.Infix, rule.Folder, rule.DotPassthrough, rule.DotInfixBlocklist, PreserveBotPrefixedFiles: rule.PreserveBotPrefixedFiles, AlternateInfixes: rule.AlternateInfixes);
-    }
-
-    private static RuleOverride[] CreateCliFileAttachmentOverrides() =>
-        new[]
-        {
-            new RuleOverride(
-                FileAttachmentInfix,
-                "capabilities/knowledge/files/",
-                new[] { "file" },
-                ContextPredicate: context => context.ParentRootElement is InlineAgentSkill,
-                FolderResolver: GetParentComponentFolder),
-        };
-
-    private static string? GetParentComponentFolder(RuleContext context)
-    {
-        var parent = context.ParentComponent;
-        if (parent == null)
-        {
-            return null;
-        }
-
-        var parentElementType = parent is DialogComponent dialogComponent
-            ? dialogComponent.Dialog?.GetType() ?? typeof(AdaptiveDialog)
-            : parent.GetType();
-
-        var parentPath = GetFilePath(
-            parentElementType,
-            parent.SchemaNameString ?? string.Empty,
-            context.BotName,
-            subAgentFolder: null,
-            pathWithoutExtension: null,
-            context.Shape,
-            parent,
-            context.Definition);
-        if (parentPath == null)
-        {
-            return null;
-        }
-
-        return PathHelper.ToInternalCanonicalFolderPath(new AgentFilePath(parentPath).RemoveExtension().ToString()) + "/";
     }
 
     private static string? GetAgentDialogSchemaName(string pathWithoutExtension, string? botName)

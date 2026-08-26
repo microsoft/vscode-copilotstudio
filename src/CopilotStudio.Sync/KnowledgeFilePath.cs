@@ -51,10 +51,28 @@ internal static class KnowledgeFilePath
 
     public static AgentFilePath GetContentFilePath(AgentFilePath componentPath, string displayName)
     {
-        var parentDirectory = PathHelper.ToInternalCanonicalFolderPath(componentPath.ParentDirectoryName);
         var localDisplayName = NormalizeDisplayName(displayName);
-        var relativePath = string.IsNullOrEmpty(parentDirectory) ? localDisplayName : $"{parentDirectory}/{localDisplayName}";
-        return new AgentFilePath(relativePath);
+        var componentPathValue = componentPath.ToString();
+
+        if (componentPathValue.EndsWith(SkillLayout.SidecarExtension, StringComparison.OrdinalIgnoreCase))
+        {
+            var nestedContentPath = componentPathValue.Substring(0, componentPathValue.Length - SkillLayout.SidecarExtension.Length);
+            if (nestedContentPath.EndsWith("/" + localDisplayName, StringComparison.OrdinalIgnoreCase) || string.Equals(nestedContentPath, localDisplayName, StringComparison.OrdinalIgnoreCase))
+            {
+                return new AgentFilePath(nestedContentPath);
+            }
+        }
+
+        var parentDirectory = PathHelper.ToInternalCanonicalFolderPath(componentPath.ParentDirectoryName);
+        return new AgentFilePath(string.IsNullOrEmpty(parentDirectory) ? localDisplayName : $"{parentDirectory}/{localDisplayName}");
+    }
+
+
+    public static string GetContentRootFolder(AgentFilePath componentPath, string displayName)
+    {
+        var contentPath = GetContentFilePath(componentPath, displayName).ToString();
+        var localDisplayName = NormalizeDisplayName(displayName);
+        return contentPath.Length > localDisplayName.Length ? contentPath.Substring(0, contentPath.Length - localDisplayName.Length - 1) : string.Empty;
     }
 
     public static string GetDisplayNameFromContentPath(string folder, AgentFilePath file)

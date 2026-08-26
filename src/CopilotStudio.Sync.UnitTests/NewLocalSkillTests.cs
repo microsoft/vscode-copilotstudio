@@ -331,8 +331,8 @@ public class NewLocalSkillTests
 
         var (_, changes) = await sync.GetLocalChangesAsync(workspace, CliCloudDefinition(), new Mock<ISyncDataverseClient>().Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
 
-        Assert.Contains(changes, change => change.ChangeType == ChangeType.Create && change.Uri.Replace('\\', '/') == "behaviors/weather.v2.mcs.yml");
-        Assert.DoesNotContain(changes, change => change.Uri.Replace('\\', '/') == "behaviors/weatherv2.mcs.yml");
+        Assert.Contains(changes, change => change.ChangeType == ChangeType.Create && change.Uri.Replace('\\', '/') == "behaviors/weather.v2/skill.mcs.yml");
+        Assert.DoesNotContain(changes, change => change.Uri.Replace('\\', '/').StartsWith("behaviors/weatherv2", StringComparison.Ordinal));
     }
 
     private static FileAttachmentComponent ParentlessFileAttachment(string schemaName, string displayName)
@@ -387,6 +387,7 @@ public class NewLocalSkillTests
         WorkspaceSynchronizer.WriteCloudCache(accessor, cloudDefinition);
         Write(accessor, new LspComponentPathResolver().GetComponentPath(rootKnowledge, cloudDefinition), "mcs.metadata:\n  componentName: SKILL.md\n");
         Write(accessor, "behaviors/get-weather/SKILL.md", "skill body\n");
+        Write(accessor, "behaviors/get-weather/scripts/run.ps1", "script\n");
 
         var read = await sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
 

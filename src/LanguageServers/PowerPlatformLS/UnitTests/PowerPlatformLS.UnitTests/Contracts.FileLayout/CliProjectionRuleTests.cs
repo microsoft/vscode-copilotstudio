@@ -18,6 +18,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
 
         [Theory]
         [InlineData(typeof(InlineAgentSkill), "behaviors/weather", "Default_draft_ECaOPZ.skill.weather")]
+        [InlineData(typeof(InlineAgentSkill), "behaviors/weather/skill", "Default_draft_ECaOPZ.skill.weather")]
         [InlineData(typeof(ConnectorTool), "capabilities/tools/Getsearchindexes", "Default_draft_ECaOPZ.tool.Getsearchindexes")]
         [InlineData(typeof(WorkflowTool), "capabilities/tools/AgentFlow1", "Default_draft_ECaOPZ.tool.AgentFlow1")]
         [InlineData(typeof(McpTool), "capabilities/tools/WorkIQCopilotPreview", "Default_draft_ECaOPZ.tool.WorkIQCopilotPreview")]
@@ -29,7 +30,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
         }
 
         [Theory]
-        [InlineData(typeof(InlineAgentSkill), "Default_draft_ECaOPZ.skill.weather", "behaviors/weather.mcs.yml")]
+        [InlineData(typeof(InlineAgentSkill), "Default_draft_ECaOPZ.skill.weather", "behaviors/weather/skill.mcs.yml")]
         [InlineData(typeof(ConnectorTool), "Default_draft_ECaOPZ.tool.Getsearchindexes", "capabilities/tools/Getsearchindexes.mcs.yml")]
         [InlineData(typeof(WorkflowTool), "Default_draft_ECaOPZ.tool.AgentFlow1", "capabilities/tools/AgentFlow1.mcs.yml")]
         [InlineData(typeof(McpTool), "Default_draft_ECaOPZ.tool.WorkIQCopilotPreview", "capabilities/tools/WorkIQCopilotPreview.mcs.yml")]
@@ -41,7 +42,6 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
         }
 
         [Theory]
-        [InlineData(typeof(InlineAgentSkill), "Default_draft_ECaOPZ.skill.weather", "behaviors/Default_draft_ECaOPZ.skill.weather", "behaviors/Default_draft_ECaOPZ.skill.weather.mcs.yml")]
         [InlineData(typeof(ConnectorTool), "Default_draft_ECaOPZ.tool.Getsearchindexes", "capabilities/tools/Default_draft_ECaOPZ.tool.Getsearchindexes", "capabilities/tools/Default_draft_ECaOPZ.tool.Getsearchindexes.mcs.yml")]
         [InlineData(typeof(ConnectedAgentTool), "Default_draft_ECaOPZ.tool.connected-agent.cre98_AgentC4", "capabilities/tools/Default_draft_ECaOPZ.tool.connected-agent.cre98_AgentC4", "capabilities/tools/Default_draft_ECaOPZ.tool.connected-agent.cre98_AgentC4.mcs.yml")]
         public void GetFilePath_WithQualifiedPathContext_PreservesQualifiedFileName(System.Type elementType, string schema, string pathContext, string expectedPath)

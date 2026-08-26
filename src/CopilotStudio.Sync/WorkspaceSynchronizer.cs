@@ -358,10 +358,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var connectionReferencesNeedOverride = workflowRemoved || remoteChangeset.BotComponentChanges.OfType<BotComponentDelete>().Any();
 
         // Apply raw changeSet on cloud cache
-        var (newSnapshot, _) = UpdateCloudCache(fileAccessor, remoteChangeset, workflows.Succeeded ? workflows : null, aiPrompts, agentId: syncInfo.AgentId, overrideConnectionReferences: connectionReferencesNeedOverride, cachedSnapshot: originalSnapshot);
-
-        // Persist new delta token
-        await WriteChangeTokenAsync(fileAccessor, remoteChangeset, cancellationToken).ConfigureAwait(false);
+        var (newSnapshot, _) = BuildUpdatedCloudCache(fileAccessor, remoteChangeset, workflows.Succeeded ? workflows : null, aiPrompts, agentId: syncInfo.AgentId, overrideConnectionReferences: connectionReferencesNeedOverride, cachedSnapshot: originalSnapshot);
 
         // Resolve conflicting component / bot-entity edits via the shared
         // 3-way merge. CliAgentSyncSupport / Node G: this seam is identity
@@ -379,55 +376,91 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }
         }
 
-        if (downloadAllKnowledgeFiles && newSnapshot != null)
-        {
-            var fileComponents = newSnapshot.Components.OfType<FileAttachmentComponent>().Where(c => !string.IsNullOrEmpty(c.DisplayName)).ToList();
-            var knowledgeFolderOverrides = BuildComponentFolderOverrides(fileAccessor, newSnapshot);
-            // #if kept: net10 uses Parallel.ForEachAsync with a memory-aware degree of
-            // parallelism for concurrent knowledge-file downloads. netstandard2.0 has no
-            // equivalent and the LCD foreach loses ~5x throughput when the agent has many
-            // knowledge files. The cost is real, so we preserve the per-TFM behavior.
-#if NETSTANDARD2_0
-            foreach (var localComponent in fileComponents)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                try
-                {
-                    await DownloadSingleKnowledgeFileAsync(fileAccessor, dataverseClient, localComponent, newSnapshot, knowledgeFolderOverrides, cancellationToken).ConfigureAwait(false);
-                }
-                catch (KnowledgeFileTooLargeException tooLarge)
-                {
-                    _syncProgress.Report(tooLarge.Message);
-                }
-            }
-#else
-            await Parallel.ForEachAsync(fileComponents, new ParallelOptions
-            {
-                MaxDegreeOfParallelism = this.MaxParallelKnowledgeDownloads,
-                CancellationToken = cancellationToken
-            }, async (localComponent, cancellationToken) =>
-            {
-                try
-                {
-                    await DownloadSingleKnowledgeFileAsync(fileAccessor, dataverseClient, localComponent, newSnapshot, knowledgeFolderOverrides, cancellationToken).ConfigureAwait(false);
-                }
-                catch (KnowledgeFileTooLargeException tooLarge)
-                {
-                    _syncProgress.Report(tooLarge.Message);
-                }
-            }).ConfigureAwait(false);
-#endif
+        var fileComponents = (downloadAllKnowledgeFiles
+                ? newSnapshot.Components.OfType<FileAttachmentComponent>()
+                : remoteChangeset.BotComponentChanges.OfType<BotComponentUpsert>().Select(change => change.Component).OfType<FileAttachmentComponent>())
+            .Where(component => !string.IsNullOrEmpty(component.DisplayName))
+            .GroupBy(component => component.SchemaNameString, StringComparer.Ordinal)
+            .Select(group => group.Last())
+            .ToList();
+        var knowledgeFolderOverrides = BuildComponentFolderOverrides(fileAccessor, newSnapshot);
+        var downloadedFiles = await DownloadKnowledgeComponentsAsync(fileAccessor, dataverseClient, newSnapshot, fileComponents, knowledgeFolderOverrides, skipMissingAttachments: true, cancellationToken).ConfigureAwait(false);
+        RecordKnowledgeFilesBaseline(fileAccessor, newSnapshot, SelectDownloadedComponents(fileComponents, downloadedFiles), knowledgeFolderOverrides);
 
-            RecordKnowledgeFilesBaseline(fileAccessor, newSnapshot, fileComponents, knowledgeFolderOverrides);
-        }
-
-        // persist updated change set on directory
         var updatedDefinition = await UpdateWorkspaceDirectoryAsync(fileAccessor, workspaceFolder, updatedChangeSet, previousDefinition, deletedComponents.ToArray(), cancellationToken: cancellationToken, pathGroundingDefinition: newSnapshot, overrideConnectionReferences: connectionReferencesNeedOverride || deletedComponents.Count > 0).ConfigureAwait(false);
+
+        WriteCloudCache(fileAccessor, newSnapshot);
+        await WriteChangeTokenAsync(fileAccessor, remoteChangeset, cancellationToken).ConfigureAwait(false);
 
         var connectorResolvedDefinition = await ResolveConnectionReferenceConnectorIdsAsync(updatedDefinition, dataverseClient, cancellationToken).ConfigureAwait(false);
         await WriteCustomConnectorsAsync(fileAccessor, workspaceFolder, connectorResolvedDefinition, dataverseClient, cancellationToken).ConfigureAwait(false);
 
         return updatedDefinition;
+    }
+
+    private async Task<ImmutableArray<KnowledgeFileInfo>> DownloadKnowledgeComponentsAsync(
+        IFileAccessor fileAccessor,
+        ISyncDataverseClient dataverseClient,
+        DefinitionBase snapshot,
+        IReadOnlyCollection<FileAttachmentComponent> fileComponents,
+        IReadOnlyDictionary<string, string> folderOverrides,
+        bool skipMissingAttachments,
+        CancellationToken cancellationToken)
+    {
+        var downloaded = new ConcurrentBag<KnowledgeFileInfo>();
+
+        // #if kept: net10 uses Parallel.ForEachAsync with a memory-aware degree of
+        // parallelism for concurrent knowledge-file downloads. netstandard2.0 has no
+        // equivalent and the LCD foreach loses ~5x throughput when the agent has many
+        // knowledge files. The cost is real, so we preserve the per-TFM behavior.
+#if NETSTANDARD2_0
+        foreach (var component in fileComponents)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                downloaded.Add(await DownloadSingleKnowledgeFileAsync(fileAccessor, dataverseClient, component, snapshot, folderOverrides, cancellationToken).ConfigureAwait(false));
+            }
+            catch (DataverseRequestException ex) when (skipMissingAttachments && IsMissingFileAttachment(ex))
+            {
+                continue;
+            }
+            catch (KnowledgeFileTooLargeException tooLarge)
+            {
+                _syncProgress.Report(tooLarge.Message);
+                continue;
+            }
+        }
+#else
+        await Parallel.ForEachAsync(fileComponents, new ParallelOptions
+        {
+            MaxDegreeOfParallelism = this.MaxParallelKnowledgeDownloads,
+            CancellationToken = cancellationToken
+        }, async (component, token) =>
+        {
+            try
+            {
+                downloaded.Add(await DownloadSingleKnowledgeFileAsync(fileAccessor, dataverseClient, component, snapshot, folderOverrides, token).ConfigureAwait(false));
+            }
+            catch (DataverseRequestException ex) when (skipMissingAttachments && IsMissingFileAttachment(ex))
+            {
+                return;
+            }
+            catch (KnowledgeFileTooLargeException tooLarge)
+            {
+                _syncProgress.Report(tooLarge.Message);
+                return;
+            }
+        }).ConfigureAwait(false);
+#endif
+
+        return downloaded.ToImmutableArray();
+    }
+
+    private static List<FileAttachmentComponent> SelectDownloadedComponents(IReadOnlyCollection<FileAttachmentComponent> components, ImmutableArray<KnowledgeFileInfo> downloaded)
+    {
+        var downloadedSchemaNames = new HashSet<string>(downloaded.Select(info => info.SchemaName), StringComparer.Ordinal);
+        return components.Where(component => downloadedSchemaNames.Contains(component.SchemaNameString)).ToList();
     }
 
     /// <summary>
@@ -1054,55 +1087,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             .Where(c => requestedSchemaNames == null || requestedSchemaNames.Contains(c.SchemaNameString))
             .ToList();
 
-        var downloaded = new ConcurrentBag<KnowledgeFileInfo>();
         var skipMissingAttachments = requestedSchemaNames == null;
+        var downloaded = await DownloadKnowledgeComponentsAsync(fileAccessor, dataverseClient, snapshot, fileComponents, folderOverrides, skipMissingAttachments, cancellationToken).ConfigureAwait(false);
 
-#if NETSTANDARD2_0
-        foreach (var component in fileComponents)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            try
-            {
-                var info = await DownloadSingleKnowledgeFileAsync(fileAccessor, dataverseClient, component, snapshot, folderOverrides, cancellationToken).ConfigureAwait(false);
-                downloaded.Add(info);
-            }
-            catch (DataverseRequestException ex) when (skipMissingAttachments && IsMissingFileAttachment(ex))
-            {
-                continue;
-            }
-            catch (KnowledgeFileTooLargeException tooLarge)
-            {
-                _syncProgress.Report(tooLarge.Message);
-                continue;
-            }
-        }
-#else
-        await Parallel.ForEachAsync(fileComponents, new ParallelOptions
-        {
-            MaxDegreeOfParallelism = this.MaxParallelKnowledgeDownloads,
-            CancellationToken = cancellationToken
-        }, async (component, ct) =>
-        {
-            try
-            {
-                var info = await DownloadSingleKnowledgeFileAsync(fileAccessor, dataverseClient, component, snapshot, folderOverrides, ct).ConfigureAwait(false);
-                downloaded.Add(info);
-            }
-            catch (DataverseRequestException ex) when (skipMissingAttachments && IsMissingFileAttachment(ex))
-            {
-                return;
-            }
-            catch (KnowledgeFileTooLargeException tooLarge)
-            {
-                _syncProgress.Report(tooLarge.Message);
-                return;
-            }
-        }).ConfigureAwait(false);
-#endif
+        RecordKnowledgeFilesBaseline(fileAccessor, snapshot, SelectDownloadedComponents(fileComponents, downloaded), folderOverrides);
 
-        RecordKnowledgeFilesBaseline(fileAccessor, snapshot, fileComponents, folderOverrides);
-
-        return downloaded.ToImmutableArray();
+        return downloaded;
     }
 
     public async Task<ImmutableArray<string>> UploadKnowledgeFilesAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
@@ -1749,8 +1739,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return definition.WithComponents(definition.Components.Concat(newComponents).ToImmutableArray());
     }
 
-    private const string SkillManifestFileName = "SKILL.md";
-
     private DefinitionBase DetectNewLocalSkills(IFileAccessor fileAccessor, DefinitionBase definition, DefinitionBase? cloudSnapshot, out List<BotComponentBase> newSkills)
     {
         newSkills = new List<BotComponentBase>();
@@ -1765,8 +1753,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             return definition;
         }
 
-        if (!definition.Components.Any(component => component is DialogComponent { Dialog: InlineAgentSkill })
-            && !EnumerateBareSkillManifests(fileAccessor).Any())
+        var skillFolders = SkillLayout.ListSkillFolders(fileAccessor);
+        if (!definition.Components.Any(component => component is DialogComponent { Dialog: InlineAgentSkill }) && skillFolders.Count == 0)
         {
             return definition;
         }
@@ -1785,24 +1773,19 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             return component;
         }).ToList();
 
+        var detectFolderOverrides = BuildComponentFolderOverrides(fileAccessor, definition);
         var skillByFolder = new Dictionary<string, BotComponentBase>(StringComparer.OrdinalIgnoreCase);
         foreach (var component in components)
         {
-            if (component is DialogComponent { Dialog: InlineAgentSkill } && SkillLink.TryGetSkillName(new AgentFilePath(_pathResolver.GetComponentPath(component, definition)), out var existingFolder))
+            if (component is DialogComponent { Dialog: InlineAgentSkill } && SkillLink.TryGetSkillName(GetStickyComponentPath(component, definition, detectFolderOverrides), out var existingFolder))
             {
                 skillByFolder[existingFolder] = component;
             }
         }
 
-        foreach (var manifestPath in EnumerateBareSkillManifests(fileAccessor))
+        foreach (var folderName in skillFolders)
         {
-            var folderName = GetSkillFolderFromManifestPath(manifestPath);
-            if (folderName == null || skillByFolder.ContainsKey(folderName))
-            {
-                continue;
-            }
-
-            if (SkillLink.HasSidecarLink(fileAccessor, folderName) && !SkillLink.HasAnchorFile(fileAccessor, folderName))
+            if (skillByFolder.ContainsKey(folderName))
             {
                 continue;
             }
@@ -1856,7 +1839,28 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             changed = true;
         }
 
-        return changed ? definition.WithComponents(components.Concat(newSkills).ToImmutableArray()) : definition;
+        var resolvedDefinition = definition.WithComponents(components.Concat(newSkills).ToImmutableArray());
+        var projectedDefinition = ResolveSkillsFromDisk(fileAccessor, resolvedDefinition, botName!, cloudSnapshot, detectFolderOverrides);
+        if (ReferenceEquals(projectedDefinition, resolvedDefinition))
+        {
+            return changed ? resolvedDefinition : definition;
+        }
+
+        var carriedSchemaNames = components.Select(component => component.SchemaNameString).ToHashSet(StringComparer.Ordinal);
+        newSkills = projectedDefinition.Components.Where(component => !carriedSchemaNames.Contains(component.SchemaNameString)).ToList();
+        return projectedDefinition;
+    }
+
+
+    private DefinitionBase ResolveSkillsFromDisk(IFileAccessor fileAccessor, DefinitionBase definition, string botName, DefinitionBase? cloudSnapshot, IReadOnlyDictionary<string, string> folderOverrides)
+    {
+        return SkillWorkspaceProjection.ResolveSkillsFromDisk(
+            fileAccessor,
+            definition,
+            botName,
+            cloudSnapshot,
+            component => SkillLink.TryGetSkillName(GetStickyComponentPath(component, definition, folderOverrides), out var folderName) ? folderName : null,
+            definition.Components.Select(component => component.SchemaNameString).Where(schemaName => !string.IsNullOrEmpty(schemaName)).ToHashSet(StringComparer.OrdinalIgnoreCase));
     }
 
     private static bool TryFindSkillOwningPayload(string displayName, string rootKnowledgeFolder, Dictionary<string, BotComponentBase> skillByFolder, IFileAccessor fileAccessor, out BotComponentBase owningSkill)
@@ -1879,7 +1883,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         foreach (var pair in skillByFolder)
         {
-            if (fileAccessor.Exists(new AgentFilePath($"{LspProjection.BehaviorsFolder}{pair.Key}/{relativePath}")))
+            if (fileAccessor.Exists(SkillLayout.GetAssetPath(pair.Key, relativePath)))
             {
                 if (owningSkill != null)
                 {
@@ -1894,47 +1898,13 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return owningSkill != null;
     }
 
-    private static IEnumerable<AgentFilePath> EnumerateBareSkillManifests(IFileAccessor fileAccessor)
-    {
-        foreach (var file in fileAccessor.ListFiles(LspProjection.BehaviorsFolder, "*.md"))
-        {
-            var pathValue = file.ToString();
-            if (!pathValue.StartsWith(LspProjection.BehaviorsFolder, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            var remainder = pathValue.Substring(LspProjection.BehaviorsFolder.Length);
-            var slash = remainder.IndexOf('/');
-            if (slash > 0 && remainder.Substring(slash + 1).Equals(SkillManifestFileName, StringComparison.OrdinalIgnoreCase))
-            {
-                yield return file;
-            }
-        }
-    }
-
-    private static string? GetSkillFolderFromManifestPath(AgentFilePath manifestPath)
-    {
-        var remainder = manifestPath.ToString().Substring(LspProjection.BehaviorsFolder.Length);
-        var slash = remainder.IndexOf('/');
-        return slash > 0 ? remainder.Substring(0, slash) : null;
-    }
-
     private static BotComponentBase? SynthesizeLocalSkill(string folderName, string botName, string? resolvedSchemaName)
     {
-        var schemaName = resolvedSchemaName ?? LspProjection.GetSchemaName($"{LspProjection.BehaviorsFolder}{folderName}", botName, typeof(InlineAgentSkill), AuthoringShape.CliCopilot);
+        var schemaName = resolvedSchemaName ?? LspProjection.GetSchemaName(SkillLayout.GetSkillFolderPath(folderName), botName, typeof(InlineAgentSkill), AuthoringShape.CliCopilot);
         if (string.IsNullOrEmpty(schemaName))
         {
             return null;
         }
-
-        var bundleStem = new string(folderName.Where(character => character <= 127 && char.IsLetterOrDigit(character)).ToArray());
-        bundleStem = string.IsNullOrEmpty(bundleStem) ? "skill" : bundleStem;
-        var bundleName = $"{bundleStem}{McsFileParserCore.HashStringToGuid(folderName).ToString("N").Substring(0, 8)}";
-        var dialog = new InlineAgentSkill.Builder
-        {
-            Content = $"<!-- bic:bundle={botName}{LspProjection.FileAttachmentInfix}{bundleName}zip -->",
-        }.Build();
 
         return new DialogComponent(
             schemaName: schemaName!,
@@ -1942,7 +1912,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             description: string.Empty,
             id: Guid.NewGuid(),
             parentBotComponentId: default,
-            dialog: dialog);
+            dialog: new InlineAgentSkill.Builder().Build());
     }
 
     private List<BotComponentBase> ScanForNewKnowledgeFiles(IFileAccessor fileAccessor, DefinitionBase definition, HashSet<string> existingSchemaNames, CancellationToken cancellationToken)
@@ -1977,8 +1947,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            var isSkillFolder = folder.StartsWith(LspProjection.BehaviorsFolder, StringComparison.OrdinalIgnoreCase);
             var knowledgeFiles = fileAccessor.ListFiles(folder, "*.*")
                 .Where(f => !f.FileName.EndsWith(".mcs.yml", StringComparison.OrdinalIgnoreCase))
+                .Where(f => !isSkillFolder || !string.Equals(f.FileName, SkillLayout.ManifestFileName, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
             if (knowledgeFiles.Count == 0)
@@ -2017,6 +1989,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var botSchemaPrefix = GetSchemaName(definition);
         foreach (var (parentId, folder, pendingDisplayNames) in pendingByScope)
         {
+            var isSkillScope = folder.StartsWith(LspProjection.BehaviorsFolder, StringComparison.OrdinalIgnoreCase);
             var stemsByExistingDisplayName = BuildKnowledgeSidecarStemsByDisplayName(fileAccessor, folder, cancellationToken);
 
             var normalizedFolder = folder.Replace('\\', '/').TrimEnd('/');
@@ -2028,7 +2001,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 cancellationToken.ThrowIfCancellationRequested();
                 string schemaName;
 
-                if (stemsByExistingDisplayName.TryGetValue(displayName, out var materializedStem))
+                if (isSkillScope && TryReadSkillAssetSchemaName(fileAccessor, folder, displayName, out var authoredSchemaName))
+                {
+                    schemaName = authoredSchemaName;
+                }
+                else if (stemsByExistingDisplayName.TryGetValue(displayName, out var materializedStem))
                 {
                     schemaName = $"{botSchemaPrefix}.file.{materializedStem}";
                 }
@@ -2063,6 +2040,13 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     }
 
     private static readonly IDeserializer KnowledgeSidecarDeserializer = new DeserializerBuilder().Build();
+
+
+    private static bool TryReadSkillAssetSchemaName(IFileAccessor fileAccessor, string folder, string displayName, out string schemaName)
+    {
+        schemaName = SkillLayout.ReadMetadata(fileAccessor, new AgentFilePath($"{folder}/{displayName}{SkillLayout.SidecarExtension}")).SchemaName ?? string.Empty;
+        return schemaName.Length > 0;
+    }
 
     private Dictionary<string, string> BuildKnowledgeSidecarStemsByDisplayName(IFileAccessor fileAccessor, string folder, CancellationToken cancellationToken)
     {
@@ -2499,30 +2483,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             return;
         }
 
-        var skillLinks = SkillLink.ReadSchemaLinks(fileAccessor, botDefinition, throwOnInvalidLink: false);
-        foreach (var skillFilePath in fileAccessor.ListFiles(LspProjection.BehaviorsFolder, "*" + SkillLink.CompoundExtension))
+        var skillFolders = SkillLayout.ListSkillFolders(fileAccessor);
+        var skillLinks = SkillLink.ReadSchemaLinks(fileAccessor, botDefinition, throwOnInvalidLink: false, skillFolders);
+        foreach (var onDiskName in skillFolders)
         {
-            if (!SkillLink.TryGetSkillName(skillFilePath, out var onDiskName))
-            {
-                continue;
-            }
-
-            var schema = skillLinks.TryGetValue(onDiskName, out var linkedSchema) ? linkedSchema : LspProjection.GetSchemaName($"{LspProjection.BehaviorsFolder}{onDiskName}", botName, typeof(InlineAgentSkill), AuthoringShape.CliCopilot);
-            if (!string.IsNullOrEmpty(schema) && targetFolderBySchema.TryGetValue(schema!, out var targetFolder) && !string.Equals(onDiskName, targetFolder, StringComparison.OrdinalIgnoreCase))
-            {
-                overrides[schema!] = onDiskName;
-            }
-        }
-
-        foreach (var manifestPath in EnumerateBareSkillManifests(fileAccessor))
-        {
-            var onDiskName = GetSkillFolderFromManifestPath(manifestPath);
-            if (onDiskName == null)
-            {
-                continue;
-            }
-
-            var schema = LspProjection.GetSchemaName($"{LspProjection.BehaviorsFolder}{onDiskName}", botName, typeof(InlineAgentSkill), AuthoringShape.CliCopilot);
+            var schema = skillLinks.TryGetValue(onDiskName, out var linkedSchema) ? linkedSchema : LspProjection.GetSchemaName(SkillLayout.GetSkillFolderPath(onDiskName), botName, typeof(InlineAgentSkill), AuthoringShape.CliCopilot);
             if (string.IsNullOrEmpty(schema) || !targetFolderBySchema.ContainsKey(schema!))
             {
                 var displayNameMatchedSchemas = botDefinition.Components.OfType<DialogComponent>()
@@ -2534,7 +2499,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 schema = displayNameMatchedSchemas.Count == 1 ? displayNameMatchedSchemas[0] : null;
             }
 
-            if (!string.IsNullOrEmpty(schema) && !overrides.ContainsKey(schema!) && targetFolderBySchema.TryGetValue(schema!, out var bareTargetFolder) && !string.Equals(onDiskName, bareTargetFolder, StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrEmpty(schema) && !overrides.ContainsKey(schema!) && targetFolderBySchema.TryGetValue(schema!, out var targetFolder) && !string.Equals(onDiskName, targetFolder, StringComparison.OrdinalIgnoreCase))
             {
                 overrides[schema!] = onDiskName;
             }
@@ -2609,12 +2574,55 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         var rest = pathValue.Substring(LspProjection.BehaviorsFolder.Length);
         var slash = rest.IndexOf('/');
-        return slash < 0 ? new AgentFilePath($"{LspProjection.BehaviorsFolder}{actualFolder}{SkillLink.CompoundExtension}")
-            : new AgentFilePath($"{LspProjection.BehaviorsFolder}{actualFolder}/{rest.Substring(slash + 1)}");
+        return slash < 0 ? SkillLayout.GetLegacyAnchorPath(actualFolder) : new AgentFilePath($"{LspProjection.BehaviorsFolder}{actualFolder}/{rest.Substring(slash + 1)}");
     }
 
     private AgentFilePath GetStickyComponentPath(BotComponentBase component, DefinitionBase definition, IReadOnlyDictionary<string, string> folderOverrides)
         => ApplyComponentFolderOverride(new AgentFilePath(_pathResolver.GetComponentPath(component, definition)), component, definition, folderOverrides);
+
+    private string GetChangeUri(IFileAccessor fileAccessor, BotComponentBase component, DefinitionBase definition, IReadOnlyDictionary<string, string> folderOverrides)
+        => ResolveOnDiskComponentPath(fileAccessor, GetStickyComponentPath(component, definition, folderOverrides), component, definition).ToString();
+
+
+    private static AgentFilePath ResolveOnDiskComponentPath(IFileAccessor fileAccessor, AgentFilePath projectedPath, BotComponentBase component, DefinitionBase definition)
+    {
+        if (fileAccessor.Exists(projectedPath))
+        {
+            return projectedPath;
+        }
+
+        foreach (var legacyPath in EnumerateLegacySkillPaths(projectedPath, component, GetSchemaName(definition)))
+        {
+            if (fileAccessor.Exists(legacyPath))
+            {
+                return legacyPath;
+            }
+        }
+
+        return projectedPath;
+    }
+
+    private static IEnumerable<AgentFilePath> EnumerateLegacySkillPaths(AgentFilePath projectedPath, BotComponentBase component, string? botName)
+    {
+        if (!projectedPath.ToString().StartsWith(LspProjection.BehaviorsFolder, StringComparison.Ordinal))
+        {
+            yield break;
+        }
+
+        if (SkillLink.TryGetSkillName(projectedPath, out var anchorFolder))
+        {
+            yield return SkillLayout.GetLegacyAnchorPath(anchorFolder);
+            yield break;
+        }
+
+        if (!projectedPath.TryGetSkillFolderName(out var folderName, out _) || string.IsNullOrEmpty(component.SchemaNameString))
+        {
+            yield break;
+        }
+
+        yield return new AgentFilePath($"{LspProjection.BehaviorsFolder}{folderName}/{LspProjection.GetSchemaLeaf(component.SchemaNameString, LspProjection.FileAttachmentInfix, botName)}{SkillLayout.SidecarExtension}");
+        yield return new AgentFilePath($"{LspProjection.BehaviorsFolder}{folderName}/{component.SchemaNameString}{SkillLayout.SidecarExtension}");
+    }
 
     private static string? FindChildAgentFolderBySchema(IFileAccessor fileAccessor, string schema, string botName)
     {
@@ -2657,7 +2665,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             {
                 using var stream = fileAccessor.OpenWrite(componentPath);
                 using var textWriter = new StreamWriter(stream);
-                CodeSerializer.SerializeAsMcsYml(textWriter, newComponent);
+                textWriter.Write(McsComponentBodyWriter.Serialize(newComponent, SkillBodyProjection.GetBodyMetadata(newComponent, definition, componentPath)));
             }
             catch (IOException) when (fileAccessor.Exists(componentPath))
             {
@@ -4142,6 +4150,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             change.Accept(writer);
         }
 
+        SkillLayoutMigration.Migrate(
+            fileAccessor,
+            groundingDefinition,
+            component => ApplyComponentFolderOverride(new AgentFilePath(_pathResolver.GetComponentPath(component, groundingDefinition)), component, groundingDefinition, componentFolderOverrides),
+            writer.Write);
+
         if (deletedComponents.Count != 0)
         {
             updatedDefinition = updatedDefinition.WithComponents(updatedDefinition.Components.Where(c => !deletedComponents.Any(d => d.SchemaNameString == c.SchemaNameString)));
@@ -4162,7 +4176,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             // the same .mcs.yml path the writer/reader use, so a server-deleted
             // component is removed from the workspace at its projected location.
             var path = new AgentFilePath(_pathResolver.GetComponentPath(deleted, deleteGroundingDefinition));
-            path = ApplyComponentFolderOverride(path, deleted, deleteGroundingDefinition, componentFolderOverrides);
+            path = ResolveOnDiskComponentPath(fileAccessor, ApplyComponentFolderOverride(path, deleted, deleteGroundingDefinition, componentFolderOverrides), deleted, deleteGroundingDefinition);
             fileAccessor.Delete(path);
 
             if (deleted is DialogComponent { RootElement: AgentDialog })
@@ -4179,7 +4193,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             else if (deleted is DialogComponent { Dialog: InlineAgentSkill } && SkillLink.TryGetSkillName(path, out var deletedSkillName))
             {
                 SkillLinkFile.DeleteLink(fileAccessor, path);
-                deletedSkillFolders.Add($"{LspProjection.BehaviorsFolder}{deletedSkillName}");
+                deletedSkillFolders.Add(SkillLayout.GetSkillFolderPath(deletedSkillName));
             }
             else if (deleted is FileAttachmentComponent fileComponent && !string.IsNullOrEmpty(fileComponent.DisplayName))
             {
@@ -4203,10 +4217,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         foreach (var folder in deletedSkillFolders.Distinct(StringComparer.Ordinal))
         {
-            if (!fileAccessor.ListFiles(folder).Any())
-            {
-                fileAccessor.DeleteDirectory(new AgentFilePath(folder));
-            }
+            fileAccessor.DeleteDirectory(new AgentFilePath(folder));
         }
 
         if (!string.IsNullOrEmpty(thisSchema))
@@ -4433,6 +4444,13 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     // - the user can't edit the cloud cache, so there's never any conflict resolution. 
     private (DefinitionBase newCache, ImmutableArray<BotComponentBase> deletedComponents) UpdateCloudCache(IFileAccessor fileAccessor, PvaComponentChangeSet changeset, CloudFlowMetadata? cloudFlowMetadata = null, ImmutableArray<AIPromptMetadata> aiPrompts = default, Guid? agentId = null, bool overrideConnectionReferences = false, bool preserveExistingAIModelDefinitions = false, DefinitionBase? cachedSnapshot = null)
     {
+        var result = BuildUpdatedCloudCache(fileAccessor, changeset, cloudFlowMetadata, aiPrompts, agentId, overrideConnectionReferences, preserveExistingAIModelDefinitions, cachedSnapshot);
+        WriteCloudCache(fileAccessor, result.newCache);
+        return result;
+    }
+
+    private (DefinitionBase newCache, ImmutableArray<BotComponentBase> deletedComponents) BuildUpdatedCloudCache(IFileAccessor fileAccessor, PvaComponentChangeSet changeset, CloudFlowMetadata? cloudFlowMetadata = null, ImmutableArray<AIPromptMetadata> aiPrompts = default, Guid? agentId = null, bool overrideConnectionReferences = false, bool preserveExistingAIModelDefinitions = false, DefinitionBase? cachedSnapshot = null)
+    {
         var snapshot = cachedSnapshot ?? ReadCloudCacheSnapshot(fileAccessor);
         if (snapshot == null)
         {
@@ -4485,7 +4503,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             newSnapshot = OverrideConnectionReferencesWithUsed(newSnapshot);
         }
 
-        WriteCloudCache(fileAccessor, newSnapshot);
         return (newSnapshot, deletedComponents.ToImmutable());
     }
 
@@ -5444,7 +5461,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                     b2.DisplayName = localComponent.DisplayName;
                     b2.Description = localComponent.Description;
                     botComponentBuilderList.Add(new BotComponentUpdate(b2.Build()));
-                    changes.Add(new Change() { ChangeType = ChangeType.Update, Name = b2.SchemaNameString, Uri = GetStickyComponentPath(localComponent, localDefinition, componentFolderOverrides).ToString(), SchemaName = cloudComponent.SchemaNameString, ChangeKind = cloudComponent.Kind.ToString() });
+                    changes.Add(new Change() { ChangeType = ChangeType.Update, Name = b2.SchemaNameString, Uri = GetChangeUri(fileAccessor, localComponent, localDefinition, componentFolderOverrides), SchemaName = cloudComponent.SchemaNameString, ChangeKind = cloudComponent.Kind.ToString() });
                 }
             }
             else
@@ -5463,7 +5480,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 b2.DisplayName = localComponent.DisplayName;
                 b2.Description = localComponent.Description;
                 botComponentBuilderList.Add(new BotComponentInsert(b2.Build()));
-                changes.Add(new Change() { ChangeType = ChangeType.Create, Name = b2.SchemaNameString, Uri = GetStickyComponentPath(localComponent, localDefinition, componentFolderOverrides).ToString(), SchemaName = b2.SchemaNameString, ChangeKind = localComponent.Kind.ToString() });
+                changes.Add(new Change() { ChangeType = ChangeType.Create, Name = b2.SchemaNameString, Uri = GetChangeUri(fileAccessor, localComponent, localDefinition, componentFolderOverrides), SchemaName = b2.SchemaNameString, ChangeKind = localComponent.Kind.ToString() });
             }
         }
 
@@ -5471,7 +5488,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             if (!IsReusableOrNonCustomizableComponent(cloudComponent) && !localDefinition.TryGetComponentBySchemaName(cloudComponent.SchemaNameString, out var _))
             {
-                if (cloudComponent is FileAttachmentComponent && (isRemoteChange || localDefinition is not BotDefinition || (GetParentSkillSchema(cloudComponent, cloudSnapshot) != null && fileAccessor.Exists(GetStickyComponentPath(cloudComponent, cloudSnapshot, componentFolderOverrides)))))
+                if (cloudComponent is FileAttachmentComponent && (isRemoteChange || localDefinition is not BotDefinition || (GetParentSkillSchema(cloudComponent, cloudSnapshot) != null && fileAccessor.Exists(ResolveOnDiskComponentPath(fileAccessor, GetStickyComponentPath(cloudComponent, cloudSnapshot, componentFolderOverrides), cloudComponent, cloudSnapshot)))))
                 {
                     continue;
                 }
@@ -5482,7 +5499,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 }
 
                 botComponentBuilderList.Add(new BotComponentDelete(cloudComponent.Id, cloudComponent.Version));
-                changes.Add(new Change() { ChangeType = ChangeType.Delete, Name = cloudComponent.SchemaNameString, Uri = GetStickyComponentPath(cloudComponent, cloudSnapshot, componentFolderOverrides).ToString(), SchemaName = cloudComponent.SchemaNameString, ChangeKind = cloudComponent.Kind.ToString() });
+                changes.Add(new Change() { ChangeType = ChangeType.Delete, Name = cloudComponent.SchemaNameString, Uri = GetChangeUri(fileAccessor, cloudComponent, cloudSnapshot, componentFolderOverrides), SchemaName = cloudComponent.SchemaNameString, ChangeKind = cloudComponent.Kind.ToString() });
             }
         }
 
@@ -5919,7 +5936,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
 
         // Write (for insert/update).
-        private void Write(BotComponentBase? botComponent)
+        internal void Write(BotComponentBase? botComponent)
         {
             if (botComponent == null)
             {
@@ -5952,21 +5969,26 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             // body (with mcs.metadata) at that path. The hand-coded CliAgent*
             // writer dispatch (bare-dialog .yaml bodies) is retired (Node Q).
             var path = ApplyComponentFolderOverride(new AgentFilePath(PathResolver.GetComponentPath(groundedComponent, PathGroundingDefinition ?? Definition)), groundedComponent, PathGroundingDefinition ?? Definition, ComponentFolderOverrides);
+            var groundingDefinition = PathGroundingDefinition ?? Definition;
+
+            if (SkillBodyProjection.IsImplicitManifest(groundedComponent, groundingDefinition))
+            {
+                return;
+            }
+
+            if (SkillBodyProjection.TryGetManifestWrite(groundedComponent, path, out var manifestPath, out var manifestText))
+            {
+                using var manifestStream = FileAccessor.OpenWrite(manifestPath);
+                using var manifestWriter = new StreamWriter(manifestStream);
+                manifestWriter.Write(manifestText);
+            }
+
+            var body = McsComponentBodyWriter.Serialize(SkillBodyProjection.PrepareForWrite(NormalizeForMcsYml(groundedComponent), path), SkillBodyProjection.GetBodyMetadata(groundedComponent, groundingDefinition, path));
+
             using (var stream = FileAccessor.OpenWrite(path))
             using (var textWriter = new StreamWriter(stream))
             {
-                CodeSerializer.SerializeAsMcsYml(textWriter, NormalizeForMcsYml(groundedComponent));
-            }
-
-            // Link the child agent's on-disk folder to its real cloud schema (see ChildAgentLinkFile).
-            if (groundedComponent is DialogComponent { RootElement: AgentDialog })
-            {
-                ChildAgentLinkFile.WriteLink(FileAccessor, path, groundedComponent.SchemaNameString);
-            }
-
-            if (SkillLink.TryGetSkillName(path, out _))
-            {
-                SkillLinkFile.WriteLink(FileAccessor, path, groundedComponent.SchemaNameString);
+                textWriter.Write(body);
             }
         }
 
@@ -7028,6 +7050,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         var updatedComponents = new List<BotComponentBase>();
         var existingSchemaNames = new HashSet<string>();
+        var readFolderOverrides = BuildComponentFolderOverrides(fileAccessor, definition);
 
         foreach (var component in definition.Components)
         {
@@ -7044,7 +7067,20 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             // component (CLI + classic) through the SAME shape-aware
             // PathResolver.GetComponentPath the writer used, so read/write/delete
             // stay in agreement and the reader never synthesizes a phantom delete.
-            var filePath = new AgentFilePath(_pathResolver.GetComponentPath(component, definition));
+            var filePath = ResolveOnDiskComponentPath(fileAccessor, GetStickyComponentPath(component, definition, readFolderOverrides), component, definition);
+
+            // SKILL.md has no sidecar of its own; the anchor declares it. So its liveness follows
+            // the skill folder, not the payload file - a manifest that has not been downloaded yet
+            // must not read as a user delete.
+            if (SkillBodyProjection.IsImplicitManifest(component, definition) && !fileAccessor.Exists(filePath))
+            {
+                if (filePath.TryGetSkillFolderName(out var manifestSkillFolder, out _) && SkillLayout.TryGetAnchorPath(fileAccessor, manifestSkillFolder, out _))
+                {
+                    updatedComponents.Add(component);
+                }
+
+                continue;
+            }
 
             if (!fileAccessor.Exists(filePath))
             {
@@ -7173,7 +7209,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             var resolvedSkillsBySchema = scanDefinition.Components.Where(component => component is DialogComponent { Dialog: InlineAgentSkill } && !string.IsNullOrEmpty(component.SchemaNameString)).ToDictionary(component => component.SchemaNameString!, component => component, StringComparer.OrdinalIgnoreCase);
             for (var index = 0; index < updatedComponents.Count; index++)
             {
-                if (updatedComponents[index] is DialogComponent { Dialog: InlineAgentSkill } skill && skill.Id.Value == Guid.Empty && resolvedSkillsBySchema.TryGetValue(skill.SchemaNameString ?? string.Empty, out var resolvedSkill))
+                if (updatedComponents[index] is DialogComponent { Dialog: InlineAgentSkill } skill && resolvedSkillsBySchema.TryGetValue(skill.SchemaNameString ?? string.Empty, out var resolvedSkill))
                 {
                     updatedComponents[index] = resolvedSkill;
                 }
@@ -7316,7 +7352,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         CancellationToken cancellationToken)
     {
         var knownPaths = definition.Components
-            .Select(c => _pathResolver.GetComponentPath(c, definition))
+            .Select(c => ResolveOnDiskComponentPath(fileAccessor, new AgentFilePath(_pathResolver.GetComponentPath(c, definition)), c, definition).ToString())
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var projectionContext = new ProjectionContext(GetSchemaName(definition));
@@ -7351,7 +7387,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                     continue;
                 }
 
-                var (component, error) = _fileParser.CompileFile(file, element, projectionContext, AuthoringShape.CliCopilot);
+                var (component, error) = _fileParser.CompileFile(file, element, projectionContext, AuthoringShape.CliCopilot, SkillLayout.ParseMetadata(yaml).SchemaName);
                 if (component == null || error != null || existingSchemaNames.Contains(component.SchemaNameString))
                 {
                     continue;

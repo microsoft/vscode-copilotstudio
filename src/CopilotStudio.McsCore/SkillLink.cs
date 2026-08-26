@@ -9,17 +9,12 @@ namespace Microsoft.CopilotStudio.McsCore
         internal const string LinkFileName = ".skill.json";
         internal const string CompoundExtension = ".mcs.yml";
 
-        internal static IReadOnlyDictionary<string, string> ReadSchemaLinks(IFileAccessor fileAccessor, BotDefinition? cloudDefinition = null, bool throwOnInvalidLink = false)
+        internal static IReadOnlyDictionary<string, string> ReadSchemaLinks(IFileAccessor fileAccessor, BotDefinition? cloudDefinition = null, bool throwOnInvalidLink = false, IReadOnlyList<string>? skillFolders = null)
         {
             var links = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var skillFilePath in fileAccessor.ListFiles(LspProjection.BehaviorsFolder, "*" + CompoundExtension))
+            foreach (var skillName in skillFolders ?? SkillLayout.ListSkillFolders(fileAccessor))
             {
-                if (!TryGetSkillName(skillFilePath, out var skillName))
-                {
-                    continue;
-                }
-
                 if (TryResolveSchemaName(fileAccessor, skillName, cloudDefinition, throwOnInvalidLink, out var schemaName, out _))
                 {
                     links[skillName] = schemaName;
@@ -34,24 +29,14 @@ namespace Microsoft.CopilotStudio.McsCore
             schemaName = string.Empty;
             cloudSkill = null;
             var cloudSkills = cloudDefinition?.Components.OfType<DialogComponent>().Where(component => component.Dialog is InlineAgentSkill && !string.IsNullOrEmpty(component.SchemaNameString)).GroupBy(component => component.SchemaNameString!, StringComparer.Ordinal).Select(group => group.Last()).ToList() ?? new List<DialogComponent>();
-            var link = SchemaLink.TryRead(fileAccessor, new AgentFilePath($"{LspProjection.BehaviorsFolder}{skillName}/{LinkFileName}"));
+            var linkedSchemaName = ReadLinkedSchemaName(fileAccessor, skillName, throwOnInvalidLink);
 
-            if (link != null && (!string.Equals(link.FolderName, skillName, StringComparison.Ordinal) || string.IsNullOrEmpty(link.SchemaName)))
+            if (linkedSchemaName != null)
             {
-                if (throwOnInvalidLink)
+                cloudSkill = cloudSkills.SingleOrDefault(component => string.Equals(component.SchemaNameString, linkedSchemaName, StringComparison.Ordinal));
+                if (cloudSkill != null || (cloudSkills.Count == 0 && IsSchemaForBot(linkedSchemaName, cloudDefinition)))
                 {
-                    throw new InvalidOperationException($"The packaged skill folder 'behaviors/{skillName}' has an invalid '{LinkFileName}' link. Restore the original folder name or get the latest changes.");
-                }
-
-                link = null;
-            }
-
-            if (link != null)
-            {
-                cloudSkill = cloudSkills.SingleOrDefault(component => string.Equals(component.SchemaNameString, link.SchemaName, StringComparison.Ordinal));
-                if (cloudSkill != null || (cloudSkills.Count == 0 && IsSchemaForBot(link.SchemaName, cloudDefinition)))
-                {
-                    schemaName = link.SchemaName;
+                    schemaName = linkedSchemaName;
                     return true;
                 }
             }
@@ -63,12 +48,39 @@ namespace Microsoft.CopilotStudio.McsCore
                 return true;
             }
 
-            if (link != null && throwOnInvalidLink)
+            if (linkedSchemaName != null && throwOnInvalidLink)
             {
-                throw new InvalidOperationException($"The packaged skill folder 'behaviors/{skillName}' links to '{link.SchemaName}', but no matching cloud skill was found. Get the latest changes or re-clone the agent.");
+                throw new InvalidOperationException($"The packaged skill folder 'behaviors/{skillName}' links to '{linkedSchemaName}', but no matching cloud skill was found. Get the latest changes or re-clone the agent.");
             }
 
             return false;
+        }
+
+        private static string? ReadLinkedSchemaName(IFileAccessor fileAccessor, string skillName, bool throwOnInvalidLink)
+        {
+            var anchorSchemaName = SkillLayout.ReadAnchorMetadata(fileAccessor, skillName).SchemaName;
+            if (!string.IsNullOrEmpty(anchorSchemaName))
+            {
+                return anchorSchemaName;
+            }
+
+            var link = SchemaLink.TryRead(fileAccessor, SkillLayout.GetLegacyLinkPath(skillName));
+            if (link == null)
+            {
+                return null;
+            }
+
+            if (!string.Equals(link.FolderName, skillName, StringComparison.Ordinal) || string.IsNullOrEmpty(link.SchemaName))
+            {
+                if (throwOnInvalidLink)
+                {
+                    throw new InvalidOperationException($"The packaged skill folder has an invalid link. Restore the original folder name or get the latest changes.");
+                }
+
+                return null;
+            }
+
+            return link.SchemaName;
         }
 
         private static bool IsSchemaForBot(string schemaName, BotDefinition? cloudDefinition)
@@ -87,7 +99,7 @@ namespace Microsoft.CopilotStudio.McsCore
             var botName = cloudDefinition?.Entity?.SchemaName.Value;
             if (!string.IsNullOrEmpty(botName))
             {
-                var derivedSchema = LspProjection.GetSchemaName($"{LspProjection.BehaviorsFolder}{skillName}", botName, typeof(InlineAgentSkill), AuthoringShape.CliCopilot);
+                var derivedSchema = LspProjection.GetSchemaName(SkillLayout.GetSkillFolderPath(skillName), botName, typeof(InlineAgentSkill), AuthoringShape.CliCopilot);
                 var exactSchemaMatch = cloudSkills.SingleOrDefault(component => string.Equals(component.SchemaNameString, derivedSchema, StringComparison.Ordinal));
                 if (exactSchemaMatch != null)
                 {
@@ -109,27 +121,6 @@ namespace Microsoft.CopilotStudio.McsCore
             return null;
         }
 
-        internal static bool HasSidecarLink(IFileAccessor fileAccessor, string skillName) => fileAccessor.Exists(new AgentFilePath($"{LspProjection.BehaviorsFolder}{skillName}/{LinkFileName}"));
-
-        internal static bool HasAnchorFile(IFileAccessor fileAccessor, string skillName) => fileAccessor.Exists(new AgentFilePath($"{LspProjection.BehaviorsFolder}{skillName}{CompoundExtension}"));
-
-        internal static bool TryGetSkillName(AgentFilePath skillFilePath, out string skillName)
-        {
-            skillName = string.Empty;
-            var pathValue = skillFilePath.ToString();
-            if (!pathValue.StartsWith(LspProjection.BehaviorsFolder, StringComparison.Ordinal))
-            {
-                return false;
-            }
-
-            var remainder = pathValue.Substring(LspProjection.BehaviorsFolder.Length);
-            if (remainder.IndexOf('/') >= 0 || !remainder.EndsWith(CompoundExtension, StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
-            skillName = remainder.Substring(0, remainder.Length - CompoundExtension.Length);
-            return skillName.Length > 0;
-        }
+        internal static bool TryGetSkillName(AgentFilePath skillFilePath, out string skillName) => SkillLayout.TryGetFolderFromAnchorPath(skillFilePath.ToString(), out skillName);
     }
 }

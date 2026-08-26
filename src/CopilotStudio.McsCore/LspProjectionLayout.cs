@@ -13,6 +13,7 @@ internal static class LspProjectionLayout
 {
     public static readonly AgentFilePath CollectionMcsYml = new AgentFilePath("collection.mcs.yml");
     private static readonly IReadOnlyCollection<Type> PackagedSkillPayloadTypes = new[] { typeof(FileAttachmentComponent) };
+    private static readonly IReadOnlyCollection<Type> InlineAgentSkillTypes = new[] { typeof(InlineAgentSkill) };
 
     public static readonly IReadOnlyDictionary<string, IReadOnlyCollection<Type>> FileStructureMap =
         LspProjection.FolderToElementTypes
@@ -30,9 +31,9 @@ internal static class LspProjectionLayout
     public static bool TryGetPackagedSkillPayloadTypes(AgentFilePath completeRelativePath, out IReadOnlyCollection<Type> types)
     {
         var segments = completeRelativePath.ToString().Split('/');
-        if (segments.Length == 3 && string.Equals(segments[0] + "/", LspProjection.BehaviorsFolder, StringComparison.OrdinalIgnoreCase))
+        if (segments.Length >= 3 && string.Equals(segments[0] + "/", LspProjection.BehaviorsFolder, StringComparison.OrdinalIgnoreCase))
         {
-            types = PackagedSkillPayloadTypes;
+            types = segments.Length == 3 && string.Equals(segments[2], SkillLayout.AnchorFileNameWithoutExtension, StringComparison.Ordinal) ? InlineAgentSkillTypes : PackagedSkillPayloadTypes;
             return true;
         }
 

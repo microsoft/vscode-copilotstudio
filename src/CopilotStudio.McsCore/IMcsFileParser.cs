@@ -33,7 +33,7 @@ internal interface IMcsFileParser
     /// <c>.mcs.yml</c> files resolve to their CLI schema names. Classic shape keeps the
     /// existing behavior byte-identical.
     /// </summary>
-    (BotComponentBase? component, Exception? error) CompileFile(AgentFilePath relativePath, BotElement fileModel, ProjectionContext context, AuthoringShape shape);
+    (BotComponentBase? component, Exception? error) CompileFile(AgentFilePath relativePath, BotElement fileModel, ProjectionContext context, AuthoringShape shape, string? schemaNameOverride = null);
 
     /// <summary>
     /// Compiles a file model based on the schema name and the BotElement model.
