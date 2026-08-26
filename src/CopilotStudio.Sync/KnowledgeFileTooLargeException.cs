@@ -5,7 +5,7 @@ namespace Microsoft.CopilotStudio.Sync;
 internal sealed class KnowledgeFileTooLargeException : Exception
 {
     public KnowledgeFileTooLargeException(string fileName, long maxBytes)
-        : base($"Knowledge file '{fileName}' exceeded file size limit of {maxBytes} bytes and will be skipped.")
+        : base($"A knowledge file exceeded the file size limit of {maxBytes} bytes and will be skipped.")
     {
         this.FileName = fileName;
         this.MaxBytes = maxBytes;

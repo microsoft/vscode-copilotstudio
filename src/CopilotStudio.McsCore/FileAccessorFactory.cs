@@ -100,6 +100,7 @@ internal class FileAccessorFactory : IFileAccessorFactory
             }
 
             var backupFullPath = targetFullPath + ReplaceBackupSuffix;
+            var retainBackup = false;
             try
             {
                 try
@@ -108,12 +109,36 @@ internal class FileAccessorFactory : IFileAccessorFactory
                 }
                 catch (Exception replaceFailure) when (replaceFailure is PlatformNotSupportedException or IOException)
                 {
+                    if (!File.Exists(targetFullPath) && File.Exists(backupFullPath))
+                    {
+                        try
+                        {
+                            File.Move(backupFullPath, targetFullPath);
+                        }
+                        catch (Exception restoreFailure)
+                        {
+                            throw new ReplaceRecoveryException(
+                                "Replacing a file failed and its original content could not be restored. A copy of the original content is retained alongside it with the .replace.bak extension.",
+                                restoreFailure);
+                        }
+
+                        throw;
+                    }
+
                     ReplaceByCopy(sourceFullPath, targetFullPath, backupFullPath);
                 }
             }
+            catch (ReplaceRecoveryException)
+            {
+                retainBackup = true;
+                throw;
+            }
             finally
             {
-                TryFileOperation(() => File.Delete(backupFullPath));
+                if (!retainBackup)
+                {
+                    TryFileOperation(() => File.Delete(backupFullPath));
+                }
             }
         }
 
@@ -127,8 +152,26 @@ internal class FileAccessorFactory : IFileAccessorFactory
             }
             catch
             {
-                TryFileOperation(() => File.Copy(backupFullPath, targetFullPath, overwrite: true));
+                try
+                {
+                    File.Copy(backupFullPath, targetFullPath, overwrite: true);
+                }
+                catch (Exception restoreFailure)
+                {
+                    throw new ReplaceRecoveryException(
+                        "Replacing a file failed and its original content could not be restored. A copy of the original content is retained alongside it with the .replace.bak extension.",
+                        restoreFailure);
+                }
+
                 throw;
+            }
+        }
+
+        private sealed class ReplaceRecoveryException : IOException
+        {
+            public ReplaceRecoveryException(string message, Exception innerException)
+                : base(message, innerException)
+            {
             }
         }
 

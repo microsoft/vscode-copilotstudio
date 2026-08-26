@@ -12,11 +12,32 @@ public sealed class InMemoryFileAccessorFactory : IFileAccessorFactory, IDisposa
 {
     private readonly ConcurrentDictionary<string, InMemoryFileAccessor> accessors = new ConcurrentDictionary<string, InMemoryFileAccessor>(StringComparer.OrdinalIgnoreCase);
 
+    private readonly bool requireSession;
+
+    public InMemoryFileAccessorFactory()
+        : this(requireSession: false)
+    {
+    }
+
+    public InMemoryFileAccessorFactory(bool requireSession)
+    {
+        this.requireSession = requireSession;
+    }
+
     /// <inheritdoc/>
     public bool IsMemoryBacked => true;
 
     /// <inheritdoc/>
-    public IFileAccessor Create(DirectoryPath root) => this.accessors.GetOrAdd(root.ToString(), _ => new InMemoryFileAccessor());
+    public IFileAccessor Create(DirectoryPath root)
+    {
+        if (this.requireSession && !WorkspaceHoldRegistry.HasActiveSession())
+        {
+            throw new InvalidOperationException(
+                $"An in-memory workspace was opened outside a workspace session. Wrap the operation in {nameof(FileAccessorFactoryExtensions.LeaseTemporaryWorkspace)} or {nameof(FileAccessorFactoryExtensions.LeaseWorkspace)} and dispose the lease when the operation ends, so the workspace is not retained for the life of the process.");
+        }
+
+        return this.accessors.GetOrAdd(root.ToString(), _ => new InMemoryFileAccessor());
+    }
 
     /// <inheritdoc/>
     public void Release(DirectoryPath root)

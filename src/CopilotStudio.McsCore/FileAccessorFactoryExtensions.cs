@@ -81,33 +81,95 @@ internal static class WorkspaceHoldRegistry
     private static readonly ConditionalWeakTable<IFileAccessorFactory, WorkspaceHoldTable> Tables =
         new ConditionalWeakTable<IFileAccessorFactory, WorkspaceHoldTable>();
 
-    internal static IFileAccessor Acquire(IFileAccessorFactory factory, DirectoryPath root, string? temporaryDirectory) =>
-        Tables.GetOrCreateValue(factory).Acquire(factory, root, temporaryDirectory);
+    private static readonly AsyncLocal<OperationScope?> CurrentOperation = new AsyncLocal<OperationScope?>();
 
-    internal static void Release(IFileAccessorFactory factory, DirectoryPath root) =>
-        Tables.GetOrCreateValue(factory).Release(factory, root);
+    internal static IFileAccessor Acquire(IFileAccessorFactory factory, DirectoryPath root, string? temporaryDirectory)
+    {
+        var operation = WorkspaceHoldRegistry.EnterOperation();
+        try
+        {
+            return Tables.GetOrCreateValue(factory).Acquire(factory, root, operation, temporaryDirectory);
+        }
+        catch
+        {
+            WorkspaceHoldRegistry.LeaveOperation();
+            throw;
+        }
+    }
+
+    internal static void Release(IFileAccessorFactory factory, DirectoryPath root)
+    {
+        try
+        {
+            Tables.GetOrCreateValue(factory).Release(factory, root);
+        }
+        finally
+        {
+            WorkspaceHoldRegistry.LeaveOperation();
+        }
+    }
 
     internal static bool IsHeld(IFileAccessorFactory factory, string root) =>
         Tables.GetOrCreateValue(factory).IsHeld(root);
+
+    internal static bool HasActiveSession() => WorkspaceHoldRegistry.CurrentOperation.Value?.Depth > 0;
+
+    private static OperationScope EnterOperation()
+    {
+        var operation = WorkspaceHoldRegistry.CurrentOperation.Value;
+        if (operation == null || operation.Depth == 0)
+        {
+            operation = new OperationScope();
+            WorkspaceHoldRegistry.CurrentOperation.Value = operation;
+        }
+
+        operation.Depth++;
+        return operation;
+    }
+
+    private static void LeaveOperation()
+    {
+        var operation = WorkspaceHoldRegistry.CurrentOperation.Value;
+        if (operation == null)
+        {
+            return;
+        }
+
+        if (--operation.Depth <= 0)
+        {
+            WorkspaceHoldRegistry.CurrentOperation.Value = null;
+        }
+    }
+
+    private sealed class OperationScope
+    {
+        public int Depth { get; set; }
+    }
 
     private sealed class WorkspaceHoldTable
     {
         private readonly Dictionary<string, Hold> holds = new Dictionary<string, Hold>(StringComparer.OrdinalIgnoreCase);
 
-        public IFileAccessor Acquire(IFileAccessorFactory factory, DirectoryPath root, string? temporaryDirectory)
+        public IFileAccessor Acquire(IFileAccessorFactory factory, DirectoryPath root, object operation, string? temporaryDirectory)
         {
             lock (this.holds)
             {
                 var key = root.ToString();
                 if (this.holds.TryGetValue(key, out var existing))
                 {
+                    if (!ReferenceEquals(existing.Operation, operation))
+                    {
+                        throw new InvalidOperationException(
+                            "This workspace is already in use by another operation. Give each concurrent operation its own workspace root so their file changes cannot interleave.");
+                    }
+
                     existing.Count++;
                     existing.TemporaryDirectory ??= temporaryDirectory;
                     return existing.Accessor;
                 }
 
                 var accessor = factory.Create(root);
-                this.holds[key] = new Hold(accessor, temporaryDirectory);
+                this.holds[key] = new Hold(accessor, operation, temporaryDirectory);
                 return accessor;
             }
         }
@@ -166,14 +228,17 @@ internal static class WorkspaceHoldRegistry
 
         private sealed class Hold
         {
-            public Hold(IFileAccessor accessor, string? temporaryDirectory)
+            public Hold(IFileAccessor accessor, object operation, string? temporaryDirectory)
             {
                 this.Accessor = accessor;
+                this.Operation = operation;
                 this.TemporaryDirectory = temporaryDirectory;
                 this.Count = 1;
             }
 
             public IFileAccessor Accessor { get; }
+
+            public object Operation { get; }
 
             public int Count { get; set; }
 

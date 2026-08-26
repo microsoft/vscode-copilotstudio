@@ -160,6 +160,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     private readonly IFileAccessorFactory _fileAccessorFactory;
 
     private int MaxParallelKnowledgeDownloads => _fileAccessorFactory.IsMemoryBacked ? MaxParallelMemoryBackedKnowledgeDownloads : MaxParallelSyncOperations;
+
+    private IFileAccessor OpenWorkspace(DirectoryPath root) => _fileAccessorFactory.Create(root);
+
     private readonly IIslandControlPlaneService _islandControlPlaneService;
     private readonly ISyncProgress _syncProgress;
 
@@ -189,7 +192,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         AgentSyncInfo syncInfo,
         CancellationToken cancellationToken)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var changeToken = await GetChangeTokenOrNullAsync(fileAccessor, cancellationToken).ConfigureAwait(false);
 
         var result = await SyncWorkspaceAsync(
@@ -228,7 +231,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         ReferenceTracker referenceTracker,
         CancellationToken cancellation)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
 
         // Do we have a references.mcs.yml?
         if (fileAccessor.Exists(ReferencesCollectionPath))
@@ -316,7 +319,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             downloadAllKnowledgeFiles = true;
         }
 
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
 
         var workflows = await GetWorkflowsAsync(workspaceFolder, dataverseClient, syncInfo, fileAccessor, cancellationToken).ConfigureAwait(false);
         if (workflows.Succeeded)
@@ -756,7 +759,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         // workspace declares an UNKNOWN-higher layoutVersion than this tooling supports.
         // Packing/pushing a newer layout we cannot interpret could relocate or drop files,
         // so refuse rather than risk corruption (best-effort at most on read, never on write).
-        var layoutGateAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var layoutGateAccessor = this.OpenWorkspace(workspaceFolder);
         if (CliAgentBotEntityReader.HasUnsupportedHigherLayoutVersion(layoutGateAccessor, out var declaredLayoutVersion))
         {
             throw new InvalidOperationException(
@@ -795,7 +798,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         var postPushSnapshot = await WriteChangeSetAsync(workspaceFolder, changeset, cloudFlowMetadata, aiPrompts, agentId, cancellationToken).ConfigureAwait(false);
 
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         await WriteCustomConnectorsAsync(fileAccessor, workspaceFolder, postPushSnapshot, dataverseClient, cancellationToken).ConfigureAwait(false);
 
         var numberOfUploadedFiles = 0;
@@ -998,7 +1001,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     public Task<ImmutableArray<KnowledgeFileInfo>> ListKnowledgeFilesAsync(DirectoryPath workspaceFolder, CancellationToken cancellationToken)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var snapshot = ReadCloudCacheSnapshot(fileAccessor, allowMissing: true);
         if (snapshot == null)
         {
@@ -1034,7 +1037,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         IReadOnlyCollection<string>? schemaNames,
         CancellationToken cancellationToken)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var snapshot = ReadCloudCacheSnapshot(fileAccessor, allowMissing: true);
         if (snapshot == null)
         {
@@ -1104,7 +1107,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     public async Task<ImmutableArray<string>> UploadKnowledgeFilesAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var snapshot = ReadCloudCacheSnapshot(fileAccessor, allowMissing: true);
         if (snapshot == null)
         {
@@ -1461,7 +1464,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+            var fileAccessor = this.OpenWorkspace(workspaceFolder);
             var cloudSnapshot = ReadCloudCacheSnapshot(fileAccessor) ?? throw new InvalidOperationException("Unable to read cloud cache from .mcs/botdefinition.json");
             var changeToken = await GetChangeTokenOrNullAsync(fileAccessor, cancellationToken).ConfigureAwait(false);
             var effectiveDefinition = OverlayCliConnectionReferences(workspaceDefinition, fileAccessor, cancellationToken);
@@ -1540,14 +1543,14 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private async Task<PvaComponentChangeSet> FetchRemoteChangesetAsync(DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, CancellationToken cancellationToken)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var changeToken = await GetChangeTokenOrNullAsync(fileAccessor, cancellationToken).ConfigureAwait(false);
         return await _islandControlPlaneService.GetComponentsAsync(operationContext, changeToken, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task CommitRefreshedCloudCacheAsync(DirectoryPath workspaceFolder, PvaComponentChangeSet remoteChangeset, CancellationToken cancellationToken)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         UpdateCloudCache(fileAccessor, remoteChangeset);
         await WriteChangeTokenAsync(fileAccessor, remoteChangeset, cancellationToken).ConfigureAwait(false);
     }
@@ -1632,7 +1635,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         CancellationToken cancellationToken,
         IReadOnlyDictionary<string, Guid>? pushedConnectorIds = null)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var cloudCache = ReadCloudCacheSnapshot(fileAccessor, allowMissing: true);
         var effectiveDefinition = OverlayCliConnectionReferences(definition, fileAccessor, cancellationToken);
         if (effectiveDefinition.ConnectionReferences.IsDefaultOrEmpty)
@@ -1733,7 +1736,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private DefinitionBase DetectNewKnowledgeFiles(DirectoryPath workspaceFolder, DefinitionBase definition, out List<BotComponentBase> newComponents, CancellationToken cancellationToken)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var existingSchemaNames = definition.Components.Select(c => c.SchemaNameString).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         newComponents = ScanForNewKnowledgeFiles(fileAccessor, definition, existingSchemaNames, cancellationToken);
@@ -2639,7 +2642,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             return;
         }
 
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var folderOverrides = BuildComponentFolderOverrides(fileAccessor, definition);
         foreach (var newComponent in newComponents)
         {
@@ -2692,7 +2695,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     /// </summary>
     public virtual async Task<IReadOnlyList<ConnectionNeeded>> GetAgentConnectionReferencesAsync(DirectoryPath workspaceFolder, DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var effectiveDefinition = OverlayCliConnectionReferences(definition, fileAccessor, cancellationToken);
         return await GetAgentConnectionReferencesAsync(effectiveDefinition, dataverseClient, cancellationToken).ConfigureAwait(false);
     }
@@ -2707,7 +2710,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     /// <returns>The newly added connection references with their current binding state.</returns>
     public virtual async Task<IReadOnlyList<ConnectionNeeded>> GetNewAgentConnectionReferencesAsync(DirectoryPath workspaceFolder, DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var cloudCache = ReadCloudCacheSnapshot(fileAccessor, allowMissing: true);
         var effectiveDefinition = OverlayCliConnectionReferences(definition, fileAccessor, cancellationToken);
 
@@ -2738,7 +2741,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         PowerAppsContext catalogContext,
         CancellationToken cancellationToken)
     {
-        var viewFileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var viewFileAccessor = this.OpenWorkspace(workspaceFolder);
         var declaredDefinition = definition.WithConnectionReferences(ReadDeclaredConnectionReferencesFromDisk(viewFileAccessor, definition));
         var references = await GetAgentConnectionReferencesAsync(declaredDefinition, dataverseClient, cancellationToken).ConfigureAwait(false);
         var scan = ScanConnectionReferenceUsages(workspaceFolder, references);
@@ -2849,7 +2852,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     public virtual ConnectionReferenceUsageScan ScanConnectionReferenceUsages(DirectoryPath workspaceFolder, IReadOnlyList<ConnectionNeeded> references)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var connectorInternalIdByLogicalName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (references != null)
         {
@@ -2957,7 +2960,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }
         }
 
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         if (applied.Count > 0)
         {
             UpdateWorkflowStatesInCloudCache(fileAccessor, applied);
@@ -3019,7 +3022,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             return;
         }
 
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var path = new AgentFilePath(metadataFilePath!);
         if (!fileAccessor.Exists(path))
         {
@@ -3121,7 +3124,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             return new DeclareConnectionReferencesResult();
         }
 
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var declaredRefs = ReadDeclaredConnectionReferencesFromDisk(fileAccessor, definition);
         var existing = new HashSet<string>(declaredRefs.Select(c => c.ConnectionReferenceLogicalName.Value), StringComparer.OrdinalIgnoreCase);
         var additions = ImmutableArray.CreateBuilder<ConnectionReference>();
@@ -3182,7 +3185,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             throw new ArgumentException("Connector internal id is required.", nameof(connectorInternalId));
         }
 
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var declaredRefs = ReadDeclaredConnectionReferencesFromDisk(fileAccessor, definition);
         var prefix = DeriveConnectionReferencePrefix(definition.WithConnectionReferences(declaredRefs));
         var logicalName = $"{prefix}.{connectorInternalId}.{Guid.NewGuid():N}";
@@ -3268,7 +3271,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     public virtual async Task<ConnectionReferenceRemovalResult> RemoveConnectionReferenceAsync(DirectoryPath workspaceFolder, DefinitionBase definition, string logicalName, bool confirmed, CancellationToken cancellationToken)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var scan = ScanConnectionReferenceUsages(workspaceFolder, Array.Empty<ConnectionNeeded>());
         var usages = scan.GetUsages(logicalName);
 
@@ -3325,7 +3328,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         var (views, scan) = await GetAgentConnectionViewsCoreAsync(workspaceFolder, definition, dataverseClient, catalogClient, catalogContext, cancellationToken).ConfigureAwait(false);
 
-        var writeAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var writeAccessor = this.OpenWorkspace(workspaceFolder);
         var workflows = BuildWorkflowStatusViews(scan, views);
         WriteConnectionsCacheAndBump(workspaceFolder, writeAccessor, views, workflows);
 
@@ -3359,7 +3362,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     public virtual void WriteConnectionsCache(DirectoryPath workspaceFolder, IReadOnlyList<AgentConnectionView> views)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var workflows = GetWorkflowStatusViews(workspaceFolder, views);
         WriteConnectionsCacheAndBump(workspaceFolder, fileAccessor, views, workflows);
     }
@@ -3374,7 +3377,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     public virtual bool TryWriteConnectionsCache(DirectoryPath workspaceFolder, IReadOnlyList<AgentConnectionView> views, long expectedGeneration)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var workflows = GetWorkflowStatusViews(workspaceFolder, views);
         lock (_connectionsCacheGate)
         {
@@ -3399,7 +3402,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     public virtual ConnectionsCacheFile? ReadConnectionsCache(DirectoryPath workspaceFolder)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         return ReadConnectionsCache(fileAccessor);
     }
 
@@ -3760,7 +3763,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     /// <returns>Workspace sync result.</returns>
     public async Task<WorkspaceSyncInfo> SyncWorkspaceAsync(DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, string? changeToken, bool updateWorkspaceDirectory, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken, ImmutableArray<AIPromptMetadata> aiPromptMetadata, bool syncCustomConnectors = true, bool syncWorkflowsAndPrompts = true)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var workflows = cloudFlowMetadata ?? (syncWorkflowsAndPrompts ? await GetWorkflowsAsync(workspaceFolder, dataverseClient, syncInfo, fileAccessor, cancellationToken).ConfigureAwait(false) : new CloudFlowMetadata());
         var changeset = await _islandControlPlaneService.GetComponentsAsync(operationContext, changeToken, cancellationToken).ConfigureAwait(false);
 
@@ -3819,7 +3822,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         Guid? agentId,
         CancellationToken cancellationToken)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var (definition, deletedComponents) = UpdateCloudCache(fileAccessor, changeset, cloudFlowMetadata, aiPrompts, agentId, preserveExistingAIModelDefinitions: true);
         await UpdateWorkspaceDirectoryAsync(fileAccessor, workspaceFolder, changeset, definition, deletedComponents, cancellationToken).ConfigureAwait(false);
         await WriteChangeTokenAsync(fileAccessor, changeset, cancellationToken).ConfigureAwait(false);
@@ -3947,7 +3950,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         try
         {
-            var siblingAccessor = _fileAccessorFactory.Create(workspaceFolder.ResolveRelativeRef(new RelativeDirectoryPath(directory!)));
+            var siblingAccessor = this.OpenWorkspace(workspaceFolder.ResolveRelativeRef(new RelativeDirectoryPath(directory!)));
             if (!siblingAccessor.Exists(ComponentCollectionPath))
             {
                 return null;
@@ -4536,7 +4539,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     public async Task SaveSyncInfoAsync(DirectoryPath workspaceFolder, AgentSyncInfo syncInfo)
     {
-        var writer = _fileAccessorFactory.Create(workspaceFolder);
+        var writer = this.OpenWorkspace(workspaceFolder);
         writer.CreateHiddenDirectory(new(HiddenRoot));
         using var stream = writer.OpenWrite(ConnectionDetailsPath);
         await JsonSerializer.SerializeAsync(stream, syncInfo).ConfigureAwait(false);
@@ -4544,7 +4547,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     public virtual void ClearComponentSyncBaselines(DirectoryPath workspaceFolder)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         fileAccessor.Delete(ConnectorsSyncStatePath);
         fileAccessor.Delete(ConnectorsDownloadStatePath);
         fileAccessor.Delete(KnowledgeSyncStatePath);
@@ -4553,7 +4556,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     public virtual RemoteBindingSnapshot ResetRemoteBindingState(DirectoryPath workspaceFolder)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var captured = ImmutableArray.CreateBuilder<RemoteBindingFile>();
 
         if (fileAccessor.Exists(ConnectionDetailsPath))
@@ -4592,7 +4595,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     public virtual void RestoreRemoteBindingState(DirectoryPath workspaceFolder, RemoteBindingSnapshot snapshot)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
 
         var affectedPaths = RemoteBindingFilePaths.Append(ConnectionDetailsPath).ToArray();
         var preImage = ImmutableArray.CreateBuilder<RemoteBindingFile>();
@@ -4631,7 +4634,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     public virtual void PersistRetargetBackup(DirectoryPath workspaceFolder, RemoteBindingSnapshot snapshot)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         fileAccessor.CreateHiddenDirectory(new AgentFilePath(HiddenRoot));
         var entries = snapshot.Files.Select(file => new RetargetBackupEntry
         {
@@ -4645,7 +4648,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     public virtual bool FinalizeRetarget(DirectoryPath workspaceFolder, bool pushSucceeded)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         if (!fileAccessor.Exists(RetargetBackupPath))
         {
             return false;
@@ -4666,7 +4669,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     public virtual void ClearRetargetBackup(DirectoryPath workspaceFolder)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         if (fileAccessor.Exists(RetargetBackupPath))
         {
             fileAccessor.Delete(RetargetBackupPath);
@@ -4701,13 +4704,13 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     /// <returns>True/False if sync info is available/not available.</returns>
     public bool IsSyncInfoAvailable(DirectoryPath workspaceFolder)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         return fileAccessor.Exists(ConnectionDetailsPath);
     }
 
     public async Task<AgentSyncInfo> GetSyncInfoAsync(DirectoryPath workspaceFolder)
     {
-        var accessor = _fileAccessorFactory.Create(workspaceFolder);
+        var accessor = this.OpenWorkspace(workspaceFolder);
         if (!accessor.Exists(ConnectionDetailsPath))
         {
             throw new FileNotFoundException($"The connection file .mcs/conn.json was not found. Please clone the workspace again or perform a reattach.");
@@ -4736,7 +4739,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private async Task<(PvaComponentChangeSet, ImmutableArray<Change>)> GetLocalChangesAsync(DirectoryPath workspaceFolder, DefinitionBase workspaceDefinition, DefinitionBase? cloudSnapshot, CancellationToken cancellationToken)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         cloudSnapshot ??= ReadCloudCacheSnapshot(fileAccessor);
         if (cloudSnapshot == null)
         {
@@ -4758,7 +4761,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     public DiscardResult DiscardLocalChanges(DirectoryPath workspaceFolder, IReadOnlyCollection<Change> changes)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var cloudSnapshot = ReadCloudCacheSnapshot(fileAccessor)
             ?? throw new InvalidOperationException("Unable to read cloud cache from .mcs/botdefinition.json");
         var workspaceDefinition = DetectNewKnowledgeFiles(
@@ -4774,7 +4777,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         DefinitionBase workspaceDefinition,
         IReadOnlyCollection<Change> changes)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var cloudSnapshot = ReadCloudCacheSnapshot(fileAccessor)
             ?? throw new InvalidOperationException("Unable to read cloud cache from .mcs/botdefinition.json");
         var skipped = ImmutableArray.CreateBuilder<DiscardSkippedChange>();
@@ -5141,7 +5144,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private async Task<(PvaComponentChangeSet, ImmutableArray<Change>)> GetRemoteChangesAsync(DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, DefinitionBase? cloudSnapshot, CancellationToken cancellationToken)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var changeToken = await GetChangeTokenOrNullAsync(fileAccessor, cancellationToken).ConfigureAwait(false);
         var changeset = await _islandControlPlaneService.GetComponentsAsync(
                 operationContext,
@@ -5163,7 +5166,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     private async Task<HashSet<string>> GetReferencedCollectionComponentSchemaNamesAsync(DirectoryPath workspaceFolder, CancellationToken cancellationToken)
     {
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         if (!fileAccessor.Exists(ReferencesCollectionPath))
         {
             return result;
@@ -5993,7 +5996,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var connectionReferences = ImmutableArray<ConnectionReference>.Empty;
         var workflowResponseBuilder = ImmutableArray.CreateBuilder<WorkflowResponse>();
 
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var cloudSnapshot = ReadCloudCacheSnapshot(fileAccessor, allowMissing: true);
         var cachedWorkflowClientData = new Dictionary<Guid, string>();
         var cachedWorkflowMetadata = new Dictionary<Guid, string>();
@@ -6647,7 +6650,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     {
         var responses = ImmutableArray.CreateBuilder<AIPromptResponse>();
         var prompts = ImmutableArray.CreateBuilder<AIPromptMetadata>();
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var baseline = ReadAiPromptSyncState(fileAccessor);
         var updatedState = new Dictionary<string, string>(baseline, StringComparer.OrdinalIgnoreCase);
         var stateChanged = false;
@@ -6951,7 +6954,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     public async Task<DefinitionBase> ReadWorkspaceDefinitionAsync(DirectoryPath workspaceFolder, CancellationToken cancellationToken, bool checkKnowledgeFiles = false)
     {
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var definition = ReadCloudCacheSnapshot(fileAccessor, allowMissing: true);
         if (definition == null)
         {
@@ -7527,7 +7530,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     private async Task<CloudFlowMetadata> GetLocalWorkflowContentAsync(DirectoryPath workspaceFolder, CancellationToken cancellationToken)
     {
         var cloudFlowDefinitions = new List<CloudFlowDefinition>();
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
 
         foreach (var workflowFolder in EnumerateComponentFolders(fileAccessor, WorkflowFolder))
         {
@@ -8649,7 +8652,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     public async Task<CustomConnectorPushResult> PushCustomConnectorsAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
     {
         var pushedRowIds = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
-        var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
 
         var localConnectors = new List<CustomConnectorMetadata>();
 
@@ -8899,7 +8902,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }
 
             var folder = rootFolder.GetChildDirectoryPath(folderName);
-            if (_fileAccessorFactory.Create(folder).ListFiles().Any())
+            if (this.OpenWorkspace(folder).ListFiles().Any())
             {
                 throw new InvalidOperationException($"Destination path '{folder}' already exists and is not an empty directory.");
             }

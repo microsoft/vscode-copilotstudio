@@ -103,15 +103,17 @@ public class BoundedWriteStreamTests
     }
 
     [Fact]
-    public void ExceptionMessage_NamesTheFileAndLimit()
+    public void ExceptionReportsTheLimitAndKeepsTheFileNameOffTheMessage()
     {
         using var inner = new MemoryStream();
         using var bounded = new BoundedWriteStream(inner, 4, "Report.pdf");
 
         var failure = Assert.Throws<KnowledgeFileTooLargeException>(() => bounded.Write(new byte[8], 0, 8));
 
-        Assert.Contains("Report.pdf", failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Report.pdf", failure.Message, StringComparison.Ordinal);
         Assert.Contains("4", failure.Message, StringComparison.Ordinal);
+        Assert.Equal("Report.pdf", failure.FileName);
+        Assert.Equal(4, failure.MaxBytes);
     }
 
     [Fact]

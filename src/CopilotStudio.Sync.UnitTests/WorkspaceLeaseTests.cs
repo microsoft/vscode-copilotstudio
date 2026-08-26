@@ -2,6 +2,7 @@
 
 using System.Text;
 using Microsoft.CopilotStudio.McsCore;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using ProductionFileAccessorFactory = Microsoft.CopilotStudio.McsCore.InMemoryFileAccessorFactory;
 using ProductionInMemoryFileAccessor = Microsoft.CopilotStudio.McsCore.InMemoryFileAccessor;
@@ -323,6 +324,121 @@ public class WorkspaceLeaseTests
             this.ReleaseCount++;
             this.inner.Release(root);
         }
+    }
+
+    [Fact]
+    public void SessionRequiredFactory_RejectsWorkspaceUseOutsideASession()
+    {
+        var factory = new ProductionFileAccessorFactory(requireSession: true);
+
+        var failure = Assert.Throws<InvalidOperationException>(() => factory.Create(new DirectoryPath("c:/test/no-session/")));
+
+        Assert.Contains("outside a workspace session", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SessionRequiredFactory_AllowsWorkspaceUseInsideASession()
+    {
+        using var factory = new ProductionFileAccessorFactory(requireSession: true);
+
+        using var session = factory.LeaseTemporaryWorkspace("mcs-op-");
+        var nested = factory.Create(session.Root.GetChildDirectoryPath("Agent One"));
+
+        Assert.NotNull(nested);
+    }
+
+    [Fact]
+    public void SessionRequiredFactory_RejectsWorkspaceUseAfterTheSessionEnds()
+    {
+        using var factory = new ProductionFileAccessorFactory(requireSession: true);
+        DirectoryPath root;
+
+        using (var session = factory.LeaseTemporaryWorkspace("mcs-op-"))
+        {
+            root = session.Root;
+        }
+
+        Assert.Throws<InvalidOperationException>(() => factory.Create(root));
+    }
+
+    [Fact]
+    public void InMemorySyncServices_RequireAWorkspaceSession()
+    {
+        var services = new ServiceCollection();
+        services.AddSyncServices(storageMode: SyncStorageMode.InMemory);
+        using var provider = services.BuildServiceProvider();
+        var factory = provider.GetRequiredService<IFileAccessorFactory>();
+
+        Assert.Throws<InvalidOperationException>(() => factory.Create(new DirectoryPath("c:/test/ams-no-session/")));
+
+        using var session = factory.LeaseTemporaryWorkspace("mcs-op-");
+        Assert.NotNull(session.Accessor);
+    }
+
+    [Fact]
+    public void PhysicalSyncServices_DoNotRequireAWorkspaceSession()
+    {
+        var services = new ServiceCollection();
+        services.AddSyncServices();
+        using var provider = services.BuildServiceProvider();
+        var factory = provider.GetRequiredService<IFileAccessorFactory>();
+
+        Assert.NotNull(factory.Create(new DirectoryPath("c:/test/pac-no-session/")));
+    }
+
+    [Fact]
+    public async Task LeasingAWorkspaceHeldByAnotherOperation_IsRejected()
+    {
+        using var factory = new ProductionFileAccessorFactory();
+        var root = new DirectoryPath("c:/test/lease-other-operation/");
+
+        using var owner = factory.LeaseWorkspace(root);
+
+        Task<InvalidOperationException> independentOperation;
+        using (ExecutionContext.SuppressFlow())
+        {
+            independentOperation = Task.Run(() => Assert.Throws<InvalidOperationException>(() => factory.LeaseWorkspace(root)));
+        }
+
+        var failure = await independentOperation;
+
+        Assert.Contains("already in use by another operation", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NestedLeaseFromTheSameOperation_IsAllowedAcrossTasks()
+    {
+        using var factory = new ProductionFileAccessorFactory();
+        var root = new DirectoryPath("c:/test/lease-same-operation-task/");
+
+        using var owner = factory.LeaseWorkspace(root);
+        Write(owner.Accessor, "settings.mcs.yml", "content");
+
+        await Task.Run(() =>
+        {
+            using var nested = factory.LeaseWorkspace(root);
+            Assert.True(nested.Accessor.Exists(new AgentFilePath("settings.mcs.yml")));
+        });
+
+        Assert.True(owner.Accessor.Exists(new AgentFilePath("settings.mcs.yml")));
+    }
+
+    [Fact]
+    public async Task AfterAnOperationEnds_AnotherOperationCanLeaseTheSameWorkspace()
+    {
+        using var factory = new ProductionFileAccessorFactory();
+        var root = new DirectoryPath("c:/test/lease-handover/");
+
+        using (var first = factory.LeaseWorkspace(root))
+        {
+            Write(first.Accessor, "settings.mcs.yml", "content");
+        }
+
+        await Task.Run(() =>
+        {
+            using var second = factory.LeaseWorkspace(root);
+            Assert.False(second.Accessor.Exists(new AgentFilePath("settings.mcs.yml")));
+        });
     }
 
     private static void Write(IFileAccessor accessor, string path, string content)

@@ -93,6 +93,11 @@ public class PhysicalFileAccessorReplaceTests : IDisposable
     [Fact]
     public void Replace_WhenDestinationIsLocked_PreservesDestinationContent()
     {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
         var source = new AgentFilePath("staged.tmp");
         var target = new AgentFilePath("Doc.txt");
         Write(target, "must-survive");
@@ -105,6 +110,43 @@ public class PhysicalFileAccessorReplaceTests : IDisposable
         }
 
         Assert.Equal("must-survive", Read(target));
+    }
+
+    [Fact]
+    public void Replace_WhenRestoreAlsoFails_RetainsTheRecoveryCopy()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var source = new AgentFilePath("staged.tmp");
+        var target = new AgentFilePath("Doc.txt");
+        Write(target, "must-be-recoverable");
+        Write(source, "new-content");
+
+        var targetFullPath = Path.Combine(_rootPath, "Doc.txt");
+        using (new FileStream(targetFullPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            Assert.ThrowsAny<Exception>(() => _accessor.Replace(source, target));
+
+            var backups = Directory.GetFiles(_rootPath, "*.replace.bak", SearchOption.AllDirectories);
+            Assert.Single(backups);
+            Assert.Equal("must-be-recoverable", File.ReadAllText(backups[0]));
+        }
+    }
+
+    [Fact]
+    public void Replace_WhenSourceIsMissing_PreservesDestinationContent()
+    {
+        var source = new AgentFilePath("missing-staged.tmp");
+        var target = new AgentFilePath("Doc.txt");
+        Write(target, "must-survive");
+
+        Assert.ThrowsAny<Exception>(() => _accessor.Replace(source, target));
+
+        Assert.Equal("must-survive", Read(target));
+        Assert.Empty(Directory.GetFiles(_rootPath, "*.replace.bak", SearchOption.AllDirectories));
     }
 
     private void Write(AgentFilePath path, string content)

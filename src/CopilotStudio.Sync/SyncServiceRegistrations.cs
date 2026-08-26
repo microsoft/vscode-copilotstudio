@@ -39,7 +39,7 @@ public static class SyncServiceRegistrations
         services.AddSingleton<ISyncComponentCollectionDataverseClient>(sp => sp.GetRequiredService<SyncDataverseClient>());
         if (storageMode == SyncStorageMode.InMemory)
         {
-            services.AddSingleton<IFileAccessorFactory, InMemoryFileAccessorFactory>();
+            services.AddSingleton<IFileAccessorFactory>(_ => new InMemoryFileAccessorFactory(requireSession: true));
         }
         else
         {
