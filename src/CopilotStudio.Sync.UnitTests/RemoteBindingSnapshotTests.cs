@@ -1,9 +1,5 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 
-using System.Collections.Generic;
-using System.IO;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.CopilotStudio.McsCore;
 using Moq;
 using Xunit;
@@ -187,6 +183,12 @@ public class RemoteBindingSnapshotTests
         public ThrowingDeleteFileAccessorFactory(string throwOnDeletePath)
         {
             _throwOnDeletePath = throwOnDeletePath;
+        }
+
+        public bool IsMemoryBacked => false;
+
+        public void Release(DirectoryPath root)
+        {
         }
 
         public IFileAccessor Create(DirectoryPath workspaceFolder)

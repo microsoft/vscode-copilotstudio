@@ -612,13 +612,13 @@
     /// <summary>
     /// Create mock Dataverse client that simulates agent creation
     /// </summary>
-    internal class MockDataverseClient : ISyncDataverseClient, ISyncComponentCollectionDataverseClient
+    internal class MockDataverseClient : ISyncDataverseClient, ISyncComponentCollectionDataverseClient, IStreamingKnowledgeFileClient
     {
         private WorkflowMetadata[]? _workflowsForAgent;
 
         public List<(Guid? AgentId, WorkflowMetadata Metadata, string Operation)> WorkflowCalls { get; } = new();
 
-        public List<(string Folder, Guid BotComponentId, string FileName)> UploadKnowledgeFileCalls { get; } = new();
+        public List<(Stream Content, Guid BotComponentId, string FileName)> UploadKnowledgeFileCalls { get; } = new();
         
         private Dictionary<string, ConnectionReferenceInfo> _connectionReferencesByLogicalName = new(StringComparer.OrdinalIgnoreCase);
 
@@ -765,9 +765,18 @@
         public virtual Task DownloadKnowledgeFileAsync(string knowledgeFileFolder, BotComponentId botComponentId, string fileName, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
-        public virtual Task UploadKnowledgeFileAsync(string knowledgeFileFolder, Guid botComponentId, string fileName, CancellationToken cancellationToken = default)
+        public virtual Task DownloadKnowledgeFileAsync(Stream destination, BotComponentId botComponentId, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public virtual async Task UploadKnowledgeFileAsync(string knowledgeFileFolder, Guid botComponentId, string fileName, CancellationToken cancellationToken = default)
         {
-            UploadKnowledgeFileCalls.Add((knowledgeFileFolder, botComponentId, fileName));
+            using var content = new FileStream(Path.Combine(knowledgeFileFolder, fileName), FileMode.Open, FileAccess.Read, FileShare.Read);
+            await UploadKnowledgeFileAsync(content, botComponentId, fileName, cancellationToken);
+        }
+
+        public virtual Task UploadKnowledgeFileAsync(Stream content, Guid botComponentId, string fileName, CancellationToken cancellationToken = default)
+        {
+            UploadKnowledgeFileCalls.Add((content, botComponentId, fileName));
             return Task.CompletedTask;
         }
 

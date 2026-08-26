@@ -93,4 +93,16 @@ internal static class FileAccessorExtensions
 
         return await sr.ReadToEndAsync().ConfigureAwait(false);
     }
+
+    public static async Task<byte[]> ReadBytesAsync(this IFileAccessor reader, AgentFilePath path, CancellationToken cancel)
+    {
+        cancel.ThrowIfCancellationRequested();
+
+        using var stream = reader.OpenRead(path);
+        using var buffer = new MemoryStream();
+
+        await stream.CopyToAsync(buffer, 81920, cancel).ConfigureAwait(false);
+
+        return buffer.ToArray();
+    }
 }

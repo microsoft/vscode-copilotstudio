@@ -436,10 +436,7 @@ public class ChildAgentFolderStickyTests
         }, botEntity, "token-1");
 
         var mockDataverse = CreateMockDataverse();
-        var capturedFolders = new List<string>();
-        mockDataverse
-            .Setup(x => x.DownloadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<BotComponentId>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .Callback((string folder, BotComponentId id, string name, CancellationToken ct) => capturedFolders.Add(folder))
+        mockDataverse.As<IStreamingKnowledgeFileClient>().Setup(x => x.DownloadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<BotComponentId>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
         var opContext = ComponentWriterDefensiveTests.CreateMockOperationContext();
@@ -451,11 +448,10 @@ public class ChildAgentFolderStickyTests
         RelocateChildAgentFolder(fileAccessor, "agents/Balance Agent", "agents/Agent_2qD");
         fileAccessor.Delete(new AgentFilePath("agents/Agent_2qD/.agent.json"));
 
-        capturedFolders.Clear();
-        await synchronizer.DownloadKnowledgeFilesAsync(workspace, mockDataverse.Object, schemaNames: null, CancellationToken.None);
+        var downloaded = await synchronizer.DownloadKnowledgeFilesAsync(workspace, mockDataverse.Object, schemaNames: null, CancellationToken.None);
 
-        var folder = Assert.Single(capturedFolders);
-        Assert.Contains("agents/Agent_2qD/knowledge/files", folder.Replace('\\', '/'));
+        var folder = Assert.Single(downloaded).RelativePath;
+        Assert.Contains("agents/Agent_2qD/knowledge/files", folder);
         Assert.DoesNotContain("Balance Agent", folder);
     }
 

@@ -3,7 +3,6 @@
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.DependencyInjection.Extensions;
-    using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common.DependencyInjection;
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
@@ -22,6 +21,7 @@
     using Xunit;
     using Microsoft.CopilotStudio.McsCore;
     using IFileAccessorFactory = Microsoft.CopilotStudio.McsCore.IFileAccessorFactory;
+    using InMemoryFileAccessorFactory = Microsoft.PowerPlatformLS.UnitTests.TestUtilities.InMemoryFileAccessorFactory;
 
     public class CloneAgentTests
     {

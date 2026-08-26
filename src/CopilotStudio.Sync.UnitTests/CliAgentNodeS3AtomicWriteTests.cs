@@ -10,16 +10,9 @@
 using Microsoft.Agents.ObjectModel;
 using Microsoft.Agents.Platform.Content;
 using Microsoft.CopilotStudio.McsCore;
-using Microsoft.CopilotStudio.Sync;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Moq;
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using Xunit;
 
 namespace Microsoft.CopilotStudio.Sync.UnitTests;
@@ -143,6 +136,12 @@ public class CliAgentNodeS3AtomicWriteTests
         private readonly Dictionary<string, FaultOnDeleteFileAccessor> _accessors = new();
 
         public FaultOnDeleteFileAccessorFactory(string faultDeletePath) => _faultDeletePath = faultDeletePath;
+
+        public bool IsMemoryBacked => false;
+
+        public void Release(DirectoryPath root)
+        {
+        }
 
         public IFileAccessor Create(DirectoryPath workspaceFolder)
         {

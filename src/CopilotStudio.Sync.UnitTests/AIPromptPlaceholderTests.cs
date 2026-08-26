@@ -1,7 +1,6 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 
 using Microsoft.Agents.ObjectModel;
-using Microsoft.Agents.ObjectModel.Yaml;
 using Microsoft.Agents.Platform.Content;
 using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync.Dataverse;
@@ -104,13 +103,15 @@ public class AIPromptPlaceholderTests
             Assert.Contains(readableModelId.ToString(), botDefinition);
             Assert.Contains(unreadableModelId.ToString(), botDefinition);
 
-            var promptsRoot = Path.Combine(workspaceRoot, "prompts");
-            var promptFolders = Directory.Exists(promptsRoot)
-                ? Directory.GetDirectories(promptsRoot)
-                : Array.Empty<string>();
+            var promptFolders = fileAccessor.Files.Keys
+                .Select(key => key.Replace('\\', '/'))
+                .Where(key => key.StartsWith("prompts/", StringComparison.OrdinalIgnoreCase))
+                .Select(key => key.Split('/')[1])
+                .Distinct()
+                .ToList();
 
-            Assert.Contains(promptFolders, folder => Path.GetFileName(folder).Contains(readableModelId.ToString()));
-            Assert.DoesNotContain(promptFolders, folder => Path.GetFileName(folder).Contains(unreadableModelId.ToString()));
+            Assert.Contains(promptFolders, folder => folder.Contains(readableModelId.ToString()));
+            Assert.DoesNotContain(promptFolders, folder => folder.Contains(unreadableModelId.ToString()));
         }
         finally
         {
@@ -129,11 +130,10 @@ public class AIPromptPlaceholderTests
 
         try
         {
-            var staleFolder = Path.Combine(workspaceRoot, "prompts", $"StaleModel-{modelId}");
-            Directory.CreateDirectory(staleFolder);
-            File.WriteAllText(Path.Combine(staleFolder, "metadata.yml"), "name: StaleModel");
-
             var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+
+            var seedAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
+            WriteText(seedAccessor, $"prompts/StaleModel-{modelId}/metadata.yml", "name: StaleModel");
 
             var mockDataverse = CreateDataverseMock(new[]
             {
@@ -155,9 +155,8 @@ public class AIPromptPlaceholderTests
                 new AgentSyncInfo { AgentId = agentId },
                 CancellationToken.None);
 
-            Assert.False(Directory.Exists(staleFolder));
-
             var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
+            Assert.DoesNotContain(fileAccessor.Files.Keys, key => key.Replace('\\', '/').StartsWith($"prompts/StaleModel-{modelId}/", StringComparison.OrdinalIgnoreCase));
             Assert.Contains(modelId.ToString(), ReadText(fileAccessor, ".mcs/botdefinition.json"));
         }
         finally
@@ -260,5 +259,12 @@ public class AIPromptPlaceholderTests
         using var stream = fileAccessor.OpenRead(new AgentFilePath(path));
         using var reader = new StreamReader(stream);
         return reader.ReadToEnd();
+    }
+
+    private static void WriteText(InMemoryFileAccessor fileAccessor, string path, string contents)
+    {
+        using var stream = fileAccessor.OpenWrite(new AgentFilePath(path));
+        var bytes = System.Text.Encoding.UTF8.GetBytes(contents);
+        stream.Write(bytes, 0, bytes.Length);
     }
 }

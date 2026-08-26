@@ -15,6 +15,12 @@ namespace Microsoft.PowerPlatformLS.UnitTests.TestUtilities
 
         public IReadOnlyDictionary<DirectoryPath, InMemoryFileWriter> Writers => _writers;
 
+        public bool IsMemoryBacked => false;
+
+        public void Release(DirectoryPath root)
+        {
+        }
+
         public IFileAccessor Create(DirectoryPath root)
         {
             if (_writers.TryGetValue(root, out var writer))
@@ -122,6 +128,12 @@ namespace Microsoft.PowerPlatformLS.UnitTests.TestUtilities
             _files.Keys
                 .Where(k => relativeFolder == null || k.ToString().StartsWith(relativeFolder, StringComparison.OrdinalIgnoreCase))
                 .Select(k => new AgentFilePath(k.ToString()));
+
+        public bool IsMemoryBacked => false;
+
+        public void Release(DirectoryPath root)
+        {
+        }
 
         public IFileAccessor Create(DirectoryPath root) => this;
 

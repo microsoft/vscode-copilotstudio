@@ -1,16 +1,11 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 
 using Microsoft.Agents.ObjectModel;
-using Microsoft.Agents.ObjectModel.Yaml;
 using Microsoft.Agents.Platform.Content;
 using Microsoft.CopilotStudio.McsCore;
-using Microsoft.CopilotStudio.Sync;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Moq;
-using System.Collections.Immutable;
-using System.Text;
 using Xunit;
-using static Microsoft.CopilotStudio.Sync.Dataverse.SyncDataverseClient;
 
 namespace Microsoft.CopilotStudio.Sync.UnitTests;
 
@@ -156,6 +151,12 @@ internal class TestSyncProgress : ISyncProgress
 internal class InMemoryFileAccessorFactory : IFileAccessorFactory
 {
     private readonly Dictionary<string, InMemoryFileAccessor> _accessors = new();
+
+    public bool IsMemoryBacked => false;
+
+    public void Release(DirectoryPath root)
+    {
+    }
 
     public IFileAccessor Create(DirectoryPath workspaceFolder)
     {

@@ -34,7 +34,7 @@ namespace Microsoft.CopilotStudio.McsCore
         /// and nothing else. It is layout-authoritative, NEVER shape-authoritative:
         /// <see cref="AuthoringShape"/> is always derived from <c>settings.mcs.yml</c>
         /// content, and a marker that claims the CLI layout over non-CLI content fails
-        /// closed (see <see cref="DetectWorkspaceLayout"/>).
+        /// closed (see <see cref="DetectWorkspaceLayout(string)"/>).
         /// </summary>
         public const string WorkspaceLayoutMarkerFileName = "agent.sync.yaml";
 
@@ -245,6 +245,71 @@ namespace Microsoft.CopilotStudio.McsCore
         /// </summary>
         public static AuthoringShape DetectAuthoringShapeFromFolder(string agentFolder)
             => InferAuthoringShape(DetectWorkspaceLayout(agentFolder));
+
+        /// <summary>
+        /// Resolves the intended <see cref="AuthoringShape"/> from a workspace exposed through an <see cref="IFileAccessor"/>.
+        /// </summary>
+        public static AuthoringShape DetectAuthoringShapeFromFolder(IFileAccessor fileAccessor)
+            => InferAuthoringShape(DetectWorkspaceLayout(fileAccessor));
+
+        /// <summary>
+        /// <see cref="DetectWorkspaceLayout(string)"/> resolved over an <see cref="IFileAccessor"/>.
+        /// </summary>
+        public static WorkspaceLayout DetectWorkspaceLayout(IFileAccessor fileAccessor)
+        {
+            var contentLayout = DetectWorkspaceLayoutFromContent(fileAccessor);
+
+            var markerPath = new AgentFilePath(WorkspaceLayoutMarkerFileName);
+            if (fileAccessor.Exists(markerPath))
+            {
+                int? version;
+                try
+                {
+                    version = TryParseLayoutVersion(ReadAllTextOrEmpty(fileAccessor, markerPath));
+                }
+                catch
+                {
+                    version = null;
+                }
+
+                if (version == CurrentLayoutVersion)
+                {
+                    return contentLayout == WorkspaceLayout.CliLayered ? WorkspaceLayout.CliLayered : WorkspaceLayout.Unknown;
+                }
+            }
+
+            return contentLayout;
+        }
+
+        private static WorkspaceLayout DetectWorkspaceLayoutFromContent(IFileAccessor fileAccessor)
+        {
+            var settingsPath = new AgentFilePath(ClassicSettingsFileName);
+            if (!fileAccessor.Exists(settingsPath))
+            {
+                return WorkspaceLayout.Unknown;
+            }
+
+            try
+            {
+                var entity = CodeSerializer.Deserialize<BotEntity>(ReadAllTextOrEmpty(fileAccessor, settingsPath));
+                if (entity != null && DetectAuthoringShape(entity) == AuthoringShape.CliCopilot)
+                {
+                    return WorkspaceLayout.CliLayered;
+                }
+            }
+            catch
+            {
+            }
+
+            return WorkspaceLayout.ClassicMcs;
+        }
+
+        private static string ReadAllTextOrEmpty(IFileAccessor fileAccessor, AgentFilePath path)
+        {
+            using var stream = fileAccessor.OpenRead(path);
+            using var reader = new StreamReader(stream);
+            return reader.ReadToEnd();
+        }
 
         /// <summary>
         /// Combined classification from a local/cloud <see cref="DefinitionBase"/> plus a

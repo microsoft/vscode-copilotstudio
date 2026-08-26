@@ -4,7 +4,17 @@
 
 namespace Microsoft.CopilotStudio.McsCore;
 
-internal interface IFileAccessorFactory
+public interface IFileAccessorFactory
 {
+    /// <summary>
+    /// Gets a value indicating whether workspaces are held in process memory rather than on disk.
+    /// </summary>
+    bool IsMemoryBacked { get; }
+
     IFileAccessor Create(DirectoryPath root);
+
+    /// <summary>
+    /// Releases a workspace and discards any content held for it.
+    /// </summary>
+    void Release(DirectoryPath root);
 }

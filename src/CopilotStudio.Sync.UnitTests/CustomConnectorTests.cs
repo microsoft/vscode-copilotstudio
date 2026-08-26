@@ -7,7 +7,6 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
     using System;
     using System.Collections.Generic;
     using System.IO;
-    using System.Linq;
     using System.Text;
     using System.Text.Json;
     using System.Threading;
@@ -38,6 +37,17 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
             }
         }
 
+        private static WorkspaceSynchronizer CreateSynchronizer()
+        {
+            var fileParser = new SyncMcsFileParser(LspProjectorService.Instance);
+            var fileAccessorFactory = new FileAccessorFactory();
+            var island = new Mock<IIslandControlPlaneService>();
+            var progress = new TestSyncProgress(new List<string>());
+            var pathResolver = new LspComponentPathResolver();
+
+            return new WorkspaceSynchronizer(fileParser, fileAccessorFactory, island.Object, progress, pathResolver);
+        }
+
         [Fact]
         public async Task PushCustomConnectorsAsync_NoConnectorsFolder_ReturnsEmptyResult()
         {
@@ -54,9 +64,12 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
         [Fact]
         public async Task PushCustomConnectorsAsync_FolderExistsButNoMetadata_ReturnsEmptyResult()
         {
-            var (synchronizer, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+            var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
             var workspace = NewWorkspace();
-            Directory.CreateDirectory(Path.Combine(workspace.ToString(), "connectors", "Empty-" + Guid.NewGuid()));
+            await fileAccessorFactory.Create(workspace).WriteAsync(
+                new AgentFilePath($"connectors/Empty-{Guid.NewGuid()}/readme.txt"),
+                "no metadata.yml here",
+                CancellationToken.None);
             var dataverse = new Mock<ISyncDataverseClient>(MockBehavior.Strict);
 
             var result = await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None);
@@ -68,7 +81,7 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
         [Fact]
         public async Task PushCustomConnectorsAsync_RecoversConnectorIdFromFolderName_WhenMetadataMissingId()
         {
-            var (synchronizer, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+            var synchronizer = CreateSynchronizer();
             var workspace = NewWorkspace();
             var connectorId = Guid.NewGuid();
             WriteConnectorMetadata(workspace, "FolderId", connectorIdInMetadata: Guid.Empty, folderConnectorId: connectorId,
@@ -91,7 +104,7 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
         [Fact]
         public async Task PushCustomConnectorsAsync_CreatesAndUpdates_PartitionsCorrectly()
         {
-            var (synchronizer, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+            var synchronizer = CreateSynchronizer();
             var workspace = NewWorkspace();
 
             var newId = Guid.NewGuid();
@@ -144,7 +157,7 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
         [Fact]
         public async Task PushCustomConnectorsAsync_RejectsPathTraversal_DoesNotExfiltrateFileOutsideConnectorFolder()
         {
-            var (synchronizer, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+            var synchronizer = CreateSynchronizer();
             var workspace = NewWorkspace();
             var connectorId = Guid.NewGuid();
             var folderPrefix = "Traversal";
@@ -186,7 +199,7 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
         {
             var path = Path.Combine(_tempRoot, "ws-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(path);
-            return new DirectoryPath(path.Replace('\\', '/'));
+            return new DirectoryPath(path.Replace('\\', '/') + "/");
         }
 
         private static void WriteConnectorMetadata(

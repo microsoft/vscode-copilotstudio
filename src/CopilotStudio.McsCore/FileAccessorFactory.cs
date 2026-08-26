@@ -6,10 +6,18 @@ namespace Microsoft.CopilotStudio.McsCore;
 
 internal class FileAccessorFactory : IFileAccessorFactory
 {
+    public bool IsMemoryBacked => false;
+
     public IFileAccessor Create(DirectoryPath root) => new FileWriter(root);
+
+    public void Release(DirectoryPath root)
+    {
+    }
 
     private class FileWriter : IFileAccessor
     {
+        private const string ReplaceBackupSuffix = ".replace.bak";
+
         private readonly DirectoryPath _root;
 
         public FileWriter(DirectoryPath root)
@@ -27,8 +35,7 @@ internal class FileAccessorFactory : IFileAccessorFactory
             }
 
             Directory.CreateDirectory(dir);
-            var stream = File.Create(fullPath);
-            return stream;
+            return new FileStream(fullPath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 81920, useAsync: true);
         }
 
         public void Delete(AgentFilePath path)
@@ -59,7 +66,7 @@ internal class FileAccessorFactory : IFileAccessorFactory
         {
             try
             {
-                return File.Open(FullPath(path).ToString(), FileMode.Open, FileAccess.Read, FileShare.Read);
+                return new FileStream(FullPath(path).ToString(), FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 81920, useAsync: true);
             }
             catch (DirectoryNotFoundException e)
             {
@@ -86,12 +93,97 @@ internal class FileAccessorFactory : IFileAccessorFactory
                 Directory.CreateDirectory(directoryName);
             }
 
-            if (File.Exists(targetFullPath))
+            if (!File.Exists(targetFullPath))
             {
-                File.Delete(targetFullPath);
+                File.Move(sourceFullPath, targetFullPath);
+                return;
             }
 
-            File.Move(sourceFullPath, targetFullPath);
+            var backupFullPath = targetFullPath + "." + Guid.NewGuid().ToString("N") + ReplaceBackupSuffix;
+            var retainBackup = false;
+            try
+            {
+                try
+                {
+                    File.Replace(sourceFullPath, targetFullPath, backupFullPath, ignoreMetadataErrors: true);
+                }
+                catch (Exception replaceFailure) when (replaceFailure is PlatformNotSupportedException or IOException)
+                {
+                    if (!File.Exists(targetFullPath) && File.Exists(backupFullPath))
+                    {
+                        try
+                        {
+                            File.Move(backupFullPath, targetFullPath);
+                        }
+                        catch (Exception restoreFailure)
+                        {
+                            throw new ReplaceRecoveryException(
+                                "Replacing a file failed and its original content could not be restored. A copy of the original content is retained alongside it with the .replace.bak extension.",
+                                restoreFailure);
+                        }
+
+                        throw;
+                    }
+
+                    ReplaceByCopy(sourceFullPath, targetFullPath, backupFullPath);
+                }
+            }
+            catch (ReplaceRecoveryException)
+            {
+                retainBackup = true;
+                throw;
+            }
+            finally
+            {
+                if (!retainBackup)
+                {
+                    TryFileOperation(() => File.Delete(backupFullPath));
+                }
+            }
+        }
+
+        private static void ReplaceByCopy(string sourceFullPath, string targetFullPath, string backupFullPath)
+        {
+            File.Copy(targetFullPath, backupFullPath, overwrite: true);
+            try
+            {
+                File.Copy(sourceFullPath, targetFullPath, overwrite: true);
+                File.Delete(sourceFullPath);
+            }
+            catch
+            {
+                try
+                {
+                    File.Copy(backupFullPath, targetFullPath, overwrite: true);
+                }
+                catch (Exception restoreFailure)
+                {
+                    throw new ReplaceRecoveryException(
+                        "Replacing a file failed and its original content could not be restored. A copy of the original content is retained alongside it with the .replace.bak extension.",
+                        restoreFailure);
+                }
+
+                throw;
+            }
+        }
+
+        private sealed class ReplaceRecoveryException : IOException
+        {
+            public ReplaceRecoveryException(string message, Exception innerException)
+                : base(message, innerException)
+            {
+            }
+        }
+
+        private static void TryFileOperation(Action fileOperation)
+        {
+            try
+            {
+                fileOperation();
+            }
+            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or FileNotFoundException or DirectoryNotFoundException)
+            {
+            }
         }
 
         public IEnumerable<AgentFilePath> ListFiles(string? relativeFolder = null, string filePattern = "*.*")
