@@ -99,7 +99,7 @@ internal class FileAccessorFactory : IFileAccessorFactory
                 return;
             }
 
-            var backupFullPath = targetFullPath + ReplaceBackupSuffix;
+            var backupFullPath = targetFullPath + "." + Guid.NewGuid().ToString("N") + ReplaceBackupSuffix;
             var retainBackup = false;
             try
             {

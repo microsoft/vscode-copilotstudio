@@ -441,6 +441,73 @@ public class WorkspaceLeaseTests
         });
     }
 
+    [Fact]
+    public void DisposingSession_ReleasesSiblingRootsOpenedDuringTheOperation()
+    {
+        using var factory = new ProductionFileAccessorFactory();
+        ProductionInMemoryFileAccessor sibling;
+
+        using (var session = factory.LeaseWorkspace(new DirectoryPath("c:/test/session-sibling/Agent/")))
+        {
+            sibling = (ProductionInMemoryFileAccessor)factory.Create(new DirectoryPath("c:/test/session-sibling/Collection/"));
+            Write(sibling, "settings.mcs.yml", "content");
+            Assert.Equal(1, sibling.Count);
+        }
+
+        Assert.Equal(0, sibling.Count);
+    }
+
+    [Fact]
+    public async Task LeasingARootNestedInsideAnotherOperationsRoot_IsRejected()
+    {
+        using var factory = new ProductionFileAccessorFactory();
+
+        using var parent = factory.LeaseWorkspace(new DirectoryPath("c:/test/overlap-parent/"));
+
+        Task<InvalidOperationException> other;
+        using (ExecutionContext.SuppressFlow())
+        {
+            other = Task.Run(() => Assert.Throws<InvalidOperationException>(
+                () => factory.LeaseWorkspace(new DirectoryPath("c:/test/overlap-parent/Child/"))));
+        }
+
+        var failure = await other;
+
+        Assert.Contains("overlaps a workspace already in use", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LeasingARootThatContainsAnotherOperationsRoot_IsRejected()
+    {
+        using var factory = new ProductionFileAccessorFactory();
+
+        using var child = factory.LeaseWorkspace(new DirectoryPath("c:/test/overlap-child/Agent/"));
+
+        Task<InvalidOperationException> other;
+        using (ExecutionContext.SuppressFlow())
+        {
+            other = Task.Run(() => Assert.Throws<InvalidOperationException>(
+                () => factory.LeaseWorkspace(new DirectoryPath("c:/test/overlap-child/"))));
+        }
+
+        var failure = await other;
+
+        Assert.Contains("overlaps a workspace already in use", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NestedLeasesFromTheSameOperation_MayOverlap()
+    {
+        using var factory = new ProductionFileAccessorFactory();
+
+        using var parent = factory.LeaseWorkspace(new DirectoryPath("c:/test/overlap-same-operation/"));
+        using var child = factory.LeaseWorkspace(new DirectoryPath("c:/test/overlap-same-operation/Child/"));
+
+        Write(child.Accessor, "settings.mcs.yml", "content");
+
+        Assert.True(child.Accessor.Exists(new AgentFilePath("settings.mcs.yml")));
+    }
+
     private static void Write(IFileAccessor accessor, string path, string content)
     {
         using var stream = accessor.OpenWrite(new AgentFilePath(path));

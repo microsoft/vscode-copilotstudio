@@ -36,7 +36,9 @@ public sealed class InMemoryFileAccessorFactory : IFileAccessorFactory, IDisposa
                 $"An in-memory workspace was opened outside a workspace session. Wrap the operation in {nameof(FileAccessorFactoryExtensions.LeaseTemporaryWorkspace)} or {nameof(FileAccessorFactoryExtensions.LeaseWorkspace)} and dispose the lease when the operation ends, so the workspace is not retained for the life of the process.");
         }
 
-        return this.accessors.GetOrAdd(root.ToString(), _ => new InMemoryFileAccessor());
+        var accessor = this.accessors.GetOrAdd(root.ToString(), _ => new InMemoryFileAccessor());
+        WorkspaceHoldRegistry.TrackOpenedRoot(this, root, accessor);
+        return accessor;
     }
 
     /// <inheritdoc/>

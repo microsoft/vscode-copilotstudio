@@ -88,7 +88,7 @@ internal static class WorkspaceHoldRegistry
         var operation = WorkspaceHoldRegistry.EnterOperation();
         try
         {
-            return Tables.GetOrCreateValue(factory).Acquire(factory, root, operation, temporaryDirectory);
+            return Tables.GetOrCreateValue(factory).AcquireLease(factory, root, operation, temporaryDirectory);
         }
         catch
         {
@@ -99,14 +99,19 @@ internal static class WorkspaceHoldRegistry
 
     internal static void Release(IFileAccessorFactory factory, DirectoryPath root)
     {
-        try
+        Tables.GetOrCreateValue(factory).ReleaseLease(root);
+        WorkspaceHoldRegistry.LeaveOperation();
+    }
+
+    internal static void TrackOpenedRoot(IFileAccessorFactory factory, DirectoryPath root, IFileAccessor accessor)
+    {
+        var operation = WorkspaceHoldRegistry.CurrentOperation.Value;
+        if (operation == null || operation.Depth <= 0)
         {
-            Tables.GetOrCreateValue(factory).Release(factory, root);
+            return;
         }
-        finally
-        {
-            WorkspaceHoldRegistry.LeaveOperation();
-        }
+
+        Tables.GetOrCreateValue(factory).TrackRoot(factory, root, operation, accessor);
     }
 
     internal static bool IsHeld(IFileAccessorFactory factory, string root) =>
@@ -117,13 +122,13 @@ internal static class WorkspaceHoldRegistry
     private static OperationScope EnterOperation()
     {
         var operation = WorkspaceHoldRegistry.CurrentOperation.Value;
-        if (operation == null || operation.Depth == 0)
+        if (operation == null || operation.Depth <= 0)
         {
             operation = new OperationScope();
             WorkspaceHoldRegistry.CurrentOperation.Value = operation;
         }
 
-        operation.Depth++;
+        operation.Enter();
         return operation;
     }
 
@@ -135,76 +140,171 @@ internal static class WorkspaceHoldRegistry
             return;
         }
 
-        if (--operation.Depth <= 0)
+        if (operation.Leave() > 0)
         {
-            WorkspaceHoldRegistry.CurrentOperation.Value = null;
+            return;
+        }
+
+        WorkspaceHoldRegistry.CurrentOperation.Value = null;
+        foreach (var (factory, table) in operation.TakeParticipants())
+        {
+            table.ReleaseOperation(factory, operation);
         }
     }
 
-    private sealed class OperationScope
+    internal sealed class OperationScope
     {
-        public int Depth { get; set; }
+        private readonly List<(IFileAccessorFactory Factory, WorkspaceHoldTable Table)> participants =
+            new List<(IFileAccessorFactory, WorkspaceHoldTable)>();
+
+        private int depth;
+
+        public int Depth => Volatile.Read(ref this.depth);
+
+        public void Enter() => Interlocked.Increment(ref this.depth);
+
+        public int Leave() => Interlocked.Decrement(ref this.depth);
+
+        public void TrackParticipant(IFileAccessorFactory factory, WorkspaceHoldTable table)
+        {
+            lock (this.participants)
+            {
+                foreach (var participant in this.participants)
+                {
+                    if (ReferenceEquals(participant.Table, table))
+                    {
+                        return;
+                    }
+                }
+
+                this.participants.Add((factory, table));
+            }
+        }
+
+        public List<(IFileAccessorFactory Factory, WorkspaceHoldTable Table)> TakeParticipants()
+        {
+            lock (this.participants)
+            {
+                var copy = new List<(IFileAccessorFactory, WorkspaceHoldTable)>(this.participants);
+                this.participants.Clear();
+                return copy;
+            }
+        }
     }
 
-    private sealed class WorkspaceHoldTable
+    internal sealed class WorkspaceHoldTable
     {
-        private readonly Dictionary<string, Hold> holds = new Dictionary<string, Hold>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, RootRecord> roots = new Dictionary<string, RootRecord>(StringComparer.OrdinalIgnoreCase);
 
-        public IFileAccessor Acquire(IFileAccessorFactory factory, DirectoryPath root, object operation, string? temporaryDirectory)
+        public IFileAccessor AcquireLease(IFileAccessorFactory factory, DirectoryPath root, OperationScope operation, string? temporaryDirectory)
         {
-            lock (this.holds)
+            lock (this.roots)
             {
                 var key = root.ToString();
-                if (this.holds.TryGetValue(key, out var existing))
+                if (this.roots.TryGetValue(key, out var existing))
                 {
-                    if (!ReferenceEquals(existing.Operation, operation))
-                    {
-                        throw new InvalidOperationException(
-                            "This workspace is already in use by another operation. Give each concurrent operation its own workspace root so their file changes cannot interleave.");
-                    }
-
-                    existing.Count++;
+                    WorkspaceHoldTable.AssertSameOperation(existing.Operation, operation);
+                    existing.LeaseCount++;
                     existing.TemporaryDirectory ??= temporaryDirectory;
                     return existing.Accessor;
                 }
 
+                this.AssertNoOverlappingOperation(key, operation);
+
                 var accessor = factory.Create(root);
-                this.holds[key] = new Hold(accessor, operation, temporaryDirectory);
+                var record = new RootRecord(accessor, operation, temporaryDirectory);
+                record.LeaseCount = 1;
+                this.roots[key] = record;
+                operation.TrackParticipant(factory, this);
                 return accessor;
             }
         }
 
-        public void Release(IFileAccessorFactory factory, DirectoryPath root)
+        public void TrackRoot(IFileAccessorFactory factory, DirectoryPath root, OperationScope operation, IFileAccessor accessor)
         {
-            string? temporaryDirectory;
-            lock (this.holds)
+            lock (this.roots)
             {
                 var key = root.ToString();
-                if (!this.holds.TryGetValue(key, out var hold))
+                if (this.roots.TryGetValue(key, out var existing))
                 {
+                    WorkspaceHoldTable.AssertSameOperation(existing.Operation, operation);
                     return;
                 }
 
-                hold.Count--;
-                if (hold.Count > 0)
+                this.AssertNoOverlappingOperation(key, operation);
+                this.roots[key] = new RootRecord(accessor, operation, temporaryDirectory: null);
+                operation.TrackParticipant(factory, this);
+            }
+        }
+
+        public void ReleaseLease(DirectoryPath root)
+        {
+            lock (this.roots)
+            {
+                if (this.roots.TryGetValue(root.ToString(), out var record) && record.LeaseCount > 0)
                 {
-                    return;
+                    record.LeaseCount--;
+                }
+            }
+        }
+
+        public void ReleaseOperation(IFileAccessorFactory factory, OperationScope operation)
+        {
+            var temporaryDirectories = new List<string>();
+            lock (this.roots)
+            {
+                var owned = new List<string>();
+                foreach (var pair in this.roots)
+                {
+                    if (ReferenceEquals(pair.Value.Operation, operation))
+                    {
+                        owned.Add(pair.Key);
+                    }
                 }
 
-                this.holds.Remove(key);
-                temporaryDirectory = hold.TemporaryDirectory;
-                factory.Release(root);
+                foreach (var key in owned)
+                {
+                    var record = this.roots[key];
+                    this.roots.Remove(key);
+                    if (record.TemporaryDirectory != null)
+                    {
+                        temporaryDirectories.Add(record.TemporaryDirectory);
+                    }
+
+                    factory.Release(new DirectoryPath(key));
+                }
             }
 
-            WorkspaceHoldTable.DeleteTemporaryDirectory(temporaryDirectory);
+            foreach (var temporaryDirectory in temporaryDirectories)
+            {
+                WorkspaceHoldTable.DeleteTemporaryDirectory(temporaryDirectory);
+            }
         }
 
         public bool IsHeld(string root)
         {
-            lock (this.holds)
+            lock (this.roots)
             {
-                return this.holds.ContainsKey(root);
+                return this.roots.ContainsKey(root);
             }
+        }
+
+        private static void AssertSameOperation(OperationScope owner, OperationScope operation)
+        {
+            if (!ReferenceEquals(owner, operation))
+            {
+                throw new InvalidOperationException("This workspace is already in use by another operation. Give each concurrent operation its own workspace root so their file changes cannot interleave.");
+            }
+        }
+
+        private static bool Overlaps(string first, string second)
+        {
+            if (string.Equals(first, second, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return first.StartsWith(second.TrimEnd('/') + "/", StringComparison.OrdinalIgnoreCase) || second.StartsWith(first.TrimEnd('/') + "/", StringComparison.OrdinalIgnoreCase);
         }
 
         private static void DeleteTemporaryDirectory(string? temporaryDirectory)
@@ -226,21 +326,31 @@ internal static class WorkspaceHoldRegistry
             }
         }
 
-        private sealed class Hold
+        private void AssertNoOverlappingOperation(string key, OperationScope operation)
         {
-            public Hold(IFileAccessor accessor, object operation, string? temporaryDirectory)
+            foreach (var pair in this.roots)
+            {
+                if (!ReferenceEquals(pair.Value.Operation, operation) && WorkspaceHoldTable.Overlaps(key, pair.Key))
+                {
+                    throw new InvalidOperationException("This workspace overlaps a workspace already in use by another operation. Give each concurrent operation its own workspace root so their file changes cannot interleave.");
+                }
+            }
+        }
+
+        private sealed class RootRecord
+        {
+            public RootRecord(IFileAccessor accessor, OperationScope operation, string? temporaryDirectory)
             {
                 this.Accessor = accessor;
                 this.Operation = operation;
                 this.TemporaryDirectory = temporaryDirectory;
-                this.Count = 1;
             }
 
             public IFileAccessor Accessor { get; }
 
-            public object Operation { get; }
+            public OperationScope Operation { get; }
 
-            public int Count { get; set; }
+            public int LeaseCount { get; set; }
 
             public string? TemporaryDirectory { get; set; }
         }

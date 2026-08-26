@@ -149,6 +149,34 @@ public class PhysicalFileAccessorReplaceTests : IDisposable
         Assert.Empty(Directory.GetFiles(_rootPath, "*.replace.bak", SearchOption.AllDirectories));
     }
 
+    [Fact]
+    public void Replace_RetainedRecoveryCopies_AreNotOverwrittenByALaterAttempt()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var source = new AgentFilePath("staged.tmp");
+        var target = new AgentFilePath("Doc.txt");
+        Write(target, "first-original");
+
+        var targetFullPath = Path.Combine(_rootPath, "Doc.txt");
+        using (new FileStream(targetFullPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            Write(source, "attempt-one");
+            Assert.ThrowsAny<Exception>(() => _accessor.Replace(source, target));
+
+            Write(source, "attempt-two");
+            Assert.ThrowsAny<Exception>(() => _accessor.Replace(source, target));
+        }
+
+        var backups = Directory.GetFiles(_rootPath, "*.replace.bak", SearchOption.AllDirectories);
+
+        Assert.Equal(2, backups.Length);
+        Assert.All(backups, path => Assert.Equal("first-original", File.ReadAllText(path)));
+    }
+
     private void Write(AgentFilePath path, string content)
     {
         using var stream = _accessor.OpenWrite(path);
