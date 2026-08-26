@@ -137,6 +137,194 @@ public class WorkspaceLeaseTests
         Assert.Throws<ArgumentNullException>(() => factory!.LeaseWorkspace(new DirectoryPath("c:/test/null/")));
     }
 
+    [Fact]
+    public void SecondLeaseOnSameRoot_SurvivesTheFirstLeaseBeingDisposed()
+    {
+        using var factory = new ProductionFileAccessorFactory();
+        var root = new DirectoryPath("c:/test/lease-refcount-survives/");
+
+        using var outer = factory.LeaseWorkspace(root);
+        Write(outer.Accessor, "settings.mcs.yml", "content");
+
+        using (var inner = factory.LeaseWorkspace(root))
+        {
+            Assert.True(inner.Accessor.Exists(new AgentFilePath("settings.mcs.yml")));
+        }
+
+        Assert.True(outer.Accessor.Exists(new AgentFilePath("settings.mcs.yml")));
+    }
+
+    [Fact]
+    public void WorkspaceIsReleasedOnlyWhenTheLastLeaseIsDisposed()
+    {
+        using var factory = new ProductionFileAccessorFactory();
+        var root = new DirectoryPath("c:/test/lease-refcount-last/");
+        ProductionInMemoryFileAccessor accessor;
+
+        var outer = factory.LeaseWorkspace(root);
+        accessor = (ProductionInMemoryFileAccessor)outer.Accessor;
+        Write(outer.Accessor, "settings.mcs.yml", "content");
+
+        var inner = factory.LeaseWorkspace(root);
+        inner.Dispose();
+        Assert.Equal(1, accessor.Count);
+
+        outer.Dispose();
+        Assert.Equal(0, accessor.Count);
+    }
+
+    [Fact]
+    public void DisposingTheSameLeaseTwice_DoesNotReleaseAnotherHoldOnThatRoot()
+    {
+        using var factory = new ProductionFileAccessorFactory();
+        var root = new DirectoryPath("c:/test/lease-refcount-double/");
+
+        using var outer = factory.LeaseWorkspace(root);
+        Write(outer.Accessor, "settings.mcs.yml", "content");
+
+        var inner = factory.LeaseWorkspace(root);
+        inner.Dispose();
+        inner.Dispose();
+
+        Assert.True(outer.Accessor.Exists(new AgentFilePath("settings.mcs.yml")));
+    }
+
+    [Fact]
+    public void DisposingLease_ReleasesWorkspacesNestedUnderItsRoot()
+    {
+        using var factory = new ProductionFileAccessorFactory();
+        var root = new DirectoryPath("c:/test/lease-nested/");
+        ProductionInMemoryFileAccessor child;
+
+        using (var lease = factory.LeaseWorkspace(root))
+        {
+            child = (ProductionInMemoryFileAccessor)factory.Create(new DirectoryPath("c:/test/lease-nested/Agent One/"));
+            Write(child, "settings.mcs.yml", "content");
+            Assert.Equal(1, child.Count);
+        }
+
+        Assert.Equal(0, child.Count);
+    }
+
+    [Fact]
+    public void DisposingParentLease_DoesNotClearAnActivelyLeasedChildWorkspace()
+    {
+        using var factory = new ProductionFileAccessorFactory();
+        var parent = new DirectoryPath("c:/test/lease-child-survives/");
+        var child = new DirectoryPath("c:/test/lease-child-survives/Agent One/");
+
+        using var childLease = factory.LeaseWorkspace(child);
+        Write(childLease.Accessor, "settings.mcs.yml", "content");
+
+        using (var parentLease = factory.LeaseWorkspace(parent))
+        {
+            Write(parentLease.Accessor, "root.mcs.yml", "root");
+        }
+
+        Assert.True(childLease.Accessor.Exists(new AgentFilePath("settings.mcs.yml")));
+    }
+
+    [Fact]
+    public void DisposingParentLease_StillClearsUnleasedNestedWorkspaces()
+    {
+        using var factory = new ProductionFileAccessorFactory();
+        var parent = new DirectoryPath("c:/test/lease-child-unleased/");
+        ProductionInMemoryFileAccessor child;
+
+        using (var parentLease = factory.LeaseWorkspace(parent))
+        {
+            child = (ProductionInMemoryFileAccessor)factory.Create(new DirectoryPath("c:/test/lease-child-unleased/Agent One/"));
+            Write(child, "settings.mcs.yml", "content");
+        }
+
+        Assert.Equal(0, child.Count);
+    }
+
+    [Fact]
+    public void SecondLeaseOnSameRoot_ReturnsTheSameAccessorInstance()
+    {
+        using var factory = new ProductionFileAccessorFactory();
+        var root = new DirectoryPath("c:/test/lease-same-instance/");
+
+        using var first = factory.LeaseWorkspace(root);
+        using var second = factory.LeaseWorkspace(root);
+
+        Assert.Same(first.Accessor, second.Accessor);
+    }
+
+    [Fact]
+    public void TemporaryWorkspaceDirectory_IsRemovedByWhicheverLeaseIsDisposedLast()
+    {
+        var factory = new FileAccessorFactory();
+
+        var temporary = factory.LeaseTemporaryWorkspace("mcs-test-");
+        var rootPath = temporary.Root.ToString();
+        var second = factory.LeaseWorkspace(temporary.Root);
+
+        temporary.Dispose();
+        Assert.True(Directory.Exists(rootPath));
+
+        second.Dispose();
+        Assert.False(Directory.Exists(rootPath));
+    }
+
+    [Fact]
+    public void ConcurrentDisposeOfOneLease_DoesNotReleaseAnotherHold()
+    {
+        using var factory = new ProductionFileAccessorFactory();
+        var root = new DirectoryPath("c:/test/lease-concurrent-dispose/");
+
+        using var keeper = factory.LeaseWorkspace(root);
+        Write(keeper.Accessor, "settings.mcs.yml", "content");
+
+        var inner = factory.LeaseWorkspace(root);
+        Parallel.For(0, 16, _ => inner.Dispose());
+
+        Assert.True(keeper.Accessor.Exists(new AgentFilePath("settings.mcs.yml")));
+    }
+
+    [Fact]
+    public void WhenFactoryCreateThrows_TheFailedLeaseDoesNotRetainAHold()
+    {
+        var factory = new ThrowOnFirstCreateFactory();
+        var root = new DirectoryPath("c:/test/lease-create-throws/");
+
+        Assert.Throws<IOException>(() => factory.LeaseWorkspace(root));
+
+        using (var lease = factory.LeaseWorkspace(root))
+        {
+            Write(lease.Accessor, "settings.mcs.yml", "content");
+        }
+
+        Assert.Equal(1, factory.ReleaseCount);
+    }
+
+    private sealed class ThrowOnFirstCreateFactory : IFileAccessorFactory
+    {
+        private readonly ProductionFileAccessorFactory inner = new ProductionFileAccessorFactory();
+        private int creates;
+
+        public bool IsMemoryBacked => true;
+
+        public int ReleaseCount { get; private set; }
+
+        public IFileAccessor Create(DirectoryPath root)
+        {
+            if (++this.creates == 1)
+            {
+                throw new IOException("create failed");
+            }
+
+            return this.inner.Create(root);
+        }
+
+        public void Release(DirectoryPath root)
+        {
+            this.ReleaseCount++;
+            this.inner.Release(root);
+        }
+    }
+
     private static void Write(IFileAccessor accessor, string path, string content)
     {
         using var stream = accessor.OpenWrite(new AgentFilePath(path));

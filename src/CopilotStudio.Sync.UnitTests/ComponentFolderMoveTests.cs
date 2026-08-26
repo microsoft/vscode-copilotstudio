@@ -128,6 +128,82 @@ public class ComponentFolderMoveTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => synchronizer.DownloadKnowledgeFilesAsync(workspace, nonStreamingClient.Object, schemaNames: null, CancellationToken.None));
     }
 
+    [Fact]
+    public void Move_WhenPreservingTargetFails_RestoresEveryPreservedTargetFile()
+    {
+        using var inner = new ProductionFileAccessorFactory();
+        var root = new DirectoryPath("c:/test/move-preserve-fails/");
+        var accessor = new FailOnSecondPreservationAccessor(inner.Create(root));
+        Write(accessor, "workflows/Old/definition.json", "source");
+        Write(accessor, "workflows/New/first.json", "first-target");
+        Write(accessor, "workflows/New/second.json", "second-target");
+
+        Assert.ThrowsAny<Exception>(() => WorkspaceSynchronizer.MoveComponentFolder(accessor, "workflows/Old", "workflows/New"));
+
+        Assert.Equal("first-target", Read(accessor, "workflows/New/first.json"));
+        Assert.Equal("second-target", Read(accessor, "workflows/New/second.json"));
+    }
+
+    [Fact]
+    public void Move_WhenPreservingTargetFails_LeavesNothingInThePreservationFolder()
+    {
+        using var inner = new ProductionFileAccessorFactory();
+        var root = new DirectoryPath("c:/test/move-preserve-fails-litter/");
+        var accessor = new FailOnSecondPreservationAccessor(inner.Create(root));
+        Write(accessor, "workflows/Old/definition.json", "source");
+        Write(accessor, "workflows/New/first.json", "first-target");
+        Write(accessor, "workflows/New/second.json", "second-target");
+
+        Assert.ThrowsAny<Exception>(() => WorkspaceSynchronizer.MoveComponentFolder(accessor, "workflows/Old", "workflows/New"));
+
+        Assert.DoesNotContain(accessor.ListFiles().Select(file => file.ToString()), path => path.Contains(".move.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Move_WhenPreservingTargetFails_KeepsTheSourceIntact()
+    {
+        using var inner = new ProductionFileAccessorFactory();
+        var root = new DirectoryPath("c:/test/move-preserve-fails-source/");
+        var accessor = new FailOnSecondPreservationAccessor(inner.Create(root));
+        Write(accessor, "workflows/Old/definition.json", "source");
+        Write(accessor, "workflows/New/first.json", "first-target");
+        Write(accessor, "workflows/New/second.json", "second-target");
+
+        Assert.ThrowsAny<Exception>(() => WorkspaceSynchronizer.MoveComponentFolder(accessor, "workflows/Old", "workflows/New"));
+
+        Assert.Equal("source", Read(accessor, "workflows/Old/definition.json"));
+    }
+
+    [Fact]
+    public void Move_WhenPreservingTargetFails_LeavesNoPreservationDirectoryOnDisk()
+    {
+        var rootPath = Path.Combine(Path.GetTempPath(), "mcs-move-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+        Directory.CreateDirectory(rootPath);
+        try
+        {
+            var accessor = new FailOnSecondPreservationAccessor(new FileAccessorFactory().Create(new DirectoryPath(rootPath.Replace('\\', '/') + "/")));
+            Write(accessor, "workflows/Old/definition.json", "source");
+            Write(accessor, "workflows/New/first.json", "first-target");
+            Write(accessor, "workflows/New/second.json", "second-target");
+
+            Assert.ThrowsAny<Exception>(() => WorkspaceSynchronizer.MoveComponentFolder(accessor, "workflows/Old", "workflows/New"));
+
+            Assert.Empty(Directory.GetDirectories(Path.Combine(rootPath, "workflows"), "*.move.*", SearchOption.AllDirectories));
+            Assert.Equal("first-target", Read(accessor, "workflows/New/first.json"));
+            Assert.Equal("second-target", Read(accessor, "workflows/New/second.json"));
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(rootPath, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
     private static void Write(IFileAccessor accessor, string path, string content)
     {
         using var stream = accessor.OpenWrite(new AgentFilePath(path));
@@ -165,6 +241,39 @@ public class ComponentFolderMoveTests
         public void Replace(AgentFilePath sourcePath, AgentFilePath targetPath)
         {
             if (sourcePath.ToString().StartsWith("workflows/Old/", StringComparison.Ordinal))
+            {
+                throw new IOException("The process cannot access the file because it is being used by another process.");
+            }
+
+            _inner.Replace(sourcePath, targetPath);
+        }
+    }
+
+    private sealed class FailOnSecondPreservationAccessor : IFileAccessor
+    {
+        private readonly IFileAccessor _inner;
+        private int _preservationCount;
+
+        public FailOnSecondPreservationAccessor(IFileAccessor inner) => _inner = inner;
+
+        public bool Exists(AgentFilePath path) => _inner.Exists(path);
+
+        public void CreateHiddenDirectory(AgentFilePath path) => _inner.CreateHiddenDirectory(path);
+
+        public Stream OpenWrite(AgentFilePath path) => _inner.OpenWrite(path);
+
+        public Stream OpenRead(AgentFilePath path) => _inner.OpenRead(path);
+
+        public void Delete(AgentFilePath path) => _inner.Delete(path);
+
+        public void DeleteDirectory(AgentFilePath path) => _inner.DeleteDirectory(path);
+
+        public IEnumerable<AgentFilePath> ListFiles(string? relativeFolder = null, string filePattern = "*.*") => _inner.ListFiles(relativeFolder, filePattern);
+
+        public void Replace(AgentFilePath sourcePath, AgentFilePath targetPath)
+        {
+            if (targetPath.ToString().Contains(".move.", StringComparison.Ordinal)
+                && ++_preservationCount == 2)
             {
                 throw new IOException("The process cannot access the file because it is being used by another process.");
             }

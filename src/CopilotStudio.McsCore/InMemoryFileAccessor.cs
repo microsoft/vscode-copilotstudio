@@ -21,7 +21,23 @@ public sealed class InMemoryFileAccessorFactory : IFileAccessorFactory, IDisposa
     /// <inheritdoc/>
     public void Release(DirectoryPath root)
     {
-        if (this.accessors.TryRemove(root.ToString(), out var accessor))
+        var key = root.ToString();
+        this.ReleaseExact(key);
+
+        var nestedPrefix = key.TrimEnd('/') + "/";
+        foreach (var candidate in this.accessors.Keys.ToList())
+        {
+            if (candidate.StartsWith(nestedPrefix, StringComparison.OrdinalIgnoreCase)
+                && !WorkspaceHoldRegistry.IsHeld(this, candidate))
+            {
+                this.ReleaseExact(candidate);
+            }
+        }
+    }
+
+    private void ReleaseExact(string key)
+    {
+        if (this.accessors.TryRemove(key, out var accessor))
         {
             accessor.Clear();
         }

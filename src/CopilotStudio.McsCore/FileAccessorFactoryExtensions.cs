@@ -3,7 +3,10 @@
 namespace Microsoft.CopilotStudio.McsCore;
 
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Runtime.CompilerServices;
+using System.Threading;
 
 public static class FileAccessorFactoryExtensions
 {
@@ -48,15 +51,13 @@ public static class FileAccessorFactoryExtensions
     private sealed class WorkspaceLease : IWorkspaceLease
     {
         private readonly IFileAccessorFactory factory;
-        private readonly string? temporaryDirectory;
-        private bool released;
+        private int released;
 
         public WorkspaceLease(IFileAccessorFactory factory, DirectoryPath root, string? temporaryDirectory)
         {
             this.factory = factory;
-            this.temporaryDirectory = temporaryDirectory;
             this.Root = root;
-            this.Accessor = factory.Create(root);
+            this.Accessor = WorkspaceHoldRegistry.Acquire(factory, root, temporaryDirectory);
         }
 
         public DirectoryPath Root { get; }
@@ -65,29 +66,118 @@ public static class FileAccessorFactoryExtensions
 
         public void Dispose()
         {
-            if (this.released)
+            if (Interlocked.Exchange(ref this.released, 1) != 0)
             {
                 return;
             }
 
-            this.released = true;
-            this.factory.Release(this.Root);
+            WorkspaceHoldRegistry.Release(this.factory, this.Root);
+        }
+    }
+}
 
-            if (this.temporaryDirectory == null)
+internal static class WorkspaceHoldRegistry
+{
+    private static readonly ConditionalWeakTable<IFileAccessorFactory, WorkspaceHoldTable> Tables =
+        new ConditionalWeakTable<IFileAccessorFactory, WorkspaceHoldTable>();
+
+    internal static IFileAccessor Acquire(IFileAccessorFactory factory, DirectoryPath root, string? temporaryDirectory) =>
+        Tables.GetOrCreateValue(factory).Acquire(factory, root, temporaryDirectory);
+
+    internal static void Release(IFileAccessorFactory factory, DirectoryPath root) =>
+        Tables.GetOrCreateValue(factory).Release(factory, root);
+
+    internal static bool IsHeld(IFileAccessorFactory factory, string root) =>
+        Tables.GetOrCreateValue(factory).IsHeld(root);
+
+    private sealed class WorkspaceHoldTable
+    {
+        private readonly Dictionary<string, Hold> holds = new Dictionary<string, Hold>(StringComparer.OrdinalIgnoreCase);
+
+        public IFileAccessor Acquire(IFileAccessorFactory factory, DirectoryPath root, string? temporaryDirectory)
+        {
+            lock (this.holds)
+            {
+                var key = root.ToString();
+                if (this.holds.TryGetValue(key, out var existing))
+                {
+                    existing.Count++;
+                    existing.TemporaryDirectory ??= temporaryDirectory;
+                    return existing.Accessor;
+                }
+
+                var accessor = factory.Create(root);
+                this.holds[key] = new Hold(accessor, temporaryDirectory);
+                return accessor;
+            }
+        }
+
+        public void Release(IFileAccessorFactory factory, DirectoryPath root)
+        {
+            string? temporaryDirectory;
+            lock (this.holds)
+            {
+                var key = root.ToString();
+                if (!this.holds.TryGetValue(key, out var hold))
+                {
+                    return;
+                }
+
+                hold.Count--;
+                if (hold.Count > 0)
+                {
+                    return;
+                }
+
+                this.holds.Remove(key);
+                temporaryDirectory = hold.TemporaryDirectory;
+                factory.Release(root);
+            }
+
+            WorkspaceHoldTable.DeleteTemporaryDirectory(temporaryDirectory);
+        }
+
+        public bool IsHeld(string root)
+        {
+            lock (this.holds)
+            {
+                return this.holds.ContainsKey(root);
+            }
+        }
+
+        private static void DeleteTemporaryDirectory(string? temporaryDirectory)
+        {
+            if (temporaryDirectory == null)
             {
                 return;
             }
 
             try
             {
-                if (Directory.Exists(this.temporaryDirectory))
+                if (Directory.Exists(temporaryDirectory))
                 {
-                    Directory.Delete(this.temporaryDirectory, recursive: true);
+                    Directory.Delete(temporaryDirectory, recursive: true);
                 }
             }
             catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
             {
             }
+        }
+
+        private sealed class Hold
+        {
+            public Hold(IFileAccessor accessor, string? temporaryDirectory)
+            {
+                this.Accessor = accessor;
+                this.TemporaryDirectory = temporaryDirectory;
+                this.Count = 1;
+            }
+
+            public IFileAccessor Accessor { get; }
+
+            public int Count { get; set; }
+
+            public string? TemporaryDirectory { get; set; }
         }
     }
 }

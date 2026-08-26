@@ -380,24 +380,38 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             var fileComponents = newSnapshot.Components.OfType<FileAttachmentComponent>().Where(c => !string.IsNullOrEmpty(c.DisplayName)).ToList();
             var knowledgeFolderOverrides = BuildComponentFolderOverrides(fileAccessor, newSnapshot);
-            // #if kept: net10 uses Parallel.ForEachAsync with MaxDegreeOfParallelism=5
-            // for concurrent knowledge-file downloads. netstandard2.0 has no equivalent
-            // and the LCD foreach loses ~5x throughput when the agent has many knowledge
-            // files. The cost is real, so we preserve the per-TFM behavior.
+            // #if kept: net10 uses Parallel.ForEachAsync with a memory-aware degree of
+            // parallelism for concurrent knowledge-file downloads. netstandard2.0 has no
+            // equivalent and the LCD foreach loses ~5x throughput when the agent has many
+            // knowledge files. The cost is real, so we preserve the per-TFM behavior.
 #if NETSTANDARD2_0
             foreach (var localComponent in fileComponents)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                await DownloadSingleKnowledgeFileAsync(fileAccessor, dataverseClient, localComponent, newSnapshot, knowledgeFolderOverrides, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await DownloadSingleKnowledgeFileAsync(fileAccessor, dataverseClient, localComponent, newSnapshot, knowledgeFolderOverrides, cancellationToken).ConfigureAwait(false);
+                }
+                catch (KnowledgeFileTooLargeException tooLarge)
+                {
+                    _syncProgress.Report(tooLarge.Message);
+                }
             }
 #else
             await Parallel.ForEachAsync(fileComponents, new ParallelOptions
             {
-                MaxDegreeOfParallelism = MaxParallelSyncOperations,
+                MaxDegreeOfParallelism = this.MaxParallelKnowledgeDownloads,
                 CancellationToken = cancellationToken
             }, async (localComponent, cancellationToken) =>
             {
-                await DownloadSingleKnowledgeFileAsync(fileAccessor, dataverseClient, localComponent, newSnapshot, knowledgeFolderOverrides, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await DownloadSingleKnowledgeFileAsync(fileAccessor, dataverseClient, localComponent, newSnapshot, knowledgeFolderOverrides, cancellationToken).ConfigureAwait(false);
+                }
+                catch (KnowledgeFileTooLargeException tooLarge)
+                {
+                    _syncProgress.Report(tooLarge.Message);
+                }
             }).ConfigureAwait(false);
 #endif
 
@@ -6354,17 +6368,17 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var sourceFiles = fileAccessor.ListFiles(sourceFolder).Where(file => file.ToString().StartsWith(sourcePrefix, StringComparison.OrdinalIgnoreCase)).ToList();
         var preservedPrefix = targetFolder + ".move." + Guid.NewGuid().ToString("N") + "/";
         var preserved = new List<(AgentFilePath Original, AgentFilePath Preserved)>();
-
-        foreach (var file in fileAccessor.ListFiles(targetFolder).Where(file => file.ToString().StartsWith(targetPrefix, StringComparison.OrdinalIgnoreCase)).ToList())
-        {
-            var preservedPath = new AgentFilePath(preservedPrefix + file.ToString().Substring(targetPrefix.Length));
-            fileAccessor.Replace(file, preservedPath);
-            preserved.Add((file, preservedPath));
-        }
-
         var moved = new List<(AgentFilePath Source, AgentFilePath Target)>(sourceFiles.Count);
+
         try
         {
+            foreach (var file in fileAccessor.ListFiles(targetFolder).Where(file => file.ToString().StartsWith(targetPrefix, StringComparison.OrdinalIgnoreCase)).ToList())
+            {
+                var preservedPath = new AgentFilePath(preservedPrefix + file.ToString().Substring(targetPrefix.Length));
+                fileAccessor.Replace(file, preservedPath);
+                preserved.Add((file, preservedPath));
+            }
+
             foreach (var file in sourceFiles)
             {
                 var target = new AgentFilePath(targetPrefix + file.ToString().Substring(sourcePrefix.Length));
@@ -6374,7 +6388,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
         catch
         {
-            RollbackComponentFolderMove(fileAccessor, moved, preserved);
+            RollbackComponentFolderMove(fileAccessor, moved, preserved, preservedPrefix);
             throw;
         }
 
@@ -6391,7 +6405,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         fileAccessor.DeleteDirectory(new AgentFilePath(sourceFolder));
     }
 
-    private static void RollbackComponentFolderMove(IFileAccessor fileAccessor, List<(AgentFilePath Source, AgentFilePath Target)> moved, List<(AgentFilePath Original, AgentFilePath Preserved)> preserved)
+    private static void RollbackComponentFolderMove(IFileAccessor fileAccessor, List<(AgentFilePath Source, AgentFilePath Target)> moved, List<(AgentFilePath Original, AgentFilePath Preserved)> preserved, string preservedPrefix)
     {
         for (var index = moved.Count - 1; index >= 0; index--)
         {
@@ -6401,6 +6415,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         foreach (var entry in preserved)
         {
             TryAccessorOperation(() => fileAccessor.Replace(entry.Preserved, entry.Original));
+        }
+
+        var unrestored = fileAccessor.ListFiles().Any(file => file.ToString().StartsWith(preservedPrefix, StringComparison.OrdinalIgnoreCase));
+        if (!unrestored)
+        {
+            TryAccessorOperation(() => fileAccessor.DeleteDirectory(new AgentFilePath(preservedPrefix.TrimEnd('/'))));
         }
     }
 
