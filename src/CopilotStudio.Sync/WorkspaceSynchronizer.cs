@@ -4856,6 +4856,29 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             isMetadata ? GetWorkflowMetadata(workflow) : GetClientData(workflow));
     }
 
+    private static bool SettingsProjectionsMatch(BotEntity left, BotEntity right)
+    {
+        try
+        {
+            return string.Equals(SerializeSettingsYaml(left), SerializeSettingsYaml(right), StringComparison.Ordinal);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return false;
+        }
+    }
+
+    private static string SerializeSettingsYaml(BotEntity settingsView)
+    {
+        using var writer = new StringWriter();
+        using (YamlSerializationContext.UseStandardSerializationContextIfNotDefined(throwOnInvalidYaml: false))
+        {
+            YamlSerializer.SerializeWithoutKind(writer, settingsView);
+        }
+
+        return writer.ToString();
+    }
+
     private static string GetCachedComponentContent(DefinitionBase cloudSnapshot, string schemaName)
     {
         using var writer = new StringWriter();
@@ -5068,7 +5091,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
                 // only generate changes if the content in Settings.mcs.yml has changed
                 // ignore syntax differences
-                if (!leftComparison.Equals(rightComparison, NodeComparison.Structural))
+                if (!leftComparison.Equals(rightComparison, NodeComparison.Structural)
+                    && !SettingsProjectionsMatch(leftComparison, rightComparison))
                 {
                     var settingsPathValue = SettingsPath.ToString();
                     var change = new Change
