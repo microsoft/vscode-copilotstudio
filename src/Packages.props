@@ -28,7 +28,7 @@
     <PackageReference Update="Microsoft.Bot.Schema" Version="4.17.0" />
     <PackageReference Update="Microsoft.PowerFx.Interpreter" Version="$(PowerFxPackageVersion)" />
     <PackageReference Update="Microsoft.PowerFx.LanguageServerProtocol" Version="$(PowerFxPackageVersion)" />
-    <PackageReference Update="Microsoft.VisualStudio.Threading" Version="17.13.2" />
+    <PackageReference Update="Microsoft.VisualStudio.Threading" Version="18.7.23" />
     <PackageReference Update="Nullable.Extended.Analyzer" Version="1.10.4539" />
     <PackageReference Update="System.Collections.Immutable" Version="$(AspNetCoreVersion)" />
     <PackageReference Update="System.CommandLine" Version="2.0.0-beta4.22272.1" />
