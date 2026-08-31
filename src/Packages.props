@@ -33,7 +33,7 @@
     <PackageReference Update="System.Collections.Immutable" Version="$(AspNetCoreVersion)" />
     <PackageReference Update="System.CommandLine" Version="2.0.0-beta4.22272.1" />
     <PackageReference Update="System.Text.Json" Version="$(AspNetCoreVersion)" />
-    <PackageReference Update="YamlDotNet" Version="11.2.1" />
+    <PackageReference Update="YamlDotNet" Version="18.1.0" />
   </ItemGroup>
 
   <!-- Test packages -->
