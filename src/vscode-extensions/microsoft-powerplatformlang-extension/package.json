@@ -400,13 +400,13 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "@types/vscode": "^1.108.0",
-    "@typescript-eslint/eslint-plugin": "^8.67.0",
+    "@types/vscode": "^1.134.0",
+    "@typescript-eslint/eslint-plugin": "^8.68.0",
     "@typescript-eslint/parser": "^8.30.0",
     "@vscode/test-electron": "^2.4.1",
     "esbuild": "0.28.2",
-    "eslint": "^10.8.1",
-    "nerdbank-gitversioning": "^3.10.91",
+    "eslint": "^10.9.1",
+    "nerdbank-gitversioning": "^3.10.94",
     "npm-run-all2": "^9.0.3",
     "shared": "file:../shared",
     "typescript": "^5.7.2"
