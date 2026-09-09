@@ -38,7 +38,7 @@
 
   <!-- Test packages -->
   <ItemGroup>
-    <PackageReference Update="Microsoft.NET.Test.Sdk" Version="17.13.0" />
+    <PackageReference Update="Microsoft.NET.Test.Sdk" Version="18.10.0" />
     <PackageReference Update="Moq" Version="4.16.1" />
     <PackageReference Update="xunit" Version="2.4.2" />
     <PackageReference Update="xunit.runner.visualstudio" Version="2.4.3" />
