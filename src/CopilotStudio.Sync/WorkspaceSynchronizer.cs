@@ -4773,7 +4773,81 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var workflowChanges = GetLocalWorkflowChangesAsync(workspaceFolder, cloudSnapshot, cancellationToken);
         changes = changes.AddRange(await workflowChanges.ConfigureAwait(false));
 
+        changes = changes.AddRange(GetSkillPayloadLocalChanges(fileAccessor, cloudSnapshot, changes));
+
         return (changeSet, changes);
+    }
+
+    // A bundled skill's payload files (its SKILL.md manifest and asset files under
+    // behaviors/<skill>/) are child FileAttachmentComponents whose content lives in a separate
+    // file on disk. GetLocalChanges compares FileAttachmentComponents by metadata only, and the
+    // skill anchor body is a stable bundle marker, so editing one of those payload files would
+    // otherwise never surface as a local change - even though the push-side hash comparison in
+    // UploadKnowledgeFileIfChangedAsync uploads it. Emit an Update using the same content path and
+    // hash-vs-baseline predicate the upload uses so "shown as modified" tracks "will be uploaded".
+    private ImmutableArray<Change> GetSkillPayloadLocalChanges(IFileAccessor fileAccessor, DefinitionBase cloudSnapshot, ImmutableArray<Change> existingChanges)
+    {
+        var skillPayloads = cloudSnapshot.Components
+            .OfType<FileAttachmentComponent>()
+            .Where(component => !string.IsNullOrEmpty(component.DisplayName))
+            .Where(component => !IsComponentCollectionOwned(cloudSnapshot, component))
+            .Where(component => GetParentSkillSchema(component, cloudSnapshot) != null)
+            .ToList();
+
+        if (skillPayloads.Count == 0)
+        {
+            return ImmutableArray<Change>.Empty;
+        }
+
+        var baseline = ReadKnowledgeSyncState(fileAccessor);
+        var folderOverrides = BuildComponentFolderOverrides(fileAccessor, cloudSnapshot);
+        var alreadyReported = existingChanges.Select(change => change.SchemaName).ToHashSet(StringComparer.Ordinal);
+        var changes = ImmutableArray.CreateBuilder<Change>();
+
+        foreach (var component in skillPayloads)
+        {
+            if (alreadyReported.Contains(component.SchemaNameString))
+            {
+                continue;
+            }
+
+            var componentPath = GetStickyComponentPath(component, cloudSnapshot, folderOverrides);
+            var contentPath = GetKnowledgeContentFilePath(componentPath, component.DisplayName!);
+            if (!IsValidFileToUpload(fileAccessor, contentPath))
+            {
+                continue;
+            }
+
+            var hash = ComputeKnowledgeFileHash(fileAccessor, contentPath);
+            if (hash == null)
+            {
+                continue;
+            }
+
+            var key = component.Id.Value.ToString("N");
+
+            // Only surface an edit when we have a recorded baseline hash to compare against.
+            // A payload gets baselined the first time it is downloaded (clone, or a pull that
+            // fetches it), which covers the reported clone -> edit flow. Without a baseline we
+            // cannot prove the file changed, so we stay silent rather than flagging every payload.
+            // In that no-baseline case the push still uploads it unconditionally and records a
+            // hash, so the state self-heals after the first push.
+            if (!baseline.TryGetValue(key, out var existing) || string.Equals(existing, hash, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            changes.Add(new Change
+            {
+                ChangeType = ChangeType.Update,
+                Name = component.SchemaNameString,
+                Uri = contentPath.ToString(),
+                SchemaName = component.SchemaNameString,
+                ChangeKind = component.Kind.ToString()
+            });
+        }
+
+        return changes.ToImmutable();
     }
 
     public DiscardResult DiscardLocalChanges(DirectoryPath workspaceFolder, IReadOnlyCollection<Change> changes)

@@ -995,6 +995,151 @@ public class SkillFolderLayoutTests
     }
 
     [Fact]
+    public async Task InMemory_EditedPackagedSkillPayloads_AfterPull_SurfaceAsLocalChanges()
+    {
+        var (synchronizer, factory, mockIsland) = CreateMemoryBackedInfrastructure();
+        var workspace = new DirectoryPath($"c:/test/skill-inmem-edit-{Guid.NewGuid():N}/");
+        var entity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings)!;
+        var previous = new BotDefinition().WithEntity(entity);
+        var accessor = CreateMemoryBackedWorkspace(factory, workspace, previous);
+
+        var skill = CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", Guid.NewGuid(), $"<!-- bic:bundle={Bot}.file.getusweatherzip -->");
+        var manifest = CreateAsset($"{Bot}.file.skillmd_a1B", "./SKILL.md", skill.Id);
+        var script = CreateAsset($"{Bot}.file.script_a1B", "./scripts/Get-UsWeather.ps1", skill.Id);
+
+        mockIsland.Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentInsert(skill), new BotComponentInsert(manifest), new BotComponentInsert(script) }, entity, "token-2"));
+
+        var mockDataverse = CreateDataverseMock();
+        mockDataverse.As<IStreamingKnowledgeFileClient>()
+            .Setup(x => x.DownloadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<BotComponentId>(), It.IsAny<CancellationToken>()))
+            .Returns<Stream, BotComponentId, CancellationToken>(async (destination, componentId, cancellationToken) =>
+            {
+                var payload = Encoding.UTF8.GetBytes($"payload:{componentId.Value:N}");
+                await destination.WriteAsync(payload, 0, payload.Length, cancellationToken);
+            });
+
+        // Pull records a knowledge baseline for the downloaded manifest and asset.
+        await synchronizer.PullExistingChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), previous, mockDataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
+
+        // Unedited: no local changes.
+        var pulled = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
+        var (_, noChanges) = await GetChangesAsync(synchronizer, workspace, pulled);
+        Assert.Empty(noChanges);
+
+        // The user edits the skill manifest and asset on disk.
+        WriteTo(accessor, "behaviors/get-us-weather/SKILL.md", "EDITED manifest instructions\n");
+        WriteTo(accessor, "behaviors/get-us-weather/scripts/Get-UsWeather.ps1", "EDITED script body\n");
+
+        var read = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
+        var (_, changes) = await GetChangesAsync(synchronizer, workspace, read);
+
+        var manifestChange = Assert.Single(changes, change => change.SchemaName == manifest.SchemaNameString);
+        Assert.Equal(ChangeType.Update, manifestChange.ChangeType);
+        Assert.Equal(BotElementKind.FileAttachmentComponent.ToString(), manifestChange.ChangeKind);
+
+        var scriptChange = Assert.Single(changes, change => change.SchemaName == script.SchemaNameString);
+        Assert.Equal(ChangeType.Update, scriptChange.ChangeType);
+        Assert.Equal(BotElementKind.FileAttachmentComponent.ToString(), scriptChange.ChangeKind);
+    }
+
+    [Fact]
+    public async Task InMemory_EditedSkillManifest_SurfacedChangeMatchesUploadedPayload()
+    {
+        var (synchronizer, factory, mockIsland) = CreateMemoryBackedInfrastructure();
+        var workspace = new DirectoryPath($"c:/test/skill-inmem-edit-upload-{Guid.NewGuid():N}/");
+        var entity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings)!;
+        var previous = new BotDefinition().WithEntity(entity);
+        var accessor = CreateMemoryBackedWorkspace(factory, workspace, previous);
+
+        var skill = CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", Guid.NewGuid(), $"<!-- bic:bundle={Bot}.file.getusweatherzip -->");
+        var manifest = CreateAsset($"{Bot}.file.skillmd_a1B", "./SKILL.md", skill.Id);
+
+        mockIsland.Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentInsert(skill), new BotComponentInsert(manifest) }, entity, "token-2"));
+
+        var mockDataverse = CreateDataverseMock();
+        mockDataverse.As<IStreamingKnowledgeFileClient>()
+            .Setup(x => x.DownloadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<BotComponentId>(), It.IsAny<CancellationToken>()))
+            .Returns<Stream, BotComponentId, CancellationToken>(async (destination, componentId, cancellationToken) =>
+            {
+                var payload = Encoding.UTF8.GetBytes($"payload:{componentId.Value:N}");
+                await destination.WriteAsync(payload, 0, payload.Length, cancellationToken);
+            });
+
+        await synchronizer.PullExistingChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), previous, mockDataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
+
+        WriteTo(accessor, "behaviors/get-us-weather/SKILL.md", "EDITED manifest instructions\n");
+
+        var read = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
+        var (_, changes) = await GetChangesAsync(synchronizer, workspace, read);
+
+        // The surfaced change is exactly the payload the push then uploads: consistent surface <-> upload.
+        Assert.Contains(changes, change => change.SchemaName == manifest.SchemaNameString && change.ChangeType == ChangeType.Update);
+
+        var uploaded = new System.Collections.Concurrent.ConcurrentBag<string>();
+        var uploadMock = CreateDataverseMock();
+        uploadMock.As<IStreamingKnowledgeFileClient>()
+            .Setup(x => x.UploadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns<Stream, Guid, string, CancellationToken>(async (content, _, fileName, _) => { using var r = new StreamReader(content); uploaded.Add($"{fileName}|{await r.ReadToEndAsync()}"); });
+
+        await synchronizer.UploadKnowledgeFilesAsync(workspace, uploadMock.Object, CancellationToken.None);
+
+        Assert.Contains("./SKILL.md|EDITED manifest instructions\n", uploaded);
+    }
+
+    [Fact]
+    public async Task InMemory_EditedPackagedSkill_ApplySequence_PushesWithoutThrowingThenUploadsPayload()
+    {
+        var (synchronizer, factory, mockIsland) = CreateMemoryBackedInfrastructure();
+        var workspace = new DirectoryPath($"c:/test/skill-inmem-apply-{Guid.NewGuid():N}/");
+        var entity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings)!;
+        var previous = new BotDefinition().WithEntity(entity);
+        var accessor = CreateMemoryBackedWorkspace(factory, workspace, previous);
+
+        var skill = CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", Guid.NewGuid(), $"<!-- bic:bundle={Bot}.file.getusweatherzip -->");
+        var manifest = CreateAsset($"{Bot}.file.skillmd_a1B", "./SKILL.md", skill.Id);
+
+        mockIsland.Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentInsert(skill), new BotComponentInsert(manifest) }, entity, "token-2"));
+        mockIsland.Setup(x => x.SaveChangesAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<PvaComponentChangeSet>(), It.IsAny<CancellationToken>()))
+            .Returns<AuthoringOperationContextBase, PvaComponentChangeSet, CancellationToken>((_, incoming, _) => Task.FromResult(new PvaComponentChangeSet(incoming.BotComponentChanges, incoming.Bot, Guid.NewGuid().ToString("N"))));
+
+        var mockDataverse = CreateDataverseMock();
+        mockDataverse.As<IStreamingKnowledgeFileClient>()
+            .Setup(x => x.DownloadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<BotComponentId>(), It.IsAny<CancellationToken>()))
+            .Returns<Stream, BotComponentId, CancellationToken>(async (destination, componentId, cancellationToken) =>
+            {
+                var payload = Encoding.UTF8.GetBytes($"payload:{componentId.Value:N}");
+                await destination.WriteAsync(payload, 0, payload.Length, cancellationToken);
+            });
+
+        await synchronizer.PullExistingChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), previous, mockDataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
+
+        WriteTo(accessor, "behaviors/get-us-weather/SKILL.md", "EDITED manifest instructions\n");
+
+        // Apply step 1 (sync push): a payload-only edit produces no structural change, so the
+        // structural push must remain a clean no-op and must not throw now that the payload edit
+        // also surfaces as a FileAttachmentComponent change on the reporting path.
+        var read = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
+        var pushException = await Record.ExceptionAsync(() => synchronizer.PushLocalChangesAsync(
+            workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), read, mockDataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, cloudFlowMetadata: null, System.Collections.Immutable.ImmutableArray<SyncDataverseClient.AIPromptMetadata>.Empty, CancellationToken.None));
+        Assert.Null(pushException);
+        mockIsland.Verify(x => x.SaveChangesAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<PvaComponentChangeSet>(), It.IsAny<CancellationToken>()), Times.Never);
+
+        // Apply step 2 (uploadKnowledgeFiles): the edited payload streams up.
+        var uploaded = new System.Collections.Concurrent.ConcurrentBag<string>();
+        var uploadMock = CreateDataverseMock();
+        uploadMock.As<IStreamingKnowledgeFileClient>()
+            .Setup(x => x.UploadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns<Stream, Guid, string, CancellationToken>(async (content, _, fileName, _) => { using var r = new StreamReader(content); uploaded.Add($"{fileName}|{await r.ReadToEndAsync()}"); });
+
+        await synchronizer.UploadKnowledgeFilesAsync(workspace, uploadMock.Object, CancellationToken.None);
+
+        Assert.Contains("./SKILL.md|EDITED manifest instructions\n", uploaded);
+    }
+
+    [Fact]
     public async Task InMemory_SkillAssetPayloads_AreUploadedThroughStreamingClient()
     {
         var (synchronizer, factory, _) = CreateMemoryBackedInfrastructure();
