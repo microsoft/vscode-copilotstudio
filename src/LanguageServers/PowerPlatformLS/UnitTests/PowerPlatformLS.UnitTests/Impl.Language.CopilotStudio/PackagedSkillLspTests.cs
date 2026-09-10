@@ -15,6 +15,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
     {
         private const string Bot = "crf9a_nagentn1_T2U1EY";
 
+        private const string SkillSamplesBot = "crbab_guitarcoach_dcF_b3";
+
         private const string CliSettingsYaml =
             "displayName: NAgent N1\n" +
             "schemaName: crf9a_nagentn1_T2U1EY\n" +
@@ -265,6 +267,84 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
             {
                 Directory.Delete(destination, recursive: true);
             }
+        }
+
+        [Fact]
+        public void SkillSamplesWorkspace_OnDisk_PackagedSkill_PayloadsLinkToAnchorWithAuthoredSchemas()
+        {
+            var dir = Path.GetFullPath(Path.Combine("TestData", "Workspace", "SkillSamplesWorkspace"));
+
+            var world = new World(dir);
+            var workspace = world.GetWorkspace();
+            workspace.BuildCompilationModel();
+
+            var definition = workspace.Definition;
+            var skill = Assert.Single(definition.Components.OfType<DialogComponent>()
+                .Where(component => component.Dialog is InlineAgentSkill
+                    && component.SchemaNameString == $"{SkillSamplesBot}.skill.redlining-content_7Ho"));
+
+            var template = Assert.Single(definition.Components.OfType<FileAttachmentComponent>()
+                .Where(component => component.DisplayName == "./assets/template.docx"));
+            var docxReference = Assert.Single(definition.Components.OfType<FileAttachmentComponent>()
+                .Where(component => component.DisplayName == "./references/docx-submissions.md"));
+            var pdfReference = Assert.Single(definition.Components.OfType<FileAttachmentComponent>()
+                .Where(component => component.DisplayName == "./references/pdf-submissions.md"));
+            var script = Assert.Single(definition.Components.OfType<FileAttachmentComponent>()
+                .Where(component => component.DisplayName == "./scripts/redline.py"));
+
+            Assert.Equal($"{SkillSamplesBot}.file.templatedocx_KFOCf", template.SchemaNameString);
+            Assert.Equal($"{SkillSamplesBot}.file.docxsubmissionsmd_R34GX", docxReference.SchemaNameString);
+            Assert.Equal($"{SkillSamplesBot}.file.pdfsubmissionsmd_o6s66", pdfReference.SchemaNameString);
+            Assert.Equal($"{SkillSamplesBot}.file.redlinepy_i9u7t", script.SchemaNameString);
+
+            Assert.Equal(skill.Id, template.ParentBotComponentId);
+            Assert.Equal(skill.Id, docxReference.ParentBotComponentId);
+            Assert.Equal(skill.Id, pdfReference.ParentBotComponentId);
+            Assert.Equal(skill.Id, script.ParentBotComponentId);
+        }
+
+        [Fact]
+        public void SkillSamplesWorkspace_OnDisk_BareSkill_HasNoPayloadComponents()
+        {
+            var dir = Path.GetFullPath(Path.Combine("TestData", "Workspace", "SkillSamplesWorkspace"));
+
+            var world = new World(dir);
+            var workspace = world.GetWorkspace();
+            workspace.BuildCompilationModel();
+
+            var definition = workspace.Definition;
+            var bareSkill = Assert.Single(definition.Components.OfType<DialogComponent>()
+                .Where(component => component.Dialog is InlineAgentSkill
+                    && component.SchemaNameString == $"{SkillSamplesBot}.skill.conditional-chat-reminder_yUY"));
+
+            Assert.All(
+                definition.Components.OfType<FileAttachmentComponent>(),
+                attachment => Assert.NotEqual(bareSkill.Id, attachment.ParentBotComponentId));
+        }
+
+        [Fact]
+        public void SkillSamplesWorkspace_OnDisk_PackagedAndBareSkillsCompileWithoutManifestComponent()
+        {
+            var dir = Path.GetFullPath(Path.Combine("TestData", "Workspace", "SkillSamplesWorkspace"));
+
+            var world = new World(dir);
+            var workspace = world.GetWorkspace();
+            workspace.BuildCompilationModel();
+
+            var definition = workspace.Definition;
+
+            var skills = definition.Components.OfType<DialogComponent>()
+                .Where(component => component.Dialog is InlineAgentSkill)
+                .ToList();
+            Assert.Equal(2, skills.Count);
+
+            var attachments = definition.Components.OfType<FileAttachmentComponent>().ToList();
+            Assert.Equal(4, attachments.Count);
+
+            // The packaged skill's SKILL.md manifest has no sidecar (its identity lives in the
+            // anchor's manifestSchemaName), so the LSP workspace compile does not materialize a
+            // FileAttachmentComponent for it here.
+            Assert.DoesNotContain(attachments, attachment => attachment.DisplayName == "./SKILL.md");
         }
 
         private static DialogComponent CreateInlineSkillComponent(string schemaName, string displayName)

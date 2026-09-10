@@ -1,0 +1,8 @@
+mcs.metadata:
+  componentName: redlining-content
+  description: Use when the user asks to redline, track changes, or compare differences in a file. Compares an uploaded .docx or .pdf against a provided .dotx/.docx template and returns a redlined .docx where every textual difference is a Word tracked change (insertion/deletion) authored by "Copilot Studio AI". No visual conversion — built directly on the template.
+  schemaName: crbab_guitarcoach_dcF_b3.skill.redlining-content_7Ho
+  bundle: crbab_guitarcoach_dcF_b3.file.redliningcontentzip_w3cfc
+  manifestSchemaName: crbab_guitarcoach_dcF_b3.file.skillmd_oIvJg
+kind: InlineAgentSkill
+authoringSource: Upload

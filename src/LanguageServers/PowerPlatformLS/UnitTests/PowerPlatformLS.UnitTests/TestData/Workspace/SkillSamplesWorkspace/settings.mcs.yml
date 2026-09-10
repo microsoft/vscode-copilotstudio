@@ -1,0 +1,23 @@
+displayName: Electric guitar teacher
+schemaName: crbab_guitarcoach_dcF_b3
+accessControlPolicy: GroupMembership
+authenticationMode: Integrated
+authenticationTrigger: Always
+configuration:
+  recognizer:
+    kind: CLICopilotRecognizer
+
+  agentSettings:
+    model:
+      series: claude-opus-5
+
+    instructions:
+      segments:
+        - kind: StaticSegment
+          value: You are a guitar teacher and are meant to answer electric guitar questions. You can also answer music theory questions, but always apply the theory to the electric guitar.​‌
+
+    web:
+      enableWebSearch: false
+
+template: cliagent-1.0.0
+language: 1033

@@ -1043,6 +1043,77 @@ public class SkillFolderLayoutTests
         Assert.Equal(BotElementKind.FileAttachmentComponent.ToString(), scriptChange.ChangeKind);
     }
 
+    // Mirrors the realistic on-disk sample at
+    // TestData/Workspace/SkillSamplesWorkspace/behaviors/redlining-content: a packaged skill whose
+    // payloads span nested assets/, references/ and scripts/ subfolders alongside a SKILL.md manifest.
+    // Editing individual payloads and the manifest must each surface as an Update, and an untouched
+    // payload must stay clean.
+    [Fact]
+    public async Task InMemory_EditedRealisticPackagedSkill_NestedPayloadsAndManifest_SurfaceSelectively()
+    {
+        var (synchronizer, factory, mockIsland) = CreateMemoryBackedInfrastructure();
+        var workspace = new DirectoryPath($"c:/test/skill-inmem-realistic-{Guid.NewGuid():N}/");
+        var entity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings)!;
+        var previous = new BotDefinition().WithEntity(entity);
+        var accessor = CreateMemoryBackedWorkspace(factory, workspace, previous);
+
+        var skill = CreateSkill($"{Bot}.skill.redlining-content_7Ho", "redlining-content", Guid.NewGuid(), $"<!-- bic:bundle={Bot}.file.redliningcontentzip_w3cfc -->", "Redline uploaded documents.");
+        var manifest = CreateAsset($"{Bot}.file.skillmd_oIvJg", "./SKILL.md", skill.Id);
+        var templateAsset = CreateAsset($"{Bot}.file.templatedocx_KFOCf", "./assets/template.docx", skill.Id);
+        var docxReference = CreateAsset($"{Bot}.file.docxsubmissionsmd_R34GX", "./references/docx-submissions.md", skill.Id);
+        var pdfReference = CreateAsset($"{Bot}.file.pdfsubmissionsmd_o6s66", "./references/pdf-submissions.md", skill.Id);
+        var script = CreateAsset($"{Bot}.file.redlinepy_i9u7t", "./scripts/redline.py", skill.Id);
+
+        mockIsland.Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PvaComponentChangeSet(
+                new BotComponentChange[]
+                {
+                    new BotComponentInsert(skill),
+                    new BotComponentInsert(manifest),
+                    new BotComponentInsert(templateAsset),
+                    new BotComponentInsert(docxReference),
+                    new BotComponentInsert(pdfReference),
+                    new BotComponentInsert(script),
+                },
+                entity,
+                "token-2"));
+
+        var mockDataverse = CreateDataverseMock();
+        mockDataverse.As<IStreamingKnowledgeFileClient>()
+            .Setup(x => x.DownloadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<BotComponentId>(), It.IsAny<CancellationToken>()))
+            .Returns<Stream, BotComponentId, CancellationToken>(async (destination, componentId, cancellationToken) =>
+            {
+                var payload = Encoding.UTF8.GetBytes($"payload:{componentId.Value:N}");
+                await destination.WriteAsync(payload, 0, payload.Length, cancellationToken);
+            });
+
+        // Pull records a knowledge baseline for the manifest and every payload.
+        await synchronizer.PullExistingChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), previous, mockDataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
+
+        // Unedited: no local changes.
+        var pulled = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
+        var (_, noChanges) = await GetChangesAsync(synchronizer, workspace, pulled);
+        Assert.Empty(noChanges);
+
+        // The user edits the manifest and one payload in each subfolder, leaving pdf-submissions.md untouched.
+        WriteTo(accessor, "behaviors/redlining-content/SKILL.md", "EDITED manifest instructions\n");
+        WriteTo(accessor, "behaviors/redlining-content/assets/template.docx", "EDITED template bytes\n");
+        WriteTo(accessor, "behaviors/redlining-content/references/docx-submissions.md", "EDITED docx reference\n");
+        WriteTo(accessor, "behaviors/redlining-content/scripts/redline.py", "EDITED script body\n");
+
+        var read = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
+        var (_, changes) = await GetChangesAsync(synchronizer, workspace, read);
+
+        foreach (var edited in new[] { manifest, templateAsset, docxReference, script })
+        {
+            var change = Assert.Single(changes, candidate => candidate.SchemaName == edited.SchemaNameString);
+            Assert.Equal(ChangeType.Update, change.ChangeType);
+            Assert.Equal(BotElementKind.FileAttachmentComponent.ToString(), change.ChangeKind);
+        }
+
+        Assert.DoesNotContain(changes, change => change.SchemaName == pdfReference.SchemaNameString);
+    }
+
     [Fact]
     public async Task InMemory_EditedSkillManifest_SurfacedChangeMatchesUploadedPayload()
     {

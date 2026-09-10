@@ -1,0 +1,6 @@
+mcs.metadata:
+  componentName: conditional-chat-reminder
+  description: Use this skill whenever a Scout user asks to schedule a Teams chat reminder or follow-up that should be sent only if a person has not already posted a relevant update after the request, including "remind them Thursday if there is no news," "follow up unless they reply," or "check the chat first and only nudge if needed." Use it before creating the Scout automation or sending any message.
+  schemaName: crbab_guitarcoach_dcF_b3.skill.conditional-chat-reminder_yUY
+kind: InlineAgentSkill
+authoringSource: Upload
