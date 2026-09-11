@@ -260,6 +260,42 @@ public class NewLocalSkillTests
     }
 
     [Fact]
+    public async Task GetLocalChangesAsync_NewPackagedSkill_PayloadFilesSurfaceAsCreate()
+    {
+        var (sync, accessor, workspace) = await CreateWorkspaceAsync();
+        WorkspaceSynchronizer.WriteCloudCache(accessor, CliCloudDefinition());
+
+        // A brand-new packaged skill (anchor + payload sidecars + manifest), none of which
+        // exist in the cloud yet. Modeled on a real `ms add skill` clone (redlining-content).
+        Write(accessor, "behaviors/redlining-content/skill.mcs.yml",
+            "mcs.metadata:\n" +
+            "  componentName: redlining-content\n" +
+            "  description: Redline skill.\n" +
+            "  schemaName: cr123_natest.skill.redlining-content\n" +
+            "  bundle: cr123_natest.file.redliningcontentzip\n" +
+            "  manifestSchemaName: cr123_natest.file.skillmd\n" +
+            "kind: InlineAgentSkill\n" +
+            "authoringSource: Upload\n");
+        Write(accessor, "behaviors/redlining-content/SKILL.md", "---\nname: redlining-content\ndescription: Redline skill.\n---\n# Body\n");
+        Write(accessor, "behaviors/redlining-content/assets/template.docx", "docx-bytes\n");
+        Write(accessor, "behaviors/redlining-content/assets/template.docx.mcs.yml",
+            "mcs.metadata:\n  componentName: ./assets/template.docx\n  schemaName: cr123_natest.file.templatedocx\n");
+        Write(accessor, "behaviors/redlining-content/scripts/redline.py", "print('x')\n");
+        Write(accessor, "behaviors/redlining-content/scripts/redline.py.mcs.yml",
+            "mcs.metadata:\n  componentName: ./scripts/redline.py\n  schemaName: cr123_natest.file.redlinepy\n");
+
+        var workspaceDef = await sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
+
+        var (_, changes) = await sync.GetLocalChangesAsync(workspace, workspaceDef, new Mock<ISyncDataverseClient>().Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
+
+        // The skill anchor and every payload file the parser found must surface as new local
+        // changes (like new knowledge files) even though the parent skill is not yet in the cloud.
+        Assert.Contains(changes, change => change.ChangeType == ChangeType.Create && change.SchemaName == "cr123_natest.skill.redlining-content");
+        Assert.Contains(changes, change => change.ChangeType == ChangeType.Create && change.SchemaName == "cr123_natest.file.templatedocx");
+        Assert.Contains(changes, change => change.ChangeType == ChangeType.Create && change.SchemaName == "cr123_natest.file.redlinepy");
+    }
+
+    [Fact]
     public async Task ReadWorkspaceDefinition_BareSkill_CloudCacheNotModified()
     {
         var (sync, accessor, workspace) = await CreateWorkspaceAsync();

@@ -4768,7 +4768,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         effectiveDefinition = DetectNewLocalSkills(fileAccessor, effectiveDefinition, cloudSnapshot, out _);
         var definitionWithNewKnowledgeFiles = DetectNewKnowledgeFiles(workspaceFolder, effectiveDefinition, out _, cancellationToken);
 
-        var (changeSet, changes) = GetLocalChanges(definitionWithNewKnowledgeFiles, cloudSnapshot, fileAccessor, changeToken, isRemoteChange: false, deferMissingParents: true, out _, await GetReferencedCollectionComponentSchemaNamesAsync(workspaceFolder, cancellationToken).ConfigureAwait(false));
+        var (changeSet, changes) = GetLocalChanges(definitionWithNewKnowledgeFiles, cloudSnapshot, fileAccessor, changeToken, isRemoteChange: false, deferMissingParents: true, out _, await GetReferencedCollectionComponentSchemaNamesAsync(workspaceFolder, cancellationToken).ConfigureAwait(false), surfaceFileChildrenOfNewParents: true);
 
         var workflowChanges = GetLocalWorkflowChangesAsync(workspaceFolder, cloudSnapshot, cancellationToken);
         changes = changes.AddRange(await workflowChanges.ConfigureAwait(false));
@@ -5265,7 +5265,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     public (PvaComponentChangeSet, ImmutableArray<Change>) GetLocalChanges(DefinitionBase localDefinition, DefinitionBase cloudSnapshot, IFileAccessor fileAccessor, string? changeToken, bool isRemoteChange = false)
         => GetLocalChanges(localDefinition, cloudSnapshot, fileAccessor, changeToken, isRemoteChange, deferMissingParents: false, out _);
 
-    public (PvaComponentChangeSet, ImmutableArray<Change>) GetLocalChanges(DefinitionBase localDefinition, DefinitionBase cloudSnapshot, IFileAccessor fileAccessor, string? changeToken, bool isRemoteChange, bool deferMissingParents, out bool deferredMissingParent, HashSet<string>? collectionOwnedComponentSchemaNames = null)
+    public (PvaComponentChangeSet, ImmutableArray<Change>) GetLocalChanges(DefinitionBase localDefinition, DefinitionBase cloudSnapshot, IFileAccessor fileAccessor, string? changeToken, bool isRemoteChange, bool deferMissingParents, out bool deferredMissingParent, HashSet<string>? collectionOwnedComponentSchemaNames = null, bool surfaceFileChildrenOfNewParents = false)
     {
         deferredMissingParent = false;
 
@@ -5398,13 +5398,17 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                         parentBotComponentId = localFileParent.Id;
                         parentBotComponentIdResolved = true;
                     }
-                    else if (deferMissingParents)
+                    else if (deferMissingParents && !surfaceFileChildrenOfNewParents)
                     {
                         deferredMissingParent = true;
                         continue;
                     }
                     else
                     {
+                        // Display-only (preview) path: the parent skill is new and not yet in the
+                        // cloud. A push creates it in an earlier pass, so surface the file payload
+                        // as a Create now (using the local parent id) instead of hiding it, matching
+                        // how new knowledge files appear as local changes.
                         parentBotComponentId = localFileParent.Id;
                         parentBotComponentIdResolved = true;
                     }
