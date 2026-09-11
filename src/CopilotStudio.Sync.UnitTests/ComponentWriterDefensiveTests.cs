@@ -5,6 +5,7 @@ using Microsoft.Agents.Platform.Content;
 using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Moq;
+using System.Collections.Concurrent;
 using Xunit;
 
 namespace Microsoft.CopilotStudio.Sync.UnitTests;
@@ -173,7 +174,7 @@ internal class InMemoryFileAccessorFactory : IFileAccessorFactory
 internal class InMemoryFileAccessor : IFileAccessor
 {
     private readonly DirectoryPath _root;
-    private readonly Dictionary<string, byte[]> _files = new();
+    private readonly ConcurrentDictionary<string, byte[]> _files = new();
 
     public InMemoryFileAccessor(DirectoryPath root)
     {
@@ -200,7 +201,7 @@ internal class InMemoryFileAccessor : IFileAccessor
 
     public void Delete(AgentFilePath path)
     {
-        _files.Remove(path.ToString());
+        _files.TryRemove(path.ToString(), out _);
     }
 
     public void DeleteDirectory(AgentFilePath path)
@@ -208,7 +209,7 @@ internal class InMemoryFileAccessor : IFileAccessor
         var prefix = path.ToString().Replace('\\', '/').TrimEnd('/') + "/";
         foreach (var key in _files.Keys.Where(k => k.Replace('\\', '/').StartsWith(prefix, StringComparison.Ordinal)).ToList())
         {
-            _files.Remove(key);
+            _files.TryRemove(key, out _);
         }
     }
 
@@ -216,10 +217,9 @@ internal class InMemoryFileAccessor : IFileAccessor
 
     public void Replace(AgentFilePath sourcePath, AgentFilePath targetPath)
     {
-        if (_files.TryGetValue(sourcePath.ToString(), out var data))
+        if (_files.TryRemove(sourcePath.ToString(), out var data))
         {
             _files[targetPath.ToString()] = data;
-            _files.Remove(sourcePath.ToString());
         }
     }
 
@@ -245,9 +245,9 @@ internal class InMemoryFileAccessor : IFileAccessor
 internal class WriteCapturingStream : MemoryStream
 {
     private readonly string _key;
-    private readonly Dictionary<string, byte[]> _store;
+    private readonly ConcurrentDictionary<string, byte[]> _store;
 
-    public WriteCapturingStream(string key, Dictionary<string, byte[]> store)
+    public WriteCapturingStream(string key, ConcurrentDictionary<string, byte[]> store)
     {
         _key = key;
         _store = store;
