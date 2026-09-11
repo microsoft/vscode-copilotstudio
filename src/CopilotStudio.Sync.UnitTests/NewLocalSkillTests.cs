@@ -260,6 +260,74 @@ public class NewLocalSkillTests
     }
 
     [Fact]
+    public async Task GetLocalChangesAsync_NewPackagedSkill_PayloadFilesSurfaceAsCreate()
+    {
+        var (sync, accessor, workspace) = await CreateWorkspaceAsync();
+        WorkspaceSynchronizer.WriteCloudCache(accessor, CliCloudDefinition());
+
+        // A brand-new packaged skill (anchor + payload sidecars + manifest), none of which
+        // exist in the cloud yet. Modeled on a real `ms add skill` clone (redlining-content).
+        Write(accessor, "behaviors/redlining-content/skill.mcs.yml",
+            "mcs.metadata:\n" +
+            "  componentName: redlining-content\n" +
+            "  description: Redline skill.\n" +
+            "  schemaName: cr123_natest.skill.redlining-content\n" +
+            "  bundle: cr123_natest.file.redliningcontentzip\n" +
+            "  manifestSchemaName: cr123_natest.file.skillmd\n" +
+            "kind: InlineAgentSkill\n" +
+            "authoringSource: Upload\n");
+        Write(accessor, "behaviors/redlining-content/SKILL.md", "---\nname: redlining-content\ndescription: Redline skill.\n---\n# Body\n");
+        Write(accessor, "behaviors/redlining-content/assets/template.docx", "docx-bytes\n");
+        Write(accessor, "behaviors/redlining-content/assets/template.docx.mcs.yml",
+            "mcs.metadata:\n  componentName: ./assets/template.docx\n  schemaName: cr123_natest.file.templatedocx\n");
+        Write(accessor, "behaviors/redlining-content/scripts/redline.py", "print('x')\n");
+        Write(accessor, "behaviors/redlining-content/scripts/redline.py.mcs.yml",
+            "mcs.metadata:\n  componentName: ./scripts/redline.py\n  schemaName: cr123_natest.file.redlinepy\n");
+
+        var workspaceDef = await sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
+
+        var (changeSet, changes) = await sync.GetLocalChangesAsync(workspace, workspaceDef, new Mock<ISyncDataverseClient>().Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
+
+        // The skill anchor and every payload file the parser found must surface as new local
+        // changes (like new knowledge files) even though the parent skill is not yet in the cloud.
+        Assert.Contains(changes, change => change.ChangeType == ChangeType.Create && change.SchemaName == "cr123_natest.skill.redlining-content");
+        Assert.Contains(changes, change => change.ChangeType == ChangeType.Create && change.SchemaName == "cr123_natest.file.templatedocx");
+        Assert.Contains(changes, change => change.ChangeType == ChangeType.Create && change.SchemaName == "cr123_natest.file.redlinepy");
+
+        // The surfaced payload files are display-only: they must NOT be in the returned changeset,
+        // because push-capable callers send it in a single SaveChangesAsync that cannot resolve the
+        // not-yet-created (fabricated) parent skill id. The skill anchor itself is a real insert.
+        var insertedSchemaNames = changeSet.BotComponentChanges.OfType<BotComponentInsert>().Select(insert => insert.Component!.SchemaNameString).ToList();
+        Assert.Contains("cr123_natest.skill.redlining-content", insertedSchemaNames);
+        Assert.DoesNotContain("cr123_natest.file.templatedocx", insertedSchemaNames);
+        Assert.DoesNotContain("cr123_natest.file.redlinepy", insertedSchemaNames);
+    }
+
+    [Fact]
+    public async Task GetLocalChanges_DefaultOverload_NewSkillPayloads_EmitInserts()
+    {
+        // Regression: the default GetLocalChanges overload (deferMissingParents == false,
+        // surfaceFileChildrenOfNewParents == false) must still emit a BotComponentInsert for every
+        // payload file of a new skill that is not yet in the cloud. Only the preview overload
+        // (surfaceFileChildrenOfNewParents == true) suppresses those inserts for display.
+        var (sync, accessor, workspace) = await CreateWorkspaceAsync();
+        Write(accessor, "behaviors/get-us-weather-2.mcs.yml", "mcs.metadata:\n  componentName: get-us-weather-2\nkind: InlineAgentSkill\ncontent: placeholder\n");
+        Write(accessor, "behaviors/get-us-weather-2/SKILL.md", "---\ndescription: d\n---\nBody\n");
+        Write(accessor, "behaviors/get-us-weather-2/scripts/Get-UsWeather.ps1", "Write-Host hi\n");
+
+        var localDefinition = await sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
+        var fileComponents = localDefinition.Components.OfType<FileAttachmentComponent>().ToList();
+        Assert.NotEmpty(fileComponents);
+
+        // Default overload: deferMissingParents == false, surfaceFileChildrenOfNewParents == false.
+        // The skill is absent from the cloud, so its payload files hit the missing-parent branch.
+        var (changeSet, _) = sync.GetLocalChanges(localDefinition, CliCloudDefinition(), accessor, "token-1");
+
+        var fileInserts = changeSet.BotComponentChanges.OfType<BotComponentInsert>().Where(insert => insert.Component is FileAttachmentComponent).ToList();
+        Assert.Equal(fileComponents.Count, fileInserts.Count);
+    }
+
+    [Fact]
     public async Task ReadWorkspaceDefinition_BareSkill_CloudCacheNotModified()
     {
         var (sync, accessor, workspace) = await CreateWorkspaceAsync();

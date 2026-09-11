@@ -145,7 +145,7 @@ pushCommand.SetHandler(async (string workspace) =>
         var localDefinition = await synchronizer.ReadWorkspaceDefinitionAsync(workspaceFolder, CancellationToken.None, checkKnowledgeFiles: true);
 
         Console.WriteLine("Detecting local changes...");
-        var (localChangeset, localChanges) = await synchronizer.GetLocalChangesAsync(workspaceFolder, localDefinition, dataverseClient, syncInfo, CancellationToken.None);
+        var (_, localChanges) = await synchronizer.GetLocalChangesAsync(workspaceFolder, localDefinition, dataverseClient, syncInfo, CancellationToken.None);
 
         if (localChanges.IsEmpty)
         {
@@ -169,16 +169,25 @@ pushCommand.SetHandler(async (string workspace) =>
         await synchronizer.ProvisionConnectionReferencesAsync(localDefinition, dataverseClient, CancellationToken.None);
 
         Console.WriteLine("Pushing changes...");
-        var uploadedFiles = await synchronizer.PushChangesetAsync(
-            workspaceFolder, operationContext, localChangeset, dataverseClient,
-            syncInfo.AgentId, cloudFlowMetadata, aiPromptMetadata, CancellationToken.None);
+        // Use the multi-pass push path rather than the changeset returned by GetLocalChangesAsync.
+        // That tuple is display-only: for a brand-new packaged skill it lists the payload files as
+        // changes but excludes their inserts (their parent skill does not exist in the cloud yet).
+        // PushLocalChangesAsync creates the skill anchor in an earlier pass and the payload
+        // components in a later pass, so nothing is silently dropped.
+        await synchronizer.PushLocalChangesAsync(
+            workspaceFolder, operationContext, localDefinition, dataverseClient,
+            syncInfo, cloudFlowMetadata, aiPromptMetadata, CancellationToken.None);
+
+        Console.WriteLine("Uploading knowledge and skill payload files...");
+        var uploadedFiles = await synchronizer.UploadKnowledgeFilesAsync(
+            workspaceFolder, dataverseClient, CancellationToken.None);
 
         Console.WriteLine("Syncing workspace metadata...");
         await synchronizer.SyncWorkspaceAsync(
             workspaceFolder, operationContext, null, true, dataverseClient,
             syncInfo, cloudFlowMetadata, CancellationToken.None);
 
-        Console.WriteLine($"Push complete. {localChanges.Length} change(s) pushed, {uploadedFiles.UploadedKnowledgeFileCount} file(s) uploaded.");
+        Console.WriteLine($"Push complete. {localChanges.Length} change(s) pushed, {uploadedFiles.Length} file(s) uploaded.");
 
         Console.WriteLine("Verifying push...");
         var verification = await synchronizer.VerifyPushAsync(

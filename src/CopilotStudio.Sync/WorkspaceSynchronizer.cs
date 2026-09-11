@@ -4768,7 +4768,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         effectiveDefinition = DetectNewLocalSkills(fileAccessor, effectiveDefinition, cloudSnapshot, out _);
         var definitionWithNewKnowledgeFiles = DetectNewKnowledgeFiles(workspaceFolder, effectiveDefinition, out _, cancellationToken);
 
-        var (changeSet, changes) = GetLocalChanges(definitionWithNewKnowledgeFiles, cloudSnapshot, fileAccessor, changeToken, isRemoteChange: false, deferMissingParents: true, out _, await GetReferencedCollectionComponentSchemaNamesAsync(workspaceFolder, cancellationToken).ConfigureAwait(false));
+        var (changeSet, changes) = GetLocalChanges(definitionWithNewKnowledgeFiles, cloudSnapshot, fileAccessor, changeToken, isRemoteChange: false, deferMissingParents: true, out _, await GetReferencedCollectionComponentSchemaNamesAsync(workspaceFolder, cancellationToken).ConfigureAwait(false), surfaceFileChildrenOfNewParents: true);
 
         var workflowChanges = GetLocalWorkflowChangesAsync(workspaceFolder, cloudSnapshot, cancellationToken);
         changes = changes.AddRange(await workflowChanges.ConfigureAwait(false));
@@ -5265,7 +5265,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     public (PvaComponentChangeSet, ImmutableArray<Change>) GetLocalChanges(DefinitionBase localDefinition, DefinitionBase cloudSnapshot, IFileAccessor fileAccessor, string? changeToken, bool isRemoteChange = false)
         => GetLocalChanges(localDefinition, cloudSnapshot, fileAccessor, changeToken, isRemoteChange, deferMissingParents: false, out _);
 
-    public (PvaComponentChangeSet, ImmutableArray<Change>) GetLocalChanges(DefinitionBase localDefinition, DefinitionBase cloudSnapshot, IFileAccessor fileAccessor, string? changeToken, bool isRemoteChange, bool deferMissingParents, out bool deferredMissingParent, HashSet<string>? collectionOwnedComponentSchemaNames = null)
+    public (PvaComponentChangeSet, ImmutableArray<Change>) GetLocalChanges(DefinitionBase localDefinition, DefinitionBase cloudSnapshot, IFileAccessor fileAccessor, string? changeToken, bool isRemoteChange, bool deferMissingParents, out bool deferredMissingParent, HashSet<string>? collectionOwnedComponentSchemaNames = null, bool surfaceFileChildrenOfNewParents = false)
     {
         deferredMissingParent = false;
 
@@ -5382,6 +5382,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
             BotComponentId parentBotComponentId = default;
             var parentBotComponentIdResolved = !localComponent.ParentBotComponentId.HasValue;
+            var surfacedFileChildForDisplayOnly = false;
             // Remap local botIds (which were fabricated) to real botIds from the cloud.
             if (localComponent is FileAttachmentComponent)
             {
@@ -5398,15 +5399,24 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                         parentBotComponentId = localFileParent.Id;
                         parentBotComponentIdResolved = true;
                     }
-                    else if (deferMissingParents)
+                    else if (deferMissingParents && !surfaceFileChildrenOfNewParents)
                     {
                         deferredMissingParent = true;
                         continue;
                     }
                     else
                     {
+                        // The parent skill is new and not yet in the cloud. Resolve to the local
+                        // (fabricated) parent id. When the preview flag is set, surface the file
+                        // payload as a Create in the change display list so it appears like a new
+                        // knowledge file, but keep it OUT of the returned changeset: push-capable
+                        // callers send the changeset in a single SaveChangesAsync that cannot resolve
+                        // the fabricated parent id. When the flag is off (the default overload, e.g.
+                        // deferMissingParents == false), this branch behaves as before and emits the
+                        // insert. The multi-pass push path defers instead of reaching here.
                         parentBotComponentId = localFileParent.Id;
                         parentBotComponentIdResolved = true;
+                        surfacedFileChildForDisplayOnly = surfaceFileChildrenOfNewParents;
                     }
                 }
             }
@@ -5479,7 +5489,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 b2.ParentBotComponentCollectionId = parentCollectionId;
                 b2.DisplayName = localComponent.DisplayName;
                 b2.Description = localComponent.Description;
-                botComponentBuilderList.Add(new BotComponentInsert(b2.Build()));
+                if (!surfacedFileChildForDisplayOnly)
+                {
+                    botComponentBuilderList.Add(new BotComponentInsert(b2.Build()));
+                }
+
                 changes.Add(new Change() { ChangeType = ChangeType.Create, Name = b2.SchemaNameString, Uri = GetChangeUri(fileAccessor, localComponent, localDefinition, componentFolderOverrides), SchemaName = b2.SchemaNameString, ChangeKind = localComponent.Kind.ToString() });
             }
         }
