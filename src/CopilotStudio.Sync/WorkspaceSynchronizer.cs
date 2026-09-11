@@ -5406,16 +5406,17 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                     }
                     else
                     {
-                        // Display-only (preview) path: the parent skill is new and not yet in the
-                        // cloud. Surface the file payload as a Create in the change display list so it
-                        // appears like a new knowledge file, but keep it OUT of the returned changeset:
-                        // push-capable callers send the changeset in a single SaveChangesAsync that
-                        // cannot resolve the fabricated parent id. The multi-pass push path
-                        // (surfaceFileChildrenOfNewParents == false) creates the parent skill first and
-                        // then the payloads, so it is unaffected.
+                        // The parent skill is new and not yet in the cloud. Resolve to the local
+                        // (fabricated) parent id. When the preview flag is set, surface the file
+                        // payload as a Create in the change display list so it appears like a new
+                        // knowledge file, but keep it OUT of the returned changeset: push-capable
+                        // callers send the changeset in a single SaveChangesAsync that cannot resolve
+                        // the fabricated parent id. When the flag is off (the default overload, e.g.
+                        // deferMissingParents == false), this branch behaves as before and emits the
+                        // insert. The multi-pass push path defers instead of reaching here.
                         parentBotComponentId = localFileParent.Id;
                         parentBotComponentIdResolved = true;
-                        surfacedFileChildForDisplayOnly = true;
+                        surfacedFileChildForDisplayOnly = surfaceFileChildrenOfNewParents;
                     }
                 }
             }

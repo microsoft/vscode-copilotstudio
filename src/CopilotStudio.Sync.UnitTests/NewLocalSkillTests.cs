@@ -304,6 +304,30 @@ public class NewLocalSkillTests
     }
 
     [Fact]
+    public async Task GetLocalChanges_DefaultOverload_NewSkillPayloads_EmitInserts()
+    {
+        // Regression: the default GetLocalChanges overload (deferMissingParents == false,
+        // surfaceFileChildrenOfNewParents == false) must still emit a BotComponentInsert for every
+        // payload file of a new skill that is not yet in the cloud. Only the preview overload
+        // (surfaceFileChildrenOfNewParents == true) suppresses those inserts for display.
+        var (sync, accessor, workspace) = await CreateWorkspaceAsync();
+        Write(accessor, "behaviors/get-us-weather-2.mcs.yml", "mcs.metadata:\n  componentName: get-us-weather-2\nkind: InlineAgentSkill\ncontent: placeholder\n");
+        Write(accessor, "behaviors/get-us-weather-2/SKILL.md", "---\ndescription: d\n---\nBody\n");
+        Write(accessor, "behaviors/get-us-weather-2/scripts/Get-UsWeather.ps1", "Write-Host hi\n");
+
+        var localDefinition = await sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
+        var fileComponents = localDefinition.Components.OfType<FileAttachmentComponent>().ToList();
+        Assert.NotEmpty(fileComponents);
+
+        // Default overload: deferMissingParents == false, surfaceFileChildrenOfNewParents == false.
+        // The skill is absent from the cloud, so its payload files hit the missing-parent branch.
+        var (changeSet, _) = sync.GetLocalChanges(localDefinition, CliCloudDefinition(), accessor, "token-1");
+
+        var fileInserts = changeSet.BotComponentChanges.OfType<BotComponentInsert>().Where(insert => insert.Component is FileAttachmentComponent).ToList();
+        Assert.Equal(fileComponents.Count, fileInserts.Count);
+    }
+
+    [Fact]
     public async Task ReadWorkspaceDefinition_BareSkill_CloudCacheNotModified()
     {
         var (sync, accessor, workspace) = await CreateWorkspaceAsync();
