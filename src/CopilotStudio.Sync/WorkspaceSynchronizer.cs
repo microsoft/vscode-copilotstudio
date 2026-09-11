@@ -5382,6 +5382,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
             BotComponentId parentBotComponentId = default;
             var parentBotComponentIdResolved = !localComponent.ParentBotComponentId.HasValue;
+            var surfacedFileChildForDisplayOnly = false;
             // Remap local botIds (which were fabricated) to real botIds from the cloud.
             if (localComponent is FileAttachmentComponent)
             {
@@ -5406,11 +5407,15 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                     else
                     {
                         // Display-only (preview) path: the parent skill is new and not yet in the
-                        // cloud. A push creates it in an earlier pass, so surface the file payload
-                        // as a Create now (using the local parent id) instead of hiding it, matching
-                        // how new knowledge files appear as local changes.
+                        // cloud. Surface the file payload as a Create in the change display list so it
+                        // appears like a new knowledge file, but keep it OUT of the returned changeset:
+                        // push-capable callers send the changeset in a single SaveChangesAsync that
+                        // cannot resolve the fabricated parent id. The multi-pass push path
+                        // (surfaceFileChildrenOfNewParents == false) creates the parent skill first and
+                        // then the payloads, so it is unaffected.
                         parentBotComponentId = localFileParent.Id;
                         parentBotComponentIdResolved = true;
+                        surfacedFileChildForDisplayOnly = true;
                     }
                 }
             }
@@ -5483,7 +5488,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 b2.ParentBotComponentCollectionId = parentCollectionId;
                 b2.DisplayName = localComponent.DisplayName;
                 b2.Description = localComponent.Description;
-                botComponentBuilderList.Add(new BotComponentInsert(b2.Build()));
+                if (!surfacedFileChildForDisplayOnly)
+                {
+                    botComponentBuilderList.Add(new BotComponentInsert(b2.Build()));
+                }
+
                 changes.Add(new Change() { ChangeType = ChangeType.Create, Name = b2.SchemaNameString, Uri = GetChangeUri(fileAccessor, localComponent, localDefinition, componentFolderOverrides), SchemaName = b2.SchemaNameString, ChangeKind = localComponent.Kind.ToString() });
             }
         }

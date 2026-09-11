@@ -286,13 +286,21 @@ public class NewLocalSkillTests
 
         var workspaceDef = await sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
 
-        var (_, changes) = await sync.GetLocalChangesAsync(workspace, workspaceDef, new Mock<ISyncDataverseClient>().Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
+        var (changeSet, changes) = await sync.GetLocalChangesAsync(workspace, workspaceDef, new Mock<ISyncDataverseClient>().Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
 
         // The skill anchor and every payload file the parser found must surface as new local
         // changes (like new knowledge files) even though the parent skill is not yet in the cloud.
         Assert.Contains(changes, change => change.ChangeType == ChangeType.Create && change.SchemaName == "cr123_natest.skill.redlining-content");
         Assert.Contains(changes, change => change.ChangeType == ChangeType.Create && change.SchemaName == "cr123_natest.file.templatedocx");
         Assert.Contains(changes, change => change.ChangeType == ChangeType.Create && change.SchemaName == "cr123_natest.file.redlinepy");
+
+        // The surfaced payload files are display-only: they must NOT be in the returned changeset,
+        // because push-capable callers send it in a single SaveChangesAsync that cannot resolve the
+        // not-yet-created (fabricated) parent skill id. The skill anchor itself is a real insert.
+        var insertedSchemaNames = changeSet.BotComponentChanges.OfType<BotComponentInsert>().Select(insert => insert.Component!.SchemaNameString).ToList();
+        Assert.Contains("cr123_natest.skill.redlining-content", insertedSchemaNames);
+        Assert.DoesNotContain("cr123_natest.file.templatedocx", insertedSchemaNames);
+        Assert.DoesNotContain("cr123_natest.file.redlinepy", insertedSchemaNames);
     }
 
     [Fact]
