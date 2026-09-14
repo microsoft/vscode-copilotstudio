@@ -16,6 +16,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
     using Moq;
     using System;
     using System.Collections.Generic;
+    using System.Collections.Immutable;
     using System.Globalization;
     using System.IO;
     using System.Linq;
@@ -91,10 +92,68 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
             string dialogYaml)
             => await AssertNoCompiledChangeAsync(scenario, dialogYaml, extraJson: "");
 
+        [Theory]
+        [InlineData("message edited on a topic carrying a PropertyError", TriggerMissingIntentDialog, "", "activity: Hello", "activity: Goodbye")]
+        [InlineData("action id edited on a topic carrying a PropertyError", TriggerMissingIntentDialog, "", "id: sendOne", "id: sendTwo")]
+        [InlineData("message edited on a topic carrying a PropertyError and customer metadata", TriggerMissingIntentDialog, CustomerExtras, "activity: Hello", "activity: Goodbye")]
+        [InlineData("message edited on a clean topic (control)", CompleteTriggerDialog, "", "activity: Hello", "activity: Goodbye")]
+        [InlineData("trigger query edited on a clean topic (control)", CompleteTriggerDialog, "", "- hello", "- goodbye")]
+        public async Task GetLocalChanges_OnCompiledWorkspace_AfterRealEditToTopicFile_StillReportsTopicUpdate(
+            string scenario,
+            string dialogYaml,
+            string extraJson,
+            string find,
+            string replace)
+        {
+            var (compiledDefinition, cloudDefinition) = CompileProjectedWorkspace(
+                dialogYaml,
+                extraJson,
+                topicFile =>
+                {
+                    Assert.Contains(find, topicFile, StringComparison.Ordinal);
+                    return topicFile.Replace(find, replace, StringComparison.Ordinal);
+                });
+
+            var changes = await GetLocalChangesAsync(compiledDefinition, cloudDefinition);
+            var topicChange = Assert.Single(changes.Where(c => c.SchemaName == TopicSchemaName));
+
+            Assert.True(
+                topicChange.ChangeType == ChangeType.Update,
+                $"Scenario '{scenario}': a persisted edit to the topic file was not reported as an update. "
+                + $"Changes: {string.Join(", ", changes.Select(c => $"{c.ChangeType} {c.SchemaName} -> {c.Uri}"))}");
+        }
+
+        [Fact]
+        public void CompiledTopic_CarryingValidationDiagnosticsAndARealEdit_SerializesDifferentlyFromTheCloudCache()
+        {
+            var (compiledDefinition, cloudDefinition) = CompileProjectedWorkspace(
+                TriggerMissingIntentDialog,
+                extraJson: "",
+                editTopicFile: topicFile => topicFile.Replace("activity: Hello", "activity: Goodbye", StringComparison.Ordinal));
+
+            var compiledRoot = compiledDefinition.Components
+                .First(c => string.Equals(c.SchemaNameString, TopicSchemaName, StringComparison.Ordinal)).RootElement!;
+            var cloudRoot = cloudDefinition.Components
+                .First(c => string.Equals(c.SchemaNameString, TopicSchemaName, StringComparison.Ordinal)).RootElement!;
+
+            Assert.NotEqual(Serialize(cloudRoot), Serialize(compiledRoot));
+        }
+
         private static async Task AssertNoCompiledChangeAsync(string scenario, string dialogYaml, string extraJson)
         {
             var (compiledDefinition, cloudDefinition) = CompileProjectedWorkspace(dialogYaml, extraJson);
 
+            var changes = await GetLocalChangesAsync(compiledDefinition, cloudDefinition);
+            var topicChanges = changes.Where(c => c.SchemaName == TopicSchemaName).ToArray();
+
+            Assert.True(
+                topicChanges.Length == 0,
+                $"Scenario '{scenario}': the topic was reported as changed on a freshly cloned workspace. "
+                + $"Changes: {string.Join(", ", changes.Select(c => $"{c.ChangeType} {c.SchemaName} -> {c.Uri}"))}");
+        }
+
+        private static async Task<ImmutableArray<Change>> GetLocalChangesAsync(DefinitionBase compiledDefinition, DefinitionBase cloudDefinition)
+        {
             using var fileAccessorFactory = new InMemoryFileAccessorFactory();
             var workspaceFolder = new DirectoryPath(WorkspaceRoot + "/");
             var fileAccessor = fileAccessorFactory.Create(workspaceFolder);
@@ -113,13 +172,9 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
                 compiledDefinition,
                 CancellationToken.None);
 
-            var topicChanges = changes.Where(c => c.SchemaName == TopicSchemaName).ToArray();
-
-            Assert.True(
-                topicChanges.Length == 0,
-                $"Scenario '{scenario}': the topic was reported as changed on a freshly cloned workspace. "
-                + $"Changes: {string.Join(", ", changes.Select(c => $"{c.ChangeType} {c.SchemaName} -> {c.Uri}"))}");
+            return changes;
         }
+
 
         private static (BotComponentBase compiled, BotComponentBase cloud) CompileProjectedTopic(string dialogYaml)
         {
@@ -133,7 +188,10 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
             return (compiled, cloud);
         }
 
-        private static (DefinitionBase compiled, DefinitionBase cloud) CompileProjectedWorkspace(string dialogYaml, string extraJson)
+        private static (DefinitionBase compiled, DefinitionBase cloud) CompileProjectedWorkspace(
+            string dialogYaml,
+            string extraJson,
+            Func<string, string>? editTopicFile = null)
         {
             var cloudDefinition = CreateCloudDefinition(dialogYaml, extraJson);
             var cloudTopic = cloudDefinition.Components
@@ -144,6 +202,11 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
             {
                 CodeSerializer.SerializeAsMcsYml(writer, cloudTopic);
                 projectedTopicFile = writer.ToString();
+            }
+
+            if (editTopicFile != null)
+            {
+                projectedTopicFile = editTopicFile(projectedTopicFile);
             }
 
             var (compiler, language) = BuildCompiler();

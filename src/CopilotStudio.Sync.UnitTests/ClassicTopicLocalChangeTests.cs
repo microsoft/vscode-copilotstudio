@@ -95,14 +95,62 @@ public class ClassicTopicLocalChangeTests
         return topicPath is null ? "<topic file not found>" : ReadFile(accessor, topicPath);
     }
 
+    private const string TriggerMissingIntentDialog =
+        "kind: AdaptiveDialog\nbeginDialog:\n  kind: OnRecognizedIntent\n  actions:\n    - kind: SendActivity\n      id: sendOne\n      activity: Hello\n";
+
+    private const string CompleteTriggerDialog =
+        "kind: AdaptiveDialog\nbeginDialog:\n  kind: OnRecognizedIntent\n  id: main\n  intent:\n    triggerQueries:\n      - hello\n  actions:\n    - kind: SendActivity\n      id: sendOne\n      activity: Hello\n";
+
     [Theory]
-    [InlineData("topic missing a required property carries a compile diagnostic", "kind: AdaptiveDialog\nbeginDialog:\n  kind: OnRecognizedIntent\n  actions:\n    - kind: SendActivity\n      id: sendOne\n      activity: Hello\n")]
-    [InlineData("topic with a complete trigger", "kind: AdaptiveDialog\nbeginDialog:\n  kind: OnRecognizedIntent\n  id: main\n  intent:\n    triggerQueries:\n      - hello\n  actions:\n    - kind: SendActivity\n      id: sendOne\n      activity: Hello\n")]
+    [InlineData("topic missing a required property carries a compile diagnostic", TriggerMissingIntentDialog)]
+    [InlineData("topic with a complete trigger", CompleteTriggerDialog)]
     [InlineData("topic with a multi-line message", "kind: AdaptiveDialog\nbeginDialog:\n  kind: OnRecognizedIntent\n  actions:\n    - kind: SendActivity\n      id: sendOne\n      activity: |-\n        Line one\n        Line two\n")]
     public async Task GetLocalChanges_ImmediatelyAfterClone_TopicWithCompileDiagnostics_ReportsNoTopicChange(
         string scenario,
         string dialogYaml)
         => await AssertNoLocalChangesAsync(scenario, dialogYaml, extraJson: "");
+
+    [Theory]
+    [InlineData("message edited on a topic carrying a compile diagnostic", TriggerMissingIntentDialog, "", "activity: Hello", "activity: Goodbye")]
+    [InlineData("action id edited on a topic carrying a compile diagnostic", TriggerMissingIntentDialog, "", "id: sendOne", "id: sendTwo")]
+    [InlineData("message edited on a topic carrying a compile diagnostic and customer metadata", TriggerMissingIntentDialog, CustomerExtras, "activity: Hello", "activity: Goodbye")]
+    [InlineData("message edited on a clean topic carrying customer metadata", CompleteTriggerDialog, CustomerExtras, "activity: Hello", "activity: Goodbye")]
+    [InlineData("message edited on a clean topic (control)", CompleteTriggerDialog, "", "activity: Hello", "activity: Goodbye")]
+    [InlineData("trigger query edited on a clean topic (control)", CompleteTriggerDialog, "", "- hello", "- goodbye")]
+    public async Task GetLocalChanges_AfterRealEditToTopicFile_StillReportsTopicUpdate(
+        string scenario,
+        string dialogYaml,
+        string extraJson,
+        string find,
+        string replace)
+    {
+        var (synchronizer, accessor, workspace) = await CloneAsync(dialogYaml, extraJson);
+
+        var topicPath = FindTopicPath(accessor);
+        Assert.NotNull(topicPath);
+
+        var original = ReadFile(accessor, topicPath!);
+        Assert.Contains(find, original, StringComparison.Ordinal);
+        WriteFile(accessor, topicPath!, original.Replace(find, replace, StringComparison.Ordinal));
+
+        var localDefinition = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None);
+        var (_, changes) = await synchronizer.GetLocalChangesAsync(workspace, localDefinition, CancellationToken.None);
+
+        var topicChange = Assert.Single(changes.Where(c => c.SchemaName == TopicSchemaName));
+
+        Assert.True(
+            topicChange.ChangeType == ChangeType.Update,
+            $"""
+            Scenario '{scenario}': a persisted edit to the topic file was not reported as an update.
+            Changes        : {string.Join(", ", changes.Select(c => $"{c.ChangeType} {c.SchemaName} -> {c.Uri}"))}
+            Edited topic   : {Escape(ReadFile(accessor, topicPath!))}
+            """);
+    }
+
+    private static string? FindTopicPath(InMemoryFileAccessor accessor)
+        => accessor.Files.Keys
+            .Select(k => k.Replace('\\', '/'))
+            .FirstOrDefault(k => k.StartsWith("topics/", StringComparison.Ordinal));
 
     private static async Task AssertNoLocalChangesAsync(string scenario, string dialogYaml, string extraJson)
     {
@@ -204,6 +252,13 @@ public class ClassicTopicLocalChangeTests
         using var stream = fileAccessor.OpenRead(new AgentFilePath(path));
         using var reader = new StreamReader(stream);
         return reader.ReadToEnd();
+    }
+
+    private static void WriteFile(InMemoryFileAccessor fileAccessor, string path, string content)
+    {
+        using var stream = fileAccessor.OpenWrite(new AgentFilePath(path));
+        using var writer = new StreamWriter(stream);
+        writer.Write(content);
     }
 
     private static string Escape(string value)

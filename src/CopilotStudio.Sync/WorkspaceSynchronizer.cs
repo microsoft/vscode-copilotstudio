@@ -5089,7 +5089,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             return string.Equals(SerializeElementYaml(left), SerializeElementYaml(right), StringComparison.Ordinal);
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (Exception exception) when (IsProjectionSerializationFailure(exception))
         {
             return false;
         }
@@ -5107,19 +5107,31 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         try
         {
             var leftYaml = SerializeSettingsYaml(left);
-            if (string.Equals(leftYaml, SerializeSettingsYaml(right), StringComparison.Ordinal))
+            var rightYaml = SerializeSettingsYaml(right);
+            if (string.Equals(leftYaml, rightYaml, StringComparison.Ordinal))
             {
                 return true;
             }
 
-            var roundTripped = CodeSerializer.Deserialize<BotEntity>(leftYaml);
-            return roundTripped is not null && roundTripped.WithOnlySettingsYamlProperties().Equals(right, NodeComparison.Structural);
+            var leftRoundTripped = RoundTripSettingsProjection(leftYaml);
+            var rightRoundTripped = RoundTripSettingsProjection(rightYaml);
+            return leftRoundTripped is not null && rightRoundTripped is not null && leftRoundTripped.Equals(rightRoundTripped, NodeComparison.Structural);
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (Exception exception) when (IsProjectionSerializationFailure(exception))
         {
             return false;
         }
     }
+
+    private static BotEntity? RoundTripSettingsProjection(string settingsYaml) => CodeSerializer.Deserialize<BotEntity>(settingsYaml)?.WithOnlySettingsYamlProperties();
+
+    private static bool IsProjectionSerializationFailure(Exception exception)
+        => exception is YamlDotNet.Core.YamlException
+            or YamlReaderException
+            or InvalidDialogJsonException
+            or Microsoft.Agents.ObjectModel.Exceptions.ObjectModelException
+            or InvalidOperationException
+            or ArgumentException;
 
     private static string SerializeSettingsYaml(BotEntity settingsView)
     {
