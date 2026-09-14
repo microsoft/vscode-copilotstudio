@@ -6,6 +6,8 @@ using Microsoft.Agents.Platform.Content;
 using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Moq;
+using System.Collections.Immutable;
+using System.Text;
 using System.Text.Json;
 using Xunit;
 using static Microsoft.CopilotStudio.Sync.Dataverse.SyncDataverseClient;
@@ -135,6 +137,71 @@ public class SettingsLocalChangeTests
         Assert.Equal(writer.ToString(), onDisk);
     }
 
+    [Theory]
+    [InlineData("trailing ASCII space before a line break", "You are an agent \nSecond line")]
+    [InlineData("ASCII space starting a continuation line", "You are an agent\n Second line")]
+    [InlineData("whitespace-only interior line", "You are an agent\n   \nThird line")]
+    [InlineData("trailing line break", "You are an agent\n")]
+    [InlineData("CRLF line break", "You are an agent\r\nSecond line")]
+    [InlineData("tab in the middle of a line", "You are an\tagent")]
+    [InlineData("trailing non-breaking space", "You are an agent\u00A0")]
+    [InlineData("non-breaking space before a line break", "You are an agent \u00A0\nSecond line")]
+    [InlineData("zero-width space and non-joiner", "You are an agent\u200B\u200C")]
+    [InlineData("zero-width space starting a continuation line", "You are an agent\n\u200BSecond line")]
+    public async Task GetLocalChanges_ImmediatelyAfterClone_InvisibleCharactersInInstructions_ReportsNoSettingsChange(
+        string scenario,
+        string instructionValue)
+    {
+        var (synchronizer, accessor, workspace) = await CloneAsync(CreateAgentSettingsJson(instructionValue));
+
+        var localDefinition = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None);
+        var (_, changes) = await synchronizer.GetLocalChangesAsync(workspace, localDefinition, CancellationToken.None);
+
+        Assert.True(changes.IsEmpty, BuildRoundTripReport(scenario, instructionValue, accessor, changes));
+    }
+
+    [Theory]
+    [InlineData("non-breaking space starts a continuation line", "Alpha\n\u00A0Bravo")]
+    [InlineData("non-breaking space starts the third line", "Alpha\nBravo\n\u00A0Charlie")]
+    [InlineData("non-breaking space is the whole last line", "Alpha\n\u00A0")]
+    [InlineData("tab starts a continuation line", "Alpha\n\tBravo")]
+    [InlineData("lone CR line break", "You are an agent\rSecond line")]
+    [InlineData("customer repro from botdefinition.json", "You are an \u00A0\n \u200B\u200C\u200B\u200C\u200B\u200C\u00A0\u200B\u200C\u200B\u200C\u200B\u200C\u200B\u200C\n\u00A0\u200B\u200C")]
+    public async Task GetLocalChanges_ImmediatelyAfterClone_LineBreakFollowedByNonBreakingSpaceOrTab_ReportsNoSettingsChange(
+        string scenario,
+        string instructionValue)
+    {
+        var (synchronizer, accessor, workspace) = await CloneAsync(CreateAgentSettingsJson(instructionValue));
+
+        var localDefinition = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None);
+        var (_, changes) = await synchronizer.GetLocalChangesAsync(workspace, localDefinition, CancellationToken.None);
+
+        Assert.True(changes.IsEmpty, BuildRoundTripReport(scenario, instructionValue, accessor, changes));
+    }
+
+    [Theory]
+    [InlineData("trailing ASCII space before a line break", "You are an agent \nSecond line")]
+    [InlineData("trailing non-breaking space", "You are an agent\u00A0")]
+    [InlineData("non-breaking space starts a continuation line", "Alpha\n\u00A0Bravo")]
+    [InlineData("customer repro from botdefinition.json", "You are an \u00A0\n \u200B\u200C\u200B\u200C\u200B\u200C\u00A0\u200B\u200C\u200B\u200C\u200B\u200C\u200B\u200C\n\u00A0\u200B\u200C")]
+    public async Task Clone_InvisibleCharactersInInstructions_SettingsFileMatchesCachedProjection(
+        string scenario,
+        string instructionValue)
+    {
+        var (_, accessor, _) = await CloneAsync(CreateAgentSettingsJson(instructionValue));
+
+        var onDisk = ReadFile(accessor, SettingsPath);
+        var cachedProjection = SerializeSettingsProjection(((BotDefinition)ReadCache(accessor)).Entity!);
+
+        Assert.True(
+            string.Equals(cachedProjection, onDisk, StringComparison.Ordinal),
+            $"""
+            Scenario '{scenario}': settings.mcs.yml does not match the cached projection it was written from.
+            Cached projection: {Escape(cachedProjection)}
+            On disk          : {Escape(onDisk)}
+            """);
+    }
+
     [Fact]
     public async Task GetLocalChanges_RealEditToSettingsFile_StillReportsChange()
     {
@@ -192,6 +259,68 @@ public class SettingsLocalChangeTests
             CancellationToken.None);
 
         return (synchronizer, (InMemoryFileAccessor)fileAccessorFactory.Create(workspace), workspace);
+    }
+
+    private static string CreateAgentSettingsJson(string instructionValue)
+    {
+        var encodedValue = JsonSerializer.Serialize(instructionValue);
+        return $$"""
+            {
+              "$kind": "AgentSettings",
+              "model": { "$kind": "ModelConfig", "series": "GPT56Reasoning" },
+              "instructions": {
+                "$kind": "Instructions",
+                "segments": [ { "$kind": "StaticSegment", "value": {{encodedValue}} } ]
+              },
+              "greetingText": "Hello",
+              "web": { "$kind": "WebSettings", "enableWebSearch": false }
+            }
+            """;
+    }
+
+    private static string BuildRoundTripReport(
+        string scenario,
+        string instructionValue,
+        InMemoryFileAccessor accessor,
+        ImmutableArray<Change> changes)
+    {
+        var onDisk = ReadFile(accessor, SettingsPath);
+        var blockStart = onDisk.IndexOf("value:", StringComparison.Ordinal);
+        var blockEnd = onDisk.IndexOf("greetingText", StringComparison.Ordinal);
+        var block = blockStart >= 0 && blockEnd > blockStart ? onDisk[blockStart..blockEnd] : onDisk;
+
+        return $"""
+            Scenario '{scenario}': a freshly cloned workspace reported {changes.Length} local change(s) before the user edited anything.
+            Changes                 : {string.Join(", ", changes.Select(c => $"{c.SchemaName}:{c.Uri}"))}
+            Cloud instruction value : {Escape(instructionValue)}
+            Projected block scalar  : {Escape(block)}
+            """;
+    }
+
+    private static string SerializeSettingsProjection(BotEntity entity)
+    {
+        using var writer = new StringWriter();
+        CodeSerializer.SerializeWithoutKind(writer, entity.WithOnlySettingsYamlProperties());
+        return writer.ToString();
+    }
+
+    private static string Escape(string value)
+    {
+        var builder = new StringBuilder(value.Length);
+        foreach (var character in value)
+        {
+            builder.Append(character switch
+            {
+                '\r' => "\\r",
+                '\n' => "\\n",
+                '\t' => "\\t",
+                ' ' => "\u00B7",
+                _ when character < 0x20 || character > 0x7E => $"\\u{(int)character:X4}",
+                _ => character.ToString(),
+            });
+        }
+
+        return builder.ToString();
     }
 
     private static BotEntity CreateCliBotEntityFromCloudJson(string agentSettingsJson)
