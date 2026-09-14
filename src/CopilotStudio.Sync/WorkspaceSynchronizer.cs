@@ -5083,17 +5083,55 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             isMetadata ? GetWorkflowMetadata(workflow) : GetClientData(workflow));
     }
 
-    private static bool SettingsProjectionsMatch(BotEntity left, BotEntity right)
+    private static bool ElementProjectionsMatch(BotElement left, BotElement right)
     {
         try
         {
-            return string.Equals(SerializeSettingsYaml(left), SerializeSettingsYaml(right), StringComparison.Ordinal);
+            return string.Equals(SerializeElementYaml(left), SerializeElementYaml(right), StringComparison.Ordinal);
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (Exception exception) when (IsProjectionSerializationFailure(exception))
         {
             return false;
         }
     }
+
+    private static string SerializeElementYaml(BotElement element)
+    {
+        using var writer = new StringWriter();
+        CodeSerializer.Serialize(writer, element);
+        return writer.ToString();
+    }
+
+    private static bool SettingsProjectionsMatch(BotEntity left, BotEntity right)
+    {
+        try
+        {
+            var leftYaml = SerializeSettingsYaml(left);
+            var rightYaml = SerializeSettingsYaml(right);
+            if (string.Equals(leftYaml, rightYaml, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            var leftRoundTripped = RoundTripSettingsProjection(leftYaml);
+            var rightRoundTripped = RoundTripSettingsProjection(rightYaml);
+            return leftRoundTripped is not null && rightRoundTripped is not null && leftRoundTripped.Equals(rightRoundTripped, NodeComparison.Structural);
+        }
+        catch (Exception exception) when (IsProjectionSerializationFailure(exception))
+        {
+            return false;
+        }
+    }
+
+    private static BotEntity? RoundTripSettingsProjection(string settingsYaml) => CodeSerializer.Deserialize<BotEntity>(settingsYaml)?.WithOnlySettingsYamlProperties();
+
+    private static bool IsProjectionSerializationFailure(Exception exception)
+        => exception is YamlDotNet.Core.YamlException
+            or YamlReaderException
+            or InvalidDialogJsonException
+            or Microsoft.Agents.ObjectModel.Exceptions.ObjectModelException
+            or InvalidOperationException
+            or ArgumentException;
 
     private static string SerializeSettingsYaml(BotEntity settingsView)
     {
@@ -5457,7 +5495,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
                 if (localComponent is not FileAttachmentComponent)
                 {
-                    same = same && (r1 is not null) && (r2 is not null) && r1.Equals(r2, NodeComparison.Structural);
+                    same = same && (r1 is not null) && (r2 is not null)
+                        && (r1.Equals(r2, NodeComparison.Structural)
+                            || ElementProjectionsMatch(localComponent.RootElement!, cloudComponent.RootElement!));
                 }
 
                 if (!same)
