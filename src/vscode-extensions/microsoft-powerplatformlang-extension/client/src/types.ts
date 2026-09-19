@@ -147,8 +147,16 @@ export interface EnvironmentInfo {
   environmentId: string;
   dataverseUrl: string;
   displayName: string;
-  agentManagementUrl?: string;
+  agentManagementUrl: string;
   environmentSku?: string;  // Developer, Default, Sandbox, Production, etc.
+}
+
+export interface EnvironmentEndpointCandidate {
+  environmentId: string;
+  dataverseUrl: string;
+  displayName: string;
+  agentManagementUrl?: string;
+  environmentSku?: string;
 }
 
 export interface AgentIdentifier {
