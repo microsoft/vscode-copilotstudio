@@ -1,6 +1,10 @@
 import * as assert from 'node:assert';
 import { describe, test } from 'node:test';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { Uri } from 'vscode';
 import {
 	AgentChangesItemKind,
 	ChangeGroupTreeItem,
@@ -8,6 +12,7 @@ import {
 	isWorkspaceConnected,
 	describeDisconnection,
 } from '../../sync/agentChangesTreeProvider';
+import { getStoredAccountSummaries } from '../../clients/account';
 import { Resource } from '../../sync/changeTracking';
 import { ChangeType } from '../../types';
 import { SyncState } from '../../sync/workspaceSynchronizer';
@@ -185,5 +190,24 @@ describe('Disconnected Agent Presentation', () => {
 		const status = describeDisconnection(makeWorkspace({ syncInfo: undefined }));
 		assert.strictEqual(status.action, 'reattach');
 		assert.ok(status.message.includes('Not linked to a cloud agent'));
+	});
+
+	test('a missing endpoint on a healthy account points at Preview, not at signing in again', () => {
+		const workspaceUri = Uri.file(path.join(os.tmpdir(), `mcs-endpoint-msg-${Date.now()}`)).toString();
+		fs.mkdirSync(path.join(Uri.parse(workspaceUri).fsPath, '.mcs'), { recursive: true });
+		fs.writeFileSync(path.join(Uri.parse(workspaceUri).fsPath, '.mcs', 'conn.json'), '{}', 'utf-8');
+
+		const accounts = getStoredAccountSummaries();
+		if (accounts.length === 0) {
+			return;
+		}
+
+		const status = describeDisconnection(makeWorkspace({
+			workspaceUri,
+			syncInfo: { agentManagementEndpoint: undefined, accountInfo: { accountId: accounts[0].accountId, accountEmail: accounts[0].accountEmail } },
+		}));
+
+		assert.ok(status.message.includes('Preview'), status.message);
+		assert.ok(!status.message.includes('sign in to'), status.message);
 	});
 });

@@ -1,6 +1,6 @@
 import { Uri } from "vscode";
 import { FetchAccessToken, TokenInfo, getAccessTokenByAccountId } from "./account";
-import { EnvironmentInfo } from "../types";
+import { EnvironmentInfo, EnvironmentEndpointCandidate } from "../types";
 import { CoreServicesClusterCategory, DefaultCoreServicesClusterCategory, TelemetryEventsKeys } from "../constants";
 import logger from "../services/logger";
 
@@ -195,13 +195,13 @@ function hasEditPermission(env: EnvironmentDetails): boolean {
     return !!(permissions.UpdateEnvironment || permissions.CreatePowerApp);
 }  
 
-export async function getEnvironmentByIdAsync(
+async function fetchEnvironmentDetailsByIdAsync(
     clusterCategory: CoreServicesClusterCategory | null,
     environmentId: string,
     cancellationToken: AbortSignal| null,
     accountId: string | null = null,
     accountHint?: string
-): Promise<EnvironmentInfo | null> {
+): Promise<EnvironmentDetails> {
     const environmentDetails = await getAsync<EnvironmentDetails>(
         clusterCategory,
         `environments/${environmentId}`,
@@ -212,16 +212,16 @@ export async function getEnvironmentByIdAsync(
         accountHint
     );
 
-    return toEnvironmentInfo(environmentDetails.result);
+    return environmentDetails.result;
 }
 
-export async function findEnvironmentInListAsync(
+async function findEnvironmentDetailsInListAsync(
     clusterCategory: CoreServicesClusterCategory | null,
     environmentId: string,
     cancellationToken: AbortSignal| null,
     accountId: string | null = null,
     accountHint?: string
-): Promise<EnvironmentInfo | null> {
+): Promise<EnvironmentDetails | undefined> {
     const environments = await getAsync<EnvironmentResponse>(
         clusterCategory,
         'environments',
@@ -232,8 +232,38 @@ export async function findEnvironmentInListAsync(
         accountHint
     );
 
-    const match = environments.result.value.find(details => details.name === environmentId);
-    return match ? toEnvironmentInfo(match) : null;
+    return environments.result.value.find(details => details.name === environmentId);
+}
+
+export async function getEnvironmentByIdAsync(
+    clusterCategory: CoreServicesClusterCategory | null,
+    environmentId: string,
+    cancellationToken: AbortSignal| null,
+    accountId: string | null = null,
+    accountHint?: string
+): Promise<EnvironmentInfo | null> {
+    return toEnvironmentInfo(await fetchEnvironmentDetailsByIdAsync(clusterCategory, environmentId, cancellationToken, accountId, accountHint));
+}
+
+export async function getEnvironmentEndpointByIdAsync(
+    clusterCategory: CoreServicesClusterCategory | null,
+    environmentId: string,
+    cancellationToken: AbortSignal| null,
+    accountId: string | null = null,
+    accountHint?: string
+): Promise<EnvironmentEndpointCandidate | null> {
+    return toEnvironmentEndpointCandidate(await fetchEnvironmentDetailsByIdAsync(clusterCategory, environmentId, cancellationToken, accountId, accountHint));
+}
+
+export async function findEnvironmentEndpointInListAsync(
+    clusterCategory: CoreServicesClusterCategory | null,
+    environmentId: string,
+    cancellationToken: AbortSignal| null,
+    accountId: string | null = null,
+    accountHint?: string
+): Promise<EnvironmentEndpointCandidate | null> {
+    const match = await findEnvironmentDetailsInListAsync(clusterCategory, environmentId, cancellationToken, accountId, accountHint);
+    return match ? toEnvironmentEndpointCandidate(match) : null;
 }
 
 async function getAsync<TResult>(
@@ -341,9 +371,9 @@ export type EnvironmentLookup = (
     cancellationToken: AbortSignal | null,
     accountId?: string | null,
     accountHint?: string
-) => Promise<EnvironmentInfo | null>;
+) => Promise<EnvironmentEndpointCandidate | null>;
 
-export function toEnvironmentInfo(details: EnvironmentDetails): EnvironmentInfo | null {
+export function toEnvironmentEndpointCandidate(details: EnvironmentDetails): EnvironmentEndpointCandidate | null {
     if (!details.properties?.linkedEnvironmentMetadata?.instanceUrl) {
         return null;
     }
@@ -351,10 +381,15 @@ export function toEnvironmentInfo(details: EnvironmentDetails): EnvironmentInfo 
     return {
         environmentId: details.name,
         displayName: details.properties.displayName,
-        dataverseUrl: details.properties.linkedEnvironmentMetadata?.instanceUrl,
+        dataverseUrl: details.properties.linkedEnvironmentMetadata.instanceUrl,
         agentManagementUrl: details.properties.runtimeEndpoints?.['microsoft.PowerVirtualAgents'],
         environmentSku: details.properties.environmentSku
     };
+}
+
+export function toEnvironmentInfo(details: EnvironmentDetails): EnvironmentInfo | null {
+    const candidate = toEnvironmentEndpointCandidate(details);
+    return candidate?.agentManagementUrl ? { ...candidate, agentManagementUrl: candidate.agentManagementUrl } : null;
 }
 
 interface EnvironmentResponse {

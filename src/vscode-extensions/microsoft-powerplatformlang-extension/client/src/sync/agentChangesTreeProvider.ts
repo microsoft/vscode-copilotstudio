@@ -80,7 +80,7 @@ export function describeDisconnection(workspace: CopilotStudioWorkspace): { mess
     return { message: `Signed out \u2014 sign in to ${label}.`, action: 'signin' };
   }
   if (!workspace.syncInfo.agentManagementEndpoint) {
-    return { message: `Not connected to its environment \u2014 sign in to ${label} to load cloud changes.`, action: 'signin' };
+    return { message: 'Its Copilot Studio endpoint is not recorded yet \u2014 run Preview/Pull to resolve it and load cloud changes.', action: 'signin' };
   }
   return { message: `Can't sign in to ${label}.`, action: 'signin' };
 }

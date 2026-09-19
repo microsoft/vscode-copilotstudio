@@ -1,7 +1,7 @@
 import * as assert from 'node:assert';
 import { describe, test } from 'node:test';
 
-import { mergeEnvironmentsBySku, toEnvironmentInfo, EnvironmentDetails } from '../../clients/bapClient';
+import { mergeEnvironmentsBySku, toEnvironmentInfo, toEnvironmentEndpointCandidate, EnvironmentDetails } from '../../clients/bapClient';
 import { EnvironmentInfo } from '../../types';
 
 const makeDetails = (properties: Record<string, unknown>): EnvironmentDetails => ({
@@ -23,23 +23,49 @@ describe('toEnvironmentInfo', () => {
 		assert.strictEqual(info?.environmentId, 'Default-a30263b9-1caf-4db5-ab53-ed3850c0bd1f');
 	});
 
-	test('returns an environment without an endpoint when runtime endpoints are absent', () => {
-		const info = toEnvironmentInfo(makeDetails({}));
-
-		assert.ok(info);
-		assert.strictEqual(info?.agentManagementUrl, undefined);
-		assert.strictEqual(info?.dataverseUrl, 'https://org82dd85c2.crm.dynamics.com/');
+	test('rejects an environment with no runtime endpoints so it never reaches the LSP', () => {
+		assert.strictEqual(toEnvironmentInfo(makeDetails({})), null);
 	});
 
-	test('returns an environment without an endpoint when Copilot Studio is not enabled', () => {
-		const info = toEnvironmentInfo(makeDetails({ runtimeEndpoints: { 'microsoft.PowerApps': 'https://api.powerapps.com/' } }));
-
-		assert.ok(info);
-		assert.strictEqual(info?.agentManagementUrl, undefined);
+	test('rejects an environment where Copilot Studio is not enabled', () => {
+		assert.strictEqual(
+			toEnvironmentInfo(makeDetails({ runtimeEndpoints: { 'microsoft.PowerApps': 'https://api.powerapps.com/' } })),
+			null);
 	});
 
 	test('returns null when the environment has no linked Dataverse instance', () => {
 		assert.strictEqual(toEnvironmentInfo({ name: 'env', properties: { displayName: 'No Dataverse' } as any }), null);
+	});
+
+	test('every environment it returns carries an endpoint the LSP can build a Uri from', () => {
+		const info = toEnvironmentInfo(makeDetails({
+			runtimeEndpoints: { 'microsoft.PowerVirtualAgents': 'https://powervamg.us-il106.gateway.prod.island.powerapps.com/' },
+		}));
+
+		assert.ok(info);
+		assert.doesNotThrow(() => new URL(info!.agentManagementUrl));
+	});
+});
+
+describe('toEnvironmentEndpointCandidate', () => {
+	test('keeps an endpointless environment so repair can still inspect it', () => {
+		const candidate = toEnvironmentEndpointCandidate(makeDetails({}));
+
+		assert.ok(candidate);
+		assert.strictEqual(candidate?.agentManagementUrl, undefined);
+		assert.strictEqual(candidate?.dataverseUrl, 'https://org82dd85c2.crm.dynamics.com/');
+	});
+
+	test('surfaces the endpoint when Copilot Studio is enabled', () => {
+		const candidate = toEnvironmentEndpointCandidate(makeDetails({
+			runtimeEndpoints: { 'microsoft.PowerVirtualAgents': 'https://powervamg.us-il106.gateway.prod.island.powerapps.com/' },
+		}));
+
+		assert.strictEqual(candidate?.agentManagementUrl, 'https://powervamg.us-il106.gateway.prod.island.powerapps.com/');
+	});
+
+	test('still returns null when the environment has no linked Dataverse instance', () => {
+		assert.strictEqual(toEnvironmentEndpointCandidate({ name: 'env', properties: { displayName: 'No Dataverse' } as any }), null);
 	});
 });
 
