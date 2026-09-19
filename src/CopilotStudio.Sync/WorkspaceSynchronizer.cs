@@ -365,7 +365,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         // (schema-name) based and path-agnostic, so the CLI layered shape
         // flows through it unchanged — the layered files were already read
         // back into schema-name-keyed components by the Node E/F readers.
-        var updatedChangeSet = ApplyThreeWayMerge(localChanges, remoteChanges, originalSnapshot);
+        var updatedChangeSet = ApplyThreeWayMerge(localChanges, remoteChanges, originalSnapshot, out var conflictedSettingsYaml);
 
         var deletedComponents = ImmutableArray.CreateBuilder<BotComponentBase>();
         foreach (var item in updatedChangeSet.BotComponentChanges.OfType<BotComponentDelete>())
@@ -388,6 +388,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         RecordKnowledgeFilesBaseline(fileAccessor, newSnapshot, SelectDownloadedComponents(fileComponents, downloadedFiles), knowledgeFolderOverrides);
 
         var updatedDefinition = await UpdateWorkspaceDirectoryAsync(fileAccessor, workspaceFolder, updatedChangeSet, previousDefinition, deletedComponents.ToArray(), cancellationToken: cancellationToken, pathGroundingDefinition: newSnapshot, overrideConnectionReferences: connectionReferencesNeedOverride || deletedComponents.Count > 0).ConfigureAwait(false);
+
+        if (conflictedSettingsYaml != null)
+        {
+            await fileAccessor.WriteAsync(SettingsPath, new UTF8Encoding(false).GetBytes(conflictedSettingsYaml), cancellationToken).ConfigureAwait(false);
+        }
 
         WriteCloudCache(fileAccessor, newSnapshot);
         await WriteChangeTokenAsync(fileAccessor, remoteChangeset, cancellationToken).ConfigureAwait(false);
@@ -563,6 +568,16 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         (PvaComponentChangeSet ChangeSet, ImmutableArray<Change> Changes) remoteChanges,
         DefinitionBase? originalSnapshot)
     {
+        return ApplyThreeWayMerge(localChanges, remoteChanges, originalSnapshot, out _);
+    }
+
+    internal PvaComponentChangeSet ApplyThreeWayMerge(
+        (PvaComponentChangeSet ChangeSet, ImmutableArray<Change> Changes) localChanges,
+        (PvaComponentChangeSet ChangeSet, ImmutableArray<Change> Changes) remoteChanges,
+        DefinitionBase? originalSnapshot,
+        out string? conflictedSettingsYaml)
+    {
+        conflictedSettingsYaml = null;
         var localChangesWithoutKnowledgeFiles = localChanges.Changes
             .Where(c => c.ChangeKind != BotElementKind.FileAttachmentComponent.ToString())
             .ToImmutableArray();
@@ -618,16 +633,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         // Conflict on Bot Entity
         if (localChanges.ChangeSet.Bot != null
             && remoteChanges.ChangeSet.Bot != null
-            && localChanges.ChangeSet.Bot.Version != remoteChanges.ChangeSet.Bot.Version
-            && TryGetSettingsYaml((originalSnapshot as BotDefinition)?.Entity, out var originalComponentYaml)
-            && TryGetSettingsYaml(localChanges.ChangeSet.Bot, out var localYaml)
-            && TryGetSettingsYaml(remoteChanges.ChangeSet.Bot, out var remoteYaml))
+            && localChanges.ChangeSet.Bot.Version != remoteChanges.ChangeSet.Bot.Version)
         {
-            var updatedEntityString = MergeStrings(originalComponentYaml, localYaml, remoteYaml);
-
             // remoteChanges.ChangeSet.Bot is non-null — guarded by the if-condition above
             var remoteBot = remoteChanges.ChangeSet.Bot!;
-            var bot = TryDeserializeSettingsYaml(updatedEntityString) ?? remoteBot;
+            var bot = MergeBotEntitySettings((originalSnapshot as BotDefinition)?.Entity, localChanges.ChangeSet.Bot, remoteBot, out conflictedSettingsYaml);
             // The 3-way merge operates on settings YAML only (WithOnlySettingsYamlProperties
             // strips IconBase64 and other metadata from original/remote). Restore non-settings
             // properties — including IconBase64 — from the remote bot.
@@ -5124,6 +5134,38 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     }
 
     private static BotEntity? RoundTripSettingsProjection(string settingsYaml) => CodeSerializer.Deserialize<BotEntity>(settingsYaml)?.WithOnlySettingsYamlProperties();
+
+    internal BotEntity MergeBotEntitySettings(BotEntity? originalEntity, BotEntity localBot, BotEntity remoteBot, out string? conflictedSettingsYaml)
+    {
+        conflictedSettingsYaml = null;
+
+        if (!TryGetSettingsYaml(originalEntity, out var originalComponentYaml) || !TryGetSettingsYaml(localBot, out var localYaml) || !TryGetSettingsYaml(remoteBot, out var remoteYaml))
+        {
+            throw new SettingsMergeConflictException("The agent settings could not be read for merging. Review settings.mcs.yml and try again.");
+        }
+
+        var mergedYaml = MergeStrings(originalComponentYaml, localYaml, remoteYaml);
+
+        if (ContainsConflictMarkers(mergedYaml))
+        {
+            conflictedSettingsYaml = mergedYaml;
+            return localBot;
+        }
+
+        var merged = TryDeserializeSettingsYaml(mergedYaml);
+        if (merged != null)
+        {
+            return merged;
+        }
+
+        conflictedSettingsYaml = mergedYaml;
+        return localBot;
+    }
+
+    internal static bool ContainsConflictMarkers(string mergedYaml)
+    {
+        return mergedYaml.Contains("<<<<<<<", StringComparison.Ordinal) || mergedYaml.Contains(">>>>>>>", StringComparison.Ordinal);
+    }
 
     internal static bool TryGetSettingsYaml(BotEntity? entity, out string? settingsYaml)
     {

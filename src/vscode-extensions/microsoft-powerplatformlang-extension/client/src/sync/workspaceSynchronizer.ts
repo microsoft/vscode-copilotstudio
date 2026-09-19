@@ -224,8 +224,12 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
   }
 
   const { accountInfo, agentManagementEndpoint, dataverseEndpoint, environmentId } = syncInfo;
-  if (!dataverseEndpoint || !environmentId || !agentManagementEndpoint) {
+  if (!dataverseEndpoint || !environmentId) {
     throw new Error(`${displayText} failed. Connection settings in .mcs::conn.json are incomplete or invalid, please clone again.`);
+  }
+
+  if (!agentManagementEndpoint) {
+    throw new Error(`${displayText} failed. The Copilot Studio endpoint for environment ${environmentId} could not be resolved. Confirm you have access to that environment with the signed-in account, then try again.`);
   }
 
   const resolvedIdentity = resolveAccountIdentity(accountInfo);
