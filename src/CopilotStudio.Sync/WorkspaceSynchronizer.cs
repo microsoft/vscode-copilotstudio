@@ -616,18 +616,18 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         PvaComponentChangeSet updatedChangeSet;
 
         // Conflict on Bot Entity
-        if (localChanges.ChangeSet.Bot != null && remoteChanges.ChangeSet.Bot != null && localChanges.ChangeSet.Bot.Version != remoteChanges.ChangeSet.Bot.Version)
+        if (localChanges.ChangeSet.Bot != null
+            && remoteChanges.ChangeSet.Bot != null
+            && localChanges.ChangeSet.Bot.Version != remoteChanges.ChangeSet.Bot.Version
+            && TryGetSettingsYaml((originalSnapshot as BotDefinition)?.Entity, out var originalComponentYaml)
+            && TryGetSettingsYaml(localChanges.ChangeSet.Bot, out var localYaml)
+            && TryGetSettingsYaml(remoteChanges.ChangeSet.Bot, out var remoteYaml))
         {
-            var originalEntity = (originalSnapshot as BotDefinition)?.Entity;
-            var originalComponentYaml = GetSettingsYaml(originalEntity);
-            var localYaml = GetSettingsYaml(localChanges.ChangeSet.Bot);
-            var remoteYaml = GetSettingsYaml(remoteChanges.ChangeSet.Bot);
-
             var updatedEntityString = MergeStrings(originalComponentYaml, localYaml, remoteYaml);
 
             // remoteChanges.ChangeSet.Bot is non-null — guarded by the if-condition above
             var remoteBot = remoteChanges.ChangeSet.Bot!;
-            var bot = CodeSerializer.Deserialize<BotEntity>(updatedEntityString) ?? remoteBot;
+            var bot = TryDeserializeSettingsYaml(updatedEntityString) ?? remoteBot;
             // The 3-way merge operates on settings YAML only (WithOnlySettingsYamlProperties
             // strips IconBase64 and other metadata from original/remote). Restore non-settings
             // properties — including IconBase64 — from the remote bot.
@@ -5125,13 +5125,59 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private static BotEntity? RoundTripSettingsProjection(string settingsYaml) => CodeSerializer.Deserialize<BotEntity>(settingsYaml)?.WithOnlySettingsYamlProperties();
 
-    private static bool IsProjectionSerializationFailure(Exception exception)
-        => exception is YamlDotNet.Core.YamlException
+    internal static bool TryGetSettingsYaml(BotEntity? entity, out string? settingsYaml)
+    {
+        settingsYaml = null;
+        if (entity == null)
+        {
+            return true;
+        }
+
+        string projected;
+        try
+        {
+            projected = SerializeSettingsYaml(entity.WithOnlySettingsYamlProperties());
+        }
+        catch (Exception exception) when (IsProjectionSerializationFailure(exception))
+        {
+            return false;
+        }
+
+        try
+        {
+            var reparsed = RoundTripSettingsProjection(projected);
+            settingsYaml = reparsed == null ? projected : SerializeSettingsYaml(reparsed);
+        }
+        catch (Exception exception) when (IsProjectionSerializationFailure(exception))
+        {
+            settingsYaml = projected;
+        }
+
+        return true;
+    }
+
+    internal static BotEntity? TryDeserializeSettingsYaml(string settingsYaml)
+    {
+        try
+        {
+            return CodeSerializer.Deserialize<BotEntity>(settingsYaml);
+        }
+        catch (Exception exception) when (IsProjectionSerializationFailure(exception))
+        {
+            return null;
+        }
+    }
+
+    internal static bool IsProjectionSerializationFailure(Exception exception)
+    {
+        return exception is YamlDotNet.Core.YamlException
             or YamlReaderException
             or InvalidDialogJsonException
             or Microsoft.Agents.ObjectModel.Exceptions.ObjectModelException
             or InvalidOperationException
-            or ArgumentException;
+            or ArgumentException
+            or FormatException;
+    }
 
     private static string SerializeSettingsYaml(BotEntity settingsView)
     {
@@ -5943,27 +5989,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             && localComponent is GptComponent gptComponent
             && (gptComponent.Metadata is null || gptComponent.Metadata.Equals(new GptComponentMetadata(), NodeComparison.Structural))
             && string.Equals(componentUri, TopAgentPath.ToString(), StringComparison.OrdinalIgnoreCase);
-
-    private string? GetSettingsYaml(BotEntity? entity)
-    {
-        if (entity == null)
-        {
-            return null;
-        }
-
-
-        var projected = SerializeSettingsYaml(entity.WithOnlySettingsYamlProperties());
-
-        try
-        {
-            var reparsed = RoundTripSettingsProjection(projected);
-            return reparsed == null ? projected : SerializeSettingsYaml(reparsed);
-        }
-        catch (Exception exception) when (IsProjectionSerializationFailure(exception))
-        {
-            return projected;
-        }
-    }
 
     private string? GetMcsYaml(BotElement? element)
     {
