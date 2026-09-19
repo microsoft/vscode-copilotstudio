@@ -6,7 +6,7 @@ import { lspClient } from '../services/lspClient';
 import { AccountInfo, AgentSyncInfo } from "../types";
 import { getIcon } from "../icon";
 import { getClusterCategory, isChildUri, blankToUndefined } from '../utils/genericUtils';
-import { getEnvironmentEndpointByIdAsync, findEnvironmentEndpointInListAsync, EnvironmentLookup } from '../clients/bapClient';
+import { DEFAULT_ENVIRONMENT_LOOKUPS, EnvironmentLookup } from '../clients/bapClient';
 import { onAccountChange, findAccountsByTenant, getStoredAccountSummaries, hasUsableTenantId, extractTenantId, resolveAccountIdentity, selectAccountCandidates, StoredAccountSummary } from '../clients/account';
 import { pickAccount } from '../services/accountEnvPicker';
 import { LspMethods } from '../constants';
@@ -297,7 +297,7 @@ export async function tryRepairAgentManagementEndpoint(syncInfo: AgentSyncInfo, 
     return false;
   }
 
-  const agentManagementUrl = await resolveAgentManagementUrl(syncInfo.environmentId, syncInfo.accountInfo, lookups ?? [getEnvironmentEndpointByIdAsync, findEnvironmentEndpointInListAsync]);
+  const agentManagementUrl = await resolveAgentManagementUrl(syncInfo.environmentId, syncInfo.accountInfo, lookups ?? DEFAULT_ENVIRONMENT_LOOKUPS);
   if (agentManagementUrl) {
     syncInfo.agentManagementEndpoint = agentManagementUrl;
     if (!updateConnectionFile(workspaceUri, connectionData => { connectionData.AgentManagementEndpoint = agentManagementUrl; })) {

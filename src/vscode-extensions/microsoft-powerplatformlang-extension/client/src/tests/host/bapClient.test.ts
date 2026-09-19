@@ -1,7 +1,7 @@
 import * as assert from 'node:assert';
 import { describe, test } from 'node:test';
 
-import { mergeEnvironmentsBySku, toEnvironmentInfo, toEnvironmentEndpointCandidate, EnvironmentDetails } from '../../clients/bapClient';
+import { mergeEnvironmentsBySku, toEnvironmentInfo, toEnvironmentEndpointCandidate, resolveEnvironmentForCloneAsync, EnvironmentDetails } from '../../clients/bapClient';
 import { EnvironmentInfo } from '../../types';
 
 const makeDetails = (properties: Record<string, unknown>): EnvironmentDetails => ({
@@ -66,6 +66,79 @@ describe('toEnvironmentEndpointCandidate', () => {
 
 	test('still returns null when the environment has no linked Dataverse instance', () => {
 		assert.strictEqual(toEnvironmentEndpointCandidate({ name: 'env', properties: { displayName: 'No Dataverse' } as any }), null);
+	});
+});
+
+describe('resolveEnvironmentForCloneAsync', () => {
+	const ENDPOINT = 'https://powervamg.us-il106.gateway.prod.island.powerapps.com/';
+
+	const candidate = (agentManagementUrl?: string) => ({
+		environmentId: 'Default-a30263b9-1caf-4db5-ab53-ed3850c0bd1f',
+		displayName: 'Contoso (default)',
+		dataverseUrl: 'https://org82dd85c2.crm.dynamics.com/',
+		agentManagementUrl,
+	});
+
+	test('falls back to the list lookup when the per-id response omits the endpoint', async () => {
+		const calls: string[] = [];
+		const result = await resolveEnvironmentForCloneAsync(0 as any, 'env', null, null, undefined, [
+			async () => { calls.push('byId'); return candidate(undefined); },
+			async () => { calls.push('list'); return candidate(ENDPOINT); },
+		]);
+
+		assert.deepStrictEqual(calls, ['byId', 'list']);
+		assert.strictEqual(result.environment?.agentManagementUrl, ENDPOINT);
+		assert.strictEqual(result.endpointMissing, false);
+	});
+
+	test('performs only one lookup when the per-id response already carries the endpoint', async () => {
+		let listCalls = 0;
+		const result = await resolveEnvironmentForCloneAsync(0 as any, 'env', null, null, undefined, [
+			async () => candidate(ENDPOINT),
+			async () => { listCalls++; return candidate(ENDPOINT); },
+		]);
+
+		assert.strictEqual(listCalls, 0, 'the list lookup must not run once the endpoint is known');
+		assert.strictEqual(result.environment?.agentManagementUrl, ENDPOINT);
+	});
+
+	test('reports the endpoint missing only when every lookup agrees it is absent', async () => {
+		const result = await resolveEnvironmentForCloneAsync(0 as any, 'env', null, null, undefined, [
+			async () => candidate(undefined),
+			async () => candidate(undefined),
+		]);
+
+		assert.strictEqual(result.environment, null);
+		assert.strictEqual(result.endpointMissing, true);
+	});
+
+	test('does not claim the endpoint is missing when the environment was never found', async () => {
+		const result = await resolveEnvironmentForCloneAsync(0 as any, 'env', null, null, undefined, [
+			async () => null,
+			async () => null,
+		]);
+
+		assert.strictEqual(result.environment, null);
+		assert.strictEqual(result.endpointMissing, false);
+	});
+
+	test('keeps trying the remaining lookups when one throws', async () => {
+		const result = await resolveEnvironmentForCloneAsync(0 as any, 'env', null, null, undefined, [
+			async () => { throw new Error('Request failed with status 403'); },
+			async () => candidate(ENDPOINT),
+		]);
+
+		assert.strictEqual(result.environment?.agentManagementUrl, ENDPOINT);
+	});
+
+	test('returns a full environment the LSP can use, not just the endpoint', async () => {
+		const result = await resolveEnvironmentForCloneAsync(0 as any, 'env', null, null, undefined, [
+			async () => candidate(ENDPOINT),
+		]);
+
+		assert.strictEqual(result.environment?.dataverseUrl, 'https://org82dd85c2.crm.dynamics.com/');
+		assert.strictEqual(result.environment?.environmentId, 'Default-a30263b9-1caf-4db5-ab53-ed3850c0bd1f');
+		assert.strictEqual(result.environment?.displayName, 'Contoso (default)');
 	});
 });
 

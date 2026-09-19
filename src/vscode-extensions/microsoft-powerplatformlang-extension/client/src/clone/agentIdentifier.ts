@@ -2,7 +2,7 @@ import { CoreServicesClusterCategory, DefaultCoreServicesClusterCategory } from 
 import { AgentIdentifier} from "../types";
 
 const portalUriRegex = new RegExp(
-    /(?:https:\/\/)?(?:copilotstudio\.)(?<realm>\w+)?\.?microsoft\.com\/environments\/(?<environmentId>[\w-]+)(?:\/bots\/)?(?<botId>[\w-]+)?/i
+    /(?:https:\/\/)?(?:copilotstudio\.)(?<realm>\w+)?\.?microsoft\.com\/environments\/(?<environmentId>[\w-]+)(?:\/(?:bots|agents)\/)?(?<botId>[\w-]+)?/i
 );
 
 const realmToClusterCategory: Record<string, CoreServicesClusterCategory> = {

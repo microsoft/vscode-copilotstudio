@@ -235,14 +235,41 @@ async function findEnvironmentDetailsInListAsync(
     return environments.result.value.find(details => details.name === environmentId);
 }
 
-export async function getEnvironmentByIdAsync(
+export const DEFAULT_ENVIRONMENT_LOOKUPS: EnvironmentLookup[] = [getEnvironmentEndpointByIdAsync, findEnvironmentEndpointInListAsync];
+
+export interface ResolvedCloneEnvironment {
+    environment: EnvironmentInfo | null;
+    endpointMissing: boolean;
+}
+
+export async function resolveEnvironmentForCloneAsync(
     clusterCategory: CoreServicesClusterCategory | null,
     environmentId: string,
-    cancellationToken: AbortSignal| null,
+    cancellationToken: AbortSignal | null,
     accountId: string | null = null,
-    accountHint?: string
-): Promise<EnvironmentInfo | null> {
-    return toEnvironmentInfo(await fetchEnvironmentDetailsByIdAsync(clusterCategory, environmentId, cancellationToken, accountId, accountHint));
+    accountHint?: string,
+    lookups?: EnvironmentLookup[]
+): Promise<ResolvedCloneEnvironment> {
+    let endpointMissing = false;
+
+    for (const lookupEnvironment of lookups ?? DEFAULT_ENVIRONMENT_LOOKUPS) {
+        try {
+            const candidate = await lookupEnvironment(clusterCategory, environmentId, cancellationToken, accountId, accountHint);
+            if (!candidate) {
+                continue;
+            }
+
+            if (candidate.agentManagementUrl) {
+                return { environment: { ...candidate, agentManagementUrl: candidate.agentManagementUrl }, endpointMissing: false };
+            }
+
+            endpointMissing = true;
+        } catch {
+            continue;
+        }
+    }
+
+    return { environment: null, endpointMissing };
 }
 
 export async function getEnvironmentEndpointByIdAsync(

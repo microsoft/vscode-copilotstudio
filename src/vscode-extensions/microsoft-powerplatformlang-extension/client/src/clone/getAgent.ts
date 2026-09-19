@@ -7,7 +7,7 @@ import { window, ExtensionContext, Uri, QuickPickItem, QuickPickItemKind, ThemeI
 import { AgentInfo, CloneAgentRequest, ClonedAssets, EnvironmentInfo, IdentifyAgentResponse, CloneAgentResponse } from '../types';
 import { getIcon } from '../icon';
 import { tryGetAgentIdentifier } from './agentIdentifier';
-import { getEnvironmentByIdAsync, getEnvironmentEndpointByIdAsync, listEnvironmentsBySkuAsync, EnvironmentSku } from '../clients/bapClient';
+import { resolveEnvironmentForCloneAsync, listEnvironmentsBySkuAsync, EnvironmentSku } from '../clients/bapClient';
 import { getAgentAsync, listAgentsAsync, listSharedAgentsAsync, preWarmWhoAmI } from '../clients/dataverseClient';
 import { switchAccount, switchToAccount, isSignedIn, getPreferredAccountId, getPreferredTreeAccount, hasStoredAccount, listStoredAccounts, getAccessTokenByAccountId } from '../clients/account';
 import { DefaultCoreServicesClusterCategory, LspMethods, TelemetryEventsKeys } from '../constants';
@@ -191,7 +191,7 @@ export async function getAgentInfo(agentUrl: string | undefined, context: Extens
           let environmentWithoutEndpoint = false;
           for (const candidate of probeOrder) {
             try {
-              const env = await getEnvironmentByIdAsync(
+              const { environment: env, endpointMissing } = await resolveEnvironmentForCloneAsync(
                 parseResult.clusterCategory,
                 parseResult.environmentId,
                 null,
@@ -199,14 +199,7 @@ export async function getAgentInfo(agentUrl: string | undefined, context: Extens
                 candidate?.accountEmail
               );
               if (!env) {
-                const endpointCandidate = await getEnvironmentEndpointByIdAsync(
-                  parseResult.clusterCategory,
-                  parseResult.environmentId,
-                  null,
-                  candidate?.accountId ?? null,
-                  candidate?.accountEmail
-                );
-                if (endpointCandidate && !endpointCandidate.agentManagementUrl) {
+                if (endpointMissing) {
                   environmentWithoutEndpoint = true;
                 }
                 continue;
