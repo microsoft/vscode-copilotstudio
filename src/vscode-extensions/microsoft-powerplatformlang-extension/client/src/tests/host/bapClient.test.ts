@@ -1,8 +1,47 @@
 import * as assert from 'node:assert';
 import { describe, test } from 'node:test';
 
-import { mergeEnvironmentsBySku } from '../../clients/bapClient';
+import { mergeEnvironmentsBySku, toEnvironmentInfo, EnvironmentDetails } from '../../clients/bapClient';
 import { EnvironmentInfo } from '../../types';
+
+const makeDetails = (properties: Record<string, unknown>): EnvironmentDetails => ({
+	name: 'Default-a30263b9-1caf-4db5-ab53-ed3850c0bd1f',
+	properties: {
+		displayName: 'Contoso (default)',
+		linkedEnvironmentMetadata: { instanceUrl: 'https://org82dd85c2.crm.dynamics.com/' },
+		...properties,
+	} as any,
+});
+
+describe('toEnvironmentInfo', () => {
+	test('reads the Copilot Studio endpoint from the runtime endpoints', () => {
+		const info = toEnvironmentInfo(makeDetails({
+			runtimeEndpoints: { 'microsoft.PowerVirtualAgents': 'https://powervamg.us-il106.gateway.prod.island.powerapps.com/' },
+		}));
+
+		assert.strictEqual(info?.agentManagementUrl, 'https://powervamg.us-il106.gateway.prod.island.powerapps.com/');
+		assert.strictEqual(info?.environmentId, 'Default-a30263b9-1caf-4db5-ab53-ed3850c0bd1f');
+	});
+
+	test('returns an environment without an endpoint when runtime endpoints are absent', () => {
+		const info = toEnvironmentInfo(makeDetails({}));
+
+		assert.ok(info);
+		assert.strictEqual(info?.agentManagementUrl, undefined);
+		assert.strictEqual(info?.dataverseUrl, 'https://org82dd85c2.crm.dynamics.com/');
+	});
+
+	test('returns an environment without an endpoint when Copilot Studio is not enabled', () => {
+		const info = toEnvironmentInfo(makeDetails({ runtimeEndpoints: { 'microsoft.PowerApps': 'https://api.powerapps.com/' } }));
+
+		assert.ok(info);
+		assert.strictEqual(info?.agentManagementUrl, undefined);
+	});
+
+	test('returns null when the environment has no linked Dataverse instance', () => {
+		assert.strictEqual(toEnvironmentInfo({ name: 'env', properties: { displayName: 'No Dataverse' } as any }), null);
+	});
+});
 
 function makeEnv(environmentId: string, sku: string, displayName = environmentId): EnvironmentInfo {
 	return {

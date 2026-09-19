@@ -147,7 +147,7 @@ export interface EnvironmentInfo {
   environmentId: string;
   dataverseUrl: string;
   displayName: string;
-  agentManagementUrl: string;
+  agentManagementUrl?: string;
   environmentSku?: string;  // Developer, Default, Sandbox, Production, etc.
 }
 
@@ -366,6 +366,7 @@ export interface CreateConnectionReferenceResponse extends RemoteApiResponse {
 }
 
 export interface WorkflowResponse {
+  workflowId: string;
   workflowName: string;
   isDisabled: boolean;
   errorMessage?: string;

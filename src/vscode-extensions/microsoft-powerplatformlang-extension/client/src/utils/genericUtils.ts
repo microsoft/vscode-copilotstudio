@@ -7,6 +7,8 @@ export const getClusterCategory = (accountInfo?: Partial<AccountInfo>): CoreServ
   return accountInfo?.clusterCategory || DefaultCoreServicesClusterCategory;
 };
 
+export const blankToUndefined = (value?: string): string | undefined => value && value.trim() ? value : undefined;
+
 /**
  * Checks if childUri is a child of parentUri, handling encoding differences
  */

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { getAccessTokenByAccountId } from '../clients/account';
+import { getAccessTokenByAccountId, resolveAccountIdentity } from '../clients/account';
 import { getTokenScopeHostName } from '../clients/bapClient';
 import { DefaultCoreServicesClusterCategory, LspMethods } from '../constants';
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
@@ -43,12 +43,14 @@ export const acquireConnectionsAccessToken = async (clusterCategory: number, acc
   }
 };
 
-const acquireWorkspaceConnectionsToken = (syncInfo: AgentSyncInfo): Promise<string | undefined> =>
-  acquireConnectionsAccessToken(
+const acquireWorkspaceConnectionsToken = (syncInfo: AgentSyncInfo): Promise<string | undefined> => {
+  const resolvedIdentity = resolveAccountIdentity(syncInfo.accountInfo);
+  return acquireConnectionsAccessToken(
     syncInfo.accountInfo.clusterCategory ?? DefaultCoreServicesClusterCategory,
-    syncInfo.accountInfo.accountId,
-    syncInfo.accountInfo.accountEmail
+    resolvedIdentity.accountId,
+    resolvedIdentity.accountEmail
   );
+};
 
 const baseConnectionRequest = async (syncInfo: AgentSyncInfo, workspaceUri: string) => ({
   ...await buildLspRequestPayload(syncInfo, undefined, undefined, true),
