@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
-import { resetAccount } from '../clients/account';
+import { resetAccount, isIdentityUnbound, resolveAccountIdentity } from '../clients/account';
 import { SyncRequest, SyncResponse, WorkflowResponse, AIPromptResponse } from '../types';
-import { CopilotStudioWorkspace, tryRepairAgentManagementEndpoint } from './localWorkspaces';
+import { CopilotStudioWorkspace, tryRepairAgentManagementEndpoint, tryRepairAccountInfo } from './localWorkspaces';
 import { uploadKnowledgeFiles } from '../knowledgeFiles/uploadKnowledgeFiles';
 import { virtualKnowledgeFileSystemProvider } from '../knowledgeFiles/virtualKnowledgeFile';
 import { knowledgeTreeDataProvider } from '../knowledgeFiles/knowledgeFileTree';
@@ -75,6 +75,7 @@ export interface PushOptions {
 export interface WorkspaceSynchronizer {
     workspace: CopilotStudioWorkspace;
     syncState: SyncState;
+    lastOperationSucceeded: boolean;
     push: (options?: PushOptions) => Promise<SyncResponse | undefined>;
     pull: (virtualProvider: virtualKnowledgeFileSystemProvider) => Promise<SyncResponse | undefined >;
     fetch: () => Promise<void>;
@@ -104,8 +105,10 @@ export function createSyncSuccessLog(workspace: CopilotStudioWorkspace, syncOper
 
 export function getOrAddSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
   const uri = ws.workspaceUri.toString();
-  if (map.has(uri)) {
-    return map.get(uri)!;
+  const existing = map.get(uri);
+  if (existing) {
+    existing.workspace = ws;
+    return existing;
   }
 
   const synchronizer = getSynchronizer(ws);
@@ -118,7 +121,9 @@ export function removeSynchronizer(workspaceUri: string): void {
 }
 
 function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
+  let currentWorkspace = ws;
   let currentState = SyncState.Idle;
+  let operationSucceeded = true;
   const listeners: SyncStateListener[] = [];
 
   async function updateSyncState(newState: SyncState) {
@@ -141,9 +146,11 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
       throw new Error('Another sync operation is in progress');
     }
 
+    operationSucceeded = false;
     try {
       await updateSyncState(newState);
       const result = await operation();
+      operationSucceeded = true;
       return result;
     } finally {
       await updateSyncState(SyncState.Idle);
@@ -151,21 +158,25 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
   }
 
   return {
-    workspace: ws,
+    get workspace() { return currentWorkspace; },
+    set workspace(next: CopilotStudioWorkspace) { currentWorkspace = next; },
     get syncState() { return currentState; },
+    get lastOperationSucceeded() { return operationSucceeded; },
     push: async (options: PushOptions = {}): Promise<SyncResponse> => {
       const { suppressErrorNotification = false, suppressDisabledWorkflowWarnings = false, draftConnectionReferenceWorkflows = false } = options;
       return await executeSyncOperation(async () => {
-        const response = await sync(ws, 'applying changes', LspMethods.SYNC_PUSH, false, suppressErrorNotification, suppressDisabledWorkflowWarnings, draftConnectionReferenceWorkflows);
-        replaceLocalChanges(ws.workspaceUri, response.localChanges);
-        await uploadKnowledgeFiles(ws);
+        const workspace = currentWorkspace;
+        const response = await sync(workspace, 'applying changes', LspMethods.SYNC_PUSH, false, suppressErrorNotification, suppressDisabledWorkflowWarnings, draftConnectionReferenceWorkflows);
+        replaceLocalChanges(workspace.workspaceUri, response.localChanges);
+        await uploadKnowledgeFiles(workspace);
         return response;
       }, SyncState.Pushing);
     },
     pull: async (virtualProvider: virtualKnowledgeFileSystemProvider): Promise<SyncResponse> => {
       return await executeSyncOperation(async () => {
-        const response = await sync(ws, "getting changes", LspMethods.SYNC_PULL, false);
-        replaceLocalChanges(ws.workspaceUri, response.localChanges);
+        const workspace = currentWorkspace;
+        const response = await sync(workspace, "getting changes", LspMethods.SYNC_PULL, false);
+        replaceLocalChanges(workspace.workspaceUri, response.localChanges);
 
         if (virtualProvider) {
           await virtualProvider.refresh();
@@ -181,7 +192,7 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
     fetch: async () => {
       await executeSyncOperation(
         async () => {
-          await sync(ws, "previewing changes", LspMethods.GET_REMOTE_CHANGES, true);
+          await sync(currentWorkspace, "previewing changes", LspMethods.GET_REMOTE_CHANGES, true);
         },
         SyncState.Fetching
       );
@@ -204,6 +215,8 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
     throw new Error(`${displayText} failed. Connection file .mcs::conn.json is missing, please clone again.`);
   }
 
+  await tryRepairAccountInfo(syncInfo, workspaceUri);
+
   // On-demand repair: resolve missing agentManagementEndpoint from BAP single-environment lookup.
   // PAC-cloned workspaces may have null endpoint when user lacks PP admin role.
   if (!syncInfo.agentManagementEndpoint) {
@@ -213,6 +226,11 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
   const { accountInfo, agentManagementEndpoint, dataverseEndpoint, environmentId } = syncInfo;
   if (!dataverseEndpoint || !environmentId || !agentManagementEndpoint) {
     throw new Error(`${displayText} failed. Connection settings in .mcs::conn.json are incomplete or invalid, please clone again.`);
+  }
+
+  const resolvedIdentity = resolveAccountIdentity(accountInfo);
+  if (isIdentityUnbound(resolvedIdentity.accountId, resolvedIdentity.accountEmail)) {
+    throw new Error(`${displayText} failed. Could not determine which account this agent belongs to. Select the account that owns it and try again.`);
   }
 
   const request: SyncRequest = {

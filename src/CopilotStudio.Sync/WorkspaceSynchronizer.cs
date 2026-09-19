@@ -619,9 +619,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         if (localChanges.ChangeSet.Bot != null && remoteChanges.ChangeSet.Bot != null && localChanges.ChangeSet.Bot.Version != remoteChanges.ChangeSet.Bot.Version)
         {
             var originalEntity = (originalSnapshot as BotDefinition)?.Entity;
-            var originalComponentYaml = originalEntity == null ? null : GetMcsYaml(originalEntity.WithOnlySettingsYamlProperties());
-            var localYaml = localChanges.ChangeSet.Bot == null ? null : GetMcsYaml(localChanges.ChangeSet.Bot);
-            var remoteYaml = remoteChanges.ChangeSet.Bot == null ? null : GetMcsYaml(remoteChanges.ChangeSet.Bot.WithOnlySettingsYamlProperties());
+            var originalComponentYaml = GetSettingsYaml(originalEntity);
+            var localYaml = GetSettingsYaml(localChanges.ChangeSet.Bot);
+            var remoteYaml = GetSettingsYaml(remoteChanges.ChangeSet.Bot);
 
             var updatedEntityString = MergeStrings(originalComponentYaml, localYaml, remoteYaml);
 
@@ -5522,6 +5522,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                     continue;
                 }
 
+                var createUri = GetChangeUri(fileAccessor, localComponent, localDefinition, componentFolderOverrides);
+                if (IsRootAgentMetadata(localComponent, createUri, isRemoteChange))
+                {
+                    continue;
+                }
+
                 // In local, but not in cloud . --> Insert to cloud
                 var b2 = localComponent.ToBuilder();
                 b2.ParentBotId = parentBotId;
@@ -5534,7 +5540,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                     botComponentBuilderList.Add(new BotComponentInsert(b2.Build()));
                 }
 
-                changes.Add(new Change() { ChangeType = ChangeType.Create, Name = b2.SchemaNameString, Uri = GetChangeUri(fileAccessor, localComponent, localDefinition, componentFolderOverrides), SchemaName = b2.SchemaNameString, ChangeKind = localComponent.Kind.ToString() });
+                changes.Add(new Change() { ChangeType = ChangeType.Create, Name = b2.SchemaNameString, Uri = createUri, SchemaName = b2.SchemaNameString, ChangeKind = localComponent.Kind.ToString() });
             }
         }
 
@@ -5930,6 +5936,33 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         var stripedMetaRecord = record.Properties.Remove("mcs.metadata");
         return botElement.WithExtensionData(stripedMetaRecord.IsEmpty ? null : new RecordDataValue(stripedMetaRecord));
+    }
+
+    private static bool IsRootAgentMetadata(BotComponentBase localComponent, string componentUri, bool isRemoteChange)
+        => !isRemoteChange
+            && localComponent is GptComponent gptComponent
+            && (gptComponent.Metadata is null || gptComponent.Metadata.Equals(new GptComponentMetadata(), NodeComparison.Structural))
+            && string.Equals(componentUri, TopAgentPath.ToString(), StringComparison.OrdinalIgnoreCase);
+
+    private string? GetSettingsYaml(BotEntity? entity)
+    {
+        if (entity == null)
+        {
+            return null;
+        }
+
+
+        var projected = SerializeSettingsYaml(entity.WithOnlySettingsYamlProperties());
+
+        try
+        {
+            var reparsed = RoundTripSettingsProjection(projected);
+            return reparsed == null ? projected : SerializeSettingsYaml(reparsed);
+        }
+        catch (Exception exception) when (IsProjectionSerializationFailure(exception))
+        {
+            return projected;
+        }
     }
 
     private string? GetMcsYaml(BotElement? element)
