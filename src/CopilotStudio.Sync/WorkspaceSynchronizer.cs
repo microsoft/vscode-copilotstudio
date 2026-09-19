@@ -616,18 +616,18 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         PvaComponentChangeSet updatedChangeSet;
 
         // Conflict on Bot Entity
-        if (localChanges.ChangeSet.Bot != null && remoteChanges.ChangeSet.Bot != null && localChanges.ChangeSet.Bot.Version != remoteChanges.ChangeSet.Bot.Version)
+        if (localChanges.ChangeSet.Bot != null
+            && remoteChanges.ChangeSet.Bot != null
+            && localChanges.ChangeSet.Bot.Version != remoteChanges.ChangeSet.Bot.Version
+            && TryGetSettingsYaml((originalSnapshot as BotDefinition)?.Entity, out var originalComponentYaml)
+            && TryGetSettingsYaml(localChanges.ChangeSet.Bot, out var localYaml)
+            && TryGetSettingsYaml(remoteChanges.ChangeSet.Bot, out var remoteYaml))
         {
-            var originalEntity = (originalSnapshot as BotDefinition)?.Entity;
-            var originalComponentYaml = originalEntity == null ? null : GetMcsYaml(originalEntity.WithOnlySettingsYamlProperties());
-            var localYaml = localChanges.ChangeSet.Bot == null ? null : GetMcsYaml(localChanges.ChangeSet.Bot);
-            var remoteYaml = remoteChanges.ChangeSet.Bot == null ? null : GetMcsYaml(remoteChanges.ChangeSet.Bot.WithOnlySettingsYamlProperties());
-
             var updatedEntityString = MergeStrings(originalComponentYaml, localYaml, remoteYaml);
 
             // remoteChanges.ChangeSet.Bot is non-null — guarded by the if-condition above
             var remoteBot = remoteChanges.ChangeSet.Bot!;
-            var bot = CodeSerializer.Deserialize<BotEntity>(updatedEntityString) ?? remoteBot;
+            var bot = TryDeserializeSettingsYaml(updatedEntityString) ?? remoteBot;
             // The 3-way merge operates on settings YAML only (WithOnlySettingsYamlProperties
             // strips IconBase64 and other metadata from original/remote). Restore non-settings
             // properties — including IconBase64 — from the remote bot.
@@ -5125,13 +5125,59 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private static BotEntity? RoundTripSettingsProjection(string settingsYaml) => CodeSerializer.Deserialize<BotEntity>(settingsYaml)?.WithOnlySettingsYamlProperties();
 
-    private static bool IsProjectionSerializationFailure(Exception exception)
-        => exception is YamlDotNet.Core.YamlException
+    internal static bool TryGetSettingsYaml(BotEntity? entity, out string? settingsYaml)
+    {
+        settingsYaml = null;
+        if (entity == null)
+        {
+            return true;
+        }
+
+        string projected;
+        try
+        {
+            projected = SerializeSettingsYaml(entity.WithOnlySettingsYamlProperties());
+        }
+        catch (Exception exception) when (IsProjectionSerializationFailure(exception))
+        {
+            return false;
+        }
+
+        try
+        {
+            var reparsed = RoundTripSettingsProjection(projected);
+            settingsYaml = reparsed == null ? projected : SerializeSettingsYaml(reparsed);
+        }
+        catch (Exception exception) when (IsProjectionSerializationFailure(exception))
+        {
+            settingsYaml = projected;
+        }
+
+        return true;
+    }
+
+    internal static BotEntity? TryDeserializeSettingsYaml(string settingsYaml)
+    {
+        try
+        {
+            return CodeSerializer.Deserialize<BotEntity>(settingsYaml);
+        }
+        catch (Exception exception) when (IsProjectionSerializationFailure(exception))
+        {
+            return null;
+        }
+    }
+
+    internal static bool IsProjectionSerializationFailure(Exception exception)
+    {
+        return exception is YamlDotNet.Core.YamlException
             or YamlReaderException
             or InvalidDialogJsonException
             or Microsoft.Agents.ObjectModel.Exceptions.ObjectModelException
             or InvalidOperationException
-            or ArgumentException;
+            or ArgumentException
+            or FormatException;
+    }
 
     private static string SerializeSettingsYaml(BotEntity settingsView)
     {
@@ -5522,6 +5568,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                     continue;
                 }
 
+                var createUri = GetChangeUri(fileAccessor, localComponent, localDefinition, componentFolderOverrides);
+                if (IsRootAgentMetadata(localComponent, createUri, isRemoteChange))
+                {
+                    continue;
+                }
+
                 // In local, but not in cloud . --> Insert to cloud
                 var b2 = localComponent.ToBuilder();
                 b2.ParentBotId = parentBotId;
@@ -5534,7 +5586,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                     botComponentBuilderList.Add(new BotComponentInsert(b2.Build()));
                 }
 
-                changes.Add(new Change() { ChangeType = ChangeType.Create, Name = b2.SchemaNameString, Uri = GetChangeUri(fileAccessor, localComponent, localDefinition, componentFolderOverrides), SchemaName = b2.SchemaNameString, ChangeKind = localComponent.Kind.ToString() });
+                changes.Add(new Change() { ChangeType = ChangeType.Create, Name = b2.SchemaNameString, Uri = createUri, SchemaName = b2.SchemaNameString, ChangeKind = localComponent.Kind.ToString() });
             }
         }
 
@@ -5931,6 +5983,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var stripedMetaRecord = record.Properties.Remove("mcs.metadata");
         return botElement.WithExtensionData(stripedMetaRecord.IsEmpty ? null : new RecordDataValue(stripedMetaRecord));
     }
+
+    private static bool IsRootAgentMetadata(BotComponentBase localComponent, string componentUri, bool isRemoteChange)
+        => !isRemoteChange
+            && localComponent is GptComponent gptComponent
+            && (gptComponent.Metadata is null || gptComponent.Metadata.Equals(new GptComponentMetadata(), NodeComparison.Structural))
+            && string.Equals(componentUri, TopAgentPath.ToString(), StringComparison.OrdinalIgnoreCase);
 
     private string? GetMcsYaml(BotElement? element)
     {

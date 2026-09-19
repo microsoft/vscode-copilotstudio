@@ -177,6 +177,7 @@ public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectio
 
         return new WorkflowResponse
         {
+            WorkflowId = workflowMetadata.WorkflowId,
             WorkflowName = workflowMetadata.Name ?? workflowMetadata.WorkflowId.ToString(),
             IsDisabled = errorMessage.Contains("this is not a valid connection", StringComparison.OrdinalIgnoreCase) || !(workflowMetadata.StateCode == 1 && workflowMetadata.StatusCode == 2),
             ErrorMessage = errorMessage
@@ -235,6 +236,7 @@ public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectio
 
         return new WorkflowResponse
         {
+            WorkflowId = workflowMetadata.WorkflowId,
             WorkflowName = workflowMetadata.Name ?? workflowMetadata.WorkflowId.ToString(),
             IsDisabled = !(workflowMetadata.StateCode == 1 && workflowMetadata.StatusCode == 2),
             ErrorMessage = errorMessage

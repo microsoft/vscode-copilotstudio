@@ -215,6 +215,27 @@ export async function getEnvironmentByIdAsync(
     return toEnvironmentInfo(environmentDetails.result);
 }
 
+export async function findEnvironmentInListAsync(
+    clusterCategory: CoreServicesClusterCategory | null,
+    environmentId: string,
+    cancellationToken: AbortSignal| null,
+    accountId: string | null = null,
+    accountHint?: string
+): Promise<EnvironmentInfo | null> {
+    const environments = await getAsync<EnvironmentResponse>(
+        clusterCategory,
+        'environments',
+        '$expand=properties.permissions',
+        cancellationToken,
+        accountId,
+        true,
+        accountHint
+    );
+
+    const match = environments.result.value.find(details => details.name === environmentId);
+    return match ? toEnvironmentInfo(match) : null;
+}
+
 async function getAsync<TResult>(
     clusterCategory: CoreServicesClusterCategory | null,
     relativePath: string,
@@ -314,7 +335,15 @@ export async function isAccountTokenUsable(accountId?: string, accountEmail?: st
     }
 }
 
-function toEnvironmentInfo(details: EnvironmentDetails): EnvironmentInfo | null {
+export type EnvironmentLookup = (
+    clusterCategory: CoreServicesClusterCategory | null,
+    environmentId: string,
+    cancellationToken: AbortSignal | null,
+    accountId?: string | null,
+    accountHint?: string
+) => Promise<EnvironmentInfo | null>;
+
+export function toEnvironmentInfo(details: EnvironmentDetails): EnvironmentInfo | null {
     if (!details.properties?.linkedEnvironmentMetadata?.instanceUrl) {
         return null;
     }
@@ -323,7 +352,7 @@ function toEnvironmentInfo(details: EnvironmentDetails): EnvironmentInfo | null 
         environmentId: details.name,
         displayName: details.properties.displayName,
         dataverseUrl: details.properties.linkedEnvironmentMetadata?.instanceUrl,
-        agentManagementUrl: details.properties.runtimeEndpoints['microsoft.PowerVirtualAgents'],
+        agentManagementUrl: details.properties.runtimeEndpoints?.['microsoft.PowerVirtualAgents'],
         environmentSku: details.properties.environmentSku
     };
 }
@@ -332,14 +361,13 @@ interface EnvironmentResponse {
     value: EnvironmentDetails[];
 }
 
-interface EnvironmentDetails {
+export interface EnvironmentDetails {
     name: string;
     properties: Properties;
 }
-
 interface Properties {
     displayName: string;
-    runtimeEndpoints: Record<string, string>;
+    runtimeEndpoints?: Record<string, string>;
     linkedEnvironmentMetadata: LinkedEnvironmentMetadata;
     permissions?: EnvironmentPermissions;
     environmentSku?: string;

@@ -4,7 +4,7 @@ import { spawnSync } from 'child_process';
 import { ServerOptions, TransportKind, LanguageClient, LanguageClientOptions, State, LogMessageNotification, Trace } from "vscode-languageclient/node";
 import { TELEMETRY_CONNECTION_STRING, TelemetryEventsKeys } from '../constants';
 import { AccountInfo, AgentSyncInfo, EnvironmentInfo, RemoteApiRequest } from '../types';
-import { getAccessTokenByAccountId, getCopilotStudioAccessTokenByAccountId } from '../clients/account';
+import { getAccessTokenByAccountId, getCopilotStudioAccessTokenByAccountId, isIdentityUnbound, resolveAccountIdentity, resolveTenantId } from '../clients/account';
 import { getSolutionVersionsAsync } from '../clients/dataverseClient';
 import { getClusterCategory } from '../utils/genericUtils';
 import { onWorkspaceChange } from '../sync/workspaceScm';
@@ -324,11 +324,16 @@ export const buildLspRequestPayload = async (syncInfo?: AgentSyncInfo, environme
 
   if (syncInfo) {
     const { accountInfo, agentManagementEndpoint, dataverseEndpoint, environmentId, solutionVersions } = syncInfo;
-    const copilotStudioAccessToken = await getCopilotStudioAccessTokenByAccountId(getClusterCategory(accountInfo), accountInfo.accountId, accountInfo.accountEmail, interactive);
-    const dataverseAccessToken = await getAccessTokenByAccountId(vscode.Uri.parse(dataverseEndpoint), accountInfo.accountId, accountInfo.accountEmail, interactive);
+    const resolvedIdentity = resolveAccountIdentity(accountInfo);
+    if (isIdentityUnbound(resolvedIdentity.accountId, resolvedIdentity.accountEmail)) {
+      throw new Error('Could not determine which account this agent belongs to. Select the account that owns it and try again.');
+    }
+
+    const copilotStudioAccessToken = await getCopilotStudioAccessTokenByAccountId(getClusterCategory(accountInfo), resolvedIdentity.accountId, resolvedIdentity.accountEmail, interactive);
+    const dataverseAccessToken = await getAccessTokenByAccountId(vscode.Uri.parse(dataverseEndpoint), resolvedIdentity.accountId, resolvedIdentity.accountEmail, interactive);
 
     payload = {
-      accountInfo,
+      accountInfo: { ...accountInfo, ...resolvedIdentity, tenantId: resolveTenantId(resolvedIdentity.tenantId, dataverseAccessToken.tenantId) },
       copilotStudioAccessToken: copilotStudioAccessToken.accessToken,
       dataverseAccessToken: dataverseAccessToken.accessToken,
       environmentInfo: {
