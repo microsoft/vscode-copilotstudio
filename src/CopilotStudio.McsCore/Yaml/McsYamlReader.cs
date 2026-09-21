@@ -215,7 +215,7 @@ internal static class McsYamlReader
                     }
                 }
 
-                var node = ParseNodeContent(nodeIndent, parentIndent, allowBlockMapping, tag, start, anchor != null && !crossedLineBreak ? anchor : null, out var implicitBlockMapping);
+                var node = ParseNodeContent(nodeIndent, parentIndent, allowBlockMapping, tag, start, anchor != null && !crossedLineBreak ? anchor : null, tag != null && !crossedLineBreak ? tag : null, out var implicitBlockMapping);
                 if (anchor != null && !(implicitBlockMapping && !crossedLineBreak))
                 {
                     RegisterAnchor(anchor, node);
@@ -296,7 +296,7 @@ internal static class McsYamlReader
             return (count, depth + 1);
         }
 
-        private McsYamlNode ParseNodeContent(int nodeIndent, int parentIndent, bool allowBlockMapping, string? tag, McsYamlPosition start, string? firstKeyAnchor, out bool implicitBlockMapping)
+        private McsYamlNode ParseNodeContent(int nodeIndent, int parentIndent, bool allowBlockMapping, string? tag, McsYamlPosition start, string? firstKeyAnchor, string? firstKeyTag, out bool implicitBlockMapping)
         {
             implicitBlockMapping = false;
 
@@ -322,6 +322,7 @@ internal static class McsYamlReader
                 if (allowBlockMapping && IsMappingKeySeparatorAhead())
                 {
                     implicitBlockMapping = true;
+                    RejectNonTextKeyTag(firstKeyTag, quoted.Start);
                     if (firstKeyAnchor != null)
                     {
                         RegisterAnchor(firstKeyAnchor, quoted);
@@ -351,6 +352,7 @@ internal static class McsYamlReader
             if (allowBlockMapping && TryFindKeyEnd())
             {
                 implicitBlockMapping = true;
+                RejectNonTextKeyTag(firstKeyTag, start);
                 return ParseBlockMapping(nodeIndent, firstKeyAnchor);
             }
 
@@ -676,10 +678,18 @@ internal static class McsYamlReader
                     RegisterAnchor(properties.Anchor, key);
                 }
 
-                return key;
+                return properties.Tag == null ? key : ApplyTag(properties.Tag, key);
             }
 
             return ParsePlainScalar(int.MaxValue, false, FlowContext.BlockKey);
+        }
+
+        private void RejectNonTextKeyTag(string? tag, McsYamlPosition position)
+        {
+            if (tag != null && !string.Equals(tag, "!!str", StringComparison.Ordinal))
+            {
+                throw new McsYamlFormatException($"A key tagged '{tag}' is not a text key, and only text keys are supported in this document.", position.Line, position.Column);
+            }
         }
 
         private void RejectUnsupportedKey(McsYamlNode key)
@@ -687,6 +697,11 @@ internal static class McsYamlReader
             if (key.Kind != McsYamlNodeKind.Scalar || key.Scalar == null)
             {
                 throw new McsYamlFormatException("Only text keys are supported in this document.", key.Start.Line, key.Start.Column);
+            }
+
+            if (key.Tag != null && !string.Equals(key.Tag, "!!str", StringComparison.Ordinal))
+            {
+                throw new McsYamlFormatException($"A key tagged '{key.Tag}' is not a text key, and only text keys are supported in this document.", key.Start.Line, key.Start.Column);
             }
         }
 
@@ -1139,7 +1154,7 @@ internal static class McsYamlReader
 
         private string ReadCodePoint(int length)
         {
-            var value = 0;
+            uint value = 0;
             for (var digit = 0; digit < length; digit++)
             {
                 if (AtEnd || !Uri.IsHexDigit(Current))
@@ -1147,7 +1162,7 @@ internal static class McsYamlReader
                     throw Fail("Expected a hexadecimal escape sequence.");
                 }
 
-                value = (value * 16) + Convert.ToInt32(Current.ToString(), 16);
+                value = (value * 16) + (uint)Convert.ToInt32(Current.ToString(), 16);
                 Advance();
             }
 
@@ -1156,7 +1171,7 @@ internal static class McsYamlReader
                 throw Fail($"'{value:X}' is not a valid Unicode code point.");
             }
 
-            return char.ConvertFromUtf32(value);
+            return char.ConvertFromUtf32((int)value);
         }
 
         private McsYamlNode ParsePlainScalar(int parentIndent, bool hasTag, FlowContext context)
@@ -1589,7 +1604,7 @@ internal static class McsYamlReader
                 return false;
             }
 
-            if (_index == 0)
+            if (_index == 0 || (_index == 1 && _text.Length > 0 && _text[0] == '\uFEFF'))
             {
                 return true;
             }

@@ -202,4 +202,60 @@ public class McsYamlTagTests
     {
         Assert.Equal("hello", McsYamlReader.Parse("%TAG !! tag:yaml.org,2002:\n---\na: !!str hello\n")["a"]);
     }
+    [Theory]
+    [InlineData("!!int 5: value\n")]
+    [InlineData("!!bool true: value\n")]
+    [InlineData("!!float 1.5: value\n")]
+    [InlineData("a: 1\n!!int 5: value\n")]
+    [InlineData("outer:\n  !!int 5: value\n")]
+    [InlineData("a: {!!int 5: value}\n")]
+    public void KeysCarryingANonTextTagAreRejected(string yaml)
+    {
+        Assert.Throws<McsYamlFormatException>(() => McsYamlReader.Parse(yaml));
+    }
+
+    [Theory]
+    [InlineData("!!str 5: value\n", "5")]
+    [InlineData("a: 1\n!!str b: value\n", "b")]
+    [InlineData("outer:\n  !!str key: value\n", "key")]
+    public void KeysTaggedAsTextAreAccepted(string yaml, string expectedKey)
+    {
+        Assert.Contains(expectedKey, Flatten(McsYamlReader.Parse(yaml)));
+    }
+
+    [Theory]
+    [InlineData("a: !!map\n  k: v\n")]
+    [InlineData("a: !!map {k: v}\n")]
+    [InlineData("!!map\nk: v\n")]
+    [InlineData("a: !!int 5\n")]
+    [InlineData("a: !!str text\n")]
+    public void TagsOnValuesAndCollectionsAreNotTreatedAsKeyTags(string yaml)
+    {
+        Assert.NotNull(McsYamlReader.Parse(yaml));
+    }
+
+    [Fact]
+    public void AMergeKeyIsReadAsAPlainTextKeyJustLikeTheReferenceParser()
+    {
+        var document = Assert.IsType<Dictionary<string, object?>>(McsYamlReader.Parse("base: &b\n  k: v\nderived:\n  <<: *b\n  own: 1\n")["derived"]);
+
+        Assert.True(document.ContainsKey("<<"));
+        Assert.Equal("1", document["own"]);
+    }
+
+    private static IEnumerable<string> Flatten(Dictionary<string, object?> document)
+    {
+        foreach (var entry in document)
+        {
+            yield return entry.Key;
+
+            if (entry.Value is Dictionary<string, object?> nested)
+            {
+                foreach (var name in Flatten(nested))
+                {
+                    yield return name;
+                }
+            }
+        }
+    }
 }

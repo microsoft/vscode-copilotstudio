@@ -196,12 +196,14 @@ internal static class McsYamlWriter
             return true;
         }
 
+        if (IsBlockIndicator(value[0]) && (value.Length == 1 || IsSeparationCharacter(value[1])))
+        {
+            return true;
+        }
+
         switch (value[0])
         {
             case '#':
-            case '-':
-            case '?':
-            case ':':
             case ',':
             case '[':
             case ']':
@@ -225,6 +227,11 @@ internal static class McsYamlWriter
             || value.EndsWith(":", StringComparison.Ordinal)
             || StartsWithDocumentMarker(value);
     }
+
+    private static bool IsBlockIndicator(char value) => value == '-' || value == '?' || value == ':';
+
+    private static bool IsSeparationCharacter(char value) => value == ' ' || value == '\t'
+        || value == '\n' || value == '\r' || value == '\u0085' || value == '\u2028' || value == '\u2029';
 
     private static bool StartsWithDocumentMarker(string value) => value.Length >= 3
         && (value.StartsWith("...", StringComparison.Ordinal) || value.StartsWith("---", StringComparison.Ordinal))

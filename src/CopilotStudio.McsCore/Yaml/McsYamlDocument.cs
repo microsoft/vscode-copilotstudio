@@ -39,6 +39,11 @@ internal sealed class McsYamlDocument
     {
         yield return node;
 
+        if (node.IsAlias)
+        {
+            yield break;
+        }
+
         if (node.Properties != null)
         {
             foreach (var property in node.Properties)
@@ -68,6 +73,11 @@ internal sealed class McsYamlDocument
 
     private static IEnumerable<McsYamlProperty> DescendProperties(McsYamlNode node)
     {
+        if (node.IsAlias)
+        {
+            yield break;
+        }
+
         if (node.Properties != null)
         {
             foreach (var property in node.Properties)

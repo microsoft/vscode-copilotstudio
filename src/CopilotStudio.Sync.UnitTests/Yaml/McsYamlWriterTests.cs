@@ -258,4 +258,65 @@ public class McsYamlWriterTests
             ["outer"] = new Dictionary<string, object?> { ["inner"] = new Dictionary<string, object?> { ["deepest"] = "value" } },
         },
     };
+    [Theory]
+    [InlineData("-5", "a: -5\r\n")]
+    [InlineData("-1", "a: -1\r\n")]
+    [InlineData("-.5", "a: -.5\r\n")]
+    [InlineData("-abc", "a: -abc\r\n")]
+    [InlineData("--x", "a: --x\r\n")]
+    [InlineData("?query", "a: ?query\r\n")]
+    [InlineData(":foo", "a: :foo\r\n")]
+    public void LeavesIndicatorPrefixedScalarsUnquotedWhenTheyAreNotIndicators(string value, string expected)
+    {
+        Assert.Equal(LineEndings.ToPlatform(expected), McsYamlWriter.Write(new Dictionary<string, object?> { ["a"] = value }));
+    }
+
+    [Theory]
+    [InlineData("-", "a: '-'\r\n")]
+    [InlineData("?", "a: '?'\r\n")]
+    [InlineData(":", "a: ':'\r\n")]
+    [InlineData("- x", "a: '- x'\r\n")]
+    [InlineData("? x", "a: '? x'\r\n")]
+    [InlineData(": x", "a: ': x'\r\n")]
+    public void QuotesIndicatorsThatAreFollowedByASeparation(string value, string expected)
+    {
+        Assert.Equal(LineEndings.ToPlatform(expected), McsYamlWriter.Write(new Dictionary<string, object?> { ["a"] = value }));
+    }
+
+    [Theory]
+    [InlineData("-5")]
+    [InlineData("-abc")]
+    [InlineData("?query")]
+    [InlineData(":foo")]
+    [InlineData("-")]
+    [InlineData("- x")]
+    [InlineData("? x")]
+    [InlineData(": x")]
+    [InlineData("--x")]
+    public void IndicatorPrefixedScalarsSurviveARoundTrip(string value)
+    {
+        var document = new Dictionary<string, object?> { ["a"] = value };
+
+        Assert.Equal(value, McsYamlReader.Parse(McsYamlWriter.Write(document))["a"]);
+    }
+
+    [Theory]
+    [InlineData("-5")]
+    [InlineData("?query")]
+    [InlineData(":foo")]
+    [InlineData("- x")]
+    public void WritingIsIdempotentForIndicatorPrefixedScalars(string value)
+    {
+        var once = McsYamlWriter.Write(new Dictionary<string, object?> { ["a"] = value });
+
+        Assert.Equal(once, McsYamlWriter.Write(McsYamlReader.Parse(once)));
+    }
+
+    [Fact]
+    public void NegativeNumericFieldsRewriteWithoutQuotingChurn()
+    {
+        var original = LineEndings.ToPlatform("stateCode: -1\r\nstatusCode: -2\r\n");
+
+        Assert.Equal(original, McsYamlWriter.Write(McsYamlReader.Parse(original)));
+    }
 }

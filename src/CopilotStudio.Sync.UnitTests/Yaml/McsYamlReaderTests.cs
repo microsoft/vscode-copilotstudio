@@ -1193,4 +1193,70 @@ public class McsYamlReaderTests
     {
         Assert.Equal(expected, McsYamlReader.Parse(yaml)["name"]!.ToString());
     }
+    [Theory]
+    [InlineData("a: \"\\UFFFFFFFF\"\n")]
+    [InlineData("a: \"\\U80000000\"\n")]
+    [InlineData("a: \"\\UFFFFFFFFFF\"\n")]
+    [InlineData("a: \"\\U00110000\"\n")]
+    [InlineData("a: \"\\UD800FFFF\"\n")]
+    public void OversizedUnicodeEscapesReportAPositionedFormatError(string yaml)
+    {
+        var error = Assert.Throws<McsYamlFormatException>(() => McsYamlReader.Parse(yaml));
+
+        Assert.True(error.Line >= 1 && error.Column >= 1, "the error must carry a source position so the editor can place a diagnostic");
+    }
+
+    [Theory]
+    [InlineData("a: \"\\U0001F600\"\n", "\U0001F600")]
+    [InlineData("a: \"\\U0010FFFF\"\n", "\U0010FFFF")]
+    [InlineData("a: \"\\U00000041\"\n", "A")]
+    public void ValidUnicodeEscapesStillDecode(string yaml, string expected)
+    {
+        Assert.Equal(expected, McsYamlReader.Parse(yaml)["a"]);
+    }
+
+    [Fact]
+    public void ACommentDirectlyAfterAByteOrderMarkIsRecognized()
+    {
+        Assert.Equal("x", McsYamlReader.Parse("\uFEFF# leading comment\nname: x\n")["name"]);
+    }
+
+    [Fact]
+    public void AByteOrderMarkFollowedOnlyByACommentYieldsAnEmptyDocument()
+    {
+        Assert.Empty(McsYamlReader.Parse("\uFEFF# only a comment\n"));
+    }
+
+    [Fact]
+    public void AByteOrderMarkBeforeAKeyIsStripped()
+    {
+        Assert.Equal("x", McsYamlReader.Parse("\uFEFFname: x\n")["name"]);
+    }
+
+    [Fact]
+    public void AliasesAreLeafOccurrencesWhenWalkingSourceNodes()
+    {
+        var document = McsYamlReader.ParseDocument("base: &b\n  id: shared\nuse: *b\n");
+
+        Assert.Equal(new[] { "base", "id", "use" }, document.AllProperties().Select(property => property.Name));
+    }
+
+    [Fact]
+    public void SourceNodeOrderStaysAscendingWhenADocumentUsesAliases()
+    {
+        var indexes = McsYamlReader.ParseDocument("base: &b\n  id: shared\nuse: *b\nlast: 1\n")
+            .NodesInDocumentOrder()
+            .Select(node => node.Start.Index)
+            .ToList();
+
+        Assert.Equal(indexes.OrderBy(value => value), indexes);
+    }
+
+    [Fact]
+    public void AliasedValuesAreStillExpandedForContent()
+    {
+        var document = McsYamlReader.Parse("base: &b\n  id: shared\nuse: *b\n");
+
+        Assert.Equal("shared", Assert.IsType<Dictionary<string, object?>>(document["use"])["id"]);
+    }
 }
