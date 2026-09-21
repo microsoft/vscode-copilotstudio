@@ -151,6 +151,14 @@ export interface EnvironmentInfo {
   environmentSku?: string;  // Developer, Default, Sandbox, Production, etc.
 }
 
+export interface EnvironmentEndpointCandidate {
+  environmentId: string;
+  dataverseUrl: string;
+  displayName: string;
+  agentManagementUrl?: string;
+  environmentSku?: string;
+}
+
 export interface AgentIdentifier {
   clusterCategory: number; // Maps to CoreServicesClusterCategory
   environmentId: string;
@@ -366,6 +374,7 @@ export interface CreateConnectionReferenceResponse extends RemoteApiResponse {
 }
 
 export interface WorkflowResponse {
+  workflowId: string;
   workflowName: string;
   isDisabled: boolean;
   errorMessage?: string;

@@ -489,7 +489,7 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
           remoteChangesStore = [];
         }
         refreshAgentChangesTree();
-      } else if (lastOperation === SyncState.Fetching) {
+      } else if (lastOperation === SyncState.Fetching && synchronizer.lastOperationSucceeded) {
         // Note: Because we dont emit the sync results; we end up re-fetching the changes
         await result.onRemoteChange();
         refreshAgentChangesTree();

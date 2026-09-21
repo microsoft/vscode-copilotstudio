@@ -1,15 +1,29 @@
 import { commands, DiagnosticSeverity, ExtensionContext, languages, ProgressLocation, RelativePattern, TextDocument, Uri, window, workspace as VSworkspace } from "vscode";
-import { CopilotStudioWorkspace, getAllWorkspaces, hasConnectionFileInWorkspace } from "../sync/localWorkspaces";
+import { CopilotStudioWorkspace, getAllWorkspaces, hasConnectionFileInWorkspace, chooseAccountForWorkspace } from "../sync/localWorkspaces";
 import { selectWorkspace } from "../sync/workspacePicker";
 import { getOrAddSynchronizer, withSyncCommandBusy, WorkspaceSynchronizer } from "../sync/workspaceSynchronizer";
 import { registerVirtualKnowledgeProvider } from "../knowledgeFiles/virtualKnowledgeFile";
 import { getWorkspaceChanges, refreshAgentChangesAfterFetch } from "../sync/workspaceScm";
+import { refreshAgentChangesTree } from "../sync/agentChangesTreeProvider";
 import { handleSyncAuthError } from "../sync/authFailureNotification";
 import { clearSuppressedAuthState } from "../clients/account";
 import { isKnowledgeFileChangeKind, TelemetryEventsKeys } from "../constants";
 import logger, { formatFileName } from "../services/logger";
 
-type Workspace = { ws: CopilotStudioWorkspace } | CopilotStudioWorkspace | null;
+type Workspace = { ws: CopilotStudioWorkspace } | { workspace: CopilotStudioWorkspace } | CopilotStudioWorkspace | null;
+
+export const resolveWorkspaceArg = (arg?: Workspace): CopilotStudioWorkspace | undefined => {
+  if (!arg || typeof arg !== 'object') {
+    return undefined;
+  }
+  if ('ws' in arg && arg.ws) {
+    return arg.ws;
+  }
+  if ('workspace' in arg && arg.workspace) {
+    return arg.workspace;
+  }
+  return 'workspaceUri' in arg && arg.workspaceUri ? arg : undefined;
+};
 
 interface SyncCommand {
   id: string;
@@ -62,6 +76,18 @@ export const registerSyncCommands = (context: ExtensionContext) => {
   ];
 
   syncCommands.forEach(command => registerSyncCommand(context, command));
+
+  context.subscriptions.push(commands.registerCommand('microsoft-copilot-studio.selectAgentAccount', async (workspace?: Workspace) => {
+    const selected = resolveWorkspaceArg(workspace) ?? await selectWorkspace();
+    if (!selected?.syncInfo) {
+      return;
+    }
+
+    const resolved = await chooseAccountForWorkspace(selected.syncInfo, selected.workspaceUri);
+    if (resolved) {
+      refreshAgentChangesTree();
+    }
+  }));
 };
 
 // Checks .mcs.yml/.mcs.yaml files in the workspace and returns any diagnostics errors found
@@ -115,9 +141,7 @@ const registerSyncCommand = (
     let workspaceContext = {};
     try {
       logger.logInfo(TelemetryEventsKeys.SyncWorkspaceClick, undefined, { message: `${displayName} operation initiated`, syncOperation: displayName });
-      const selectedWorkspace = workspace && typeof workspace === 'object' && 'ws' in workspace && workspace.ws
-        ? workspace.ws
-        : await selectWorkspace();
+      const selectedWorkspace = resolveWorkspaceArg(workspace) ?? await selectWorkspace();
 
       if (!selectedWorkspace) {
         const workspaces = getAllWorkspaces();

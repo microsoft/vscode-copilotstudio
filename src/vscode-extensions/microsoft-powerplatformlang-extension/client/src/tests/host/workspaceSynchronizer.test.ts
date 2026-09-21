@@ -3,12 +3,15 @@ import { describe, test } from 'node:test';
 import {
 	createSyncSuccessLog,
 	getActiveSyncUri,
+	getOrAddSynchronizer,
 	getSyncStateFor,
 	logWorkflowIssues,
 	onAnySyncStateChanged,
+	removeSynchronizer,
 	SyncState,
 	withSyncCommandBusy,
 } from '../../sync/workspaceSynchronizer';
+import { resolveWorkspaceArg } from '../../commands/syncWorkspace';
 import logger, { formatFileName, prepareLogData, sanitizeErrorDetails } from '../../services/logger';
 import type { WorkflowResponse } from '../../types';
 
@@ -360,8 +363,8 @@ describe('workspaceSynchronizer: logWorkflowIssues', () => {
 
 	test('reports a failed workflow as an error even when a disabled workflow is present', () => {
 		const workflows: WorkflowResponse[] = [
-			{ workflowName: 'Draft WF', isDisabled: true },
-			{ workflowName: 'Bad WF', isDisabled: true, errorMessage: 'Failed to update workflow: boom' },
+			{ workflowId: '11111111-1111-1111-1111-111111111111', workflowName: 'Draft WF', isDisabled: true },
+			{ workflowId: '22222222-2222-2222-2222-222222222222', workflowName: 'Bad WF', isDisabled: true, errorMessage: 'Failed to update workflow: boom' },
 		];
 
 		let returnedHasErrors = false;
@@ -376,7 +379,7 @@ describe('workspaceSynchronizer: logWorkflowIssues', () => {
 
 	test('a workflow that is only disabled with no error is reported as a warning, not an error', () => {
 		const workflows: WorkflowResponse[] = [
-			{ workflowName: 'Draft Only', isDisabled: true },
+			{ workflowId: '11111111-1111-1111-1111-111111111111', workflowName: 'Draft Only', isDisabled: true },
 		];
 
 		let returnedHasErrors = true;
@@ -390,8 +393,8 @@ describe('workspaceSynchronizer: logWorkflowIssues', () => {
 
 	test('suppressDisabledWarnings hides the disabled warning but still logs errors', () => {
 		const workflows: WorkflowResponse[] = [
-			{ workflowName: 'Draft WF', isDisabled: true },
-			{ workflowName: 'Bad WF', isDisabled: true, errorMessage: 'Failed to update workflow: boom' },
+			{ workflowId: '11111111-1111-1111-1111-111111111111', workflowName: 'Draft WF', isDisabled: true },
+			{ workflowId: '22222222-2222-2222-2222-222222222222', workflowName: 'Bad WF', isDisabled: true, errorMessage: 'Failed to update workflow: boom' },
 		];
 
 		let returnedHasErrors = false;
@@ -401,5 +404,90 @@ describe('workspaceSynchronizer: logWorkflowIssues', () => {
 		assert.strictEqual(warnings.length, 0, `expected no warning when suppressed, got ${JSON.stringify(warnings)}`);
 		assert.strictEqual(errors.length, 1, `errors must still log when warnings are suppressed, got ${JSON.stringify(errors)}`);
 		assert.ok(errors[0].includes('Bad WF: Failed to update workflow: boom'), errors[0]);
+	});
+
+	test('workflows sharing a display name are reported separately and stay distinguishable by id', () => {
+		const workflows: WorkflowResponse[] = [
+			{ workflowId: '11111111-1111-1111-1111-111111111111', workflowName: 'Shared', isDisabled: true },
+			{ workflowId: '22222222-2222-2222-2222-222222222222', workflowName: 'Shared', isDisabled: true },
+		];
+
+		const { warnings } = captureLogs(() => { logWorkflowIssues(workflows); });
+
+		assert.strictEqual(warnings.length, 1, `expected one warning log, got ${JSON.stringify(warnings)}`);
+		assert.strictEqual((warnings[0].match(/Shared/g) ?? []).length, 2, warnings[0]);
+
+		const byId = new Map(workflows.map(workflow => [workflow.workflowId, workflow]));
+		assert.strictEqual(byId.size, 2);
+	});
+});
+
+describe('workspaceSynchronizer: workspace binding', () => {
+	const bindingUri = 'file:///c%3A/tmp/binding-agent';
+
+	const workspaceWithAccount = (accountId: string): CopilotStudioWorkspace => ({
+		...createMockWorkspace('Binding Agent'),
+		workspaceUri: bindingUri,
+		syncInfo: { accountInfo: { accountId, accountEmail: undefined, tenantId: '' } } as any,
+	});
+
+	test('adopts the latest workspace object instead of keeping the one it was created with', () => {
+		removeSynchronizer(bindingUri);
+		const stale = workspaceWithAccount('');
+		const created = getOrAddSynchronizer(stale);
+
+		const repaired = workspaceWithAccount('chosen.tenant');
+		const reused = getOrAddSynchronizer(repaired);
+
+		assert.strictEqual(reused, created, 'the cached synchronizer instance must be reused');
+		assert.strictEqual(reused.workspace, repaired);
+		assert.strictEqual(reused.workspace.syncInfo?.accountInfo.accountId, 'chosen.tenant');
+		removeSynchronizer(bindingUri);
+	});
+
+	test('starts out reporting no failed operation', () => {
+		removeSynchronizer(bindingUri);
+		const synchronizer = getOrAddSynchronizer(workspaceWithAccount('chosen.tenant'));
+
+		assert.strictEqual(synchronizer.lastOperationSucceeded, true);
+		assert.strictEqual(synchronizer.syncState, SyncState.Idle);
+		removeSynchronizer(bindingUri);
+	});
+
+	test('reports a failed operation so callers can skip follow-up refreshes', async () => {
+		removeSynchronizer(bindingUri);
+		const synchronizer = getOrAddSynchronizer(workspaceWithAccount(''));
+		const observed: { state: SyncState; succeeded: boolean }[] = [];
+		synchronizer.subscribe(state => { observed.push({ state, succeeded: synchronizer.lastOperationSucceeded }); });
+
+		await assert.rejects(() => synchronizer.fetch());
+
+		assert.strictEqual(synchronizer.lastOperationSucceeded, false);
+		const idleTransition = observed.find(entry => entry.state === SyncState.Idle);
+		assert.ok(idleTransition, 'listeners must still see the return to Idle');
+		assert.strictEqual(idleTransition.succeeded, false, 'the Idle listener must be able to see the failure');
+		removeSynchronizer(bindingUri);
+	});
+});
+
+describe('syncWorkspace: command argument resolution', () => {
+	const workspace = createMockWorkspace('Arg Agent');
+
+	test('resolves the workspace supplied by an explicit row command', () => {
+		assert.strictEqual(resolveWorkspaceArg({ ws: workspace }), workspace);
+	});
+
+	test('resolves the tree element supplied by an inline or context menu', () => {
+		assert.strictEqual(resolveWorkspaceArg({ kind: 1, workspace } as any), workspace);
+	});
+
+	test('resolves a bare workspace object', () => {
+		assert.strictEqual(resolveWorkspaceArg(workspace), workspace);
+	});
+
+	test('returns undefined for palette invocation so the caller falls back to the picker', () => {
+		assert.strictEqual(resolveWorkspaceArg(undefined), undefined);
+		assert.strictEqual(resolveWorkspaceArg(null), undefined);
+		assert.strictEqual(resolveWorkspaceArg({} as any), undefined);
 	});
 });

@@ -1,6 +1,23 @@
 import * as assert from 'node:assert';
 import { describe, test } from 'node:test';
-import { isChildUri } from '../../utils/genericUtils';
+import { isChildUri, blankToUndefined } from '../../utils/genericUtils';
+
+describe('blankToUndefined', () => {
+	test('treats empty and whitespace-only strings as absent', () => {
+		assert.strictEqual(blankToUndefined(''), undefined);
+		assert.strictEqual(blankToUndefined('   '), undefined);
+		assert.strictEqual(blankToUndefined('\t\n'), undefined);
+	});
+
+	test('treats undefined as absent', () => {
+		assert.strictEqual(blankToUndefined(undefined), undefined);
+	});
+
+	test('preserves meaningful values verbatim', () => {
+		assert.strictEqual(blankToUndefined('dev@contoso.com'), 'dev@contoso.com');
+		assert.strictEqual(blankToUndefined(' padded '), ' padded ');
+	});
+});
 
 describe('isChildUri', () => {
 	test('returns true when the URIs are equal', () => {

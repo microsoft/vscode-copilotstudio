@@ -190,6 +190,11 @@
           "group": "navigation"
         },
         {
+          "command": "microsoft-copilot-studio.selectAgentAccount",
+          "when": "view == agent-changes && viewItem =~ /AccountUnresolved$/",
+          "group": "inline@0"
+        },
+        {
           "command": "microsoft-copilot-studio.previewChanges",
           "when": "view == agent-changes && viewItem == changeGroup-remote",
           "group": "inline@1"
@@ -206,12 +211,12 @@
         },
         {
           "command": "microsoft-copilot-studio.manageConnections",
-          "when": "view == agent-changes && (viewItem == agent || viewItem == componentCollection)",
+          "when": "view == agent-changes && viewItem =~ /^(agent|componentCollection)(AccountUnresolved)?$/",
           "group": "inline"
         },
         {
           "command": "microsoft-copilot-studio.reattachAgent",
-          "when": "view == agent-changes && viewItem == agent",
+          "when": "view == agent-changes && viewItem =~ /^agent(AccountUnresolved)?$/",
           "group": "navigation"
         }
       ],
@@ -287,6 +292,11 @@
       }
     },
     "commands": [
+      {
+        "command": "microsoft-copilot-studio.selectAgentAccount",
+        "title": "Copilot Studio: Select account for agent",
+        "icon": "$(account)"
+      },
       {
         "command": "microsoft-copilot-studio.previewChanges",
         "title": "Copilot Studio: Preview changes",
