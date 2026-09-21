@@ -39,38 +39,5 @@
 
             return diagnostics;
         }
-
-        private static Diagnostic GetDiagnosticFromParsingError(Exception? parsingError)
-        {
-            Diagnostic diag;
-            if (parsingError is YamlDotNet.Core.YamlException semanticError)
-            {
-                var startLineIdx = (int)semanticError.Start.Line - 1;
-                var startCharIdx = (int)semanticError.Start.Column - 1;
-                var endLineIdx = (int)semanticError.End.Line - 1;
-                var endCharId = (int)semanticError.End.Column - 1;
-                diag = new Diagnostic
-                {
-                    Range = new Contracts.Lsp.Models.Range()
-                    {
-                        Start = new Position() { Line = startLineIdx, Character = startCharIdx },
-                        End = new Position() { Line = endLineIdx, Character = endCharId }
-                    },
-                    Severity = DiagnosticSeverity.Error,
-                    Message = semanticError.Message,
-                };
-            }
-            else
-            {
-                diag = new Diagnostic
-                {
-                    Range = new Contracts.Lsp.Models.Range() { Start = new Position() { Line = 0, Character = 0, }, End = new Position() { Line = 0, Character = 0 } },
-                    Severity = DiagnosticSeverity.Error,
-                    Message = $"Failed to compute semantic model. Unhandled exception: {parsingError}"
-                };
-            }
-
-            return diag;
-        }
     }
 }

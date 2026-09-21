@@ -31,19 +31,64 @@
             const string YamlText = "  name: test\ntype: test";
             var diagnostics = await GetDiagnosticsForYamlTextAsync(YamlText);
 
-            // assert
             var error = diagnostics.Single();
-            Assert.Equal("Did not find expected <document end>.", error.Message);
+            Assert.Equal(DiagnosticSeverity.Error, error.Severity);
+            Assert.DoesNotContain("Unhandled exception", error.Message, StringComparison.Ordinal);
+            Assert.NotNull(error.Range);
         }
 
         [Fact]
-        public async Task Diagnostic_OnEmptyText_Async()
+        public async Task NoDiagnostic_OnEmptyText_Async()
         {
-            var diagnostics = await GetDiagnosticsForYamlTextAsync(string.Empty);
+            Assert.Empty(await GetDiagnosticsForYamlTextAsync(string.Empty));
+        }
 
-            // assert
+        [Fact]
+        public async Task Diagnostic_OnDuplicateIds_Async()
+        {
+            var diagnostics = await GetDiagnosticsForYamlTextAsync("items:\n- id: repeated\n- id: repeated\n");
+
             var error = diagnostics.Single();
-            Assert.StartsWith("Failed to compute semantic model. Unhandled exception: System.InvalidOperationException: Sequence contains no elements", error.Message);
+            Assert.Equal(DiagnosticSeverity.Error, error.Severity);
+            Assert.Contains("Duplicate id 'repeated'", error.Message, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public async Task NoDiagnostic_OnUniqueIds_Async()
+        {
+            Assert.Empty(await GetDiagnosticsForYamlTextAsync("items:\n- id: first\n- id: second\n"));
+        }
+
+        [Fact]
+        public async Task Diagnostic_OnDuplicateKeys_Async()
+        {
+            var diagnostics = await GetDiagnosticsForYamlTextAsync("name: one\nname: two\n");
+
+            var error = diagnostics.Single();
+            Assert.Equal(DiagnosticSeverity.Error, error.Severity);
+            Assert.Contains("Duplicate key name", error.Message, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public async Task Diagnostic_OnDuplicateNestedKeys_Async()
+        {
+            var diagnostics = await GetDiagnosticsForYamlTextAsync("outer:\n  inner: one\n  inner: two\n");
+
+            Assert.Contains(diagnostics, diagnostic => diagnostic.Message.Contains("Duplicate key inner", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public async Task NoDiagnostic_OnSameKeyInSiblingMappings_Async()
+        {
+            Assert.Empty(await GetDiagnosticsForYamlTextAsync("items:\n- name: one\n- name: two\n"));
+        }
+
+        [Fact]
+        public async Task Diagnostic_OnNonStringId_Async()
+        {
+            var diagnostics = await GetDiagnosticsForYamlTextAsync("id:\n  nested: value\n");
+
+            Assert.Contains(diagnostics, diagnostic => diagnostic.Message.Contains("should be a string", StringComparison.Ordinal));
         }
 
         [Fact]

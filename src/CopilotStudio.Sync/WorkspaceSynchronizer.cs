@@ -16,8 +16,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
+using Microsoft.CopilotStudio.McsCore.Yaml;
 using static Microsoft.CopilotStudio.Sync.Dataverse.SyncDataverseClient;
 
 using Microsoft.CopilotStudio.McsCore;
@@ -2039,9 +2038,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return newComponents;
     }
 
-    private static readonly IDeserializer KnowledgeSidecarDeserializer = new DeserializerBuilder().Build();
-
-
     private static bool TryReadSkillAssetSchemaName(IFileAccessor fileAccessor, string folder, string displayName, out string schemaName)
     {
         schemaName = SkillLayout.ReadMetadata(fileAccessor, new AgentFilePath($"{folder}/{displayName}{SkillLayout.SidecarExtension}")).SchemaName ?? string.Empty;
@@ -2099,12 +2095,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             return null;
         }
 
-        Dictionary<string, object>? root;
+        Dictionary<string, object?>? root;
         try
         {
-            root = KnowledgeSidecarDeserializer.Deserialize<Dictionary<string, object>>(yaml);
+            root = McsYamlReader.Parse(yaml);
         }
-        catch (YamlDotNet.Core.YamlException)
+        catch (McsYamlFormatException)
         {
             return null;
         }
@@ -2114,7 +2110,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             return null;
         }
 
-        if (root.TryGetValue("mcs.metadata", out var metadata) && metadata is IDictionary<object, object> metadataMap && metadataMap.TryGetValue("componentName", out var componentName)
+        if (root.TryGetValue(McsMetadata.PropertyName, out var metadata) && metadata is IDictionary<string, object?> metadataMap && metadataMap.TryGetValue(McsMetadata.ComponentNameKey, out var componentName)
             && componentName is string componentNameText && !string.IsNullOrEmpty(componentNameText))
         {
             return componentNameText;
@@ -3048,30 +3044,31 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             return;
         }
-
-        var deserializer = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).IgnoreUnmatchedProperties().Build();
-        WorkflowMetadata? metadata;
+        Dictionary<string, object?> document;
         try
         {
-            metadata = deserializer.Deserialize<WorkflowMetadata>(yaml);
+            document = McsYamlReader.Parse(yaml);
         }
-        catch (YamlDotNet.Core.YamlException)
+        catch (McsYamlFormatException)
         {
             return;
         }
 
-        if (metadata == null)
+        if (document.Count == 0)
         {
             return;
         }
 
-        metadata.StateCode = activate ? 1 : 0;
-        metadata.StatusCode = activate ? 2 : 1;
-
-        var serializer = new SerializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
+        ApplyWorkflowActivationState(document, activate);
         using var writeStream = fileAccessor.OpenWrite(path);
         using var writer = new StreamWriter(writeStream, Encoding.UTF8);
-        serializer.Serialize(writer, metadata);
+        writer.Write(McsYamlWriter.Write(document));
+    }
+
+    private static void ApplyWorkflowActivationState(IDictionary<string, object?> document, bool activate)
+    {
+        document[McsYamlObjectMapper.SerializeName(nameof(WorkflowMetadata.StateCode))] = activate ? "1" : "0";
+        document[McsYamlObjectMapper.SerializeName(nameof(WorkflowMetadata.StatusCode))] = activate ? "2" : "1";
     }
 
     private void UpdateWorkflowStatesInCloudCache(IFileAccessor fileAccessor, IReadOnlyDictionary<Guid, bool> activations)
@@ -3081,8 +3078,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             return;
         }
-
-        var deserializer = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).IgnoreUnmatchedProperties().Build();
         var rebuilt = ImmutableArray.CreateBuilder<CloudFlowDefinition>(snapshot.Flows.Length);
         var changed = false;
 
@@ -3096,9 +3091,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                     WorkflowMetadata? metadata;
                     try
                     {
-                        metadata = deserializer.Deserialize<WorkflowMetadata>(metadataYaml);
+                        metadata = McsYamlObjectMapper.Deserialize<WorkflowMetadata>(metadataYaml);
                     }
-                    catch (YamlDotNet.Core.YamlException)
+                    catch (McsYamlFormatException)
                     {
                         metadata = null;
                     }
@@ -5125,8 +5120,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private static BotEntity? RoundTripSettingsProjection(string settingsYaml) => CodeSerializer.Deserialize<BotEntity>(settingsYaml)?.WithOnlySettingsYamlProperties();
 
-    private static bool IsProjectionSerializationFailure(Exception exception)
-        => exception is YamlDotNet.Core.YamlException
+    internal static bool IsProjectionSerializationFailure(Exception exception)
+        => exception is McsYamlFormatException
             or YamlReaderException
             or InvalidDialogJsonException
             or Microsoft.Agents.ObjectModel.Exceptions.ObjectModelException
@@ -6110,7 +6105,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
 
         {
-            var deserializer = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
             var workflowsToUpload = new List<WorkflowMetadata>();
             var workflowMetadataRelativePaths = new Dictionary<Guid, string>();
 
@@ -6141,7 +6135,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
                 var clientDataJson = await fileAccessor.ReadStringAsync(jsonPath, cancellationToken).ConfigureAwait(false);
                 var yamlText = await fileAccessor.ReadStringAsync(metadataPath, cancellationToken).ConfigureAwait(false);
-                var metadata = deserializer.Deserialize<WorkflowMetadata>(yamlText)
+                var metadata = McsYamlObjectMapper.DeserializeStrict<WorkflowMetadata>(yamlText)
                     ?? throw new InvalidOperationException($"Workflow metadata file is empty or invalid.");
                 metadata.ClientData = clientDataJson;
                 workflows.Add(metadata);
@@ -6156,7 +6150,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                     && cachedWorkflowClientData.TryGetValue(workflowId.Value, out var cachedClientData)
                     && string.Equals(cachedClientData, NormalizeWorkflowClientData(clientDataJson), StringComparison.Ordinal)
                     && cachedWorkflowMetadata.TryGetValue(workflowId.Value, out var cachedMetadata)
-                    && string.Equals(cachedMetadata, NormalizeWorkflowMetadata(metadata), StringComparison.Ordinal))
+                    && McsYamlComparer.DocumentsMatch(cachedMetadata, NormalizeWorkflowMetadata(metadata)))
                 {
                     continue;
                 }
@@ -6609,8 +6603,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
                     var workflowMetadata = new AgentFilePath($"{workflowFolder}/metadata.yml");
                     var workflowMetadataTmp = new AgentFilePath($"{workflowFolder}/metadata.yml.tmp");
-                    var serializer = new SerializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
-                    var metadataString = serializer.Serialize(workflow);
+                    var metadataString = McsYamlObjectMapper.Serialize(workflow);
 
                     await WriteFileIfChangedAsync(fileAccessor, workflowMetadata, workflowMetadataTmp, metadataString, cancellationToken).ConfigureAwait(false);
                 }
@@ -6719,8 +6712,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
                 var promptMetadataPath = new AgentFilePath($"{promptFolderRelative}/metadata.yml");
                 var promptMetadataTempPath = new AgentFilePath($"{promptFolderRelative}/metadata.yml.tmp");
-                var serializer = new SerializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
-                var metadataYaml = serializer.Serialize(prompt);
+                var metadataYaml = McsYamlObjectMapper.Serialize(prompt);
 
                 await WriteFileIfChangedAsync(fileAccessor, promptMetadataPath, promptMetadataTempPath, metadataYaml, cancellationToken).ConfigureAwait(false);
 
@@ -6780,12 +6772,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             var key = aiModelId.Value.ToString("N");
             var hash = ComputeAiPromptHash(yamlText, promptJsonText);
             var unchanged = baseline.TryGetValue(key, out var baselineHash) && string.Equals(baselineHash, hash, StringComparison.Ordinal);
-
-            var deserializer = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).IgnoreUnmatchedProperties().Build();
             AIPromptMetadata metadata;
             try
             {
-                metadata = deserializer.Deserialize<AIPromptMetadata>(yamlText) ?? new AIPromptMetadata();
+                metadata = McsYamlObjectMapper.Deserialize<AIPromptMetadata>(yamlText) ?? new AIPromptMetadata();
             }
             catch (Exception ex)
             {
@@ -7659,8 +7649,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
             var yaml = await fileAccessor.ReadStringAsync(metadataPath, cancellationToken).ConfigureAwait(false);
             var json = await fileAccessor.ReadStringAsync(jsonPath, cancellationToken).ConfigureAwait(false);
-            var deserializer = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
-            var metadata = deserializer.Deserialize<WorkflowMetadata>(yaml)
+            var metadata = McsYamlObjectMapper.DeserializeStrict<WorkflowMetadata>(yaml)
                 ?? throw new InvalidOperationException($"Workflow metadata file is empty or invalid.");
             metadata.ClientData = json;
             var (definition, _) = GetFlowDefinition(metadata);
@@ -7780,7 +7769,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             {
                 var originalWorkflow = originalMap[workflowId];
                 var clientChanged = GetClientData(workflow) != GetClientData(originalWorkflow);
-                var metadataChanged = GetWorkflowMetadata(workflow) != GetWorkflowMetadata(originalWorkflow);
+                var metadataChanged = !McsYamlComparer.DocumentsMatch(GetWorkflowMetadata(workflow), GetWorkflowMetadata(originalWorkflow));
 
                 if (clientChanged)
                 {
@@ -7891,12 +7880,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         return kept.Length == definition.ConnectionReferences.Length ? definition : definition.WithConnectionReferences(kept);
     }
-
-    private static readonly IDeserializer WorkflowMetadataDeserializer = new DeserializerBuilder()
-        .WithNamingConvention(CamelCaseNamingConvention.Instance)
-        .IgnoreUnmatchedProperties()
-        .Build();
-
     private static IEnumerable<string> GetFlowConnectionReferenceLogicalNames(CloudFlowDefinition? flow)
     {
         var metadataYaml = GetWorkflowMetadata(flow);
@@ -7908,9 +7891,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         SyncDataverseClient.WorkflowMetadata? metadata;
         try
         {
-            metadata = WorkflowMetadataDeserializer.Deserialize<SyncDataverseClient.WorkflowMetadata>(metadataYaml);
+            metadata = McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(metadataYaml);
         }
-        catch (YamlDotNet.Core.YamlException)
+        catch (McsYamlFormatException)
         {
             return Array.Empty<string>();
         }
@@ -8025,8 +8008,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             var (workflowJsonPath, _) = GetWorkflowPath(workflow.Name, workflow.WorkflowId);
             workflow.JsonFileName = workflowJsonPath.ToString();
-            var serializer = new SerializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
-            return serializer.Serialize(workflow);
+            return McsYamlObjectMapper.Serialize(workflow);
         }
         finally
         {

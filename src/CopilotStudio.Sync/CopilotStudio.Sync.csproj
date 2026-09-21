@@ -32,7 +32,6 @@
     <PackageReference Include="Microsoft.Agents.ObjectModel.PowerFx" />
     <PackageReference Include="Microsoft.Agents.Platform.Content.Internal" />
     <PackageReference Include="Microsoft.Extensions.Http" />
-    <PackageReference Include="YamlDotNet" />
   </ItemGroup>
 
 </Project>

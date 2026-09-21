@@ -8,7 +8,7 @@ using Microsoft.CopilotStudio.McsCore;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
-using YamlDotNet.Serialization;
+using Microsoft.CopilotStudio.McsCore.Yaml;
 
 namespace Microsoft.CopilotStudio.Sync.Dataverse;
 
@@ -1481,7 +1481,7 @@ public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectio
         [JsonPropertyName("primaryentity")]
         public string? PrimaryEntity { get; set; }
 
-        [YamlIgnore]
+        [McsYamlIgnore]
         [JsonPropertyName("clientdata")]
         public string? ClientData { get; set; }
 
@@ -1512,11 +1512,11 @@ public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectio
         [JsonPropertyName("templateid")]
         public Guid? TemplateId { get; set; }
 
-        [YamlIgnore]
+        [McsYamlIgnore]
         [JsonPropertyName("customconfiguration")]
         public string? CustomConfiguration { get; set; }
 
-        [YamlIgnore]
+        [McsYamlIgnore]
         [JsonIgnore]
         public bool IsUnreadableReferencePlaceholder { get; set; }
     }

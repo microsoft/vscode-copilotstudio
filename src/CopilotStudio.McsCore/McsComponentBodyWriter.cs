@@ -2,14 +2,13 @@
 
 using Microsoft.Agents.ObjectModel;
 using Microsoft.Agents.ObjectModel.FileProjection;
-using YamlDotNet.Serialization;
+using Microsoft.CopilotStudio.McsCore.Yaml;
 
 namespace Microsoft.CopilotStudio.McsCore;
 
 internal static class McsComponentBodyWriter
 {
     private const string MetadataBlockHeader = McsMetadata.PropertyName + ":";
-    private static readonly ISerializer MetadataSerializer = new SerializerBuilder().Build();
 
     internal static string SerializeComponent(BotComponentBase component, DefinitionBase definition, AgentFilePath path) => Serialize(SkillBodyProjection.PrepareForWrite(component, path), SkillBodyProjection.GetBodyMetadata(component, definition, path));
 
@@ -118,5 +117,5 @@ internal static class McsComponentBodyWriter
         return MetadataBlockHeader + "\n" + string.Join("\n", lines) + "\n";
     }
 
-    private static IEnumerable<string> IndentValues(IDictionary<string, string> values) => MetadataSerializer.Serialize(values).Replace("\r\n", "\n").TrimEnd('\n').Split('\n').Select(line => "  " + line);
+    private static IEnumerable<string> IndentValues(IDictionary<string, string> values) => McsYamlWriter.Write(values.ToDictionary(entry => entry.Key, entry => (object?)entry.Value, StringComparer.Ordinal)).Replace("\r\n", "\n").TrimEnd('\n').Split('\n').Select(line => "  " + line);
 }
