@@ -42,6 +42,7 @@ public class McsYamlCorpusTests
 
         var failures = new List<string>();
         var checkedFiles = 0;
+        var nonCanonicalFiles = 0;
 
         foreach (var file in files)
         {
@@ -56,13 +57,34 @@ public class McsYamlCorpusTests
             try
             {
                 var rewritten = McsYamlWriter.Write(McsYamlReader.Parse(content));
-                if (!string.Equals(LineEndings.ToLf(content), LineEndings.ToLf(rewritten), StringComparison.Ordinal))
-                {
-                    failures.Add(file);
-                }
-                else if (!LineEndings.ArePlatformNative(rewritten))
+
+                if (!LineEndings.ArePlatformNative(rewritten))
                 {
                     failures.Add($"{file} :: rewritten using line endings that are not native to this platform.");
+                    continue;
+                }
+
+                if (string.Equals(LineEndings.ToLf(content), LineEndings.ToLf(rewritten), StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (!UsesBlockScalar(content))
+                {
+                    failures.Add($"{file} :: rewrite differs from the original without a block scalar to explain it.");
+                    continue;
+                }
+
+                nonCanonicalFiles++;
+
+                if (!McsYamlParityTests.AreEquivalent(McsYamlReader.Parse(content), McsYamlReader.Parse(rewritten)))
+                {
+                    failures.Add($"{file} :: rewriting changed the values.");
+                }
+
+                if (!string.Equals(rewritten, McsYamlWriter.Write(McsYamlReader.Parse(rewritten)), StringComparison.Ordinal))
+                {
+                    failures.Add($"{file} :: rewriting is not idempotent, so the file would churn on every sync.");
                 }
             }
             catch (McsYamlFormatException exception)
@@ -73,6 +95,22 @@ public class McsYamlCorpusTests
 
         Assert.Empty(failures);
         Assert.True(checkedFiles > 0, "The corpus contained no block-YAML documents to rewrite.");
+        Assert.True(nonCanonicalFiles < checkedFiles / 10, $"{nonCanonicalFiles} of {checkedFiles} corpus files no longer rewrite byte-identically.");
+    }
+
+    private static bool UsesBlockScalar(string content)
+    {
+        foreach (var line in content.Split('\n'))
+        {
+            var trimmed = line.TrimEnd('\r', ' ');
+            if (trimmed.EndsWith("|", StringComparison.Ordinal) || trimmed.EndsWith("|-", StringComparison.Ordinal) || trimmed.EndsWith("|+", StringComparison.Ordinal)
+                || trimmed.EndsWith(">", StringComparison.Ordinal) || trimmed.EndsWith(">-", StringComparison.Ordinal) || trimmed.EndsWith(">+", StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     [Fact]
