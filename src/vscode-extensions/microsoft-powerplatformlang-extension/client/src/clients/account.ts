@@ -1,6 +1,7 @@
 import { authentication, Uri, Disposable, EventEmitter } from "vscode";
 import logger, { formatPii, PiiRedactionType } from "../services/logger";
 import { CoreServicesClusterCategory, TelemetryEventsKeys } from "../constants";
+import { blankToUndefined } from "../utils/genericUtils";
 
 export interface TokenInfo {
     accessToken: string;
@@ -57,6 +58,17 @@ export interface PreferredTreeAccount {
     accountEmail?: string;
 }
 
+export interface StoredAccountSummary {
+    accountId: string;
+    accountEmail?: string;
+}
+
+export interface ResolvedAccountIdentity {
+    accountId?: string;
+    accountEmail?: string;
+    tenantId?: string;
+}
+
 let preferredTreeAccount: PreferredTreeAccount | undefined;
 
 export function getPreferredTreeAccount(): PreferredTreeAccount | undefined {
@@ -69,6 +81,8 @@ const authStateChangedEmitter = new EventEmitter<void>();
 export const onAuthStateChanged = authStateChangedEmitter.event;
 
 let storedAccountSnapshot = new Set<string>();
+let storedAccountsByTenant = new Map<string, StoredAccountSummary[]>();
+let storedAccountSummaries: StoredAccountSummary[] = [];
 
 function authAccountKey(accountId?: string, accountHint?: string): string {
     return (accountId ?? accountHint ?? '').toLowerCase();
@@ -108,38 +122,173 @@ export function clearSuppressedAuthState(accountId?: string, accountHint?: strin
     }
 }
 
-export function isAccountSignedInSync(accountId?: string, accountEmail?: string): boolean {
-    if (accountId && storedAccountSnapshot.has(accountId.toLowerCase())) {
-        return true;
+export function extractTenantId(accountId?: string): string | undefined {
+    const normalizedAccountId = blankToUndefined(accountId);
+    if (!normalizedAccountId) {
+        return undefined;
     }
-    if (accountEmail && storedAccountSnapshot.has(accountEmail.toLowerCase())) {
-        return true;
-    }
-    return false;
+
+    const separatorIndex = normalizedAccountId.lastIndexOf('.');
+    return separatorIndex > 0 ? blankToUndefined(normalizedAccountId.slice(separatorIndex + 1))?.toLowerCase() : undefined;
 }
 
-export type AccountHealth = 'ok' | 'signedOut' | 'terminal';
+export function buildAccountTenantIndex(accounts: readonly StoredAccountSummary[]): Map<string, StoredAccountSummary[]> {
+    const index = new Map<string, StoredAccountSummary[]>();
+    for (const account of accounts) {
+        const tenantId = extractTenantId(account.accountId);
+        if (!tenantId) {
+            continue;
+        }
 
-export function getAccountHealth(accountId?: string, accountEmail?: string): AccountHealth {
-    if (getAuthAccountState(accountId, accountEmail) === 'terminal') {
+        const existing = index.get(tenantId);
+        if (existing) {
+            existing.push(account);
+        } else {
+            index.set(tenantId, [account]);
+        }
+    }
+
+    return index;
+}
+
+export function findAccountsByTenant(tenantId?: string): StoredAccountSummary[] {
+    const normalizedTenantId = blankToUndefined(tenantId)?.toLowerCase();
+    return normalizedTenantId ? storedAccountsByTenant.get(normalizedTenantId) ?? [] : [];
+}
+
+export function selectTenantAccount(tenantMatches: readonly StoredAccountSummary[]): ResolvedAccountIdentity {
+    return tenantMatches.length === 1 ? { accountId: tenantMatches[0].accountId, accountEmail: tenantMatches[0].accountEmail } : {};
+}
+
+export function getSoleStoredAccount(): StoredAccountSummary | undefined {
+    return storedAccountSummaries.length === 1 ? storedAccountSummaries[0] : undefined;
+}
+
+export function getStoredAccountSummaries(): StoredAccountSummary[] {
+    return [...storedAccountSummaries];
+}
+
+const EMPTY_TENANT_ID = '00000000-0000-0000-0000-000000000000';
+
+export function hasUsableTenantId(tenantId?: string): boolean {
+    const normalizedTenantId = blankToUndefined(tenantId)?.toLowerCase();
+    return !!normalizedTenantId && normalizedTenantId !== EMPTY_TENANT_ID;
+}
+
+export function selectAccountCandidates(
+    tenantMatches: readonly StoredAccountSummary[],
+    tenantId: string | undefined,
+    allAccounts: () => readonly StoredAccountSummary[]
+): StoredAccountSummary[] {
+    return tenantMatches.length > 0 || hasUsableTenantId(tenantId) ? [...tenantMatches] : [...allAccounts()];
+}
+
+export function getAccountCandidates(tenantId?: string): StoredAccountSummary[] {
+    return selectAccountCandidates(findAccountsByTenant(tenantId), tenantId, () => storedAccountSummaries);
+}
+
+export function isIdentityUnbound(accountId?: string, accountEmail?: string): boolean {
+    return !blankToUndefined(accountId) && !blankToUndefined(accountEmail);
+}
+
+export function resolveTenantId(preferredTenantId?: string, fallbackTenantId?: string): string {
+    if (hasUsableTenantId(preferredTenantId)) {
+        return blankToUndefined(preferredTenantId)!;
+    }
+
+    return hasUsableTenantId(fallbackTenantId) ? blankToUndefined(fallbackTenantId)! : '';
+}
+
+export function resolveAccountIdentity(accountInfo?: { accountId?: string; accountEmail?: string; tenantId?: string }): ResolvedAccountIdentity {
+    const accountId = blankToUndefined(accountInfo?.accountId);
+    const accountEmail = blankToUndefined(accountInfo?.accountEmail);
+    if (accountId || accountEmail) {
+        return withResolvedTenant({ accountId, accountEmail }, accountInfo?.tenantId);
+    }
+
+    if (hasUsableTenantId(accountInfo?.tenantId)) {
+        return withResolvedTenant(selectTenantAccount(findAccountsByTenant(accountInfo?.tenantId)), accountInfo?.tenantId);
+    }
+
+    const soleAccount = getSoleStoredAccount();
+    return soleAccount
+        ? withResolvedTenant({ accountId: soleAccount.accountId, accountEmail: soleAccount.accountEmail }, accountInfo?.tenantId)
+        : {};
+}
+
+function withResolvedTenant(identity: ResolvedAccountIdentity, storedTenantId?: string): ResolvedAccountIdentity {
+    if (!identity.accountId && !identity.accountEmail) {
+        return identity;
+    }
+
+    if (hasUsableTenantId(storedTenantId)) {
+        return { ...identity, tenantId: blankToUndefined(storedTenantId) };
+    }
+
+    const derivedTenantId = extractTenantId(identity.accountId);
+    return derivedTenantId ? { ...identity, tenantId: derivedTenantId } : identity;
+}
+
+export function isAccountSignedInSync(accountId?: string, accountEmail?: string, tenantId?: string): boolean {
+    const resolved = resolveAccountIdentity({ accountId, accountEmail, tenantId });
+    if (resolved.accountId && storedAccountSnapshot.has(resolved.accountId.toLowerCase())) {
+        return true;
+    }
+
+    return !!resolved.accountEmail && storedAccountSnapshot.has(resolved.accountEmail.toLowerCase());
+}
+
+export type AccountHealth = 'ok' | 'signedOut' | 'terminal' | 'unresolved';
+
+export function isAccountSelectable(accountId?: string, accountEmail?: string, tenantId?: string): boolean {
+    return isIdentityUnbound(accountId, accountEmail) && getAccountCandidates(tenantId).length > 0;
+}
+
+export function getAccountHealth(accountId?: string, accountEmail?: string, tenantId?: string): AccountHealth {
+    const resolved = resolveAccountIdentity({ accountId, accountEmail, tenantId });
+    if (getAuthAccountState(resolved.accountId, resolved.accountEmail) === 'terminal') {
         return 'terminal';
     }
-    if (!isAccountSignedInSync(accountId, accountEmail)) {
-        return 'signedOut';
+
+    if (resolved.accountId && storedAccountSnapshot.has(resolved.accountId.toLowerCase())) {
+        return 'ok';
     }
-    return 'ok';
+
+    if (resolved.accountEmail && storedAccountSnapshot.has(resolved.accountEmail.toLowerCase())) {
+        return 'ok';
+    }
+
+    return isAccountSelectable(accountId, accountEmail, tenantId) ? 'unresolved' : 'signedOut';
+}
+
+function toStoredAccountSummaries(accounts: readonly import('vscode').AuthenticationSessionAccountInformation[]): StoredAccountSummary[] {
+    const seen = new Set<string>();
+    const summaries: StoredAccountSummary[] = [];
+    for (const account of accounts) {
+        if (seen.has(account.id)) {
+            continue;
+        }
+
+        seen.add(account.id);
+        summaries.push({ accountId: account.id, accountEmail: account.label });
+    }
+
+    return summaries;
 }
 
 async function refreshStoredAccountSnapshot(): Promise<void> {
-    const accounts = await authentication.getAccounts(MICROSOFT_PROVIDER_ID);
+    const summaries = toStoredAccountSummaries(await authentication.getAccounts(MICROSOFT_PROVIDER_ID));
     const next = new Set<string>();
-    for (const account of accounts) {
-        next.add(account.id.toLowerCase());
-        if (account.label) {
-            next.add(account.label.toLowerCase());
+    for (const summary of summaries) {
+        next.add(summary.accountId.toLowerCase());
+        if (summary.accountEmail) {
+            next.add(summary.accountEmail.toLowerCase());
         }
     }
+
     storedAccountSnapshot = next;
+    storedAccountsByTenant = buildAccountTenantIndex(summaries);
+    storedAccountSummaries = summaries;
 }
 
 export function registerAuthStateRecovery(): Disposable {
@@ -199,18 +348,8 @@ export async function hasStoredAccount(accountId?: string, accountHint?: string)
     return !!findStoredAccount(accounts, accountId, accountHint);
 }
 
-export async function listStoredAccounts(): Promise<{ accountId: string; accountEmail?: string }[]> {
-    const accounts = await authentication.getAccounts(MICROSOFT_PROVIDER_ID);
-    const seen = new Set<string>();
-    const result: { accountId: string; accountEmail?: string }[] = [];
-    for (const a of accounts) {
-        if (seen.has(a.id)) {
-            continue;
-        }
-        seen.add(a.id);
-        result.push({ accountId: a.id, accountEmail: a.label });
-    }
-    return result;
+export async function listStoredAccounts(): Promise<StoredAccountSummary[]> {
+    return toStoredAccountSummaries(await authentication.getAccounts(MICROSOFT_PROVIDER_ID));
 }
 
 function findStoredAccount(
@@ -356,8 +495,10 @@ export async function FetchAccessToken(
     interactive: boolean = false
 ): Promise<AccessTokenResponse> {
     const accounts = await authentication.getAccounts(MICROSOFT_PROVIDER_ID);
-    if (accountId) {
-        const tokenInfo = await getAccessTokenByAccountId(resource, accountId, accountHint, interactive);
+    const boundAccountId = blankToUndefined(accountId ?? undefined);
+    const boundAccountHint = blankToUndefined(accountHint);
+    if (boundAccountId || boundAccountHint) {
+        const tokenInfo = await getAccessTokenByAccountId(resource, boundAccountId, boundAccountHint, interactive);
         const response = await fetch(requestUri.toString(true), {
             method: 'GET',
             headers: { 'Authorization': `Bearer ${tokenInfo.accessToken}` },
@@ -365,7 +506,7 @@ export async function FetchAccessToken(
         });
         if (response.status === 401 && interactive) {
             const scope = Uri.from({ scheme: resource.scheme, authority: resource.authority, path: '/.default' }).toString(true);
-            const refreshedSession = await ensureInteractiveSession([VSCODE_CLIENT_ID, scope], accountId, accountHint);
+            const refreshedSession = await ensureInteractiveSession([VSCODE_CLIENT_ID, scope], boundAccountId, boundAccountHint);
             if (refreshedSession) {
                 const refreshedTokenInfo = sessionToTokenInfo(refreshedSession);
                 const retryResponse = await fetch(requestUri.toString(true), {
@@ -618,28 +759,30 @@ export function getCopilotStudioAccessTokenByAccountId(
 export async function getAccessTokenByAccountId(resource: Uri, accountId: string | undefined, accountHint?: string, interactive: boolean = false): Promise<TokenInfo> {
     const scope = Uri.from({ scheme: resource.scheme, authority: resource.authority, path: '/.default' }).toString(true);
     const scopes = [VSCODE_CLIENT_ID, scope];
+    const boundAccountId = blankToUndefined(accountId);
+    const boundAccountHint = blankToUndefined(accountHint);
 
-    if (accountId) {
+    if (boundAccountId || boundAccountHint) {
         const accounts = await authentication.getAccounts(MICROSOFT_PROVIDER_ID);
-        const account = findStoredAccount(accounts, accountId, accountHint);
+        const account = findStoredAccount(accounts, boundAccountId, boundAccountHint);
 
         if (account) {
             const session = await getSilentSession(scopes, account);
             if (session) {
-                clearAuthAccountState(accountId, accountHint);
+                clearAuthAccountState(boundAccountId, boundAccountHint);
                 return sessionToTokenInfo(session);
             }
         }
 
         if (interactive) {
-            const interactiveSession = await ensureInteractiveSession(scopes, accountId, accountHint);
+            const interactiveSession = await ensureInteractiveSession(scopes, boundAccountId, boundAccountHint);
             if (interactiveSession) {
                 return sessionToTokenInfo(interactiveSession);
             }
         }
 
-        const classification: AuthErrorClassification = getAuthAccountState(accountId, accountHint) ?? 'transient';
-        throw new AuthError(classification, classification === 'terminal' ? 'This account can no longer be used for this agent. Retarget it to an environment you can access.' : 'Sign-in required for this agent. Please sign in to continue.', accountId, accountHint);
+        const classification: AuthErrorClassification = getAuthAccountState(boundAccountId, boundAccountHint) ?? 'transient';
+        throw new AuthError(classification, classification === 'terminal' ? 'This account can no longer be used for this agent. Retarget it to an environment you can access.' : 'Sign-in required for this agent. Please sign in to continue.', boundAccountId, boundAccountHint);
     }
 
     return getAccessToken(resource, interactive);

@@ -44,8 +44,14 @@ export type AgentChangesTreeItemUnion = AgentTreeItem | ChangeGroupTreeItem | Ch
 export function computeAgentAccountBadge(workspace: CopilotStudioWorkspace, isDuplicate: boolean): { description: string; health: AccountHealth } {
   const baseDescription = isDuplicate && workspace.schemaName ? workspace.schemaName : undefined;
   const accountInfo = workspace.syncInfo?.accountInfo;
-  const health: AccountHealth = accountInfo ? getAccountHealth(accountInfo.accountId, accountInfo.accountEmail) : 'ok';
-  const statusSuffix = health === 'terminal' ? 'account unavailable' : (health === 'signedOut' ? 'signed out' : undefined);
+  const health: AccountHealth = accountInfo ? getAccountHealth(accountInfo.accountId, accountInfo.accountEmail, accountInfo.tenantId) : 'ok';
+  const statusSuffix = health === 'terminal'
+    ? 'account unavailable'
+    : health === 'signedOut'
+      ? 'signed out'
+      : health === 'unresolved'
+        ? 'select account'
+        : undefined;
   const description = [baseDescription, accountInfo?.accountEmail, statusSuffix].filter(Boolean).join(' \u00b7 ');
   return { description, health };
 }
@@ -63,15 +69,18 @@ export function describeDisconnection(workspace: CopilotStudioWorkspace): { mess
   }
   const account = workspace.syncInfo.accountInfo;
   const label = account?.accountEmail ?? account?.accountId ?? 'the linked account';
-  const health = getAccountHealth(account?.accountId, account?.accountEmail);
+  const health = getAccountHealth(account?.accountId, account?.accountEmail, account?.tenantId);
   if (health === 'terminal') {
     return { message: `Can't sign in to ${label}.`, action: 'reattach' };
+  }
+  if (health === 'unresolved') {
+    return { message: 'No account chosen for this agent \u2014 select the account that owns it.', action: 'signin' };
   }
   if (health === 'signedOut') {
     return { message: `Signed out \u2014 sign in to ${label}.`, action: 'signin' };
   }
   if (!workspace.syncInfo.agentManagementEndpoint) {
-    return { message: `Not connected to its environment \u2014 sign in to ${label} to load cloud changes.`, action: 'signin' };
+    return { message: 'Its Copilot Studio endpoint is not recorded yet \u2014 run Preview/Pull to resolve it and load cloud changes.', action: 'signin' };
   }
   return { message: `Can't sign in to ${label}.`, action: 'signin' };
 }
@@ -141,7 +150,9 @@ class AgentChangesTreeDataProvider implements TreeDataProvider<AgentChangesTreeI
             ? new ThemeIcon('error', new ThemeColor('list.errorForeground'))
             : badge.health === 'signedOut'
               ? new ThemeIcon('warning', new ThemeColor('list.warningForeground'))
-              : element.workspace.icon;
+              : badge.health === 'unresolved'
+                ? new ThemeIcon('account', new ThemeColor('list.warningForeground'))
+                : element.workspace.icon;
         } else {
           item.description = [badge.description, 'not connected'].filter(Boolean).join(' \u00b7 ');
           item.iconPath = badge.health === 'terminal'
@@ -149,7 +160,15 @@ class AgentChangesTreeDataProvider implements TreeDataProvider<AgentChangesTreeI
             : new ThemeIcon('debug-disconnect', new ThemeColor('list.warningForeground'));
         }
         item.tooltip = buildAgentIdentityTooltip(element.workspace, connected, connected ? undefined : describeDisconnection(element.workspace).message);
-        item.contextValue = element.workspace.type === WorkspaceType.ComponentCollection ? 'componentCollection' : 'agent';
+        const baseContextValue = element.workspace.type === WorkspaceType.ComponentCollection ? 'componentCollection' : 'agent';
+        item.contextValue = badge.health === 'unresolved' ? `${baseContextValue}AccountUnresolved` : baseContextValue;
+        if (badge.health === 'unresolved') {
+          item.command = {
+            command: 'microsoft-copilot-studio.selectAgentAccount',
+            title: 'Select account',
+            arguments: [{ ws: element.workspace }],
+          };
+        }
         return item;
       }
       case AgentChangesItemKind.ChangeGroup: {

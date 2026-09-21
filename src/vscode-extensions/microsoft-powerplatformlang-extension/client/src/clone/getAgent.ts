@@ -7,7 +7,7 @@ import { window, ExtensionContext, Uri, QuickPickItem, QuickPickItemKind, ThemeI
 import { AgentInfo, CloneAgentRequest, ClonedAssets, EnvironmentInfo, IdentifyAgentResponse, CloneAgentResponse } from '../types';
 import { getIcon } from '../icon';
 import { tryGetAgentIdentifier } from './agentIdentifier';
-import { getEnvironmentByIdAsync, listEnvironmentsBySkuAsync, EnvironmentSku } from '../clients/bapClient';
+import { resolveEnvironmentForCloneAsync, listEnvironmentsBySkuAsync, EnvironmentSku } from '../clients/bapClient';
 import { getAgentAsync, listAgentsAsync, listSharedAgentsAsync, preWarmWhoAmI } from '../clients/dataverseClient';
 import { switchAccount, switchToAccount, isSignedIn, getPreferredAccountId, getPreferredTreeAccount, hasStoredAccount, listStoredAccounts, getAccessTokenByAccountId } from '../clients/account';
 import { DefaultCoreServicesClusterCategory, LspMethods, TelemetryEventsKeys } from '../constants';
@@ -188,9 +188,10 @@ export async function getAgentInfo(agentUrl: string | undefined, context: Extens
 
           let environment: EnvironmentInfo | null = null;
           let agentResult: { agent: AgentInfo; accountId: string; accountEmail?: string } | undefined;
+          let environmentWithoutEndpoint = false;
           for (const candidate of probeOrder) {
             try {
-              const env = await getEnvironmentByIdAsync(
+              const { environment: env, endpointMissing } = await resolveEnvironmentForCloneAsync(
                 parseResult.clusterCategory,
                 parseResult.environmentId,
                 null,
@@ -198,6 +199,9 @@ export async function getAgentInfo(agentUrl: string | undefined, context: Extens
                 candidate?.accountEmail
               );
               if (!env) {
+                if (endpointMissing) {
+                  environmentWithoutEndpoint = true;
+                }
                 continue;
               }
               const result = await getAgentAsync(
@@ -242,6 +246,11 @@ export async function getAgentInfo(agentUrl: string | undefined, context: Extens
             };
             const separator: QuickPickItem = { kind: QuickPickItemKind.Separator, label: "" };
             quickPick.items = [newItem, separator, ...quickPick.items];
+          }
+          else if (environmentWithoutEndpoint) {
+            logger.logError(
+              TelemetryEventsKeys.LoadEnvironmentError,
+              'That environment does not have Copilot Studio enabled, so its agents cannot be cloned. Choose a different environment.');
           }
         }
       }
