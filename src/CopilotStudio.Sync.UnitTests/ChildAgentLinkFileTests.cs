@@ -122,22 +122,36 @@ public class ChildAgentLinkFileTests
         AssertNoChildAgentCreateOrDelete(changes);
     }
 
-    [Fact]
-    public void GetLocalChanges_ValidLink_SchemaMissingFromCloud_OrphanedCloudAgent_Throws()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void GetLocalChanges_NewExplicitSchema_AlongsideDeletedCloudAgent_CreatesAndDeletes(bool legacyLink)
     {
         var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
-        var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/ws-stale-link/"));
-        WriteAgentDefinition(fileAccessor, "agents/TransferFunds/agent.mcs.yml");
-        WriteText(fileAccessor, "agents/TransferFunds/.agent.json",
-            "{ \"schemaName\": \"crd1c_agent.agent.Agent_7_8\", \"folderName\": \"TransferFunds\" }");
+        var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/ws-replacement/"));
+        if (legacyLink)
+        {
+            WriteAgentDefinition(fileAccessor, "agents/TransferFunds/agent.mcs.yml");
+            WriteText(fileAccessor, "agents/TransferFunds/.agent.json",
+                "{ \"schemaName\": \"crd1c_agent.agent.Agent_7_8\", \"folderName\": \"TransferFunds\" }");
+        }
+        else
+        {
+            WriteText(fileAccessor, "agents/TransferFunds/agent.mcs.yml",
+                "mcs.metadata:\n  schemaName: crd1c_agent.agent.Agent_7_8\nkind: AgentDialog\n");
+        }
 
         var cloud = CreateDefinitionWithChildAgent("crd1c_agent.agent.Agent_Other", "Other Agent");
         var local = CreateDefinitionWithChildAgent("crd1c_agent.agent.TransferFunds", "Transfer Funds");
 
-        var ex = Assert.Throws<InvalidOperationException>(() =>
-            synchronizer.GetLocalChanges(local, cloud, fileAccessor, "token-1"));
-        Assert.Contains("crd1c_agent.agent.Agent_Other", ex.Message);
-        Assert.Contains("has no local folder", ex.Message);
+        var (changeSet, changes) = synchronizer.GetLocalChanges(local, cloud, fileAccessor, "token-1");
+
+        Assert.Equal("crd1c_agent.agent.Agent_7_8", SingleChildAgentChange(changes, ChangeType.Create).SchemaName);
+        Assert.Equal("crd1c_agent.agent.Agent_Other", SingleChildAgentChange(changes, ChangeType.Delete).SchemaName);
+        Assert.Equal("crd1c_agent.agent.Agent_7_8", Assert.Single(changeSet.BotComponentChanges.OfType<BotComponentInsert>()).Component!.SchemaNameString);
+        Assert.Equal(Assert.Single(cloud.Components).Id, Assert.Single(changeSet.BotComponentChanges.OfType<BotComponentDelete>()).BotComponentId);
+        Assert.DoesNotContain(changeSet.BotComponentChanges.OfType<BotComponentUpdate>(), _ => true);
+        Assert.False(fileAccessor.Exists(new AgentFilePath(".mcs/botdefinition.json")));
     }
 
     [Fact]
@@ -374,7 +388,7 @@ public class ChildAgentLinkFileTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void GetLocalChanges_UnlinkedFoldersCrossMatchingDisplayNames_ResolveRegardlessOfEnumerationOrder(bool reverseOrder)
+    public void GetLocalChanges_UnlinkedFoldersCrossMatchingDisplayNames_ThrowsRegardlessOfEnumerationOrder(bool reverseOrder)
     {
         var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var inner = fileAccessorFactory.Create(new DirectoryPath($"c:/test/ws-cross-match-{reverseOrder}/"));
@@ -389,9 +403,72 @@ public class ChildAgentLinkFileTests
             ("crd1c_agent.agent.Friendly", "Xyz"),
             ("crd1c_agent.agent.Machine", "Friendly"));
 
-        var (_, changes) = synchronizer.GetLocalChanges(local, cloud, fileAccessor, "token-1");
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            synchronizer.GetLocalChanges(local, cloud, fileAccessor, "token-1"));
 
-        AssertNoChildAgentCreateOrDelete(changes);
+        Assert.Contains("agents/Friendly", ex.Message);
+        Assert.Contains("matches multiple cloud agents", ex.Message);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void GetLocalChanges_UnlinkedFolderMatchesDifferentSchemaAndDisplay_Throws(bool reverseCloudOrder)
+    {
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/ws-schema-display-ambiguity/"));
+        WriteAgentDefinition(fileAccessor, "agents/Existing/agent.mcs.yml");
+
+        var cloud = CreateDefinitionWithChildAgents(
+            ("crd1c_agent.agent.Existing", "Original"),
+            ("crd1c_agent.agent.Other", "Existing"));
+        if (reverseCloudOrder)
+        {
+            cloud = cloud.WithComponents(cloud.Components.Reverse());
+        }
+        var local = CreateDefinitionWithChildAgent("crd1c_agent.agent.Existing", "Original");
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            synchronizer.GetLocalChanges(local, cloud, fileAccessor, "token-1"));
+
+        Assert.Contains("agents/Existing", ex.Message);
+        Assert.Contains("matches multiple cloud agents", ex.Message);
+        Assert.False(fileAccessor.Exists(new AgentFilePath(".mcs/botdefinition.json")));
+    }
+
+    [Fact]
+    public void GetLocalChanges_UnlinkedFolderMatchesSameSchemaAndDisplay_ReportsNoChanges()
+    {
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/ws-schema-display-same/"));
+        WriteAgentDefinition(fileAccessor, "agents/Existing/agent.mcs.yml");
+        var cloud = CreateDefinitionWithChildAgent("crd1c_agent.agent.Existing", "Existing");
+
+        var (changeSet, changes) = synchronizer.GetLocalChanges(cloud, cloud, fileAccessor, "token-1");
+
+        Assert.Empty(changeSet.BotComponentChanges);
+        Assert.Empty(changes);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void GetLocalChanges_ExplicitLinkDisambiguatesSchemaAndDisplay_ResolvesRegardlessOfEnumerationOrder(bool reverseOrder)
+    {
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var inner = fileAccessorFactory.Create(new DirectoryPath("c:/test/ws-explicit-disambiguation/"));
+        WriteAgentDefinition(inner, "agents/Existing/agent.mcs.yml");
+        WriteText(inner, "agents/Other/agent.mcs.yml",
+            "mcs.metadata:\n  schemaName: crd1c_agent.agent.Other\nkind: AgentDialog\n");
+        var fileAccessor = new OrderedFileAccessor(inner, reverseOrder ? new[] { "agents/Other/", "agents/Existing/" } : new[] { "agents/Existing/", "agents/Other/" });
+        var cloud = CreateDefinitionWithChildAgents(
+            ("crd1c_agent.agent.Existing", "Original"),
+            ("crd1c_agent.agent.Other", "Existing"));
+
+        var (changeSet, changes) = synchronizer.GetLocalChanges(cloud, cloud, fileAccessor, "token-1");
+
+        Assert.Empty(changeSet.BotComponentChanges);
+        Assert.Empty(changes);
     }
 
     [Theory]
@@ -413,7 +490,7 @@ public class ChildAgentLinkFileTests
         var ex = Assert.Throws<InvalidOperationException>(() =>
             synchronizer.GetLocalChanges(local, cloud, fileAccessor, "token-1"));
         Assert.Contains("crd1c_agent.agent.Machine", ex.Message);
-        Assert.Contains("Use a different schema name or folder name", ex.Message);
+        Assert.Contains("Rename one of the folders", ex.Message);
     }
 
     [Fact]
@@ -468,14 +545,16 @@ public class ChildAgentLinkFileTests
         Assert.Null(exception);
     }
 
-    [Fact]
-    public void GetLocalChanges_StaleLink_DoesNotSilentlySelfHealByDisplayName_Throws()
+    [Theory]
+    [InlineData("Transfer Funds")]
+    [InlineData("Agent_7_8")]
+    public void GetLocalChanges_StaleLink_MatchesUnclaimedCloudAgent_Throws(string folderName)
     {
         var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/ws-stale-link-heal/"));
-        WriteAgentDefinition(fileAccessor, "agents/Transfer Funds/agent.mcs.yml");
-        WriteText(fileAccessor, "agents/Transfer Funds/.agent.json",
-            "{ \"schemaName\": \"crd1c_agent.agent.Agent_STALE\", \"folderName\": \"Transfer Funds\" }");
+        WriteAgentDefinition(fileAccessor, $"agents/{folderName}/agent.mcs.yml");
+        WriteText(fileAccessor, $"agents/{folderName}/.agent.json",
+            $"{{ \"schemaName\": \"crd1c_agent.agent.Agent_STALE\", \"folderName\": \"{folderName}\" }}");
 
         var cloud = CreateDefinitionWithChildAgent("crd1c_agent.agent.Agent_7_8", "Transfer Funds");
         var local = CreateDefinitionWithChildAgent("crd1c_agent.agent.TransferFunds", "Transfer Funds");
@@ -884,6 +963,44 @@ public class ChildAgentLinkFileTests
         Assert.Contains("circular parent relationship", ex.Message);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void GetLocalChanges_DeletedSelfParentComponent_Throws(bool includeOtherComponent)
+    {
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/ws-delete-self-parent/"));
+        var local = CreateDefinitionWithChildAgents();
+        var selfId = Guid.NewGuid();
+        var components = new List<BotComponentBase>
+        {
+            new DialogComponent(
+                schemaName: "crd1c_agent.topic.Self",
+                displayName: "Self",
+                description: string.Empty,
+                id: selfId,
+                parentBotComponentId: new BotComponentId(selfId),
+                dialog: new AdaptiveDialog()),
+        };
+        if (includeOtherComponent)
+        {
+            components.Add(new DialogComponent(
+                schemaName: "crd1c_agent.topic.Other",
+                displayName: "Other",
+                description: string.Empty,
+                id: Guid.NewGuid(),
+                parentBotComponentId: default,
+                dialog: new AdaptiveDialog()));
+        }
+        var cloud = local.WithComponents(components);
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            synchronizer.GetLocalChanges(local, cloud, fileAccessor, "token-1"));
+
+        Assert.Contains("crd1c_agent.topic.Self", ex.Message);
+        Assert.Contains("circular parent relationship", ex.Message);
+    }
+
     [Fact]
     public void GetLocalChanges_DeletedDescendantOfParentCycle_Throws()
     {
@@ -1037,16 +1154,19 @@ public class ChildAgentLinkFileTests
         Assert.Empty(remainingChanges);
     }
 
-    [Fact]
-    public async Task PushLocalChangesAsync_NewChildAgentWithOwnComponent_SendsChildWithServerAssignedParentId()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PushLocalChangesAsync_NewChildAgentWithOwnComponent_SendsChildWithServerAssignedParentId(bool replaceExisting)
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-two-pass-{Guid.NewGuid():N}/");
         var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var previousAgent = Assert.Single(CreateDefinitionWithChildAgent($"{Bot}.agent.Previous", "Previous").Components);
 
         mockIsland
             .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new PvaComponentChangeSet(Array.Empty<BotComponentChange>(), botEntity, "token-1"));
+            .ReturnsAsync(new PvaComponentChangeSet(replaceExisting ? new BotComponentChange[] { new BotComponentInsert(previousAgent) } : Array.Empty<BotComponentChange>(), botEntity, "token-1"));
 
         var mockDataverse = CreateMockDataverseClient();
 
@@ -1056,13 +1176,32 @@ public class ChildAgentLinkFileTests
 
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
         WriteAgentDefinition(fileAccessor, "agents/Refunds/agent.mcs.yml");
+        if (replaceExisting)
+        {
+            fileAccessor.DeleteDirectory(new AgentFilePath("agents/Previous"));
+            WriteText(fileAccessor, "agents/Refunds/agent.mcs.yml",
+                $"mcs.metadata:\n  schemaName: {Bot}.agent.Refunds\nkind: AgentDialog\n");
+        }
+        var cacheBefore = ReadFileText(fileAccessor, ".mcs/botdefinition.json");
 
         var serverAgentId = Guid.NewGuid();
         var passes = new List<List<(string Schema, BotComponentId Parent)>>();
+        var deletedIds = new List<BotComponentId>();
         mockIsland
             .Setup(x => x.SaveChangesAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<PvaComponentChangeSet>(), It.IsAny<CancellationToken>()))
             .Returns<AuthoringOperationContextBase, PvaComponentChangeSet, CancellationToken>((_, incoming, _) =>
             {
+                if (passes.Count == 0)
+                {
+                    Assert.Equal(cacheBefore, ReadFileText(fileAccessor, ".mcs/botdefinition.json"));
+                }
+                else
+                {
+                    var confirmedParent = Assert.Single(WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!.Components);
+                    Assert.Equal($"{Bot}.agent.Refunds", confirmedParent.SchemaNameString);
+                    Assert.Equal(serverAgentId, confirmedParent.Id.Value);
+                }
+                deletedIds.AddRange(incoming.BotComponentChanges.OfType<BotComponentDelete>().Select(c => c.BotComponentId));
                 var pass = new List<(string, BotComponentId)>();
                 var confirmed = incoming.BotComponentChanges.Select(change =>
                 {
@@ -1106,10 +1245,22 @@ public class ChildAgentLinkFileTests
         var childInsert = Assert.Single(passes[1]);
         Assert.Equal($"{Bot}.topic.StartRefund", childInsert.Schema);
         Assert.Equal(new BotComponentId(serverAgentId), childInsert.Parent);
+        Assert.Equal(replaceExisting ? new[] { previousAgent.Id } : Array.Empty<BotComponentId>(), deletedIds);
+
+        var finalCache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
+        Assert.Equal(2, finalCache.Components.Length);
+        Assert.DoesNotContain(finalCache.Components, c => c.Id == previousAgent.Id);
+        Assert.Equal(serverAgentId, Assert.Single(finalCache.Components.Where(c => c.SchemaNameString == $"{Bot}.agent.Refunds")).Id.Value);
+        Assert.Equal(new BotComponentId(serverAgentId), Assert.Single(finalCache.Components.Where(c => c.SchemaNameString == $"{Bot}.topic.StartRefund")).ParentBotComponentId);
+        var finalDefinition = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None);
+        var (_, remainingChanges) = await synchronizer.GetLocalChangesAsync(workspace, finalDefinition, CancellationToken.None);
+        Assert.Empty(remainingChanges);
     }
 
-    [Fact]
-    public async Task GetLocalChangesAsync_PreviewOfNewChildAgent_LeavesCloudCacheAndChangeTokenUntouched()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GetLocalChangesAsync_PreviewOfNewChildAgent_LeavesCloudCacheAndChangeTokenUntouched(bool replaceExisting)
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-preview-{Guid.NewGuid():N}/");
@@ -1134,6 +1285,12 @@ public class ChildAgentLinkFileTests
 
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
         WriteAgentDefinition(fileAccessor, "agents/Refunds/agent.mcs.yml");
+        if (replaceExisting)
+        {
+            fileAccessor.DeleteDirectory(new AgentFilePath("agents/BalanceAgent"));
+            WriteText(fileAccessor, "agents/Refunds/agent.mcs.yml",
+                $"mcs.metadata:\n  schemaName: {Bot}.agent.Refunds\nkind: AgentDialog\n");
+        }
 
         var cacheBefore = ReadFileText(fileAccessor, ".mcs/botdefinition.json");
         var tokenBefore = ReadFileText(fileAccessor, ".mcs/changetoken.txt");
@@ -1149,17 +1306,24 @@ public class ChildAgentLinkFileTests
                 parentBotComponentId: default,
                 dialog: new AgentDialog()),
         });
+        if (replaceExisting)
+        {
+            workspaceDefinition = workspaceDefinition.WithComponents(workspaceDefinition.Components.Where(c => c.Id != cloudAgent.Id));
+        }
 
         var (_, changes) = await synchronizer.GetLocalChangesAsync(workspace, workspaceDefinition, CancellationToken.None);
 
         Assert.Contains(changes, c => c.ChangeType == ChangeType.Create && c.SchemaName == $"{Bot}.agent.Refunds");
+        Assert.Equal(replaceExisting ? new[] { cloudAgent.SchemaNameString } : Array.Empty<string>(), changes.Where(c => c.ChangeType == ChangeType.Delete).Select(c => c.SchemaName));
         Assert.Equal(cacheBefore, ReadFileText(fileAccessor, ".mcs/botdefinition.json"));
         Assert.Equal(tokenBefore, ReadFileText(fileAccessor, ".mcs/changetoken.txt"));
         mockIsland.Verify(x => x.SaveChangesAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<PvaComponentChangeSet>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    [Fact]
-    public async Task PushLocalChangesAsync_WhenServiceFails_LeavesCloudCacheAndChangeTokenUntouched()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PushLocalChangesAsync_WhenServiceFails_LeavesCloudCacheAndChangeTokenUntouched(bool replaceExisting)
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-failed-push-{Guid.NewGuid():N}/");
@@ -1183,6 +1347,12 @@ public class ChildAgentLinkFileTests
 
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
         WriteAgentDefinition(fileAccessor, "agents/Refunds/agent.mcs.yml");
+        if (replaceExisting)
+        {
+            fileAccessor.DeleteDirectory(new AgentFilePath("agents/BalanceAgent"));
+            WriteText(fileAccessor, "agents/Refunds/agent.mcs.yml",
+                $"mcs.metadata:\n  schemaName: {Bot}.agent.Refunds\nkind: AgentDialog\n");
+        }
 
         var cacheBefore = ReadFileText(fileAccessor, ".mcs/botdefinition.json");
         var tokenBefore = ReadFileText(fileAccessor, ".mcs/changetoken.txt");
@@ -1202,12 +1372,18 @@ public class ChildAgentLinkFileTests
                 parentBotComponentId: default,
                 dialog: new AgentDialog()),
         });
+        if (replaceExisting)
+        {
+            workspaceDefinition = workspaceDefinition.WithComponents(workspaceDefinition.Components.Where(c => c.Id != cloudAgent.Id));
+        }
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             synchronizer.PushLocalChangesAsync(workspace, operationContext, workspaceDefinition, mockDataverse.Object, syncInfo, cloudFlowMetadata: null, ImmutableArray<AIPromptMetadata>.Empty, CancellationToken.None));
 
+        Assert.Equal("service unavailable", exception.Message);
         Assert.Equal(cacheBefore, ReadFileText(fileAccessor, ".mcs/botdefinition.json"));
         Assert.Equal(tokenBefore, ReadFileText(fileAccessor, ".mcs/changetoken.txt"));
+        mockIsland.Verify(x => x.SaveChangesAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<PvaComponentChangeSet>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

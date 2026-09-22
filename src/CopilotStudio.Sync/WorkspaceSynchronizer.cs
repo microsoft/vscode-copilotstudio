@@ -2219,7 +2219,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var unclaimedCloudAgents = identities.UnclaimedCloudAgents;
         foreach (var folder in identities.UnresolvedFolders)
         {
-            if (folder.Link != null && MatchesUnclaimedCloudAgent(folder.FolderName, botName, identities))
+            if (folder.Link != null && MatchUnclaimedCloudAgents(folder.FolderName, botName, identities).Count > 0)
             {
                 throw new InvalidOperationException(
                     $"The child agent folder 'agents/{folder.FolderName}' has a '{ChildAgentLinkFile.LinkFileName}' link to '{folder.Link.SchemaName}', but no cloud child agent with that schema was found. Re-clone the agent to regenerate the link file.");
@@ -2301,17 +2301,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     private static Guid GetChildAgentFolderComponentId(string folderName)
         => McsFileParserCore.GetParentComponentId(new AgentFilePath($"{LspProjection.AgentsFolder}{folderName}/{ChildAgentLink.AgentDefinitionFileName}"));
 
-    private static bool MatchesUnclaimedCloudAgent(string folderName, string? botName, ChildAgentFolderIdentities identities)
-    {
-        if (MatchChildAgentFolderByDisplayName(folderName, identities.CloudAgentSchemasByFolderName, identities.UnclaimedCloudAgents).Count > 0)
-        {
-            return true;
-        }
-
-        var derived = LspProjection.GetSchemaName($"agents/{folderName}/agent", botName, typeof(AgentDialog));
-        return !string.IsNullOrEmpty(derived) && identities.UnclaimedCloudAgents.Contains(derived!);
-    }
-
     private sealed class ChildAgentFolderIdentities
     {
         public Dictionary<string, string> ResolvedByFolder { get; } = new(StringComparer.Ordinal);
@@ -2358,34 +2347,17 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }
         }
 
-        var displayNameClaims = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-        var derivedMatchFolders = new List<ChildAgentLinkFile.ChildAgentFolder>();
+        var claims = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         foreach (var folder in unlinkedFolders)
         {
-            var matches = MatchChildAgentFolderByDisplayName(folder.FolderName, identities.CloudAgentSchemasByFolderName, identities.UnclaimedCloudAgents);
+            var matches = MatchUnclaimedCloudAgents(folder.FolderName, botName, identities);
             if (matches.Count > 1)
             {
                 identities.AmbiguousFolders.Add(folder);
             }
             else if (matches.Count == 1)
             {
-                AddChildAgentFolderClaim(displayNameClaims, matches.First(), folder.FolderName);
-            }
-            else
-            {
-                derivedMatchFolders.Add(folder);
-            }
-        }
-
-        ApplyChildAgentFolderClaims(displayNameClaims, identities);
-
-        var derivedSchemaClaims = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-        foreach (var folder in derivedMatchFolders)
-        {
-            var derived = LspProjection.GetSchemaName($"agents/{folder.FolderName}/agent", botName, typeof(AgentDialog));
-            if (!string.IsNullOrEmpty(derived) && identities.UnclaimedCloudAgents.Contains(derived!))
-            {
-                AddChildAgentFolderClaim(derivedSchemaClaims, derived!, folder.FolderName);
+                AddChildAgentFolderClaim(claims, matches.First(), folder.FolderName);
             }
             else
             {
@@ -2393,7 +2365,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }
         }
 
-        ApplyChildAgentFolderClaims(derivedSchemaClaims, identities);
+        ApplyChildAgentFolderClaims(claims, identities);
         return identities;
     }
 
@@ -2464,7 +2436,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 "Use a different schema name or folder name before syncing.");
         }
 
-        if (unclaimedCloudAgents.Count > 0)
+        if (folder.Link == null && unclaimedCloudAgents.Count > 0)
         {
             var orphan = unclaimedCloudAgents.OrderBy(schema => schema, StringComparer.Ordinal).First();
             throw new InvalidOperationException(
@@ -2503,20 +2475,24 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         schemas.Add(schemaName);
     }
 
-    private static HashSet<string> MatchChildAgentFolderByDisplayName(string folderName, IReadOnlyDictionary<string, HashSet<string>> cloudAgentSchemasByFolderName, HashSet<string> unclaimedCloudAgents)
+    private static HashSet<string> MatchUnclaimedCloudAgents(string folderName, string? botName, ChildAgentFolderIdentities identities)
     {
         var matches = new HashSet<string>(StringComparer.Ordinal);
-        if (!cloudAgentSchemasByFolderName.TryGetValue(folderName, out var schemas))
+        if (identities.CloudAgentSchemasByFolderName.TryGetValue(folderName, out var schemas))
         {
-            return matches;
+            foreach (var schema in schemas)
+            {
+                if (identities.UnclaimedCloudAgents.Contains(schema))
+                {
+                    matches.Add(schema);
+                }
+            }
         }
 
-        foreach (var schema in schemas)
+        var derived = LspProjection.GetSchemaName($"agents/{folderName}/agent", botName, typeof(AgentDialog));
+        if (!string.IsNullOrEmpty(derived) && identities.UnclaimedCloudAgents.Contains(derived!))
         {
-            if (unclaimedCloudAgents.Contains(schema))
-            {
-                matches.Add(schema);
-            }
+            matches.Add(derived!);
         }
 
         return matches;
@@ -2550,15 +2526,20 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private static IReadOnlyList<BotComponentBase> OrderDeletesDescendantsFirst(IReadOnlyList<BotComponentBase> components)
     {
-        if (components.Count < 2)
-        {
-            return components;
-        }
-
         var pendingIds = new HashSet<BotComponentId>();
         foreach (var component in components)
         {
+            if (component.ParentBotComponentId.HasValue && component.ParentBotComponentId.Value == component.Id)
+            {
+                throw CreateCircularParentRelationshipException(component);
+            }
+
             pendingIds.Add(component.Id);
+        }
+
+        if (components.Count < 2)
+        {
+            return components;
         }
 
         var childrenByParent = new Dictionary<BotComponentId, List<BotComponentBase>>();
@@ -2566,7 +2547,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         foreach (var component in components)
         {
             if (component.ParentBotComponentId.HasValue
-                && component.ParentBotComponentId.Value != component.Id
                 && pendingIds.Contains(component.ParentBotComponentId.Value))
             {
                 if (!childrenByParent.TryGetValue(component.ParentBotComponentId.Value, out var siblings))
@@ -2623,14 +2603,17 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             if (!visited.Contains(component.Id))
             {
-                throw new InvalidOperationException(
-                    $"The cloud cache describes a circular parent relationship involving component '{component.SchemaNameString}', so its delete order cannot be determined safely. " +
-                    "Get the latest changes before syncing.");
+                throw CreateCircularParentRelationshipException(component);
             }
         }
 
         return ordered;
     }
+
+    private static InvalidOperationException CreateCircularParentRelationshipException(BotComponentBase component)
+        => new(
+            $"The cloud cache describes a circular parent relationship involving component '{component.SchemaNameString}', so its delete order cannot be determined safely. " +
+            "Get the latest changes before syncing.");
 
     private static void ValidateChildAgentLinkFolderName(ChildAgentLinkFile.ChildAgentFolder folder)
     {
