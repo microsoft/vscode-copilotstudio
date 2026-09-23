@@ -1519,7 +1519,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             {
                 concurrencyRetries++;
                 var remoteChangeset = await FetchRemoteChangesetAsync(workspaceFolder, operationContext, cancellationToken).ConfigureAwait(false);
-                if (HasConflictingComponentChanges(pushChangeSetWithoutComponentCollections, remoteChangeset))
+                if (HasConflictingComponentChanges(pushChangeSetWithoutComponentCollections, remoteChangeset, cloudSnapshot))
                 {
                     throw new InvalidOperationException("The agent was changed in the cloud while you were editing it. Get the latest changes before pushing again.");
                 }
@@ -1555,7 +1555,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         await WriteChangeTokenAsync(fileAccessor, remoteChangeset, cancellationToken).ConfigureAwait(false);
     }
 
-    private static bool HasConflictingComponentChanges(PvaComponentChangeSet localChanges, PvaComponentChangeSet remoteChanges)
+    private static bool HasConflictingComponentChanges(PvaComponentChangeSet localChanges, PvaComponentChangeSet remoteChanges, DefinitionBase cloudSnapshot)
     {
         if (HasConflictingBotEntityChange(localChanges, remoteChanges))
         {
@@ -1566,6 +1566,14 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         if (remoteSchemaNames.Count == 0 && remoteComponentIds.Count == 0)
         {
             return false;
+        }
+
+        foreach (var deletion in remoteChanges.BotComponentChanges.OfType<BotComponentDelete>())
+        {
+            if (cloudSnapshot.TryGetBotComponentById(deletion.BotComponentId, out var component) && component is DialogComponent { Dialog: AgentDialog })
+            {
+                return true;
+            }
         }
 
         var (localSchemaNames, localComponentIds) = GetChangedComponentIdentities(localChanges);
