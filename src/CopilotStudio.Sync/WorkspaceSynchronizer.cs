@@ -1519,7 +1519,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             {
                 concurrencyRetries++;
                 var remoteChangeset = await FetchRemoteChangesetAsync(workspaceFolder, operationContext, cancellationToken).ConfigureAwait(false);
-                if (HasConflictingComponentChanges(pushChangeSetWithoutComponentCollections, remoteChangeset))
+                if (HasConflictingComponentChanges(pushChangeSetWithoutComponentCollections, remoteChangeset, cloudSnapshot))
                 {
                     throw new InvalidOperationException("The agent was changed in the cloud while you were editing it. Get the latest changes before pushing again.");
                 }
@@ -1555,7 +1555,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         await WriteChangeTokenAsync(fileAccessor, remoteChangeset, cancellationToken).ConfigureAwait(false);
     }
 
-    private static bool HasConflictingComponentChanges(PvaComponentChangeSet localChanges, PvaComponentChangeSet remoteChanges)
+    private static bool HasConflictingComponentChanges(PvaComponentChangeSet localChanges, PvaComponentChangeSet remoteChanges, DefinitionBase cloudSnapshot)
     {
         if (HasConflictingBotEntityChange(localChanges, remoteChanges))
         {
@@ -1566,6 +1566,14 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         if (remoteSchemaNames.Count == 0 && remoteComponentIds.Count == 0)
         {
             return false;
+        }
+
+        foreach (var deletion in remoteChanges.BotComponentChanges.OfType<BotComponentDelete>())
+        {
+            if (cloudSnapshot.TryGetBotComponentById(deletion.BotComponentId, out var component) && component is DialogComponent { Dialog: AgentDialog })
+            {
+                return true;
+            }
         }
 
         var (localSchemaNames, localComponentIds) = GetChangedComponentIdentities(localChanges);
@@ -2180,17 +2188,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     /// schema and remaps the local (LSP-compiled) schema accordingly, so a child agent correlates
     /// to the existing cloud agent instead of being flagged as new.
     /// </summary>
-    /// <remarks>
-    /// The LSP compiler derives a child agent's schema from its folder (<c>{bot}.agent.TransferFunds</c>),
-    /// which never matches the cloud machine schema (<c>{bot}.agent.Agent_7_8</c>). The real schema
-    /// comes from the folder's <c>.agent.json</c> when present (authoritative, and a folder rename is
-    /// rejected here). When the link is missing/malformed it is <b>self-healed</b> from the cloud cache
-    /// by matching the folder to a cloud agent (by folder-derived schema or by projected
-    /// display name via <c>SubAgentFolderNaming.FromDisplayName</c>) - so workspaces
-    /// cloned before the link file existed keep working without a re-clone. A folder that matches no
-    /// cloud agent (hand-created or renamed) or matches ambiguously still fails fast. The component Id
-    /// is kept so child components resolve their parent. No-op when there are no child agent folders.
-    /// </remarks>
     private static DefinitionBase ResolveChildAgentSchemas(DefinitionBase localDefinition, DefinitionBase cloudSnapshot, IFileAccessor fileAccessor)
     {
         var folders = ChildAgentLinkFile.ListFolders(fileAccessor);
@@ -2210,72 +2207,174 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             .OfType<DialogComponent>()
             .Where(c => c.RootElement is AgentDialog && !string.IsNullOrEmpty(c.SchemaNameString))
             .ToList();
-        var cloudAgents = cloudAgentDialogs
-            .Select(c => c.SchemaNameString!)
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-        var cloudAgentDisplayNames = new Dictionary<string, string?>(StringComparer.Ordinal);
-        foreach (var cloudAgent in cloudAgentDialogs)
+
+        var identities = MatchChildAgentFoldersToCloudAgents(folders, cloudAgentDialogs, botName);
+        foreach (var conflict in identities.Conflicts)
         {
-            cloudAgentDisplayNames[cloudAgent.SchemaNameString!] = cloudAgent.DisplayName;
+            var folderNames = string.Join("', 'agents/", conflict.Value.OrderBy(f => f, StringComparer.Ordinal));
+            throw new InvalidOperationException(
+                $"The child agent folders 'agents/{folderNames}' all resolve to cloud child agent '{conflict.Key}'. " +
+                "Rename one of the folders so each child agent has a distinct name before syncing.");
         }
 
-        var derivedToReal = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var folder in folders)
+        foreach (var folder in identities.AmbiguousFolders)
         {
-            string realSchema;
-            if (folder.Link != null)
-            {
-                ValidateChildAgentLinkFolderName(folder);
+            throw new InvalidOperationException($"The child agent folder 'agents/{folder.FolderName}' matches multiple cloud agents; cannot resolve its identity. " +
+                $"Re-clone the agent to restore the '{ChildAgentLinkFile.LinkFileName}' link file.");
+        }
 
-                if (cloudAgents.Contains(folder.Link.SchemaName))
-                {
-                    realSchema = folder.Link.SchemaName;
-                }
-                else if (cloudAgents.Count == 0)
-                {
-                    realSchema = folder.Link.SchemaName;
-                }
-                else
-                {
-                    throw new InvalidOperationException(
-                        $"The child agent folder 'agents/{folder.FolderName}' has a '{ChildAgentLinkFile.LinkFileName}' link to '{folder.Link.SchemaName}', but no cloud child agent with that schema was found. Re-clone the agent to regenerate the link file.");
-                }
-            }
-            else
+        var resolvedByFolder = identities.ResolvedByFolder;
+        var unclaimedCloudAgents = identities.UnclaimedCloudAgents;
+        foreach (var folder in identities.UnresolvedFolders)
+        {
+            if (folder.Link != null && MatchUnclaimedCloudAgents(folder.FolderName, botName, identities).Count > 0)
             {
-                realSchema = SelfHealChildAgentSchema(folder.FolderName, botName!, cloudAgents, cloudAgentDisplayNames);
+                throw new InvalidOperationException(
+                    $"The child agent folder 'agents/{folder.FolderName}' has a '{ChildAgentLinkFile.LinkFileName}' link to '{folder.Link.SchemaName}', but no cloud child agent with that schema was found. Re-clone the agent to regenerate the link file.");
             }
+        }
+
+        var reservedSchemas = new HashSet<string>(
+            cloudSnapshot.Components.Where(c => !string.IsNullOrEmpty(c.SchemaNameString)).Select(c => c.SchemaNameString!),
+            StringComparer.Ordinal);
+        foreach (var folder in identities.UnresolvedFolders.OrderBy(f => f.FolderName, StringComparer.Ordinal))
+        {
+            var newSchema = ResolveNewChildAgentSchema(folder, botName!, unclaimedCloudAgents, reservedSchemas);
+            reservedSchemas.Add(newSchema);
+            resolvedByFolder[folder.FolderName] = newSchema;
+        }
+
+        var realByFolderComponentId = new Dictionary<BotComponentId, string>();
+        var ambiguousDerivedSchemas = new HashSet<string>(StringComparer.Ordinal);
+        var derivedToReal = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var folder in folders.OrderBy(f => f.FolderName, StringComparer.Ordinal))
+        {
+            if (!resolvedByFolder.TryGetValue(folder.FolderName, out var real))
+            {
+                continue;
+            }
+
+            realByFolderComponentId[new BotComponentId(GetChildAgentFolderComponentId(folder.FolderName))] = real;
 
             var derived = LspProjection.GetSchemaName($"agents/{folder.FolderName}/agent", botName, typeof(AgentDialog));
-            if (!string.IsNullOrEmpty(derived) && !derivedToReal.ContainsKey(derived!))
+            if (string.IsNullOrEmpty(derived) || ambiguousDerivedSchemas.Contains(derived!))
             {
-                derivedToReal[derived!] = realSchema;
+                continue;
             }
+
+            if (derivedToReal.TryGetValue(derived!, out var alreadyMapped))
+            {
+                if (!string.Equals(alreadyMapped, real, StringComparison.Ordinal))
+                {
+                    derivedToReal.Remove(derived!);
+                    ambiguousDerivedSchemas.Add(derived!);
+                }
+
+                continue;
+            }
+
+            derivedToReal[derived!] = real;
         }
 
-        if (derivedToReal.Count == 0)
-        {
-            return localDefinition;
-        }
-
+        var resolvedSchemas = new HashSet<string>(resolvedByFolder.Values, StringComparer.Ordinal);
         var changed = false;
         var remappedComponents = localDefinition.Components.Select(component =>
         {
-            if (component is DialogComponent dialogComponent
-                && dialogComponent.RootElement is AgentDialog
-                && !string.IsNullOrEmpty(component.SchemaNameString)
-                && derivedToReal.TryGetValue(component.SchemaNameString, out var realSchema)
-                && !string.Equals(realSchema, component.SchemaNameString, StringComparison.Ordinal))
+            if (component is not DialogComponent dialogComponent
+                || dialogComponent.RootElement is not AgentDialog
+                || string.IsNullOrEmpty(component.SchemaNameString))
             {
-                changed = true;
-                return (BotComponentBase)dialogComponent.WithSchemaName(new DialogSchemaName(realSchema));
+                return component;
             }
 
-            return component;
+            if (!realByFolderComponentId.TryGetValue(component.Id, out var realSchema)
+                && (resolvedSchemas.Contains(component.SchemaNameString)
+                    || !derivedToReal.TryGetValue(component.SchemaNameString, out realSchema)))
+            {
+                return component;
+            }
+
+            if (string.Equals(realSchema, component.SchemaNameString, StringComparison.Ordinal))
+            {
+                return component;
+            }
+
+            changed = true;
+            return (BotComponentBase)dialogComponent.WithSchemaName(new DialogSchemaName(realSchema));
         }).ToImmutableArray();
 
         return changed ? localDefinition.WithComponents(remappedComponents) : localDefinition;
+    }
+
+    private static Guid GetChildAgentFolderComponentId(string folderName)
+        => McsFileParserCore.GetParentComponentId(new AgentFilePath($"{LspProjection.AgentsFolder}{folderName}/{ChildAgentLink.AgentDefinitionFileName}"));
+
+    private sealed class ChildAgentFolderIdentities
+    {
+        public Dictionary<string, string> ResolvedByFolder { get; } = new(StringComparer.Ordinal);
+
+        public List<ChildAgentLinkFile.ChildAgentFolder> UnresolvedFolders { get; } = new();
+
+        public List<ChildAgentLinkFile.ChildAgentFolder> AmbiguousFolders { get; } = new();
+
+        public Dictionary<string, List<string>> Conflicts { get; } = new(StringComparer.Ordinal);
+
+        public HashSet<string> UnclaimedCloudAgents { get; set; } = new(StringComparer.Ordinal);
+
+        public Dictionary<string, HashSet<string>> CloudAgentSchemasByFolderName { get; set; } = new(StringComparer.Ordinal);
+    }
+
+    private static ChildAgentFolderIdentities MatchChildAgentFoldersToCloudAgents(
+        IReadOnlyList<ChildAgentLinkFile.ChildAgentFolder> folders,
+        IReadOnlyList<DialogComponent> cloudAgentDialogs,
+        string? botName)
+    {
+        var identities = new ChildAgentFolderIdentities
+        {
+            CloudAgentSchemasByFolderName = BuildCloudAgentSchemasByFolderName(cloudAgentDialogs),
+            UnclaimedCloudAgents = new HashSet<string>(cloudAgentDialogs.Select(c => c.SchemaNameString!), StringComparer.Ordinal),
+        };
+
+        var unlinkedFolders = new List<ChildAgentLinkFile.ChildAgentFolder>();
+        foreach (var folder in folders)
+        {
+            if (folder.Link == null)
+            {
+                unlinkedFolders.Add(folder);
+                continue;
+            }
+
+            ValidateChildAgentLinkFolderName(folder);
+            if (identities.UnclaimedCloudAgents.Remove(folder.Link.SchemaName))
+            {
+                identities.ResolvedByFolder[folder.FolderName] = folder.Link.SchemaName;
+            }
+            else
+            {
+                identities.UnresolvedFolders.Add(folder);
+            }
+        }
+
+        var claims = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var folder in unlinkedFolders)
+        {
+            var matches = MatchUnclaimedCloudAgents(folder.FolderName, botName, identities);
+            if (matches.Count > 1)
+            {
+                identities.AmbiguousFolders.Add(folder);
+            }
+            else if (matches.Count == 1)
+            {
+                AddChildAgentFolderClaim(claims, matches.First(), folder.FolderName);
+            }
+            else
+            {
+                identities.UnresolvedFolders.Add(folder);
+            }
+        }
+
+        ApplyChildAgentFolderClaims(claims, identities);
+        return identities;
     }
 
     private static DefinitionBase ResolveSkillSchemas(DefinitionBase localDefinition, DefinitionBase cloudSnapshot, IFileAccessor fileAccessor)
@@ -2323,52 +2422,206 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return changed ? localDefinition.WithComponents(remappedComponents) : localDefinition;
     }
 
-    /// <summary>
-    /// Reconstructs the real cloud schema for a child agent folder that has no usable
-    /// <c>.agent.json</c>, by matching the folder to a cloud agent - by folder-derived schema
-    /// (schema-name folders from clones predating the link file) or by projected display name.
-    /// Throws when the folder matches no cloud agent or matches ambiguously.
-    /// </summary>
-    private static string SelfHealChildAgentSchema(string folderName, string botName, IReadOnlyList<string> cloudAgentSchemas, IReadOnlyDictionary<string, string?> cloudAgentDisplayNames)
+    private static string ResolveNewChildAgentSchema(ChildAgentLinkFile.ChildAgentFolder folder, string botName, HashSet<string> unclaimedCloudAgents, HashSet<string> reservedSchemas)
     {
-        var matches = MatchChildAgentFolderToCloudSchemas(folderName, botName, cloudAgentSchemas, cloudAgentDisplayNames);
-        if (matches.Count == 1)
+        var candidate = folder.Link?.SchemaName
+            ?? LspProjection.GetSchemaName($"agents/{folder.FolderName}/agent", botName, typeof(AgentDialog));
+
+        var expectedPrefix = $"{botName}{LspProjection.AgentInfix}";
+        if (string.IsNullOrEmpty(candidate)
+            || !candidate!.StartsWith(expectedPrefix, StringComparison.Ordinal)
+            || candidate.Length == expectedPrefix.Length)
         {
-            return matches.First();
+            throw new InvalidOperationException(
+                $"The child agent folder 'agents/{folder.FolderName}' resolves to schema name '{candidate}', which is not a valid child agent schema for agent '{botName}'. " +
+                $"Restore a schema name starting with '{expectedPrefix}' before syncing.");
         }
 
-        if (matches.Count == 0)
+        if (reservedSchemas.Contains(candidate!))
         {
-            var derived = LspProjection.GetSchemaName($"agents/{folderName}/agent", botName, typeof(AgentDialog));
-            if (cloudAgentSchemas.Count == 0 && !string.IsNullOrEmpty(derived))
-            {
-                return derived!;
-            }
-
-            throw new InvalidOperationException($"The child agent folder 'agents/{folderName}' does not correspond to any cloud agent and has no '{ChildAgentLinkFile.LinkFileName}' link file. " +
-                "If you renamed it, restore the original folder name; otherwise re-clone the agent (child agents cannot be created locally).");
+            throw new InvalidOperationException(
+                $"The child agent folder 'agents/{folder.FolderName}' resolves to schema name '{candidate}', which already belongs to a different cloud component. " +
+                "Use a different schema name or folder name before syncing.");
         }
 
-        throw new InvalidOperationException($"The child agent folder 'agents/{folderName}' matches multiple cloud agents; cannot resolve its identity. " +
-            $"Re-clone the agent to restore the '{ChildAgentLinkFile.LinkFileName}' link file.");
+        if (folder.Link == null && unclaimedCloudAgents.Count > 0)
+        {
+            var orphan = unclaimedCloudAgents.OrderBy(schema => schema, StringComparer.Ordinal).First();
+            throw new InvalidOperationException(
+                $"The child agent folder 'agents/{folder.FolderName}' does not correspond to any cloud child agent, and cloud child agent '{orphan}' has no local folder. " +
+                "Restore the original folder name if you renamed it, or get the latest changes before syncing.");
+        }
+
+        return candidate!;
     }
 
-    private static HashSet<string> MatchChildAgentFolderToCloudSchemas(string folderName, string botName, IReadOnlyList<string> cloudAgentSchemas, IReadOnlyDictionary<string, string?> cloudAgentDisplayNames)
+    private static Dictionary<string, HashSet<string>> BuildCloudAgentSchemasByFolderName(IReadOnlyList<DialogComponent> cloudAgentDialogs)
     {
-        var derived = LspProjection.GetSchemaName($"agents/{folderName}/agent", botName, typeof(AgentDialog));
-        var matches = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var schema in cloudAgentSchemas)
+        var schemasByFolderName = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var dialog in cloudAgentDialogs)
         {
-            var displayFolderKeepSpaces = SubAgentFolderNaming.FromDisplayName(cloudAgentDisplayNames[schema], keepSpaces: true);
-            var displayFolderNoSpaces = SubAgentFolderNaming.FromDisplayName(cloudAgentDisplayNames[schema], keepSpaces: false);
-            if (string.Equals(schema, derived, StringComparison.Ordinal) || string.Equals(displayFolderKeepSpaces, folderName, StringComparison.Ordinal) || string.Equals(displayFolderNoSpaces, folderName, StringComparison.Ordinal))
+            AddCloudAgentFolderName(schemasByFolderName, SubAgentFolderNaming.FromDisplayName(dialog.DisplayName, keepSpaces: true), dialog.SchemaNameString!);
+            AddCloudAgentFolderName(schemasByFolderName, SubAgentFolderNaming.FromDisplayName(dialog.DisplayName, keepSpaces: false), dialog.SchemaNameString!);
+        }
+
+        return schemasByFolderName;
+    }
+
+    private static void AddCloudAgentFolderName(Dictionary<string, HashSet<string>> schemasByFolderName, string? folderName, string schemaName)
+    {
+        if (string.IsNullOrEmpty(folderName))
+        {
+            return;
+        }
+
+        if (!schemasByFolderName.TryGetValue(folderName!, out var schemas))
+        {
+            schemas = new HashSet<string>(StringComparer.Ordinal);
+            schemasByFolderName[folderName!] = schemas;
+        }
+
+        schemas.Add(schemaName);
+    }
+
+    private static HashSet<string> MatchUnclaimedCloudAgents(string folderName, string? botName, ChildAgentFolderIdentities identities)
+    {
+        var matches = new HashSet<string>(StringComparer.Ordinal);
+        if (identities.CloudAgentSchemasByFolderName.TryGetValue(folderName, out var schemas))
+        {
+            foreach (var schema in schemas)
             {
-                matches.Add(schema);
+                if (identities.UnclaimedCloudAgents.Contains(schema))
+                {
+                    matches.Add(schema);
+                }
             }
+        }
+
+        var derived = LspProjection.GetSchemaName($"agents/{folderName}/agent", botName, typeof(AgentDialog));
+        if (!string.IsNullOrEmpty(derived) && identities.UnclaimedCloudAgents.Contains(derived!))
+        {
+            matches.Add(derived!);
         }
 
         return matches;
     }
+
+    private static void AddChildAgentFolderClaim(Dictionary<string, List<string>> claims, string schemaName, string folderName)
+    {
+        if (!claims.TryGetValue(schemaName, out var claimants))
+        {
+            claimants = new List<string>();
+            claims[schemaName] = claimants;
+        }
+
+        claimants.Add(folderName);
+    }
+
+    private static void ApplyChildAgentFolderClaims(Dictionary<string, List<string>> claims, ChildAgentFolderIdentities identities)
+    {
+        foreach (var claim in claims.OrderBy(c => c.Key, StringComparer.Ordinal))
+        {
+            if (claim.Value.Count > 1)
+            {
+                identities.Conflicts[claim.Key] = claim.Value;
+                continue;
+            }
+
+            identities.UnclaimedCloudAgents.Remove(claim.Key);
+            identities.ResolvedByFolder[claim.Value[0]] = claim.Key;
+        }
+    }
+
+    private static IReadOnlyList<BotComponentBase> OrderDeletesDescendantsFirst(IReadOnlyList<BotComponentBase> components)
+    {
+        var pendingIds = new HashSet<BotComponentId>();
+        foreach (var component in components)
+        {
+            if (component.ParentBotComponentId.HasValue && component.ParentBotComponentId.Value == component.Id)
+            {
+                throw CreateCircularParentRelationshipException(component);
+            }
+
+            pendingIds.Add(component.Id);
+        }
+
+        if (components.Count < 2)
+        {
+            return components;
+        }
+
+        var childrenByParent = new Dictionary<BotComponentId, List<BotComponentBase>>();
+        var roots = new List<BotComponentBase>();
+        foreach (var component in components)
+        {
+            if (component.ParentBotComponentId.HasValue
+                && pendingIds.Contains(component.ParentBotComponentId.Value))
+            {
+                if (!childrenByParent.TryGetValue(component.ParentBotComponentId.Value, out var siblings))
+                {
+                    siblings = new List<BotComponentBase>();
+                    childrenByParent[component.ParentBotComponentId.Value] = siblings;
+                }
+
+                siblings.Add(component);
+            }
+            else
+            {
+                roots.Add(component);
+            }
+        }
+
+        if (childrenByParent.Count == 0)
+        {
+            return components;
+        }
+
+        var ordered = new List<BotComponentBase>(components.Count);
+        var visited = new HashSet<BotComponentId>();
+        var traversal = new Stack<(BotComponentBase Component, bool ChildrenExpanded)>();
+        foreach (var root in roots)
+        {
+            traversal.Push((root, false));
+            while (traversal.Count > 0)
+            {
+                var (component, childrenExpanded) = traversal.Pop();
+                if (childrenExpanded)
+                {
+                    ordered.Add(component);
+                    continue;
+                }
+
+                if (!visited.Add(component.Id))
+                {
+                    continue;
+                }
+
+                traversal.Push((component, true));
+                if (childrenByParent.TryGetValue(component.Id, out var children))
+                {
+                    for (var index = children.Count - 1; index >= 0; index--)
+                    {
+                        traversal.Push((children[index], false));
+                    }
+                }
+            }
+        }
+
+        foreach (var component in components)
+        {
+            if (!visited.Contains(component.Id))
+            {
+                throw CreateCircularParentRelationshipException(component);
+            }
+        }
+
+        return ordered;
+    }
+
+    private static InvalidOperationException CreateCircularParentRelationshipException(BotComponentBase component)
+        => new(
+            $"The cloud cache describes a circular parent relationship involving component '{component.SchemaNameString}', so its delete order cannot be determined safely. " +
+            "Get the latest changes before syncing.");
 
     private static void ValidateChildAgentLinkFolderName(ChildAgentLinkFile.ChildAgentFolder folder)
     {
@@ -2402,32 +2655,18 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
 
         var targetFolderBySchema = new Dictionary<string, string>(StringComparer.Ordinal);
-        var displayNameBySchema = new Dictionary<string, string?>(StringComparer.Ordinal);
         foreach (var dialog in cloudAgentDialogs)
         {
             var agentPath = new AgentFilePath(_pathResolver.GetComponentPath(dialog, botDefinition));
             targetFolderBySchema[dialog.SchemaNameString!] = PathHelper.ToInternalCanonicalFolderPath(agentPath.ParentDirectoryName);
-            displayNameBySchema[dialog.SchemaNameString!] = dialog.DisplayName;
         }
 
         var ambiguousTargetFolders = targetFolderBySchema.Values.GroupBy(f => f, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var cloudAgentSchemas = targetFolderBySchema.Keys.ToList();
+        var identities = MatchChildAgentFoldersToCloudAgents(folders, cloudAgentDialogs, botName);
         foreach (var folder in folders)
         {
-            ValidateChildAgentLinkFolderName(folder);
-
-            string? schema;
-            if (folder.Link != null && targetFolderBySchema.ContainsKey(folder.Link.SchemaName))
-            {
-                schema = folder.Link.SchemaName;
-            }
-            else
-            {
-                var matches = MatchChildAgentFolderToCloudSchemas(folder.FolderName, botName, cloudAgentSchemas, displayNameBySchema);
-                schema = matches.Count == 1 ? matches.First() : null;
-            }
-
-            if (schema == null || !targetFolderBySchema.TryGetValue(schema, out var targetFolder))
+            if (!identities.ResolvedByFolder.TryGetValue(folder.FolderName, out var schema)
+                || !targetFolderBySchema.TryGetValue(schema, out var targetFolder))
             {
                 continue;
             }
@@ -5632,6 +5871,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }
         }
 
+        var pendingDeletes = new List<BotComponentBase>();
         foreach (var cloudComponent in cloudSnapshot.Components)
         {
             if (!IsReusableOrNonCustomizableComponent(cloudComponent) && !localDefinition.TryGetComponentBySchemaName(cloudComponent.SchemaNameString, out var _))
@@ -5646,9 +5886,14 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                     continue;
                 }
 
-                botComponentBuilderList.Add(new BotComponentDelete(cloudComponent.Id, cloudComponent.Version));
-                changes.Add(new Change() { ChangeType = ChangeType.Delete, Name = cloudComponent.SchemaNameString, Uri = GetChangeUri(fileAccessor, cloudComponent, cloudSnapshot, componentFolderOverrides), SchemaName = cloudComponent.SchemaNameString, ChangeKind = cloudComponent.Kind.ToString() });
+                pendingDeletes.Add(cloudComponent);
             }
+        }
+
+        foreach (var cloudComponent in OrderDeletesDescendantsFirst(pendingDeletes))
+        {
+            botComponentBuilderList.Add(new BotComponentDelete(cloudComponent.Id, cloudComponent.Version));
+            changes.Add(new Change() { ChangeType = ChangeType.Delete, Name = cloudComponent.SchemaNameString, Uri = GetChangeUri(fileAccessor, cloudComponent, cloudSnapshot, componentFolderOverrides), SchemaName = cloudComponent.SchemaNameString, ChangeKind = cloudComponent.Kind.ToString() });
         }
 
         // Handle EnvironmentVariableDefinitions
@@ -7204,6 +7449,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         var updatedComponents = new List<BotComponentBase>();
         var existingSchemaNames = new HashSet<string>();
+        var readComponentPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var readFolderOverrides = BuildComponentFolderOverrides(fileAccessor, definition);
 
         foreach (var component in definition.Components)
@@ -7214,6 +7460,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
             if (IsReusableOrNonCustomizableComponent(component))
             {
+                readComponentPaths.Add(_pathResolver.GetComponentPath(component, definition));
                 continue;
             }
 
@@ -7222,6 +7469,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             // PathResolver.GetComponentPath the writer used, so read/write/delete
             // stay in agreement and the reader never synthesizes a phantom delete.
             var filePath = ResolveOnDiskComponentPath(fileAccessor, GetStickyComponentPath(component, definition, readFolderOverrides), component, definition);
+            readComponentPaths.Add(filePath.ToString());
 
             // SKILL.md has no sidecar of its own; the anchor declares it. So its liveness follows
             // the skill folder, not the payload file - a manifest that has not been downloaded yet
@@ -7316,13 +7564,14 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         if (!isCliAgent)
         {
             // Detect new local files
-            var knownPaths = definition.Components.Select(c => _pathResolver.GetComponentPath(c, definition)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var knownPaths = readComponentPaths;
             var localFiles = fileAccessor.ListFiles(filePattern: "*.mcs.yml").ToList();
             var newLocalFiles = localFiles.Where(f => !knownPaths.Contains(f.ToString())).ToList();
 
             if (newLocalFiles.Count != 0)
             {
                 var projectionContext = new ProjectionContext(GetSchemaName(definition));
+                IReadOnlyDictionary<string, string>? childAgentSchemaLinks = null;
 
                 foreach (var localFile in newLocalFiles)
                 {
@@ -7335,7 +7584,14 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                         continue;
                     }
 
-                    var (component, error) = _fileParser.CompileFile(localFile, element, projectionContext);
+                    string? schemaNameOverride = null;
+                    if (element is AgentDialog && localFile.TryGetSubAgentName(out var childAgentFolderName, out _))
+                    {
+                        childAgentSchemaLinks ??= ChildAgentLink.ReadSchemaLinks(fileAccessor);
+                        childAgentSchemaLinks.TryGetValue(childAgentFolderName, out schemaNameOverride);
+                    }
+
+                    var (component, error) = _fileParser.CompileFile(localFile, element, projectionContext, AuthoringShape.Classic, schemaNameOverride);
 
                     if (component != null && error == null)
                     {
