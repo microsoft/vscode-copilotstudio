@@ -221,6 +221,59 @@ public class ConnectionManagementTests
     }
 
     [Fact]
+    public async Task SetWorkflowActivationsAsync_EnableReturnsMissingConnectionError_KeepsDraftAndReportsFailure()
+    {
+        var (synchronizer, factory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var accessor = (InMemoryFileAccessor)factory.Create(Workspace);
+        var workflowId = Guid.NewGuid();
+        Write(
+            accessor,
+            "workflows/notify/metadata.yml",
+            $"name: Notify Flow\nworkflowId: {workflowId}\nstateCode: 0\nstatusCode: 1\n");
+
+        var dataverse = new Mock<ISyncDataverseClient>();
+        dataverse
+            .Setup(c => c.SetWorkflowStateAsync(workflowId, true, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("Dataverse request failed (400): {\"error\":{\"code\":\"0x80060467\",\"message\":\"Flow client error returned with status code \\\"NotFound\\\" and details \\\"{\\\"error\\\":{\\\"code\\\":\\\"AzureResourceManagerRequestFailed\\\",\\\"message\\\":\\\"Request to Azure Resource Manager failed with error: '{\\\\\\\"Code\\\\\\\":\\\\\\\"NotFound\\\\\\\",\\\\\\\"Message\\\\\\\":\\\\\\\"Cannot find connection with name 9b64584bfc5f4c23976e8e70ef70fff7 .\\\\\\\"}'.\\\"}}\\\".\"}}"));
+
+        var result = await synchronizer.SetWorkflowActivationsAsync(
+            Workspace,
+            new[] { new WorkflowActivationRequest { WorkflowId = workflowId, Activate = true } },
+            dataverse.Object,
+            CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.False(string.IsNullOrEmpty(result.Message));
+        Assert.Contains("draft", result.Message!, StringComparison.OrdinalIgnoreCase);
+        var workflow = Assert.Single(result.Workflows);
+        Assert.Equal(workflowId.ToString(), workflow.WorkflowId);
+        Assert.Equal(WorkflowState.Draft, workflow.State);
+    }
+
+    [Fact]
+    public async Task SetWorkflowActivationsAsync_EnableReturnsUnrelatedError_StillSurfacesFailure()
+    {
+        var (synchronizer, factory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var accessor = (InMemoryFileAccessor)factory.Create(Workspace);
+        var workflowId = Guid.NewGuid();
+        Write(
+            accessor,
+            "workflows/notify/metadata.yml",
+            $"name: Notify Flow\nworkflowId: {workflowId}\nstateCode: 0\nstatusCode: 1\n");
+
+        var dataverse = new Mock<ISyncDataverseClient>();
+        dataverse
+            .Setup(c => c.SetWorkflowStateAsync(workflowId, true, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("Dataverse request failed (403): {\"error\":{\"code\":\"0x80040220\",\"message\":\"The user does not have permission to publish this flow.\"}}"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => synchronizer.SetWorkflowActivationsAsync(
+            Workspace,
+            new[] { new WorkflowActivationRequest { WorkflowId = workflowId, Activate = true } },
+            dataverse.Object,
+            CancellationToken.None));
+    }
+
+    [Fact]
     public async Task RemoveConnectionReferenceAsync_WithUsages_Unconfirmed_ReturnsBlockingUsages()
     {
         var (synchronizer, factory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();

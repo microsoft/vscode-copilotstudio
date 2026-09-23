@@ -3022,7 +3022,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             if (!string.IsNullOrEmpty(message)
                 && (message.IndexOf("ConnectionAuthorizationFailed", StringComparison.OrdinalIgnoreCase) >= 0
                     || message.IndexOf("cannot be used to activate this flow", StringComparison.OrdinalIgnoreCase) >= 0
-                    || message.IndexOf("this is not a valid connection", StringComparison.OrdinalIgnoreCase) >= 0))
+                    || message.IndexOf("this is not a valid connection", StringComparison.OrdinalIgnoreCase) >= 0
+                    || message.IndexOf("Cannot find connection with name", StringComparison.OrdinalIgnoreCase) >= 0))
             {
                 return true;
             }

@@ -2396,6 +2396,92 @@ beginDialog:
         }
 
         [Fact]
+        public async Task GetRemoteChangesAsyncWorkflowDownloadFailureSurfacesErrorInsteadOfReportingNoChanges()
+        {
+            using var tempWorkspace = new TempDirectory();
+            var workspaceFolder = new DirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
+            var cancel = CancellationToken.None;
+            var workflowId = Guid.NewGuid();
+            var botEntity = new BotEntity().WithSchemaName(new BotEntitySchemaName("cr123"));
+
+            var knownFlow = new CloudFlowDefinition(
+                displayName: "AgentFlow",
+                workflowId: workflowId,
+                isEnabled: true,
+                extensionData: new RecordDataValue(ImmutableDictionary<string, DataValue>.Empty.Add("version", DataValue.Create(1)))
+            );
+
+            var originalDefinition = new BotDefinition.Builder
+            {
+                Entity = botEntity,
+                Flows = { knownFlow }
+            }.Build();
+
+            var filesystem = new InMemoryFileWriter();
+            WorkspaceSynchronizer.WriteCloudCache((Microsoft.CopilotStudio.McsCore.IFileAccessor)filesystem, originalDefinition);
+            await ((Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem).Create(workspaceFolder).WriteAsync(new Microsoft.CopilotStudio.McsCore.AgentFilePath(".mcs/changetoken.txt"), "token", cancel);
+
+            var islandMock = new Mock<IIslandControlPlaneService>();
+            islandMock
+                .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), cancel))
+                .ReturnsAsync(new PvaComponentChangeSet(new List<BotComponentChange>(), botEntity, "token"));
+
+            var dataverseMock = new Mock<ISyncDataverseClient>();
+            dataverseMock
+                .Setup(x => x.DownloadAllWorkflowsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new DataverseRequestException(
+                    System.Net.HttpStatusCode.InternalServerError,
+                    "{\"error\":{\"code\":\"0x80040216\",\"message\":\"An unexpected error occurred.\"}}"));
+
+            var synchronizer = new WorkspaceSynchronizer(
+                new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
+                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem,
+                islandMock.Object,
+                Mock.Of<ISyncProgress>(),
+                new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+
+            await Assert.ThrowsAsync<DataverseRequestException>(() => synchronizer.GetRemoteChangesAsync(
+                workspaceFolder,
+                FakeOperationContext,
+                dataverseMock.Object,
+                new AgentSyncInfo { AgentId = Guid.NewGuid() },
+                cancel));
+        }
+
+        [Fact]
+        public async Task GetWorkflowsAsyncDownloadFailureDoesNotDeleteLocalWorkflowsOrClaimSuccess()
+        {
+            using var tempWorkspace = new TempDirectory();
+            var workspaceFolder = new DirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
+            var cancel = CancellationToken.None;
+            var workflowId = Guid.NewGuid();
+            var filesystem = new InMemoryFileWriter();
+            var fileAccessor = ((Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem).Create(workspaceFolder);
+
+            await fileAccessor.WriteAsync(new Microsoft.CopilotStudio.McsCore.AgentFilePath($"workflows/AgentFlow-{workflowId}/workflow.json"), "{}", cancel);
+            await fileAccessor.WriteAsync(new Microsoft.CopilotStudio.McsCore.AgentFilePath($"workflows/AgentFlow-{workflowId}/metadata.yml"), "name: AgentFlow\n", cancel);
+
+            var dataverseMock = new Mock<ISyncDataverseClient>();
+            dataverseMock
+                .Setup(x => x.DownloadAllWorkflowsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new DataverseRequestException(
+                    System.Net.HttpStatusCode.InternalServerError,
+                    "{\"error\":{\"code\":\"0x80040216\",\"message\":\"An unexpected error occurred.\"}}"));
+
+            var synchronizer = new WorkspaceSynchronizer(
+                new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
+                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem,
+                new Mock<IIslandControlPlaneService>().Object,
+                Mock.Of<ISyncProgress>(),
+                new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+
+            var metadata = await synchronizer.GetWorkflowsAsync(workspaceFolder, dataverseMock.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, fileAccessor, cancel);
+
+            Assert.False(metadata.Succeeded);
+            Assert.True(fileAccessor.Exists(new Microsoft.CopilotStudio.McsCore.AgentFilePath($"workflows/AgentFlow-{workflowId}/workflow.json")));
+        }
+
+        [Fact]
         public async Task GetWorkflowsAsyncRemoteEmptyClearsWorkspaceAndCache()
         {
             using var tempWorkspace = new TempDirectory();
