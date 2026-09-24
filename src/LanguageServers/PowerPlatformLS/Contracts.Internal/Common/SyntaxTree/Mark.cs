@@ -2,7 +2,7 @@
 {
     /// <summary>
     /// This is our common interface for a file location.
-    /// Helps bridge the gap between ObjectModel.Location, YamlDotNet.Core.Mark and LSP.Position.
+    /// Helps bridge the gap between ObjectModel.Location, McsYamlPosition and LSP.Position.
     /// </summary>
     public class Mark
     {

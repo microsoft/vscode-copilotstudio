@@ -1,4 +1,4 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.12.35514.174
@@ -10,8 +10,6 @@ EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Impl.Language.Yaml", "Impl.Language.Yaml\Impl.Language.Yaml.csproj", "{001779C4-399A-4FE8-9543-9BDFA6676F46}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Impl.Core", "Impl.Core\Impl.Core.csproj", "{C839B3A2-BE7E-45DD-83CB-5CC1246F6E7B}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Impl.YamlSourceTree", "Impl.YamlSourceTree\Impl.YamlSourceTree.csproj", "{66CBFFAF-C1EF-4C73-BA96-2C4995316AD8}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Impl.Language.CopilotStudio", "Impl.Language.CopilotStudio\Impl.Language.CopilotStudio.csproj", "{3D01AEC6-CA57-40F4-B8A2-1FA51BDC5F25}"
 EndProject
@@ -99,18 +97,6 @@ Global
 		{C839B3A2-BE7E-45DD-83CB-5CC1246F6E7B}.Release|x64.Build.0 = Release|Any CPU
 		{C839B3A2-BE7E-45DD-83CB-5CC1246F6E7B}.Release|x86.ActiveCfg = Release|Any CPU
 		{C839B3A2-BE7E-45DD-83CB-5CC1246F6E7B}.Release|x86.Build.0 = Release|Any CPU
-		{66CBFFAF-C1EF-4C73-BA96-2C4995316AD8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{66CBFFAF-C1EF-4C73-BA96-2C4995316AD8}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{66CBFFAF-C1EF-4C73-BA96-2C4995316AD8}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{66CBFFAF-C1EF-4C73-BA96-2C4995316AD8}.Debug|x64.Build.0 = Debug|Any CPU
-		{66CBFFAF-C1EF-4C73-BA96-2C4995316AD8}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{66CBFFAF-C1EF-4C73-BA96-2C4995316AD8}.Debug|x86.Build.0 = Debug|Any CPU
-		{66CBFFAF-C1EF-4C73-BA96-2C4995316AD8}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{66CBFFAF-C1EF-4C73-BA96-2C4995316AD8}.Release|Any CPU.Build.0 = Release|Any CPU
-		{66CBFFAF-C1EF-4C73-BA96-2C4995316AD8}.Release|x64.ActiveCfg = Release|Any CPU
-		{66CBFFAF-C1EF-4C73-BA96-2C4995316AD8}.Release|x64.Build.0 = Release|Any CPU
-		{66CBFFAF-C1EF-4C73-BA96-2C4995316AD8}.Release|x86.ActiveCfg = Release|Any CPU
-		{66CBFFAF-C1EF-4C73-BA96-2C4995316AD8}.Release|x86.Build.0 = Release|Any CPU
 		{3D01AEC6-CA57-40F4-B8A2-1FA51BDC5F25}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{3D01AEC6-CA57-40F4-B8A2-1FA51BDC5F25}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{3D01AEC6-CA57-40F4-B8A2-1FA51BDC5F25}.Debug|x64.ActiveCfg = Debug|Any CPU

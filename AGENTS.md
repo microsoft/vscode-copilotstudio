@@ -298,7 +298,6 @@ Common Language Server Protocol Framework providing core abstractions:
 | `Impl.Language.PowerFx` | PowerFx: expression completions, signature help, diagnostics |
 | `Impl.Language.Yaml` | YAML: key/value completions, unique ID validation |
 | `Impl.PullAgent` | Dataverse sync: clone, pull, push, remote file fetch, change detection |
-| `Impl.YamlSourceTree` | YAML AST utilities for parsing and traversal |
 
 #### Shared C# Sync/Core Projects (`src/`)
 
@@ -428,3 +427,6 @@ The extension publishes LSP binaries for 6 platforms via `extension.proj`:
 ## Important Notes
 - Do not commit registry/feed URLs to npm config or lockfiles; committed npm lockfiles should stay independent of restore registry.
 - Expect external .NET restores/builds to fail until the internal `Microsoft.Agents.*` dependency is removed or restore access is configured.
+- `McsYamlReader` / `McsYamlWriter` (`src/CopilotStudio.McsCore/Yaml/`) parse and emit the YAML dialect these workspaces use, verified by differential tests against YamlDotNet. Anchors, aliases, tags, flow collections, block scalars and explicit keys are supported; multi-document streams, merge keys and non-text keys are rejected, and scalars are never type-coerced during parsing. Alias expansion is capped so a billion-laughs document fails fast.
+- `YamlDotNet` is a **test-only** dependency. `src/CopilotStudio.Sync.UnitTests/Yaml/` uses it as the reference implementation for differential tests; no shipping project may reference it.
+- Set `MCS_YAML_CORPUS_ROOT` to a folder of real agent workspaces to run the YAML corpus and byte-identity tests against real data.

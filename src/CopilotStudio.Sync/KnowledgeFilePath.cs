@@ -78,7 +78,7 @@ internal static class KnowledgeFilePath
     public static string GetDisplayNameFromContentPath(string folder, AgentFilePath file)
     {
         var normalizedFolder = folder.Replace('\\', '/').Trim('/');
-        var normalizedPath = file.ToString().Replace('\\', '/');
+        var normalizedPath = file.ToString();
 
         if (!string.IsNullOrEmpty(normalizedFolder)
             && normalizedPath.StartsWith(normalizedFolder + "/", StringComparison.OrdinalIgnoreCase))

@@ -10,8 +10,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync.Dataverse;
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
+using Microsoft.CopilotStudio.McsCore.Yaml;
 
 namespace Microsoft.CopilotStudio.Sync;
 
@@ -80,7 +79,7 @@ public sealed class ConnectionReferenceUsageScanner
         foreach (var file in allFiles)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var path = NormalizePath(file.ToString());
+            var path = file.ToString();
 
             if (!path.EndsWith(ComponentExtension, StringComparison.OrdinalIgnoreCase) && !path.EndsWith(ComponentExtensionLong, StringComparison.OrdinalIgnoreCase))
             {
@@ -109,16 +108,14 @@ public sealed class ConnectionReferenceUsageScanner
 
     private static void ScanWorkflows(IFileAccessor fileAccessor, IReadOnlyList<AgentFilePath> allFiles, Dictionary<string, List<ConnectionReferenceUsage>> usages, List<ScannedWorkflow> workflows, CancellationToken cancellationToken)
     {
-        var deserializer = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).IgnoreUnmatchedProperties().Build();
-
         foreach (var (path, content) in EnumerateMetadataFiles(fileAccessor, allFiles, WorkflowsFolder, cancellationToken))
         {
             SyncDataverseClient.WorkflowMetadata? metadata;
             try
             {
-                metadata = deserializer.Deserialize<SyncDataverseClient.WorkflowMetadata>(content);
+                metadata = McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(content);
             }
-            catch (YamlDotNet.Core.YamlException)
+            catch (McsYamlFormatException)
             {
                 continue;
             }
@@ -344,7 +341,7 @@ public sealed class ConnectionReferenceUsageScanner
         foreach (var file in allFiles)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var path = NormalizePath(file.ToString());
+            var path = file.ToString();
 
             if (!IsUnder(path, folder) || !path.EndsWith("/metadata.yml", StringComparison.OrdinalIgnoreCase))
             {
@@ -388,11 +385,6 @@ public sealed class ConnectionReferenceUsageScanner
         }
 
         return name;
-    }
-
-    private static string NormalizePath(string path)
-    {
-        return path.Replace('\\', '/');
     }
 }
 
