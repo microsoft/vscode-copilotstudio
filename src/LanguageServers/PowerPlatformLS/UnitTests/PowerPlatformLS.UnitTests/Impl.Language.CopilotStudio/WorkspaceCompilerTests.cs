@@ -305,6 +305,131 @@
             }
         }
 
+        [Fact]
+        public void Compile_ChildAgentFolderNameMatchesAnotherAgentExplicitSchema_KeepsExplicitSchemas()
+        {
+            var services = new ServiceCollection();
+            services.Install(new McsLspModule());
+            MockCoreWorkspaceBuilder(services);
+            var serviceProvider = services.BuildServiceProvider();
+            var compiler = serviceProvider.GetRequiredService<IWorkspaceCompiler<DefinitionBase>>();
+            var language = serviceProvider.GetRequiredService<ILanguageAbstraction>();
+
+            var tempRoot = Path.Combine(Path.GetTempPath(), "ChildAgentRefTest-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                WriteChildAgentReproWorkspace(tempRoot, withAgentJsonLink: false);
+                Directory.Delete(Path.Combine(tempRoot, "agents", "Agent Child 1"), recursive: true);
+                Directory.Delete(Path.Combine(tempRoot, "agents", "Agent Child 2"), recursive: true);
+
+                WriteChildAgentDialogWithMetadataSchema(tempRoot, "Original", "crf9a_AgentE4Child.agent.Existing");
+                WriteChildAgentDialogWithMetadataSchema(tempRoot, "Existing", "crf9a_AgentE4Child.agent.New");
+
+                var workspacePath = SystemToAgentDirectoryPath(tempRoot);
+                var documents = ReadAllMcsComponentDocuments(workspacePath, language);
+                var compilation = compiler.Compile(documents, workspacePath);
+
+                var childAgentSchemas = GetChildAgentSchemaNames(compilation.Model);
+                Assert.Equal(2, childAgentSchemas.Count);
+                Assert.Contains("crf9a_AgentE4Child.agent.Existing", childAgentSchemas);
+                Assert.Contains("crf9a_AgentE4Child.agent.New", childAgentSchemas);
+            }
+            finally
+            {
+                if (Directory.Exists(tempRoot))
+                {
+                    Directory.Delete(tempRoot, recursive: true);
+                }
+            }
+        }
+
+        [Fact]
+        public void Compile_UnlinkedFolderDerivingAnotherAgentExplicitSchema_SyncKeepsBothIdentities()
+        {
+            var services = new ServiceCollection();
+            services.Install(new McsLspModule());
+            MockCoreWorkspaceBuilder(services);
+            var serviceProvider = services.BuildServiceProvider();
+            var compiler = serviceProvider.GetRequiredService<IWorkspaceCompiler<DefinitionBase>>();
+            var language = serviceProvider.GetRequiredService<ILanguageAbstraction>();
+            var fileAccessorFactory = serviceProvider.GetRequiredService<IFileAccessorFactory>();
+
+            var tempRoot = Path.Combine(Path.GetTempPath(), "ChildAgentRefTest-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                WriteChildAgentReproWorkspace(tempRoot, withAgentJsonLink: false);
+                Directory.Delete(Path.Combine(tempRoot, "agents", "Agent Child 1"), recursive: true);
+                Directory.Delete(Path.Combine(tempRoot, "agents", "Agent Child 2"), recursive: true);
+
+                WriteChildAgentDialog(tempRoot, "TransferFunds", "crf9a_AgentE4Child.agent.TransferFunds", withAgentJsonLink: false);
+                WriteChildAgentDialogWithMetadataSchema(tempRoot, "Refunds", "crf9a_AgentE4Child.agent.TransferFunds");
+
+                var workspacePath = SystemToAgentDirectoryPath(tempRoot);
+                var documents = ReadAllMcsComponentDocuments(workspacePath, language);
+                var compilation = compiler.Compile(documents, workspacePath);
+
+                var cloudAgent = new DialogComponent(
+                    schemaName: "crf9a_AgentE4Child.agent.Machine",
+                    displayName: "Transfer Funds",
+                    description: string.Empty,
+                    id: Guid.NewGuid(),
+                    parentBotComponentId: default,
+                    dialog: new AgentDialog());
+                var cloudSnapshot = new BotDefinition()
+                    .WithEntity(((BotDefinition)compilation.Model).Entity!)
+                    .WithComponents(new BotComponentBase[] { cloudAgent });
+
+                var synchronizer = new WorkspaceSynchronizer(
+                    new SyncMcsFileParser(LspProjectorService.Instance),
+                    fileAccessorFactory,
+                    Mock.Of<IIslandControlPlaneService>(),
+                    Mock.Of<ISyncProgress>(),
+                    new LspComponentPathResolver());
+
+                var (changeSet, _) = synchronizer.GetLocalChanges(
+                    compilation.Model,
+                    cloudSnapshot,
+                    fileAccessorFactory.Create(workspacePath),
+                    "token-1");
+
+                var insertedAgents = changeSet.BotComponentChanges.OfType<BotComponentInsert>()
+                    .Select(insert => insert.Component!.SchemaNameString)
+                    .Where(schema => schema!.Contains(".agent."))
+                    .ToList();
+                var updatedAgents = changeSet.BotComponentChanges.OfType<BotComponentUpdate>()
+                    .Select(update => update.Component!.SchemaNameString)
+                    .Where(schema => schema!.Contains(".agent."))
+                    .ToList();
+
+                Assert.Equal(new[] { "crf9a_AgentE4Child.agent.TransferFunds" }, insertedAgents);
+                Assert.Equal(new[] { "crf9a_AgentE4Child.agent.Machine" }, updatedAgents);
+                Assert.Empty(changeSet.BotComponentChanges.OfType<BotComponentDelete>());
+            }
+            finally
+            {
+                if (Directory.Exists(tempRoot))
+                {
+                    Directory.Delete(tempRoot, recursive: true);
+                }
+            }
+        }
+
+        private static void WriteChildAgentDialogWithMetadataSchema(string tempRoot, string folderName, string schemaName)
+        {
+            WriteWorkspaceFile(tempRoot, $"agents/{folderName}/agent.mcs.yml",
+                "mcs.metadata:\n" +
+                $"  componentName: {folderName}\n" +
+                $"  schemaName: {schemaName}\n" +
+                "kind: AgentDialog\n" +
+                "beginDialog:\n" +
+                "  kind: OnToolSelected\n" +
+                "  id: main\n" +
+                $"  description: {folderName} description\n" +
+                "settings: {}\n" +
+                "inputType: {}\n" +
+                "outputType: {}\n");
+        }
+
         private static IReadOnlyList<string?> GetChildAgentSchemaNames(DefinitionBase model)
         {
             return ((BotDefinition)model).Components
