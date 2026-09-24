@@ -84,6 +84,12 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Handlers
                             Content = isMetadata ? s.Value : content
                         });
                     }
+
+                    return Task.FromResult(new GetFileResponse
+                    {
+                        Code = 200,
+                        Content = string.Empty
+                    });
                 }
 
                 using var sw = new StringWriter();

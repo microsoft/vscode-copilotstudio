@@ -13,6 +13,7 @@
     using System.Linq;
     using System.Net;
     using System.Net.Http;
+    using System.Reflection;
     using System.Text;
     using System.Text.Json;
     using System.Threading;
@@ -399,6 +400,397 @@
             await client.UpdateWorkflowAsync(agentId, workflow, CancellationToken.None);
             Assert.Equal(3, callIndex);
         }
+
+        [Fact]
+        public async Task DownloadAllWorkflowsForAgentAsync_WhenEnvironmentRejectsOptionalColumn_RetriesWithoutItAndSucceeds()
+        {
+            const string MissingColumn = "iscustomprocessingstepallowedforotherpublishers";
+            var agentId = Guid.NewGuid();
+            var botComponentId = Guid.NewGuid();
+            var workflowId = Guid.NewGuid();
+            var workflowRequestUrls = new List<string>();
+
+            var client = CreateClientWithHandler((req, index) =>
+            {
+                var url = req.RequestUri?.ToString() ?? string.Empty;
+
+                if (url.Contains("/botcomponents?"))
+                {
+                    return Task.FromResult(JsonResponse(new { value = new[] { new { botcomponentid = botComponentId } } }));
+                }
+
+                if (url.Contains("/botcomponent_workflowset?"))
+                {
+                    return Task.FromResult(JsonResponse(new { value = new[] { new { workflowid = workflowId, botcomponentid = botComponentId } } }));
+                }
+
+                workflowRequestUrls.Add(url);
+
+                if (url.Contains(MissingColumn))
+                {
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest)
+                    {
+                        Content = new StringContent(
+                            "{\"error\":{\"code\":\"0x80060888\",\"message\":\"Could not find a property named '" + MissingColumn + "' on type 'Microsoft.Dynamics.CRM.workflow'.\"}}",
+                            Encoding.UTF8,
+                            "application/json")
+                    });
+                }
+
+                return Task.FromResult(JsonResponse(new
+                {
+                    value = new[] { new { workflowid = workflowId, name = "AgentFlow", clientdata = "clientdata", statecode = 1 } }
+                }));
+            });
+
+            var workflows = await client.DownloadAllWorkflowsForAgentAsync(new AgentSyncInfo { AgentId = agentId }, CancellationToken.None);
+
+            Assert.Single(workflows);
+            Assert.Equal("AgentFlow", workflows[0].Name);
+            Assert.Equal(workflowId, workflows[0].WorkflowId);
+            Assert.Equal("clientdata", workflows[0].ClientData);
+
+            Assert.Equal(2, workflowRequestUrls.Count);
+            Assert.Contains(MissingColumn, workflowRequestUrls[0]);
+            Assert.DoesNotContain(MissingColumn, workflowRequestUrls[1]);
+
+            Assert.Contains("workflowid", workflowRequestUrls[1]);
+            Assert.Contains("clientdata", workflowRequestUrls[1]);
+            Assert.Contains("modernflowtype", workflowRequestUrls[1]);
+        }
+
+        [Fact]
+        public async Task DownloadAllWorkflowsForAgentAsync_AfterColumnRejected_OmitsColumnOnSubsequentCalls()
+        {
+            const string MissingColumn = "iscustomprocessingstepallowedforotherpublishers";
+            var botComponentId = Guid.NewGuid();
+            var workflowId = Guid.NewGuid();
+            var workflowRequestUrls = new List<string>();
+
+            var client = CreateClientWithHandler((req, index) =>
+            {
+                var url = req.RequestUri?.ToString() ?? string.Empty;
+
+                if (url.Contains("/botcomponents?"))
+                {
+                    return Task.FromResult(JsonResponse(new { value = new[] { new { botcomponentid = botComponentId } } }));
+                }
+
+                if (url.Contains("/botcomponent_workflowset?"))
+                {
+                    return Task.FromResult(JsonResponse(new { value = new[] { new { workflowid = workflowId, botcomponentid = botComponentId } } }));
+                }
+
+                workflowRequestUrls.Add(url);
+
+                if (url.Contains(MissingColumn))
+                {
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest)
+                    {
+                        Content = new StringContent(
+                            "{\"error\":{\"code\":\"0x80060888\",\"message\":\"Could not find a property named '" + MissingColumn + "' on type 'Microsoft.Dynamics.CRM.workflow'.\"}}",
+                            Encoding.UTF8,
+                            "application/json")
+                    });
+                }
+
+                return Task.FromResult(JsonResponse(new
+                {
+                    value = new[] { new { workflowid = workflowId, name = "AgentFlow", clientdata = "clientdata" } }
+                }));
+            });
+
+            var syncInfo = new AgentSyncInfo { AgentId = Guid.NewGuid() };
+
+            await client.DownloadAllWorkflowsForAgentAsync(syncInfo, CancellationToken.None);
+            var second = await client.DownloadAllWorkflowsForAgentAsync(syncInfo, CancellationToken.None);
+
+            Assert.Single(second);
+
+            Assert.Equal(3, workflowRequestUrls.Count);
+            Assert.DoesNotContain(MissingColumn, workflowRequestUrls[2]);
+        }
+
+        [Fact]
+        public async Task DownloadAllWorkflowsForAgentAsync_WhenBadRequestIsNotAMissingOptionalColumn_Throws()
+        {
+            var botComponentId = Guid.NewGuid();
+            var workflowId = Guid.NewGuid();
+            var workflowRequestCount = 0;
+
+            var client = CreateClientWithHandler((req, index) =>
+            {
+                var url = req.RequestUri?.ToString() ?? string.Empty;
+
+                if (url.Contains("/botcomponents?"))
+                {
+                    return Task.FromResult(JsonResponse(new { value = new[] { new { botcomponentid = botComponentId } } }));
+                }
+
+                if (url.Contains("/botcomponent_workflowset?"))
+                {
+                    return Task.FromResult(JsonResponse(new { value = new[] { new { workflowid = workflowId, botcomponentid = botComponentId } } }));
+                }
+
+                workflowRequestCount++;
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest)
+                {
+                    Content = new StringContent(
+                        "{\"error\":{\"code\":\"0x80040203\",\"message\":\"Invalid filter clause.\"}}",
+                        Encoding.UTF8,
+                        "application/json")
+                });
+            });
+
+            await Assert.ThrowsAsync<DataverseRequestException>(
+                () => client.DownloadAllWorkflowsForAgentAsync(new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None));
+
+            Assert.Equal(1, workflowRequestCount);        }
+
+        [Fact]
+        public async Task DownloadAllWorkflowsForAgentAsync_SelectsExactlyTheColumnsBoundOnWorkflowMetadata()
+        {
+            var botComponentId = Guid.NewGuid();
+            var workflowId = Guid.NewGuid();
+            string? workflowUrl = null;
+
+            var client = CreateClientWithHandler((req, index) =>
+            {
+                var url = req.RequestUri?.ToString() ?? string.Empty;
+
+                if (url.Contains("/botcomponents?"))
+                {
+                    return Task.FromResult(JsonResponse(new { value = new[] { new { botcomponentid = botComponentId } } }));
+                }
+
+                if (url.Contains("/botcomponent_workflowset?"))
+                {
+                    return Task.FromResult(JsonResponse(new { value = new[] { new { workflowid = workflowId, botcomponentid = botComponentId } } }));
+                }
+
+                workflowUrl = url;
+                return Task.FromResult(JsonResponse(new { value = Array.Empty<object>() }));
+            });
+
+            await client.DownloadAllWorkflowsForAgentAsync(new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
+
+            Assert.NotNull(workflowUrl);
+            var select = Uri.UnescapeDataString(workflowUrl!)
+                .Split(new[] { "$select=" }, StringSplitOptions.None)[1]
+                .Split('&')[0];
+            var selected = select.Split(',').ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var bound = typeof(WorkflowMetadata)
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(p => p.GetCustomAttribute<System.Text.Json.Serialization.JsonPropertyNameAttribute>() is not null
+                    && p.GetCustomAttribute<System.Text.Json.Serialization.JsonIgnoreAttribute>() is null)
+                .Select(p => p.GetCustomAttribute<System.Text.Json.Serialization.JsonPropertyNameAttribute>()!.Name)
+                .Where(name => !string.Equals(name, "jsonfilename", StringComparison.OrdinalIgnoreCase))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            Assert.Equal(bound.OrderBy(x => x), selected.OrderBy(x => x));
+
+            Assert.Contains("workflowid", selected);
+            Assert.Contains("clientdata", selected);
+
+            Assert.DoesNotContain("jsonfilename", selected);
+        }
+
+        [Fact]
+        public async Task DownloadAllWorkflowsForAgentAsync_WhenColumnCachedConcurrentlyMidFlight_StillRetriesInsteadOfThrowing()
+        {
+            const string MissingColumn = "iscustomprocessingstepallowedforotherpublishers";
+            var botComponentId = Guid.NewGuid();
+            var workflowId = Guid.NewGuid();
+            var workflowRequestUrls = new List<string>();
+            SyncDataverseClient? client = null;
+
+            client = CreateClientWithHandler((req, index) =>
+            {
+                var url = req.RequestUri?.ToString() ?? string.Empty;
+
+                if (url.Contains("/botcomponents?"))
+                {
+                    return Task.FromResult(JsonResponse(new { value = new[] { new { botcomponentid = botComponentId } } }));
+                }
+
+                if (url.Contains("/botcomponent_workflowset?"))
+                {
+                    return Task.FromResult(JsonResponse(new { value = new[] { new { workflowid = workflowId, botcomponentid = botComponentId } } }));
+                }
+
+                workflowRequestUrls.Add(url);
+
+                if (url.Contains(MissingColumn))
+                {
+                    SeedUnsupportedWorkflowColumn(client!, MissingColumn);
+
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest)
+                    {
+                        Content = new StringContent(
+                            "{\"error\":{\"code\":\"0x80060888\",\"message\":\"Could not find a property named '" + MissingColumn + "' on type 'Microsoft.Dynamics.CRM.workflow'.\"}}",
+                            Encoding.UTF8,
+                            "application/json")
+                    });
+                }
+
+                return Task.FromResult(JsonResponse(new
+                {
+                    value = new[] { new { workflowid = workflowId, name = "AgentFlow", clientdata = "clientdata" } }
+                }));
+            });
+
+            var workflows = await client.DownloadAllWorkflowsForAgentAsync(new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
+
+            Assert.Single(workflows);
+            Assert.Equal("AgentFlow", workflows[0].Name);
+            Assert.Equal(2, workflowRequestUrls.Count);
+            Assert.DoesNotContain(MissingColumn, workflowRequestUrls[1]);
+        }
+
+        [Fact]
+        public async Task UpdateWorkflowAsync_WhenEnvironmentRejectsOptionalColumn_RetriesWithoutItAndSucceeds()
+        {
+            const string MissingColumn = "iscustomprocessingstepallowedforotherpublishers";
+            var workflowId = Guid.NewGuid();
+            var patchBodies = new List<string>();
+
+            var workflow = new WorkflowMetadata
+            {
+                WorkflowId = workflowId,
+                Name = "AgentFlow",
+                ClientData = "clientdata",
+                IsCustomProcessingStepAllowedForOtherPublishers = new ManagedProperty { Value = true }
+            };
+
+            var client = CreateClientWithHandler(async (req, index) =>
+            {
+                if (req.Method == HttpMethod.Get)
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK);
+                }
+
+                var body = req.Content == null ? string.Empty : await req.Content.ReadAsStringAsync();
+                patchBodies.Add(body);
+
+                if (body.Contains(MissingColumn))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.BadRequest)
+                    {
+                        Content = new StringContent(
+                            "{\"error\":{\"code\":\"0x80060888\",\"message\":\"Could not find a property named '" + MissingColumn + "' on type 'Microsoft.Dynamics.CRM.workflow'.\"}}",
+                            Encoding.UTF8,
+                            "application/json")
+                    };
+                }
+
+                return new HttpResponseMessage(HttpStatusCode.NoContent);
+            });
+
+            var response = await client.UpdateWorkflowAsync(Guid.NewGuid(), workflow, CancellationToken.None);
+
+            Assert.Equal(string.Empty, response.ErrorMessage);
+            Assert.Equal(2, patchBodies.Count);
+            Assert.Contains(MissingColumn, patchBodies[0]);
+            Assert.DoesNotContain(MissingColumn, patchBodies[1]);
+            Assert.Contains("clientdata", patchBodies[1]);
+        }
+
+        [Fact]
+        public async Task InsertWorkflowAsync_WhenEnvironmentRejectsOptionalColumn_RetriesWithoutItAndKeepsWorkflowId()
+        {
+            const string MissingColumn = "iscustomprocessingstepallowedforotherpublishers";
+            var workflowId = Guid.NewGuid();
+            var postBodies = new List<string>();
+
+            var workflow = new WorkflowMetadata
+            {
+                WorkflowId = workflowId,
+                Name = "AgentFlow",
+                ClientData = "clientdata",
+                StateCode = 0,
+                IsCustomProcessingStepAllowedForOtherPublishers = new ManagedProperty { Value = true }
+            };
+
+            var client = CreateClientWithHandler(async (req, index) =>
+            {
+                if (req.Method != HttpMethod.Post)
+                {
+                    return new HttpResponseMessage(HttpStatusCode.NoContent);
+                }
+
+                var body = req.Content == null ? string.Empty : await req.Content.ReadAsStringAsync();
+                postBodies.Add(body);
+
+                if (body.Contains(MissingColumn))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.BadRequest)
+                    {
+                        Content = new StringContent(
+                            "{\"error\":{\"code\":\"0x80060888\",\"message\":\"Could not find a property named '" + MissingColumn + "' on type 'Microsoft.Dynamics.CRM.workflow'.\"}}",
+                            Encoding.UTF8,
+                            "application/json")
+                    };
+                }
+
+                return new HttpResponseMessage(HttpStatusCode.Created)
+                {
+                    Content = new StringContent(JsonSerializer.Serialize(new { workflowid = workflowId }), Encoding.UTF8, "application/json")
+                };
+            });
+
+            var response = await client.InsertWorkflowAsync(Guid.NewGuid(), workflow, CancellationToken.None);
+
+            Assert.Equal(string.Empty, response.ErrorMessage);
+            Assert.Equal(2, postBodies.Count);
+            Assert.Contains(MissingColumn, postBodies[0]);
+            Assert.DoesNotContain(MissingColumn, postBodies[1]);
+            Assert.Contains(workflowId.ToString(), postBodies[1]);
+        }
+
+        [Fact]
+        public async Task UpdateWorkflowAsync_WhenBadRequestIsNotAMissingOptionalColumn_DoesNotRetry()
+        {
+            var patchCount = 0;
+            var workflow = new WorkflowMetadata { WorkflowId = Guid.NewGuid(), Name = "AgentFlow", ClientData = "clientdata" };
+
+            var client = CreateClientWithHandler((req, index) =>
+            {
+                if (req.Method == HttpMethod.Get)
+                {
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+                }
+
+                patchCount++;
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest)
+                {
+                    Content = new StringContent(
+                        "{\"error\":{\"code\":\"0x80040203\",\"message\":\"Invalid payload.\"}}",
+                        Encoding.UTF8,
+                        "application/json")
+                });
+            });
+
+            var response = await client.UpdateWorkflowAsync(Guid.NewGuid(), workflow, CancellationToken.None);
+
+            Assert.False(string.IsNullOrEmpty(response.ErrorMessage));
+            Assert.Equal(1, patchCount);
+        }
+
+        private static void SeedUnsupportedWorkflowColumn(SyncDataverseClient client, string columnName)
+        {
+            var field = typeof(SyncDataverseClient).GetField("_unsupportedWorkflowColumnsByEnvironment", BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.NotNull(field);
+            var byEnvironment = (System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Concurrent.ConcurrentDictionary<string, byte>>)field!.GetValue(client)!;
+            var columns = byEnvironment.GetOrAdd(DataverseUrl, _ => new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase));
+            columns.TryAdd(columnName, 0);
+        }
+
+        private static HttpResponseMessage JsonResponse(object payload) =>
+            new(HttpStatusCode.OK)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
+            };
 
         [Fact]
         public async Task DownloadAllWorkflowsForAgentAsync_WithComponentCollectionId_UsesCollectionFilter()
