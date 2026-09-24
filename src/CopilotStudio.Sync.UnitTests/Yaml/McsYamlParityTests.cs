@@ -57,6 +57,65 @@ public class McsYamlParityTests
     }
 
     [Theory]
+    [MemberData(nameof(TagKindMismatches))]
+    public void RejectsTagsTheReferenceRejectsForTheNodeKind(string yaml)
+    {
+        Assert.False(ReferenceAccepts(yaml));
+        Assert.Throws<McsYamlFormatException>(() => McsYamlReader.Parse(yaml));
+    }
+
+    [Theory]
+    [MemberData(nameof(TagKindMatches))]
+    public void AcceptsTagsTheReferenceAcceptsForTheNodeKind(string yaml)
+    {
+        Assert.True(ReferenceAccepts(yaml));
+        Assert.Equal(Normalize(Reference.Deserialize<object>(yaml)), Normalize(McsYamlReader.Parse(yaml)));
+    }
+
+    public static TheoryData<string> TagKindMismatches()
+    {
+        var data = new TheoryData<string>();
+        foreach (var yaml in TagShapes())
+        {
+            if (!ReferenceAccepts(yaml))
+            {
+                data.Add(yaml);
+            }
+        }
+
+        return data;
+    }
+
+    public static TheoryData<string> TagKindMatches()
+    {
+        var data = new TheoryData<string>();
+        foreach (var yaml in TagShapes())
+        {
+            if (ReferenceAccepts(yaml))
+            {
+                data.Add(yaml);
+            }
+        }
+
+        return data;
+    }
+
+    private static IEnumerable<string> TagShapes()
+    {
+        foreach (var tag in new[] { "!!str", "!!int", "!!bool", "!!float", "!!map", "!!seq" })
+        {
+            yield return $"a: {tag} text\n";
+            yield return $"a: {tag} 5\n";
+            yield return $"a: {tag} [x]\n";
+            yield return $"a: {tag} {{k: v}}\n";
+            yield return $"a: {tag}\n- x\n";
+            yield return $"a: {tag}\n  k: v\n";
+            yield return $"a: [{tag} 5]\n";
+            yield return $"a: {{k: {tag} 5}}\n";
+        }
+    }
+
+    [Theory]
     [MemberData(nameof(ReferenceComparableDocuments))]
     public void ProducesSameValuesAsReference(string yaml)
     {

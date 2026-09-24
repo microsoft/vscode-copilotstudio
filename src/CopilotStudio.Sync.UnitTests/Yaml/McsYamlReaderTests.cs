@@ -1259,4 +1259,72 @@ public class McsYamlReaderTests
 
         Assert.Equal("shared", Assert.IsType<Dictionary<string, object?>>(document["use"])["id"]);
     }
+    [Theory]
+    [InlineData("a: [: v]\n", "v")]
+    [InlineData("a: [x, : v]\n", "v")]
+    [InlineData("a: [[: v]]\n", "v")]
+    public void AFlowEntryMayOmitItsKey(string yaml, string expectedValue)
+    {
+        var entry = FindOmittedKeyMapping(McsYamlReader.Parse(yaml)["a"]);
+
+        Assert.Equal(expectedValue, entry[string.Empty]);
+    }
+
+    [Theory]
+    [InlineData("a: [: ]\n")]
+    [InlineData("a: [:,]\n")]
+    public void AnOmittedFlowKeyMayAlsoHaveNoValue(string yaml)
+    {
+        Assert.Null(FindOmittedKeyMapping(McsYamlReader.Parse(yaml)["a"])[string.Empty]);
+    }
+
+    [Fact]
+    public void AFlowMappingMayOmitAKey()
+    {
+        var map = Assert.IsType<Dictionary<string, object?>>(McsYamlReader.Parse("a: {k: v, : w}\n")["a"]);
+
+        Assert.Equal("v", map["k"]);
+        Assert.Equal("w", map[string.Empty]);
+    }
+
+    [Fact]
+    public void AnOmittedFlowKeyCarriesAStructuredValue()
+    {
+        var entry = FindOmittedKeyMapping(McsYamlReader.Parse("a: [: {k: v}]\n")["a"]);
+
+        Assert.Equal("v", Assert.IsType<Dictionary<string, object?>>(entry[string.Empty])["k"]);
+    }
+
+    [Theory]
+    [InlineData("a: [:v]\n", ":v")]
+    [InlineData("a: [:]\n", ":")]
+    [InlineData("a: [x, :]\n", ":")]
+    public void AColonThatIsNotASeparatorStaysPartOfTheScalar(string yaml, string expected)
+    {
+        Assert.Equal(expected, Assert.IsType<List<object?>>(McsYamlReader.Parse(yaml)["a"]).Last());
+    }
+
+    [Fact]
+    public void AColonFollowedByAClosingBraceStaysPartOfTheKey()
+    {
+        Assert.True(Assert.IsType<Dictionary<string, object?>>(McsYamlReader.Parse("a: {:}\n")["a"]).ContainsKey(":"));
+    }
+
+    [Theory]
+    [InlineData(": v\n")]
+    [InlineData("k: 1\n: v\n")]
+    [InlineData("a:\n  : v\n")]
+    [InlineData("- : v\n")]
+    public void AnOmittedKeyIsStillRejectedOutsideFlowContext(string yaml)
+    {
+        Assert.Throws<McsYamlFormatException>(() => McsYamlReader.Parse(yaml));
+    }
+
+    private static Dictionary<string, object?> FindOmittedKeyMapping(object? value)
+    {
+        var items = Assert.IsType<List<object?>>(value);
+        var nested = items.Last() is List<object?> inner ? inner : items;
+
+        return Assert.IsType<Dictionary<string, object?>>(nested.Last());
+    }
 }

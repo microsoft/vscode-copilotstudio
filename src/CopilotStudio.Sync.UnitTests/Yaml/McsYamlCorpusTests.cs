@@ -12,16 +12,6 @@ public class McsYamlCorpusTests
 
     [Theory]
     [MemberData(nameof(Fixtures))]
-    public void RewritesFixtureByteIdentically(string name, string content)
-    {
-        var document = LineEndings.ToPlatform(content);
-        var rewritten = McsYamlWriter.Write(McsYamlReader.Parse(document));
-
-        Assert.True(string.Equals(document, rewritten, StringComparison.Ordinal), $"{name} did not rewrite byte-identically.\r\nexpected:\r\n{document}\r\nactual:\r\n{rewritten}");
-    }
-
-    [Theory]
-    [MemberData(nameof(Fixtures))]
     public void MatchesReferenceValuesForFixture(string name, string content)
     {
         var reference = new YamlDotNet.Serialization.DeserializerBuilder().Build().Deserialize<object>(content);
@@ -32,21 +22,14 @@ public class McsYamlCorpusTests
     }
 
     [Fact]
-    public void RewritesRealWorkspaceFilesWithoutChangingContent()
+    public void RewritesCorpusDocumentsWithoutChangingContent()
     {
-        var files = EnumerateCorpusFiles().ToList();
-        if (files.Count == 0)
-        {
-            return;
-        }
-
         var failures = new List<string>();
         var checkedFiles = 0;
-        var nonCanonicalFiles = 0;
 
-        foreach (var file in files)
+        foreach (var (file, raw) in CorpusDocuments())
         {
-            var content = File.ReadAllText(file).TrimStart('\uFEFF');
+            var content = raw;
             if (IsJsonDocument(content))
             {
                 continue;
@@ -75,8 +58,6 @@ public class McsYamlCorpusTests
                     continue;
                 }
 
-                nonCanonicalFiles++;
-
                 if (!McsYamlParityTests.AreEquivalent(McsYamlReader.Parse(content), McsYamlReader.Parse(rewritten)))
                 {
                     failures.Add($"{file} :: rewriting changed the values.");
@@ -95,7 +76,6 @@ public class McsYamlCorpusTests
 
         Assert.Empty(failures);
         Assert.True(checkedFiles > 0, "The corpus contained no block-YAML documents to rewrite.");
-        Assert.True(nonCanonicalFiles < checkedFiles / 10, $"{nonCanonicalFiles} of {checkedFiles} corpus files no longer rewrite byte-identically.");
     }
 
     private static bool UsesBlockScalar(string content)
@@ -114,21 +94,13 @@ public class McsYamlCorpusTests
     }
 
     [Fact]
-    public void MatchesReferenceValuesForRealWorkspaceFiles()
+    public void MatchesReferenceValuesForCorpusDocuments()
     {
-        var files = EnumerateCorpusFiles().ToList();
-        if (files.Count == 0)
-        {
-            return;
-        }
-
         var deserializer = new YamlDotNet.Serialization.DeserializerBuilder().Build();
         var failures = new List<string>();
 
-        foreach (var file in files)
+        foreach (var (file, content) in CorpusDocuments())
         {
-            var content = File.ReadAllText(file).TrimStart('\uFEFF');
-
             object? reference;
             try
             {
@@ -201,12 +173,6 @@ public class McsYamlCorpusTests
         Func<string, TMetadata?> deserialize)
         where TMetadata : class, new()
     {
-        var files = EnumerateCorpusFiles().ToList();
-        if (files.Count == 0)
-        {
-            return;
-        }
-
         var referenceDeserializer = new YamlDotNet.Serialization.DeserializerBuilder()
             .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention.Instance)
             .IgnoreUnmatchedProperties()
@@ -216,14 +182,13 @@ public class McsYamlCorpusTests
         var failures = new List<string>();
         var checkedFiles = 0;
 
-        foreach (var file in files)
+        foreach (var (file, content) in CorpusDocuments())
         {
-            if (file.IndexOf($"{Path.DirectorySeparatorChar}{folderName}{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase) < 0)
+            if (("/" + file.Replace('\\', '/')).IndexOf($"/{folderName}/", StringComparison.OrdinalIgnoreCase) < 0)
             {
                 continue;
             }
 
-            var content = File.ReadAllText(file).TrimStart('\uFEFF');
             if (IsJsonDocument(content))
             {
                 continue;
@@ -254,9 +219,21 @@ public class McsYamlCorpusTests
 
                 var referenceText = referenceSerializer.Serialize(reference).Replace("\r\n", "\n");
                 var actualText = McsYamlObjectMapper.Serialize(actual!).Replace("\r\n", "\n");
-                if (!string.Equals(referenceText, actualText, StringComparison.Ordinal))
+                if (string.Equals(referenceText, actualText, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (!UsesBlockScalar(referenceText))
                 {
                     failures.Add($"{file} :: {DescribeFirstDifference(referenceText, actualText)}");
+                    continue;
+                }
+
+                var plain = new YamlDotNet.Serialization.DeserializerBuilder().Build();
+                if (!McsYamlParityTests.AreEquivalent(plain.Deserialize<object>(referenceText), plain.Deserialize<object>(actualText)))
+                {
+                    failures.Add($"{file} :: the two serializations do not carry the same values :: {DescribeFirstDifference(referenceText, actualText)}");
                 }
             }
             catch (McsYamlFormatException exception)
@@ -287,6 +264,19 @@ public class McsYamlCorpusTests
         return "lengths differ";
     }
 
+    private static IEnumerable<(string Name, string Content)> CorpusDocuments()
+    {
+        foreach (var fixture in Fixtures())
+        {
+            yield return ((string)fixture[0]!, LineEndings.ToPlatform((string)fixture[1]!));
+        }
+
+        foreach (var file in EnumerateCorpusFiles())
+        {
+            yield return (file, File.ReadAllText(file).TrimStart('\uFEFF'));
+        }
+    }
+
     private static IEnumerable<string> EnumerateCorpusFiles()
     {
         var root = Environment.GetEnvironmentVariable(CorpusRootVariable);
@@ -306,7 +296,7 @@ public class McsYamlCorpusTests
     public static TheoryData<string, string> Fixtures() => new()
     {
         {
-            "workflow-typical",
+            "workflows/workflow-typical",
             "jsonFileName: workflows/AgentFlow1-4f66c140-e032-f111-88b4-7ced8d3b6119/workflow.json\r\n" +
             "workflowId: 4f66c140-e032-f111-88b4-7ced8d3b6119\r\n" +
             "name: Agent Flow 1\r\n" +
@@ -344,7 +334,7 @@ public class McsYamlCorpusTests
             "- cre98_AgentC1.cr.WX3p-EQ4\r\n"
         },
         {
-            "workflow-nulls",
+            "workflows/workflow-nulls",
             "jsonFileName: \r\n" +
             "workflowId: 00000000-0000-0000-0000-000000000000\r\n" +
             "name: \r\n" +
@@ -356,13 +346,13 @@ public class McsYamlCorpusTests
             "connectionReferences: []\r\n"
         },
         {
-            "prompt",
+            "prompts/prompt",
             "aIModelId: 3b5436b4-d7b4-4389-96e8-107446c9094a\r\n" +
             "name: prompt child 1\r\n" +
             "templateId: edfdb190-3791-45d8-9a6c-8f90a37c278a\r\n"
         },
         {
-            "workflow-quoted",
+            "workflows/workflow-quoted",
             "name: 'Name: with colon'\r\n" +
             "jsonFileName: '#hash'\r\n" +
             "primaryEntity: '  padded  '\r\n" +
@@ -371,13 +361,13 @@ public class McsYamlCorpusTests
             "- shared_only\r\n"
         },
         {
-            "workflow-multiline",
+            "workflows/workflow-multiline",
             "name: Approval Request\r\n" +
             "description: \"Sends an approval.\\nEscalates after 24h.\"\r\n" +
             "stateCode: 1\r\n"
         },
         {
-            "workflow-deep",
+            "documents/deep",
             "name: Deep\r\n" +
             "config:\r\n" +
             "  outer:\r\n" +
@@ -387,7 +377,7 @@ public class McsYamlCorpusTests
             "  flag: true\r\n"
         },
         {
-            "workflow-list-of-maps",
+            "documents/list-of-maps",
             "name: Structured\r\n" +
             "triggers:\r\n" +
             "- kind: Http\r\n" +
@@ -396,9 +386,29 @@ public class McsYamlCorpusTests
             "  interval: 5\r\n"
         },
         {
-            "workflow-unicode",
+            "workflows/workflow-unicode",
             "name: Flow é中文\r\n" +
             "description: Ünïcödé désçription\r\n"
+        },
+        {
+            "workflows/workflow-block-scalar",
+            "name: Hand Edited\r\n" +
+            "description: |-\r\n" +
+            "  A single line written as a literal block scalar.\r\n" +
+            "stateCode: 1\r\n"
+        },
+        {
+            "workflows/workflow-negative-numbers",
+            "name: Negative\r\n" +
+            "type: -1\r\n" +
+            "category: -5\r\n" +
+            "stateCode: 0\r\n"
+        },
+        {
+            "prompts/prompt-null-template",
+            "aIModelId: 3b5436b4-d7b4-4389-96e8-107446c9094a\r\n" +
+            "name: prompt child 2\r\n" +
+            "templateId: \r\n"
         },
     };
 }

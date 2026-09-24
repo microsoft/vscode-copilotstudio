@@ -313,7 +313,7 @@ internal static class McsYamlReader
 
             if (current == '[' || current == '{')
             {
-                return ParseFlowNode(parentIndent);
+                return ApplyTag(tag, ParseFlowNode(parentIndent));
             }
 
             if (current == '\'' || current == '"')
@@ -328,7 +328,7 @@ internal static class McsYamlReader
                         RegisterAnchor(firstKeyAnchor, quoted);
                     }
 
-                    return ParseBlockMappingFromKey(nodeIndent, quoted);
+                    return ApplyTag(firstKeyTag == null ? tag : null, ParseBlockMappingFromKey(nodeIndent, quoted));
                 }
 
                 return ApplyTag(tag, quoted);
@@ -341,19 +341,19 @@ internal static class McsYamlReader
                     throw Fail("A block sequence cannot appear inline after ':'.");
                 }
 
-                return ParseBlockSequence(nodeIndent);
+                return ApplyTag(tag, ParseBlockSequence(nodeIndent));
             }
 
             if (allowBlockMapping && IsIndicatorAlone('?'))
             {
-                return ParseBlockMapping(nodeIndent, null);
+                return ApplyTag(tag, ParseBlockMapping(nodeIndent, null));
             }
 
             if (allowBlockMapping && TryFindKeyEnd())
             {
                 implicitBlockMapping = true;
                 RejectNonTextKeyTag(firstKeyTag, start);
-                return ParseBlockMapping(nodeIndent, firstKeyAnchor);
+                return ApplyTag(firstKeyTag == null ? tag : null, ParseBlockMapping(nodeIndent, firstKeyAnchor));
             }
 
             return ApplyTag(tag, ParsePlainScalar(parentIndent, tag != null, FlowContext.None));
@@ -361,14 +361,32 @@ internal static class McsYamlReader
 
         private static McsYamlNode ApplyTag(string? tag, McsYamlNode node)
         {
-            if (tag == null || node.Kind != McsYamlNodeKind.Scalar || node.Scalar == null)
+            if (tag == null)
             {
                 return node;
             }
 
-            McsYamlScalars.ResolveTaggedValue(tag, node.Scalar);
+            var expected = string.Equals(tag, "!!map", StringComparison.Ordinal) ? McsYamlNodeKind.Mapping : McsYamlNodeKind.Scalar;
+            if (node.Kind != expected)
+            {
+                throw new McsYamlFormatException($"The tag '{tag}' cannot be applied to {DescribeKind(node.Kind)}.", node.Start.Line, node.Start.Column);
+            }
+
+            if (node.Scalar == null)
+            {
+                return node;
+            }
+
+            McsYamlScalars.ResolveTaggedValue(tag, node.Scalar, node.Start);
             return McsYamlNode.ForTaggedScalar(node.Scalar, node.Start, node.End, tag);
         }
+
+        private static string DescribeKind(McsYamlNodeKind kind) => kind switch
+        {
+            McsYamlNodeKind.Mapping => "a mapping",
+            McsYamlNodeKind.Sequence => "a sequence",
+            _ => "a scalar",
+        };
 
         private bool IsMappingKeySeparatorAhead()
         {
@@ -533,8 +551,6 @@ internal static class McsYamlReader
                         return "!!float";
                     case "map":
                         return "!!map";
-                    case "seq":
-                        return "!!seq";
                 }
             }
 
@@ -1403,8 +1419,10 @@ internal static class McsYamlReader
                 SkipFlowSpace();
             }
 
-            return ParseFlowScalarOrNode(FlowContext.FlowKey);
+            return IsOmittedFlowKey() ? McsYamlNode.ForScalar(string.Empty, Position, Position) : ParseFlowScalarOrNode(FlowContext.FlowKey);
         }
+
+        private bool IsOmittedFlowKey() => !AtEnd && Current == ':' && IsKeySeparatorAt(_index, FlowContext.FlowKey);
 
         private McsYamlNode ParseFlowEntry()
         {
@@ -1419,6 +1437,13 @@ internal static class McsYamlReader
                 SkipFlowSpace();
                 var explicitValue = ParseFlowPairValue();
                 return McsYamlNode.ForMapping(new[] { new McsYamlProperty(explicitKey, explicitValue) }, explicitKey.Start, explicitValue.End);
+            }
+
+            if (IsOmittedFlowKey())
+            {
+                var omittedKey = McsYamlNode.ForScalar(string.Empty, Position, Position);
+                var omittedValue = ParseFlowPairValue();
+                return McsYamlNode.ForMapping(new[] { new McsYamlProperty(omittedKey, omittedValue) }, omittedKey.Start, omittedValue.End);
             }
 
             var key = ParseFlowScalarOrNode(FlowContext.FlowKey, out var plainScalar, out var anchor);

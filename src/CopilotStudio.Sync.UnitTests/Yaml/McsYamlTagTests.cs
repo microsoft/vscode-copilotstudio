@@ -258,4 +258,81 @@ public class McsYamlTagTests
             }
         }
     }
+    [Theory]
+    [InlineData("a: !!str [x]\n")]
+    [InlineData("a: !!str {k: v}\n")]
+    [InlineData("a: !!str\n- x\n")]
+    [InlineData("a: !!str\n  k: v\n")]
+    [InlineData("a: !!int [x]\n")]
+    [InlineData("a: !!int\n- x\n")]
+    [InlineData("a: !!bool {k: v}\n")]
+    [InlineData("a: !!float\n  k: v\n")]
+    public void ScalarTagsAreRejectedOnCollections(string yaml)
+    {
+        Assert.Throws<McsYamlFormatException>(() => McsYamlReader.Parse(yaml));
+    }
+
+    [Theory]
+    [InlineData("a: !!map text\n")]
+    [InlineData("a: !!map 5\n")]
+    [InlineData("a: !!map [x]\n")]
+    [InlineData("a: !!map\n- x\n")]
+    public void TheMapTagIsRejectedOnAnythingButAMapping(string yaml)
+    {
+        Assert.Throws<McsYamlFormatException>(() => McsYamlReader.Parse(yaml));
+    }
+
+    [Theory]
+    [InlineData("a: !!map {k: v}\n")]
+    [InlineData("a: !!map\n  k: v\n")]
+    [InlineData("!!map\nk: v\n")]
+    public void TheMapTagIsAcceptedOnAMapping(string yaml)
+    {
+        Assert.NotNull(McsYamlReader.Parse(yaml));
+    }
+
+    [Theory]
+    [InlineData("a: !!seq [x]\n")]
+    [InlineData("a: !!seq\n- x\n")]
+    [InlineData("a: !!seq text\n")]
+    [InlineData("a: !<tag:yaml.org,2002:seq> [x]\n")]
+    public void TheSequenceTagIsRejectedEverywhereJustLikeTheReferenceParser(string yaml)
+    {
+        Assert.Throws<McsYamlFormatException>(() => McsYamlReader.Parse(yaml));
+    }
+
+    [Theory]
+    [InlineData("a: !!str text\n")]
+    [InlineData("a: !!int 5\n")]
+    [InlineData("a: !!bool yes\n")]
+    [InlineData("a: !!float 1.5\n")]
+    [InlineData("a: [!!int 5]\n")]
+    [InlineData("a: {k: !!int 5}\n")]
+    public void ScalarTagsRemainValidOnScalars(string yaml)
+    {
+        Assert.NotNull(McsYamlReader.Parse(yaml));
+    }
+
+    [Theory]
+    [InlineData("name: Flow\nstateCode: !!int notanumber\n", 2, 18)]
+    [InlineData("name: Flow\ndescription: x\nflag: !!bool maybe\n", 3, 14)]
+    [InlineData("a: !!float nope\n", 1, 12)]
+    public void FailedTaggedConversionsReportTheValuePosition(string yaml, int expectedLine, int expectedColumn)
+    {
+        var error = Assert.Throws<McsYamlFormatException>(() => McsYamlReader.Parse(yaml));
+
+        Assert.Equal(expectedLine, error.Line);
+        Assert.Equal(expectedColumn, error.Column);
+    }
+
+    [Theory]
+    [InlineData("a: !!str [x]\n", 1, 10)]
+    [InlineData("name: ok\nb: !!map text\n", 2, 10)]
+    public void TagKindMismatchesReportThePositionOfTheTaggedNode(string yaml, int expectedLine, int expectedColumn)
+    {
+        var error = Assert.Throws<McsYamlFormatException>(() => McsYamlReader.Parse(yaml));
+
+        Assert.Equal(expectedLine, error.Line);
+        Assert.Equal(expectedColumn, error.Column);
+    }
 }

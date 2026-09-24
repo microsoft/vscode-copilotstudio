@@ -96,7 +96,7 @@ internal sealed class McsYamlNode
             return scalar;
         }
 
-        var resolved = McsYamlScalars.ResolveTaggedValue(tag, scalar);
+        var resolved = McsYamlScalars.ResolveTaggedValue(tag, scalar, Start);
         if (resolved is string text)
         {
             return preserveStringTags ? new McsYamlTaggedScalar(tag, scalar, text) : text;

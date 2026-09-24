@@ -1,4 +1,4 @@
-﻿namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.Yml
+namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.Yml
 {
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
     using Microsoft.PowerPlatformLS.Impl.Language.Yaml.DependencyInjection;
@@ -35,6 +35,40 @@
             Assert.Equal(DiagnosticSeverity.Error, error.Severity);
             Assert.DoesNotContain("Unhandled exception", error.Message, StringComparison.Ordinal);
             Assert.NotNull(error.Range);
+        }
+
+        [Fact]
+        public async Task Diagnostic_OnInvalidTaggedScalar_PointsAtTheValue_Async()
+        {
+            var diagnostics = await GetDiagnosticsForYamlTextAsync("name: Flow\ndescription: text\nflag: !!bool maybe\n");
+
+            var error = diagnostics.Single();
+            Assert.Equal(DiagnosticSeverity.Error, error.Severity);
+            Assert.DoesNotContain("Unhandled exception", error.Message, StringComparison.Ordinal);
+            Assert.Equal(2, error.Range!.Value.Start.Line);
+            Assert.Equal(13, error.Range!.Value.Start.Character);
+        }
+
+        [Fact]
+        public async Task Diagnostic_OnTagAppliedToWrongNodeKind_Async()
+        {
+            var diagnostics = await GetDiagnosticsForYamlTextAsync("name: Flow\nitems: !!str\n- one\n");
+
+            var error = diagnostics.Single();
+            Assert.Equal(DiagnosticSeverity.Error, error.Severity);
+            Assert.DoesNotContain("Unhandled exception", error.Message, StringComparison.Ordinal);
+            Assert.Equal(2, error.Range!.Value.Start.Line);
+        }
+
+        [Fact]
+        public async Task Diagnostic_OnOversizedUnicodeEscape_IsPositioned_Async()
+        {
+            var diagnostics = await GetDiagnosticsForYamlTextAsync("name: Flow\nvalue: \"\\UFFFFFFFF\"\n");
+
+            var error = diagnostics.Single();
+            Assert.Equal(DiagnosticSeverity.Error, error.Severity);
+            Assert.DoesNotContain("Unhandled exception", error.Message, StringComparison.Ordinal);
+            Assert.Equal(1, error.Range!.Value.Start.Line);
         }
 
         [Fact]

@@ -101,26 +101,29 @@ internal static class McsYamlScalars
     }
 
     /// <summary>Converts a scalar carrying an explicit standard tag into the value that tag denotes.</summary>
-    public static object ResolveTaggedValue(string tag, string text)
+    public static object ResolveTaggedValue(string tag, string text, McsYamlPosition position)
     {
         switch (tag)
         {
             case "!!int":
                 return TryParseInteger(text, out var integer) && integer >= long.MinValue && integer <= long.MaxValue
                     ? (long)integer
-                    : throw new McsYamlFormatException($"'{text}' is not a valid '{tag}' value.");
+                    : throw Invalid(tag, text, position);
             case "!!bool":
                 return TryParseBoolean(text, out var flag)
                     ? flag
-                    : throw new McsYamlFormatException($"'{text}' is not a valid '{tag}' value.");
+                    : throw Invalid(tag, text, position);
             case "!!float":
                 return TryParseFloat(text, out var number)
                     ? number
-                    : throw new McsYamlFormatException($"'{text}' is not a valid '{tag}' value.");
+                    : throw Invalid(tag, text, position);
             default:
                 return text;
         }
     }
+
+    private static McsYamlFormatException Invalid(string tag, string text, McsYamlPosition position)
+        => new($"'{text}' is not a valid '{tag}' value.", position.Line, position.Column);
 
     private static bool TryParseFloat(string text, out double value)
     {
