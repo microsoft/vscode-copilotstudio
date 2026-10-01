@@ -59,10 +59,34 @@ const repairAttempted = new Set<string>();
 const accountRepairAttempted = new Set<string>();
 const autoAccountRepairAttempted = new Set<string>();
 const autoAccountRepairInProgress = new Set<string>();
+const autoAccountRepairRetryAfter = new Map<string, number>();
+const workspaceAccountRepairGenerations = new Map<string, number>();
 const MAX_CONCURRENT_ACCOUNT_REPAIRS = 3;
+const AUTO_ACCOUNT_REPAIR_COOLDOWN_MS = 30_000;
 let activeAccountRepairs = 0;
 let accountRepairGeneration = 0;
 const accountRepairWaiters: Array<() => void> = [];
+
+const getWorkspaceRepairKey = (workspaceUri: string): string => {
+  const workspacePath = path.resolve(Uri.parse(workspaceUri).fsPath);
+  return process.platform === 'win32' ? workspacePath.toLowerCase() : workspacePath;
+};
+
+const getWorkspaceRepairGeneration = (workspaceUri: string): number =>
+  workspaceAccountRepairGenerations.get(getWorkspaceRepairKey(workspaceUri)) ?? 0;
+
+const isAutoAccountRepairCoolingDown = (workspaceUri: string, now: number = Date.now()): boolean => {
+  const workspaceKey = getWorkspaceRepairKey(workspaceUri);
+  const retryAfter = autoAccountRepairRetryAfter.get(workspaceKey);
+  if (retryAfter === undefined) {
+    return false;
+  }
+  if (retryAfter <= now) {
+    autoAccountRepairRetryAfter.delete(workspaceKey);
+    return false;
+  }
+  return true;
+};
 
 const acquireAccountRepairSlot = async (): Promise<void> => {
   if (activeAccountRepairs < MAX_CONCURRENT_ACCOUNT_REPAIRS) {
@@ -94,17 +118,19 @@ const clearRepairCaches = (workspaceUri?: string): void => {
     repairAttempted.clear();
     accountRepairAttempted.clear();
     autoAccountRepairAttempted.clear();
+    autoAccountRepairRetryAfter.clear();
+    workspaceAccountRepairGenerations.clear();
     return;
   }
 
-  const targetPath = path.resolve(Uri.parse(workspaceUri).fsPath);
+  const targetPath = getWorkspaceRepairKey(workspaceUri);
+  workspaceAccountRepairGenerations.set(targetPath, getWorkspaceRepairGeneration(workspaceUri) + 1);
+  autoAccountRepairRetryAfter.delete(targetPath);
+  autoAccountRepairAttempted.delete(targetPath);
   const pathsMatch = (candidateUri: string): boolean => {
-    const candidatePath = path.resolve(Uri.parse(candidateUri).fsPath);
-    return process.platform === 'win32'
-      ? candidatePath.toLowerCase() === targetPath.toLowerCase()
-      : candidatePath === targetPath;
+    return getWorkspaceRepairKey(candidateUri) === targetPath;
   };
-  for (const cache of [repairAttempted, accountRepairAttempted, autoAccountRepairAttempted]) {
+  for (const cache of [repairAttempted, accountRepairAttempted]) {
     for (const candidateUri of cache) {
       if (pathsMatch(candidateUri)) {
         cache.delete(candidateUri);
@@ -142,6 +168,52 @@ const hasPersistedAccountIdentity = (workspaceUri: string): boolean => {
     return !!(blankToUndefined(connectionData.AccountInfo?.AccountId) || blankToUndefined(connectionData.AccountInfo?.AccountEmail));
   } catch {
     return false;
+  }
+};
+
+const readConnectionFileVersion = (workspaceUri: string): string | undefined => {
+  const connFilePath = path.join(Uri.parse(workspaceUri).fsPath, '.mcs', 'conn.json');
+  try {
+    return fs.readFileSync(connFilePath, 'utf-8');
+  } catch {
+    return undefined;
+  }
+};
+
+export interface AccountRepairInput {
+  connectionVersion: string;
+  syncInfo: AgentSyncInfo;
+}
+
+export const readAccountRepairInput = (workspaceUri: string, fallbackSyncInfo: AgentSyncInfo): AccountRepairInput | undefined => {
+  const connectionVersion = readConnectionFileVersion(workspaceUri);
+  if (connectionVersion === undefined) {
+    return undefined;
+  }
+
+  try {
+    const connectionData = JSON.parse(connectionVersion) as {
+      DataverseEndpoint?: string;
+      EnvironmentId?: string;
+      AccountInfo?: { TenantId?: string; AccountId?: string; AccountEmail?: string };
+    };
+    const accountInfo = connectionData.AccountInfo;
+    return {
+      connectionVersion,
+      syncInfo: {
+        ...fallbackSyncInfo,
+        dataverseEndpoint: blankToUndefined(connectionData.DataverseEndpoint) ?? '',
+        environmentId: blankToUndefined(connectionData.EnvironmentId) ?? '',
+        accountInfo: {
+          ...fallbackSyncInfo.accountInfo,
+          tenantId: blankToUndefined(accountInfo?.TenantId) ?? '',
+          accountId: blankToUndefined(accountInfo?.AccountId),
+          accountEmail: blankToUndefined(accountInfo?.AccountEmail),
+        },
+      },
+    };
+  } catch {
+    return undefined;
   }
 };
 
@@ -259,7 +331,7 @@ export async function initializeLocalWorkspaces(context: ExtensionContext) {
   }));
 
   const allFileWatcher = workspace.createFileSystemWatcher('**/*.*');
-  allFileWatcher.onDidChange(async (uri) => {
+  const handleWorkspaceFileChange = (uri: Uri): void => {
     const loweredPath = uri.path.toLowerCase();
     if (loweredPath.endsWith('.mcs/conn.json')
       || loweredPath.endsWith('.mcs/botdefinition.json')
@@ -272,7 +344,12 @@ export async function initializeLocalWorkspaces(context: ExtensionContext) {
       }
       refreshAndNotify();
     }
-  });
+  };
+  context.subscriptions.push(
+    allFileWatcher,
+    allFileWatcher.onDidChange(handleWorkspaceFileChange),
+    allFileWatcher.onDidCreate(handleWorkspaceFileChange),
+    allFileWatcher.onDidDelete(handleWorkspaceFileChange));
 
   context.subscriptions.push(workspace.onDidOpenTextDocument(e => {
     e.uri.scheme === 'file' && refreshAndNotify();
@@ -345,8 +422,18 @@ async function listWorkspaces(): Promise<CopilotStudioWorkspace[]> {
       if (data.syncInfo) {
         const accountInfo = data.syncInfo.accountInfo;
         if (accountInfo && (blankToUndefined(accountInfo.accountId) || blankToUndefined(accountInfo.accountEmail))) {
-          await tryRepairAccountInfo(data.syncInfo, workspaceUri, undefined, false);
-        } else if (accountInfo && !autoAccountRepairAttempted.has(workspaceUri)) {
+          const repairInput = readAccountRepairInput(workspaceUri, data.syncInfo);
+          if (repairInput !== undefined) {
+            const repaired = await tryRepairAccountInfo(repairInput.syncInfo, workspaceUri, {
+              canPersist: () => repairInput.connectionVersion === readConnectionFileVersion(workspaceUri),
+            }, false);
+            if (repaired) {
+              data.syncInfo = repairInput.syncInfo;
+            }
+          }
+        } else if (accountInfo
+          && !autoAccountRepairAttempted.has(getWorkspaceRepairKey(workspaceUri))
+          && !isAutoAccountRepairCoolingDown(workspaceUri)) {
           pendingAccountRepairs.push({ syncInfo: data.syncInfo, workspaceUri });
         }
       }
@@ -363,40 +450,66 @@ async function listWorkspaces(): Promise<CopilotStudioWorkspace[]> {
 }
 
 const scheduleAutomaticAccountRepairs = (repairs: { syncInfo: AgentSyncInfo; workspaceUri: string }[]): void => {
-  const pendingRepairs = repairs.filter(repair => {
-    if (autoAccountRepairAttempted.has(repair.workspaceUri) || autoAccountRepairInProgress.has(repair.workspaceUri)) {
-      return false;
+  const globalGeneration = accountRepairGeneration;
+  const pendingRepairs = repairs.flatMap(repair => {
+    const repairKey = getWorkspaceRepairKey(repair.workspaceUri);
+    if (autoAccountRepairAttempted.has(repairKey)
+      || autoAccountRepairInProgress.has(repairKey)
+      || isAutoAccountRepairCoolingDown(repair.workspaceUri)) {
+      return [];
     }
-    autoAccountRepairInProgress.add(repair.workspaceUri);
-    return true;
+    const repairInput = readAccountRepairInput(repair.workspaceUri, repair.syncInfo);
+    if (repairInput === undefined) {
+      return [];
+    }
+    const scheduledRepair = {
+      ...repair,
+      globalGeneration,
+      workspaceGeneration: getWorkspaceRepairGeneration(repair.workspaceUri),
+      repairInput,
+      repairKey,
+      invalidated: false,
+    };
+    autoAccountRepairInProgress.add(repairKey);
+    return [scheduledRepair];
   });
   if (pendingRepairs.length === 0) {
     return;
   }
 
-  const generation = accountRepairGeneration;
   void (async () => {
+    let repairedAnyWorkspace = false;
     try {
       const storedAccounts = await listStoredAccounts();
       const accountsByTenant = buildAccountTenantIndex(storedAccounts);
-      const repairDeps: Partial<AccountRepairDeps> = {
-        findAccounts: tenantId => {
-          const normalizedTenantId = blankToUndefined(tenantId)?.toLowerCase();
-          return normalizedTenantId ? accountsByTenant.get(normalizedTenantId) ?? [] : [];
-        },
-        listAllAccounts: () => storedAccounts,
-        canPersist: () => generation === accountRepairGeneration,
-      };
-
-      await Promise.all(pendingRepairs.map(pendingRepair => runWithAccountRepairLimit(
-        () => tryRepairAccountInfo(pendingRepair.syncInfo, pendingRepair.workspaceUri, repairDeps, false))));
+      const repairResults = await Promise.all(pendingRepairs.map(pendingRepair => runWithAccountRepairLimit(
+        () => tryRepairAccountInfo(pendingRepair.repairInput.syncInfo, pendingRepair.workspaceUri, {
+          findAccounts: tenantId => {
+            const normalizedTenantId = blankToUndefined(tenantId)?.toLowerCase();
+            return normalizedTenantId ? accountsByTenant.get(normalizedTenantId) ?? [] : [];
+          },
+          listAllAccounts: () => storedAccounts,
+          requirePersistence: true,
+          canPersist: () => {
+            const canPersist =
+              pendingRepair.globalGeneration === accountRepairGeneration
+            && pendingRepair.workspaceGeneration === getWorkspaceRepairGeneration(pendingRepair.workspaceUri)
+            && pendingRepair.repairInput.connectionVersion === readConnectionFileVersion(pendingRepair.workspaceUri);
+            pendingRepair.invalidated ||= !canPersist;
+            return canPersist;
+          },
+        }, false))));
+      repairedAnyWorkspace = repairResults.some(Boolean);
     } catch {
       logger.logWarning(TelemetryEventsKeys.SyncWorkspaceError, 'Could not inspect signed-in accounts while resolving workspace account information.');
     } finally {
       for (const pendingRepair of pendingRepairs) {
-        autoAccountRepairInProgress.delete(pendingRepair.workspaceUri);
+        autoAccountRepairInProgress.delete(pendingRepair.repairKey);
       }
-      if (generation !== accountRepairGeneration) {
+      if (repairedAnyWorkspace || pendingRepairs.some(pendingRepair =>
+        pendingRepair.invalidated
+        || pendingRepair.globalGeneration !== accountRepairGeneration
+        || pendingRepair.workspaceGeneration !== getWorkspaceRepairGeneration(pendingRepair.workspaceUri))) {
         refreshAndNotify();
       }
     }
@@ -457,6 +570,8 @@ export interface AccountRepairDeps {
   promptForAccount: (candidates: StoredAccountSummary[]) => Promise<StoredAccountSummary | undefined>;
   validateAccount: (candidate: StoredAccountSummary) => Promise<boolean>;
   canPersist: () => boolean;
+  now: () => number;
+  requirePersistence: boolean;
 }
 
 type AccountValidationFailure = 'conclusive' | 'transient';
@@ -473,9 +588,6 @@ const validateSelectedAccountTenant = (tenantId: string | undefined, candidate: 
 
 const validateAccountForEnvironment = async (syncInfo: AgentSyncInfo, candidate: StoredAccountSummary, interactive: boolean = false): Promise<boolean> => {
   const { dataverseEndpoint } = syncInfo;
-  if (!syncInfo.agentId && syncInfo.componentCollectionId) {
-    return true;
-  }
   if (!dataverseEndpoint) {
     return false;
   }
@@ -537,12 +649,21 @@ export async function tryRepairAccountInfo(
   }
 
   if (blankToUndefined(accountInfo.accountId) || blankToUndefined(accountInfo.accountEmail)) {
+    if (deps?.canPersist && !deps.canPersist()) {
+      return false;
+    }
     tryRepairTenantId(accountInfo, workspaceUri);
     return true;
   }
 
+  if (deps?.canPersist && !deps.canPersist()) {
+    return false;
+  }
+
   const attemptedRepairs = interactive ? accountRepairAttempted : autoAccountRepairAttempted;
-  if (attemptedRepairs.has(workspaceUri)) {
+  const repairKey = interactive ? workspaceUri : getWorkspaceRepairKey(workspaceUri);
+  if (attemptedRepairs.has(repairKey)
+    || (!interactive && isAutoAccountRepairCoolingDown(workspaceUri, (deps?.now ?? Date.now)()))) {
     return false;
   }
 
@@ -554,7 +675,7 @@ export async function tryRepairAccountInfo(
       deps?.listAllAccounts ?? getStoredAccountSummaries);
 
   if (candidates.length === 0 || (!interactive && candidates.length !== 1)) {
-    attemptedRepairs.add(workspaceUri);
+    attemptedRepairs.add(repairKey);
     return false;
   }
 
@@ -582,8 +703,16 @@ export async function tryRepairAccountInfo(
     }
   }
   if (!canAccessEnvironment) {
+    if (deps?.canPersist && !deps.canPersist()) {
+      return false;
+    }
     if (validationFailure === 'conclusive') {
-      attemptedRepairs.add(workspaceUri);
+      attemptedRepairs.add(repairKey);
+      autoAccountRepairRetryAfter.delete(getWorkspaceRepairKey(workspaceUri));
+    } else if (!interactive) {
+      autoAccountRepairRetryAfter.set(
+        getWorkspaceRepairKey(workspaceUri),
+        (deps?.now ?? Date.now)() + AUTO_ACCOUNT_REPAIR_COOLDOWN_MS);
     }
     if (interactive) {
       const accountLabel = selectedAccount.accountEmail ?? selectedAccount.accountId;
@@ -624,8 +753,19 @@ export async function tryRepairAccountInfo(
 
   if (!persisted) {
     logger.logWarning(TelemetryEventsKeys.SyncWorkspaceError, 'Resolved the bound account but could not save it to .mcs/conn.json. It will be resolved again next time.');
+    if (!interactive) {
+      autoAccountRepairRetryAfter.set(
+        getWorkspaceRepairKey(workspaceUri),
+        (deps?.now ?? Date.now)() + AUTO_ACCOUNT_REPAIR_COOLDOWN_MS);
+    }
+    if (deps?.requirePersistence) {
+      return false;
+    }
   }
 
+  if (persisted) {
+    autoAccountRepairRetryAfter.delete(getWorkspaceRepairKey(workspaceUri));
+  }
   logger.logDebug('Workspace', `Resolved the bound account from the tenant id for <pii>${workspaceUri}</pii>`);
   return true;
 }

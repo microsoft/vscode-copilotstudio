@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { Uri } from 'vscode';
-import { getDuplicateDisplayNames, buildAgentIdentityTooltip, tryRepairAccountInfo, tryRepairAgentManagementEndpoint, chooseAccountForWorkspace, CopilotStudioWorkspace, runWithAccountRepairLimit } from '../../sync/localWorkspaces';
+import { getDuplicateDisplayNames, buildAgentIdentityTooltip, tryRepairAccountInfo, tryRepairAgentManagementEndpoint, chooseAccountForWorkspace, CopilotStudioWorkspace, readAccountRepairInput, runWithAccountRepairLimit } from '../../sync/localWorkspaces';
 import { AgentSyncInfo } from '../../types';
 import { StoredAccountSummary } from '../../clients/account';
 
@@ -73,6 +73,78 @@ const makeWorkspace = (overrides: Partial<CopilotStudioWorkspace>): CopilotStudi
 });
 
 describe('tryRepairAccountInfo without interaction', () => {
+	test('uses the current connection file as the automatic repair input', () => {
+		const currentConnection = {
+			...PAC_CONNECTION_FILE,
+			DataverseEndpoint: 'https://current.crm.dynamics.com/',
+			EnvironmentId: 'current-environment',
+			AccountInfo: {
+				...PAC_CONNECTION_FILE.AccountInfo,
+				TenantId: '22222222-2222-2222-2222-222222222222',
+				AccountId: '',
+				AccountEmail: null,
+			},
+		};
+		const agentFolder = createWorkspaceFolder(currentConnection);
+		const staleSyncInfo = {
+			...makeSyncInfo(),
+			dataverseEndpoint: 'https://stale.crm.dynamics.com',
+			environmentId: 'stale-environment',
+		} as AgentSyncInfo;
+
+		const input = readAccountRepairInput(Uri.file(agentFolder).toString(), staleSyncInfo);
+
+		assert.ok(input);
+		assert.strictEqual(input.syncInfo.dataverseEndpoint, currentConnection.DataverseEndpoint);
+		assert.strictEqual(input.syncInfo.environmentId, currentConnection.EnvironmentId);
+		assert.strictEqual(input.syncInfo.accountInfo.tenantId, currentConnection.AccountInfo.TenantId);
+		assert.strictEqual(input.syncInfo.accountInfo.accountId, undefined);
+		assert.strictEqual(input.syncInfo.accountInfo.accountEmail, undefined);
+		assert.strictEqual(input.connectionVersion, fs.readFileSync(path.join(agentFolder, '.mcs', 'conn.json'), 'utf-8'));
+	});
+
+	test('does not create automatic repair input from malformed connection data', () => {
+		const agentFolder = createWorkspaceFolder('{ invalid json');
+
+		assert.strictEqual(readAccountRepairInput(Uri.file(agentFolder).toString(), makeSyncInfo()), undefined);
+	});
+
+	test('rejects a stale repair input and succeeds with the refreshed connection input', async () => {
+		const agentFolder = createWorkspaceFolder();
+		const workspaceUri = Uri.file(agentFolder).toString();
+		const connectionPath = path.join(agentFolder, '.mcs', 'conn.json');
+		const staleInput = readAccountRepairInput(workspaceUri, makeSyncInfo());
+		assert.ok(staleInput);
+
+		const updatedConnection = readConnectionFile(agentFolder);
+		updatedConnection.AccountInfo.TenantId = '22222222-2222-2222-2222-222222222222';
+		fs.writeFileSync(connectionPath, JSON.stringify(updatedConnection), 'utf-8');
+
+		const staleRepair = await tryRepairAccountInfo(staleInput.syncInfo, workspaceUri, {
+			findAccounts: () => [{
+				accountId: 'old.a30263b9-1caf-4db5-ab53-ed3850c0bd1f',
+				accountEmail: 'old@contoso.com',
+			}],
+			validateAccount: allowAccountAccess,
+			canPersist: () => staleInput.connectionVersion === fs.readFileSync(connectionPath, 'utf-8'),
+		}, false);
+
+		const freshInput = readAccountRepairInput(workspaceUri, makeSyncInfo());
+		assert.ok(freshInput);
+		const freshRepair = await tryRepairAccountInfo(freshInput.syncInfo, workspaceUri, {
+			findAccounts: () => [{
+				accountId: 'new.22222222-2222-2222-2222-222222222222',
+				accountEmail: 'new@contoso.com',
+			}],
+			validateAccount: allowAccountAccess,
+			canPersist: () => freshInput.connectionVersion === fs.readFileSync(connectionPath, 'utf-8'),
+		}, false);
+
+		assert.strictEqual(staleRepair, false);
+		assert.strictEqual(freshRepair, true);
+		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.AccountEmail, 'new@contoso.com');
+	});
+
 	test('adopts and persists the only signed-in account matching the tenant', async () => {
 		const agentFolder = createWorkspaceFolder();
 		const syncInfo = makeSyncInfo();
@@ -102,6 +174,31 @@ describe('tryRepairAccountInfo without interaction', () => {
 		assertCloudCacheUntouched(agentFolder, cloudCacheBefore);
 	});
 
+	test('does not report automatic repair success when persistence is required and the connection write fails', async () => {
+		const agentFolder = createWorkspaceFolder();
+		const workspaceUri = Uri.file(agentFolder).toString();
+		const connectionPath = path.join(agentFolder, '.mcs', 'conn.json');
+		let validationCalls = 0;
+		fs.unlinkSync(connectionPath);
+
+		const deps = {
+			findAccounts: () => [{ accountId: 'oid.a30263b9-1caf-4db5-ab53-ed3850c0bd1f', accountEmail: 'only@contoso.com' }],
+			validateAccount: async () => {
+				validationCalls++;
+				return true;
+			},
+			requirePersistence: true,
+			now: () => 1_000,
+		};
+
+		const repaired = await tryRepairAccountInfo(makeSyncInfo(), workspaceUri, deps, false);
+		const retriedDuringCooldown = await tryRepairAccountInfo(makeSyncInfo(), workspaceUri, deps, false);
+
+		assert.strictEqual(repaired, false);
+		assert.strictEqual(retriedDuringCooldown, false);
+		assert.strictEqual(validationCalls, 1);
+	});
+
 	test('caches a conclusive environment validation failure', async () => {
 		const workspaceUri = Uri.file(createWorkspaceFolder()).toString();
 		let validationCalls = 0;
@@ -122,17 +219,22 @@ describe('tryRepairAccountInfo without interaction', () => {
 	test('retries automatic repair after a transient environment validation failure', async () => {
 		const workspaceUri = Uri.file(createWorkspaceFolder()).toString();
 		let validationCalls = 0;
+		let now = 1_000;
 		const deps = {
 			findAccounts: () => [{ accountId: 'oid.a30263b9-1caf-4db5-ab53-ed3850c0bd1f', accountEmail: 'only@contoso.com' }],
 			validateAccount: async () => {
 				validationCalls++;
 				throw new Error('network request failed');
 			},
+			now: () => now,
 		};
 
 		await tryRepairAccountInfo(makeSyncInfo(), workspaceUri, deps, false);
 		await tryRepairAccountInfo(makeSyncInfo(), workspaceUri, deps, false);
+		assert.strictEqual(validationCalls, 1);
 
+		now += 30_000;
+		await tryRepairAccountInfo(makeSyncInfo(), workspaceUri, deps, false);
 		assert.strictEqual(validationCalls, 2);
 	});
 
@@ -155,6 +257,71 @@ describe('tryRepairAccountInfo without interaction', () => {
 		assert.strictEqual(repaired, false);
 		assert.strictEqual(syncInfo.accountInfo.accountId, '');
 		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.AccountEmail, 'manual@contoso.com');
+	});
+
+	test('does not mutate account state when an automatic repair is invalidated', async () => {
+		const agentFolder = createWorkspaceFolder();
+		const workspaceUri = Uri.file(agentFolder).toString();
+		const syncInfo = makeSyncInfo();
+		let canPersist = true;
+
+		const repaired = await tryRepairAccountInfo(syncInfo, workspaceUri, {
+			findAccounts: () => [{ accountId: 'auto.a30263b9-1caf-4db5-ab53-ed3850c0bd1f', accountEmail: 'auto@contoso.com' }],
+			validateAccount: async () => {
+				canPersist = false;
+				return true;
+			},
+			canPersist: () => canPersist,
+		}, false);
+
+		assert.strictEqual(repaired, false);
+		assert.strictEqual(syncInfo.accountInfo.accountId, '');
+		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.AccountId, '');
+	});
+
+	test('does not cache a validation failure after an automatic repair is invalidated', async () => {
+		const agentFolder = createWorkspaceFolder();
+		const workspaceUri = Uri.file(agentFolder).toString();
+		let canPersist = true;
+		let validationCalls = 0;
+		const deps = {
+			findAccounts: () => [{ accountId: 'auto.a30263b9-1caf-4db5-ab53-ed3850c0bd1f', accountEmail: 'auto@contoso.com' }],
+			validateAccount: async () => {
+				validationCalls++;
+				canPersist = false;
+				return false;
+			},
+			canPersist: () => canPersist,
+		};
+
+		const staleRepair = await tryRepairAccountInfo(makeSyncInfo(), workspaceUri, deps, false);
+		canPersist = true;
+		deps.validateAccount = async () => {
+			validationCalls++;
+			return true;
+		};
+		const freshRepair = await tryRepairAccountInfo(makeSyncInfo(), workspaceUri, deps, false);
+
+		assert.strictEqual(staleRepair, false);
+		assert.strictEqual(freshRepair, true);
+		assert.strictEqual(validationCalls, 2);
+		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.AccountEmail, 'auto@contoso.com');
+	});
+
+	test('does not repair a missing tenant after the operation is invalidated', async () => {
+		const agentFolder = createWorkspaceFolder();
+		const syncInfo = makeSyncInfo({
+			accountId: 'oid.a30263b9-1caf-4db5-ab53-ed3850c0bd1f',
+			tenantId: undefined,
+		});
+
+		const repaired = await tryRepairAccountInfo(syncInfo, Uri.file(agentFolder).toString(), {
+			canPersist: () => false,
+		}, false);
+
+		assert.strictEqual(repaired, false);
+		assert.strictEqual(syncInfo.accountInfo.tenantId, undefined);
+		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.TenantId, 'a30263b9-1caf-4db5-ab53-ed3850c0bd1f');
 	});
 
 	test('leaves an ambiguous tenant unresolved without prompting or writing', async () => {
@@ -419,10 +586,37 @@ describe('tryRepairAccountInfo', () => {
 		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.AccountId, '');
 	});
 
-	test('preserves account selection for component collection workspaces', async () => {
+	test('validates environment access for component collection workspaces', async () => {
 		const agentFolder = createWorkspaceFolder();
 		const syncInfo = {
 			...makeSyncInfo(),
+			dataverseEndpoint: PAC_CONNECTION_FILE.DataverseEndpoint,
+			componentCollectionId: '5a9e1864-7d70-4baa-bc5b-cdf5b4b26455',
+			agentId: undefined,
+		} as AgentSyncInfo;
+		let validationCalls = 0;
+
+		const repaired = await tryRepairAccountInfo(syncInfo, Uri.file(agentFolder).toString(), {
+			findAccounts: () => [{
+				accountId: 'oid.a30263b9-1caf-4db5-ab53-ed3850c0bd1f',
+				accountEmail: 'collection@contoso.com',
+			}],
+			validateAccount: async () => {
+				validationCalls++;
+				return true;
+			},
+		});
+
+		assert.strictEqual(repaired, true);
+		assert.strictEqual(validationCalls, 1);
+		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.AccountEmail, 'collection@contoso.com');
+	});
+
+	test('does not bind a component collection account without environment access', async () => {
+		const agentFolder = createWorkspaceFolder();
+		const syncInfo = {
+			...makeSyncInfo(),
+			dataverseEndpoint: PAC_CONNECTION_FILE.DataverseEndpoint,
 			componentCollectionId: '5a9e1864-7d70-4baa-bc5b-cdf5b4b26455',
 			agentId: undefined,
 		} as AgentSyncInfo;
@@ -432,10 +626,12 @@ describe('tryRepairAccountInfo', () => {
 				accountId: 'oid.a30263b9-1caf-4db5-ab53-ed3850c0bd1f',
 				accountEmail: 'collection@contoso.com',
 			}],
+			validateAccount: async () => false,
 		});
 
-		assert.strictEqual(repaired, true);
-		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.AccountEmail, 'collection@contoso.com');
+		assert.strictEqual(repaired, false);
+		assert.strictEqual(syncInfo.accountInfo.accountId, '');
+		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.AccountId, '');
 	});
 
 	test('writes nothing when the prompt is cancelled', async () => {
