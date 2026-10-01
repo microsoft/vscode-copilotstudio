@@ -8,6 +8,7 @@ import {
 	logWorkflowIssues,
 	onAnySyncStateChanged,
 	removeSynchronizer,
+	sync,
 	SyncState,
 	withSyncCommandBusy,
 } from '../../sync/workspaceSynchronizer';
@@ -443,6 +444,26 @@ describe('workspaceSynchronizer: workspace binding', () => {
 		assert.strictEqual(reused.workspace, repaired);
 		assert.strictEqual(reused.workspace.syncInfo?.accountInfo.accountId, 'chosen.tenant');
 		removeSynchronizer(bindingUri);
+	});
+
+	test('retries account repair once when a concurrent startup repair changes the connection', async () => {
+		const localWorkspaces = require('../../sync/localWorkspaces') as typeof import('../../sync/localWorkspaces');
+		const originalRepairAccountInfo = localWorkspaces.repairAccountInfo;
+		let repairCalls = 0;
+		localWorkspaces.repairAccountInfo = async () => {
+			repairCalls++;
+			return repairCalls === 1 ? 'stale' : 'inaccessible';
+		};
+
+		try {
+			await assert.rejects(
+				() => sync(workspaceWithAccount(''), 'Preview', 'test/sync', true),
+				/Select an account with access, or add it if it is not listed/,
+			);
+			assert.strictEqual(repairCalls, 2);
+		} finally {
+			localWorkspaces.repairAccountInfo = originalRepairAccountInfo;
+		}
 	});
 
 	test('starts out reporting no failed operation', () => {
