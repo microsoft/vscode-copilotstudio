@@ -197,7 +197,7 @@ describe('Unresolved account state', () => {
 		if (health === 'unresolved') {
 			assert.ok(getAccountCandidates(ZERO_TENANT).length > 0);
 		} else {
-			assert.ok(health === 'ok' || health === 'signedOut', health);
+			assert.strictEqual(health, 'signedOut');
 		}
 	});
 
@@ -209,7 +209,7 @@ describe('Unresolved account state', () => {
 		if (badge.health === 'unresolved') {
 			assert.ok(badge.description.includes('select account'), badge.description);
 		} else {
-			assert.ok(badge.health === 'ok' || badge.health === 'signedOut', badge.health);
+			assert.strictEqual(badge.health, 'signedOut');
 		}
 	});
 });

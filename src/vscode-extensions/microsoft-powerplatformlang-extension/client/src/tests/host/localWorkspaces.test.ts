@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { Uri } from 'vscode';
-import { getDuplicateDisplayNames, buildAgentIdentityTooltip, tryRepairAccountInfo, tryRepairAgentManagementEndpoint, CopilotStudioWorkspace } from '../../sync/localWorkspaces';
+import { getDuplicateDisplayNames, buildAgentIdentityTooltip, tryRepairAccountInfo, tryRepairAgentManagementEndpoint, chooseAccountForWorkspace, CopilotStudioWorkspace } from '../../sync/localWorkspaces';
 import { AgentSyncInfo } from '../../types';
 import { StoredAccountSummary } from '../../clients/account';
 
@@ -61,6 +61,8 @@ const makeSyncInfo = (overrides: Partial<AgentSyncInfo['accountInfo']> = {}): Ag
 	},
 } as AgentSyncInfo);
 
+const allowAccountAccess = async (): Promise<boolean> => true;
+
 const makeWorkspace = (overrides: Partial<CopilotStudioWorkspace>): CopilotStudioWorkspace => ({
 	workspaceUri: 'file:///agents/test/',
 	displayName: 'Test Agent',
@@ -68,6 +70,114 @@ const makeWorkspace = (overrides: Partial<CopilotStudioWorkspace>): CopilotStudi
 	icon: undefined as any,
 	type: 0 as any,
 	...overrides,
+});
+
+describe('tryRepairAccountInfo without interaction', () => {
+	test('adopts and persists the only signed-in account matching the tenant', async () => {
+		const agentFolder = createWorkspaceFolder();
+		const syncInfo = makeSyncInfo();
+
+		const repaired = await tryRepairAccountInfo(syncInfo, Uri.file(agentFolder).toString(), {
+			findAccounts: () => [{ accountId: 'oid.a30263b9-1caf-4db5-ab53-ed3850c0bd1f', accountEmail: 'only@contoso.com' }],
+			validateAccount: async () => true,
+		}, false);
+
+		assert.strictEqual(repaired, true);
+		assert.strictEqual(syncInfo.accountInfo.accountEmail, 'only@contoso.com');
+		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.AccountEmail, 'only@contoso.com');
+	});
+
+	test('does not bind the sole tenant account when it cannot access the agent', async () => {
+		const agentFolder = createWorkspaceFolder();
+		const cloudCacheBefore = snapshotCloudCache(agentFolder);
+
+		const repaired = await tryRepairAccountInfo(makeSyncInfo(), Uri.file(agentFolder).toString(), {
+			findAccounts: () => [{ accountId: 'oid.a30263b9-1caf-4db5-ab53-ed3850c0bd1f', accountEmail: 'wrong@contoso.com' }],
+			validateAccount: async () => false,
+		}, false);
+
+		assert.strictEqual(repaired, false);
+		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.AccountId, '');
+		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.AccountEmail, null);
+		assertCloudCacheUntouched(agentFolder, cloudCacheBefore);
+	});
+
+	test('leaves an ambiguous tenant unresolved without prompting or writing', async () => {
+		const agentFolder = createWorkspaceFolder();
+		const cloudCacheBefore = snapshotCloudCache(agentFolder);
+		let prompted = false;
+
+		const repaired = await tryRepairAccountInfo(makeSyncInfo(), Uri.file(agentFolder).toString(), {
+			findAccounts: () => [
+				{ accountId: 'oid1.a30263b9-1caf-4db5-ab53-ed3850c0bd1f', accountEmail: 'first@contoso.com' },
+				{ accountId: 'oid2.a30263b9-1caf-4db5-ab53-ed3850c0bd1f', accountEmail: 'second@contoso.com' },
+			],
+			promptForAccount: async () => {
+				prompted = true;
+				return undefined;
+			},
+		}, false);
+
+		assert.strictEqual(repaired, false);
+		assert.strictEqual(prompted, false);
+		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.AccountId, '');
+		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.AccountEmail, null);
+		assertCloudCacheUntouched(agentFolder, cloudCacheBefore);
+	});
+
+	test('does not block a later explicit account selection after an ambiguous automatic attempt', async () => {
+		const agentFolder = createWorkspaceFolder();
+		const workspaceUri = Uri.file(agentFolder).toString();
+		const tenantAccounts = [
+			{ accountId: 'oid1.a30263b9-1caf-4db5-ab53-ed3850c0bd1f', accountEmail: 'first@contoso.com' },
+			{ accountId: 'oid2.a30263b9-1caf-4db5-ab53-ed3850c0bd1f', accountEmail: 'second@contoso.com' },
+		];
+
+		const automaticallyRepaired = await tryRepairAccountInfo(makeSyncInfo(), workspaceUri, {
+			findAccounts: () => tenantAccounts,
+		}, false);
+		const explicitlyRepaired = await tryRepairAccountInfo(makeSyncInfo(), workspaceUri, {
+			findAccounts: () => tenantAccounts,
+			promptForAccount: async candidates => candidates[1],
+			validateAccount: allowAccountAccess,
+		});
+
+		assert.strictEqual(automaticallyRepaired, false);
+		assert.strictEqual(explicitlyRepaired, true);
+		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.AccountEmail, 'second@contoso.com');
+	});
+
+	test('does not widen to an account from another tenant', async () => {
+		const agentFolder = createWorkspaceFolder();
+		let listedAllAccounts = false;
+
+		const repaired = await tryRepairAccountInfo(makeSyncInfo(), Uri.file(agentFolder).toString(), {
+			findAccounts: () => [],
+			listAllAccounts: () => {
+				listedAllAccounts = true;
+				return [{ accountId: 'oid.other-tenant', accountEmail: 'wrong@fabrikam.com' }];
+			},
+		}, false);
+
+		assert.strictEqual(repaired, false);
+		assert.strictEqual(listedAllAccounts, false);
+		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.AccountId, '');
+	});
+
+	test('adopts the sole signed-in account when the tenant is unavailable', async () => {
+		const agentFolder = createWorkspaceFolder();
+		const syncInfo = makeSyncInfo({ tenantId: '00000000-0000-0000-0000-000000000000' });
+
+		const repaired = await tryRepairAccountInfo(syncInfo, Uri.file(agentFolder).toString(), {
+			findAccounts: () => [],
+			listAllAccounts: () => [{ accountId: 'oid.22222222-2222-2222-2222-222222222222', accountEmail: 'only@fabrikam.com' }],
+			validateAccount: async () => true,
+		}, false);
+
+		assert.strictEqual(repaired, true);
+		assert.strictEqual(syncInfo.accountInfo.tenantId, '22222222-2222-2222-2222-222222222222');
+		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.AccountEmail, 'only@fabrikam.com');
+	});
 });
 
 describe('tryRepairAccountInfo', () => {
@@ -78,6 +188,7 @@ describe('tryRepairAccountInfo', () => {
 
 		const repaired = await tryRepairAccountInfo(syncInfo, Uri.file(agentFolder).toString(), {
 			findAccounts: () => [{ accountId: 'oid.a30263b9-1caf-4db5-ab53-ed3850c0bd1f', accountEmail: 'nguhoa@asdkt4.onmicrosoft.com' }],
+			validateAccount: allowAccountAccess,
 		});
 
 		assert.strictEqual(repaired, true);
@@ -95,6 +206,7 @@ describe('tryRepairAccountInfo', () => {
 
 		await tryRepairAccountInfo(makeSyncInfo(), Uri.file(agentFolder).toString(), {
 			findAccounts: () => [{ accountId: 'oid.a30263b9-1caf-4db5-ab53-ed3850c0bd1f', accountEmail: 'dev@contoso.com' }],
+			validateAccount: allowAccountAccess,
 		});
 
 		const persisted = readConnectionFile(agentFolder);
@@ -123,11 +235,131 @@ describe('tryRepairAccountInfo', () => {
 				promptedWith = matches;
 				return matches[1];
 			},
+			validateAccount: allowAccountAccess,
 		});
 
 		assert.strictEqual(repaired, true);
 		assert.deepStrictEqual(promptedWith, tenantAccounts);
 		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.AccountEmail, 'second@contoso.com');
+	});
+
+	test('does not persist a sole account that cannot access the agent', async () => {
+		const agentFolder = createWorkspaceFolder();
+		const syncInfo = makeSyncInfo();
+		const candidate = {
+			accountId: 'oid.a30263b9-1caf-4db5-ab53-ed3850c0bd1f',
+			accountEmail: 'wrong@contoso.com',
+		};
+		let validated: StoredAccountSummary | undefined;
+
+		const repaired = await tryRepairAccountInfo(syncInfo, Uri.file(agentFolder).toString(), {
+			findAccounts: () => [candidate],
+			validateAccount: async account => {
+				validated = account;
+				return false;
+			},
+		});
+
+		assert.strictEqual(repaired, false);
+		assert.deepStrictEqual(validated, candidate);
+		assert.strictEqual(syncInfo.accountInfo.accountId, '');
+		assert.strictEqual(syncInfo.accountInfo.accountEmail, undefined);
+		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.AccountId, '');
+		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.AccountEmail, null);
+	});
+
+	test('manual repair persists a tenant-matched account after environment validation succeeds', async () => {
+		const agentFolder = createWorkspaceFolder();
+		const candidate = {
+			accountId: 'oid.a30263b9-1caf-4db5-ab53-ed3850c0bd1f',
+			accountEmail: 'only@contoso.com',
+		};
+		let prompted = false;
+		let environmentValidated = false;
+
+		const repaired = await chooseAccountForWorkspace(makeSyncInfo(), Uri.file(agentFolder).toString(), {
+			listAllAccounts: () => [candidate],
+			promptForAccount: async accounts => {
+				prompted = true;
+				return accounts[0];
+			},
+			validateAccount: async () => {
+				environmentValidated = true;
+				return true;
+			},
+		});
+
+		assert.strictEqual(prompted, false);
+		assert.strictEqual(environmentValidated, true);
+		assert.strictEqual(repaired, true);
+		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.AccountEmail, 'only@contoso.com');
+	});
+
+	test('explicit account selection shows all accounts but rejects a different tenant', async () => {
+		const agentFolder = createWorkspaceFolder();
+		const accounts = [
+			{ accountId: 'oid1.a30263b9-1caf-4db5-ab53-ed3850c0bd1f', accountEmail: 'asdkt4@contoso.com' },
+			{ accountId: 'oid2.5cae182f-63ff-49f9-9f35-3acc2724e738', accountEmail: 'asdkt5@contoso.com' },
+		];
+		let promptedWith: StoredAccountSummary[] | undefined;
+
+		const repaired = await chooseAccountForWorkspace(makeSyncInfo(), Uri.file(agentFolder).toString(), {
+			findAccounts: () => [accounts[0]],
+			listAllAccounts: () => accounts,
+			promptForAccount: async candidates => {
+				promptedWith = candidates;
+				return candidates[1];
+			},
+			validateAccount: allowAccountAccess,
+		});
+
+		assert.strictEqual(repaired, false);
+		assert.deepStrictEqual(promptedWith, accounts);
+		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.AccountEmail, null);
+		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.TenantId, 'a30263b9-1caf-4db5-ab53-ed3850c0bd1f');
+	});
+
+	test('validates the account chosen from the picker before persisting it', async () => {
+		const agentFolder = createWorkspaceFolder();
+		const syncInfo = makeSyncInfo();
+		const candidates = [
+			{ accountId: 'oid1.a30263b9-1caf-4db5-ab53-ed3850c0bd1f', accountEmail: 'first@contoso.com' },
+			{ accountId: 'oid2.a30263b9-1caf-4db5-ab53-ed3850c0bd1f', accountEmail: 'wrong@contoso.com' },
+		];
+		let validated: StoredAccountSummary | undefined;
+
+		const repaired = await tryRepairAccountInfo(syncInfo, Uri.file(agentFolder).toString(), {
+			findAccounts: () => candidates,
+			promptForAccount: async accounts => accounts[1],
+			validateAccount: async account => {
+				validated = account;
+				return false;
+			},
+		});
+
+		assert.strictEqual(repaired, false);
+		assert.deepStrictEqual(validated, candidates[1]);
+		assert.strictEqual(syncInfo.accountInfo.accountId, '');
+		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.AccountId, '');
+	});
+
+	test('preserves account selection for component collection workspaces', async () => {
+		const agentFolder = createWorkspaceFolder();
+		const syncInfo = {
+			...makeSyncInfo(),
+			componentCollectionId: '5a9e1864-7d70-4baa-bc5b-cdf5b4b26455',
+			agentId: undefined,
+		} as AgentSyncInfo;
+
+		const repaired = await tryRepairAccountInfo(syncInfo, Uri.file(agentFolder).toString(), {
+			findAccounts: () => [{
+				accountId: 'oid.a30263b9-1caf-4db5-ab53-ed3850c0bd1f',
+				accountEmail: 'collection@contoso.com',
+			}],
+		});
+
+		assert.strictEqual(repaired, true);
+		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.AccountEmail, 'collection@contoso.com');
 	});
 
 	test('writes nothing when the prompt is cancelled', async () => {
@@ -173,6 +405,7 @@ describe('tryRepairAccountInfo', () => {
 				promptedWith = candidates;
 				return candidates[1];
 			},
+			validateAccount: allowAccountAccess,
 		});
 
 		assert.strictEqual(repaired, true);
@@ -194,6 +427,7 @@ describe('tryRepairAccountInfo', () => {
 				promptedWith = candidates;
 				return candidates[0];
 			},
+			validateAccount: allowAccountAccess,
 		});
 
 		assert.strictEqual(repaired, true);
@@ -215,6 +449,7 @@ describe('tryRepairAccountInfo', () => {
 					prompted = true;
 					return undefined;
 				},
+				validateAccount: allowAccountAccess,
 			});
 
 		assert.strictEqual(repaired, true);
@@ -322,6 +557,7 @@ describe('tryRepairAccountInfo', () => {
 			findAccounts: () => [],
 			listAllAccounts: () => allAccounts,
 			promptForAccount: async candidates => candidates[1],
+			validateAccount: allowAccountAccess,
 		});
 
 		assert.strictEqual(repaired, true);
@@ -351,6 +587,7 @@ describe('tryRepairAccountInfo', () => {
 				promptedWith = candidates;
 				return candidates[0];
 			},
+			validateAccount: allowAccountAccess,
 		});
 
 		assert.strictEqual(repaired, true);
@@ -428,6 +665,7 @@ describe('tryRepairAccountInfo', () => {
 				promptCalls++;
 				return matches[0];
 			},
+			validateAccount: allowAccountAccess,
 		});
 
 		assert.strictEqual(cancelled, false);
@@ -442,6 +680,7 @@ describe('tryRepairAccountInfo', () => {
 
 		const repaired = await tryRepairAccountInfo(syncInfo, Uri.file(agentFolder).toString(), {
 			findAccounts: () => [{ accountId: 'oid.a30263b9-1caf-4db5-ab53-ed3850c0bd1f', accountEmail: 'dev@contoso.com' }],
+			validateAccount: allowAccountAccess,
 		});
 
 		assert.strictEqual(repaired, true);
@@ -453,6 +692,7 @@ describe('tryRepairAccountInfo', () => {
 
 		const repaired = await tryRepairAccountInfo(syncInfo, Uri.file(path.join(os.tmpdir(), 'mcs-missing-workspace')).toString(), {
 			findAccounts: () => [{ accountId: 'oid.a30263b9-1caf-4db5-ab53-ed3850c0bd1f', accountEmail: 'dev@contoso.com' }],
+			validateAccount: allowAccountAccess,
 		});
 
 		assert.strictEqual(repaired, true);

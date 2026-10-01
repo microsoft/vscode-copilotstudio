@@ -186,6 +186,24 @@ describe('Disconnected Agent Presentation', () => {
 		assert.strictEqual(isWorkspaceConnected(makeWorkspace({ syncInfo: { agentManagementEndpoint: undefined } })), false);
 	});
 
+	test('isWorkspaceConnected is false when the account is not resolved', () => {
+		const workspaceUri = Uri.file(path.join(os.tmpdir(), `mcs-unresolved-account-${Date.now()}`)).toString();
+		fs.mkdirSync(path.join(Uri.parse(workspaceUri).fsPath, '.mcs'), { recursive: true });
+		fs.writeFileSync(path.join(Uri.parse(workspaceUri).fsPath, '.mcs', 'conn.json'), '{}', 'utf-8');
+
+		assert.strictEqual(isWorkspaceConnected(makeWorkspace({
+			workspaceUri,
+			syncInfo: {
+				agentManagementEndpoint: 'https://example.invalid/',
+				accountInfo: {
+					accountId: '',
+					accountEmail: undefined,
+					tenantId: 'tenant-that-does-not-exist',
+				},
+			},
+		})), false);
+	});
+
 	test('describeDisconnection asks to reattach when no connection file exists', () => {
 		const status = describeDisconnection(makeWorkspace({ syncInfo: undefined }));
 		assert.strictEqual(status.action, 'reattach');

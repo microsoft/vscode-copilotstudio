@@ -245,6 +245,10 @@ export function isAccountSelectable(accountId?: string, accountEmail?: string, t
 }
 
 export function getAccountHealth(accountId?: string, accountEmail?: string, tenantId?: string): AccountHealth {
+    if (isIdentityUnbound(accountId, accountEmail)) {
+        return isAccountSelectable(accountId, accountEmail, tenantId) ? 'unresolved' : 'signedOut';
+    }
+
     const resolved = resolveAccountIdentity({ accountId, accountEmail, tenantId });
     if (getAuthAccountState(resolved.accountId, resolved.accountEmail) === 'terminal') {
         return 'terminal';
@@ -258,7 +262,7 @@ export function getAccountHealth(accountId?: string, accountEmail?: string, tena
         return 'ok';
     }
 
-    return isAccountSelectable(accountId, accountEmail, tenantId) ? 'unresolved' : 'signedOut';
+    return 'signedOut';
 }
 
 function toStoredAccountSummaries(accounts: readonly import('vscode').AuthenticationSessionAccountInformation[]): StoredAccountSummary[] {

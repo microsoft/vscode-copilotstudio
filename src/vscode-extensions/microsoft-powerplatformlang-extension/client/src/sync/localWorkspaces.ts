@@ -7,7 +7,8 @@ import { AccountInfo, AgentSyncInfo } from "../types";
 import { getIcon } from "../icon";
 import { getClusterCategory, isChildUri, blankToUndefined } from '../utils/genericUtils';
 import { DEFAULT_ENVIRONMENT_LOOKUPS, EnvironmentLookup } from '../clients/bapClient';
-import { onAccountChange, findAccountsByTenant, getStoredAccountSummaries, hasUsableTenantId, extractTenantId, resolveAccountIdentity, selectAccountCandidates, StoredAccountSummary } from '../clients/account';
+import { onAccountChange, findAccountsByTenant, getStoredAccountSummaries, hasUsableTenantId, extractTenantId, resolveAccountIdentity, selectAccountCandidates, StoredAccountSummary, listStoredAccounts, buildAccountTenantIndex } from '../clients/account';
+import { whoAmIAsync } from '../clients/dataverseClient';
 import { pickAccount } from '../services/accountEnvPicker';
 import { LspMethods } from '../constants';
 import logger from '../services/logger';
@@ -56,10 +57,30 @@ let iterations = 0;
 const repairAttempted = new Set<string>();
 
 const accountRepairAttempted = new Set<string>();
+const autoAccountRepairAttempted = new Set<string>();
 
-const clearRepairCaches = (): void => {
-  repairAttempted.clear();
-  accountRepairAttempted.clear();
+const clearRepairCaches = (workspaceUri?: string): void => {
+  if (!workspaceUri) {
+    repairAttempted.clear();
+    accountRepairAttempted.clear();
+    autoAccountRepairAttempted.clear();
+    return;
+  }
+
+  const targetPath = path.resolve(Uri.parse(workspaceUri).fsPath);
+  const pathsMatch = (candidateUri: string): boolean => {
+    const candidatePath = path.resolve(Uri.parse(candidateUri).fsPath);
+    return process.platform === 'win32'
+      ? candidatePath.toLowerCase() === targetPath.toLowerCase()
+      : candidatePath === targetPath;
+  };
+  for (const cache of [repairAttempted, accountRepairAttempted, autoAccountRepairAttempted]) {
+    for (const candidateUri of cache) {
+      if (pathsMatch(candidateUri)) {
+        cache.delete(candidateUri);
+      }
+    }
+  }
 };
 
 const updateConnectionFile = (workspaceUri: string, mutate: (connectionData: Record<string, unknown>) => void): boolean => {
@@ -186,7 +207,10 @@ export const hasConnectionFileInWorkspace = (workspaceUri: string): boolean => {
 
 export async function initializeLocalWorkspaces(context: ExtensionContext) {
   // Clear endpoint repair negative cache on auth changes so sign-in can retry.
-  context.subscriptions.push(await onAccountChange(() => clearRepairCaches()));
+  context.subscriptions.push(await onAccountChange(() => {
+    clearRepairCaches();
+    refreshAndNotify();
+  }));
 
   const allFileWatcher = workspace.createFileSystemWatcher('**/*.*');
   allFileWatcher.onDidChange(async (uri) => {
@@ -197,7 +221,8 @@ export async function initializeLocalWorkspaces(context: ExtensionContext) {
       || loweredPath.endsWith('settings.mcs.yml')
       || loweredPath.endsWith('collection.mcs.yml')) {
       if (loweredPath.endsWith('.mcs/conn.json')) {
-        clearRepairCaches(); // conn.json changed — allow repair to re-run.
+        const agentDirectory = path.dirname(path.dirname(uri.fsPath));
+        clearRepairCaches(Uri.file(agentDirectory).toString());
       }
       refreshAndNotify();
     }
@@ -267,12 +292,41 @@ async function refreshAndNotify() {
 async function listWorkspaces(): Promise<CopilotStudioWorkspace[]> {
   try {
     const workspaces: CopilotStudioWorkspace[] = [];
+    const pendingAccountRepairs: { syncInfo: AgentSyncInfo; workspaceUri: string }[] = [];
     const response = await lspClient.sendRequest<ListWorkspacesResponse>(LspMethods.LIST_WORKSPACES);
     for (const workspaceUri of response.workspaceUris) {
       const data = await lspClient.sendRequest<WorkspaceDetailsResponse>(LspMethods.GET_WORKSPACE_DETAILS, { workspaceUri });
+      if (data.syncInfo) {
+        const accountInfo = data.syncInfo.accountInfo;
+        if (accountInfo && (blankToUndefined(accountInfo.accountId) || blankToUndefined(accountInfo.accountEmail))) {
+          await tryRepairAccountInfo(data.syncInfo, workspaceUri, undefined, false);
+        } else if (accountInfo && !autoAccountRepairAttempted.has(workspaceUri)) {
+          pendingAccountRepairs.push({ syncInfo: data.syncInfo, workspaceUri });
+        }
+      }
       data.icon = getWorkspaceIcon(data.type, data.IconFilePath);
       workspaces.push(data);
     }
+
+    if (pendingAccountRepairs.length > 0) {
+      try {
+        const storedAccounts = await listStoredAccounts();
+        const accountsByTenant = buildAccountTenantIndex(storedAccounts);
+        const repairDeps: Partial<AccountRepairDeps> = {
+          findAccounts: tenantId => {
+            const normalizedTenantId = blankToUndefined(tenantId)?.toLowerCase();
+            return normalizedTenantId ? accountsByTenant.get(normalizedTenantId) ?? [] : [];
+          },
+          listAllAccounts: () => storedAccounts,
+        };
+        for (const pendingRepair of pendingAccountRepairs) {
+          await tryRepairAccountInfo(pendingRepair.syncInfo, pendingRepair.workspaceUri, repairDeps, false);
+        }
+      } catch {
+        logger.logWarning(TelemetryEventsKeys.SyncWorkspaceError, 'Could not inspect signed-in accounts while resolving workspace account information.');
+      }
+    }
+
     return workspaces;
   } catch (error) {
     return [];
@@ -331,7 +385,42 @@ export interface AccountRepairDeps {
   findAccounts: (tenantId?: string) => StoredAccountSummary[];
   listAllAccounts: () => StoredAccountSummary[];
   promptForAccount: (candidates: StoredAccountSummary[]) => Promise<StoredAccountSummary | undefined>;
+  validateAccount: (candidate: StoredAccountSummary) => Promise<boolean>;
 }
+
+const validateSelectedAccountTenant = (tenantId: string | undefined, candidate: StoredAccountSummary): boolean => {
+  const expectedTenantId = blankToUndefined(tenantId);
+  if (!expectedTenantId || !hasUsableTenantId(expectedTenantId)) {
+    return true;
+  }
+
+  const candidateTenantId = extractTenantId(candidate.accountId);
+  return candidateTenantId?.toLowerCase() === expectedTenantId.toLowerCase();
+};
+
+const validateAccountForEnvironment = async (syncInfo: AgentSyncInfo, candidate: StoredAccountSummary, interactive: boolean = false): Promise<boolean> => {
+  const { dataverseEndpoint } = syncInfo;
+  if (!syncInfo.agentId && syncInfo.componentCollectionId) {
+    return true;
+  }
+  if (!dataverseEndpoint) {
+    return false;
+  }
+
+  try {
+    await whoAmIAsync(
+      Uri.parse(dataverseEndpoint),
+      null,
+      candidate.accountId,
+      candidate.accountEmail,
+      interactive);
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.logDebug('Workspace', `Dataverse environment validation failed: <pii>${message}</pii>`);
+    return false;
+  }
+};
 
 const tryRepairTenantId = (accountInfo: AgentSyncInfo['accountInfo'], workspaceUri: string): boolean => {
   if (hasUsableTenantId(accountInfo.tenantId)) {
@@ -358,7 +447,12 @@ const tryRepairTenantId = (accountInfo: AgentSyncInfo['accountInfo'], workspaceU
   return true;
 };
 
-export async function tryRepairAccountInfo(syncInfo: AgentSyncInfo, workspaceUri: string, deps?: Partial<AccountRepairDeps>): Promise<boolean> {
+export async function tryRepairAccountInfo(
+  syncInfo: AgentSyncInfo,
+  workspaceUri: string,
+  deps?: Partial<AccountRepairDeps>,
+  interactive: boolean = true,
+  includeAllAccounts: boolean = false): Promise<boolean> {
   const accountInfo = syncInfo.accountInfo;
   if (!accountInfo) {
     return false;
@@ -369,30 +463,51 @@ export async function tryRepairAccountInfo(syncInfo: AgentSyncInfo, workspaceUri
     return true;
   }
 
-  if (accountRepairAttempted.has(workspaceUri)) {
+  const attemptedRepairs = interactive ? accountRepairAttempted : autoAccountRepairAttempted;
+  if (attemptedRepairs.has(workspaceUri)) {
     return false;
   }
 
-  const tenantMatches = (deps?.findAccounts ?? findAccountsByTenant)(accountInfo.tenantId);
-  const candidates = selectAccountCandidates(
-    tenantMatches,
-    accountInfo.tenantId,
-    deps?.listAllAccounts ?? getStoredAccountSummaries);
+  const candidates = includeAllAccounts
+    ? (deps?.listAllAccounts ?? getStoredAccountSummaries)()
+    : selectAccountCandidates(
+      (deps?.findAccounts ?? findAccountsByTenant)(accountInfo.tenantId),
+      accountInfo.tenantId,
+      deps?.listAllAccounts ?? getStoredAccountSummaries);
 
-  if (candidates.length === 0) {
-    accountRepairAttempted.add(workspaceUri);
+  if (candidates.length === 0 || (!interactive && candidates.length !== 1)) {
+    attemptedRepairs.add(workspaceUri);
     return false;
   }
 
-  const selectedAccount = candidates.length === 1 ? candidates[0] : await (deps?.promptForAccount ?? promptForAccountSelection)(candidates);
+  const selectedAccount = candidates.length === 1
+    ? candidates[0]
+    : await (deps?.promptForAccount ?? promptForAccountSelection)(candidates);
   if (!selectedAccount) {
     return false;
   }
 
-  const derivedTenantId = hasUsableTenantId(accountInfo.tenantId) ? undefined : extractTenantId(selectedAccount.accountId);
+  const canAccessEnvironment = validateSelectedAccountTenant(accountInfo.tenantId, selectedAccount)
+    ? await (deps?.validateAccount ?? (candidate => validateAccountForEnvironment(syncInfo, candidate, interactive)))(selectedAccount)
+    : false;
+  if (!canAccessEnvironment) {
+    attemptedRepairs.add(workspaceUri);
+    if (interactive) {
+      const accountLabel = selectedAccount.accountEmail ?? selectedAccount.accountId;
+      logger.logWarning(
+        TelemetryEventsKeys.SyncWorkspaceError,
+        `The selected account '<pii>${accountLabel}</pii>' could not access the Dataverse environment for <pii>${workspaceUri}</pii>. Choose a matching account and try again.`);
+    } else {
+      logger.logDebug('Workspace', `Skipped automatic account repair because the candidate could not access the Dataverse environment for <pii>${workspaceUri}</pii>`);
+    }
+    return false;
+  }
+
+  const derivedTenantId = extractTenantId(selectedAccount.accountId);
+  const shouldUpdateTenantId = !!derivedTenantId && accountInfo.tenantId?.toLowerCase() !== derivedTenantId.toLowerCase();
   accountInfo.accountId = selectedAccount.accountId;
   accountInfo.accountEmail = selectedAccount.accountEmail;
-  if (derivedTenantId) {
+  if (shouldUpdateTenantId) {
     accountInfo.tenantId = derivedTenantId;
   }
 
@@ -401,7 +516,7 @@ export async function tryRepairAccountInfo(syncInfo: AgentSyncInfo, workspaceUri
     if (persistedAccountInfo) {
       persistedAccountInfo.AccountId = selectedAccount.accountId;
       persistedAccountInfo.AccountEmail = selectedAccount.accountEmail ?? null;
-      if (derivedTenantId) {
+      if (shouldUpdateTenantId) {
         persistedAccountInfo.TenantId = derivedTenantId;
       }
     }
@@ -417,14 +532,10 @@ export async function tryRepairAccountInfo(syncInfo: AgentSyncInfo, workspaceUri
 
 export async function chooseAccountForWorkspace(syncInfo: AgentSyncInfo, workspaceUri: string, deps?: Partial<AccountRepairDeps>): Promise<boolean> {
   accountRepairAttempted.delete(workspaceUri);
-  return tryRepairAccountInfo(syncInfo, workspaceUri, deps);
+  return tryRepairAccountInfo(syncInfo, workspaceUri, deps, true, true);
 }
 
 const promptForAccountSelection = async (candidates: StoredAccountSummary[]): Promise<StoredAccountSummary | undefined> => {
-  if (candidates.length === 0) {
-    return undefined;
-  }
-
   const picked = await pickAccount('Choose the account used for this agent', { listAccounts: async () => candidates });
   return picked && picked !== 'cancelled' && picked.accountId ? { accountId: picked.accountId, accountEmail: blankToUndefined(picked.accountEmail) } : undefined;
 };
