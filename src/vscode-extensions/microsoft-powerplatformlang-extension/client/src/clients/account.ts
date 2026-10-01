@@ -240,13 +240,24 @@ export function isAccountSignedInSync(accountId?: string, accountEmail?: string,
 
 export type AccountHealth = 'ok' | 'signedOut' | 'terminal' | 'unresolved';
 
+export function getAccountCandidateHealth(
+    candidates: readonly StoredAccountSummary[],
+    getState: (accountId?: string, accountEmail?: string) => AuthErrorClassification | undefined = getAuthAccountState
+): Extract<AccountHealth, 'signedOut' | 'terminal' | 'unresolved'> {
+    if (candidates.some(candidate => getState(candidate.accountId, candidate.accountEmail) !== 'terminal')) {
+        return 'unresolved';
+    }
+    return candidates.length > 0 ? 'terminal' : 'signedOut';
+}
+
 export function isAccountSelectable(accountId?: string, accountEmail?: string, tenantId?: string): boolean {
-    return isIdentityUnbound(accountId, accountEmail) && getAccountCandidates(tenantId).length > 0;
+    return isIdentityUnbound(accountId, accountEmail)
+        && getAccountCandidateHealth(getAccountCandidates(tenantId)) === 'unresolved';
 }
 
 export function getAccountHealth(accountId?: string, accountEmail?: string, tenantId?: string): AccountHealth {
     if (isIdentityUnbound(accountId, accountEmail)) {
-        return isAccountSelectable(accountId, accountEmail, tenantId) ? 'unresolved' : 'signedOut';
+        return getAccountCandidateHealth(getAccountCandidates(tenantId));
     }
 
     const resolved = resolveAccountIdentity({ accountId, accountEmail, tenantId });

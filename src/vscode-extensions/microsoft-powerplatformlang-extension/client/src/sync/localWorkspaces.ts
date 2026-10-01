@@ -7,7 +7,7 @@ import { AccountInfo, AgentSyncInfo } from "../types";
 import { getIcon } from "../icon";
 import { getClusterCategory, isChildUri, blankToUndefined } from '../utils/genericUtils';
 import { DEFAULT_ENVIRONMENT_LOOKUPS, EnvironmentLookup } from '../clients/bapClient';
-import { onAccountChange, findAccountsByTenant, getStoredAccountSummaries, hasUsableTenantId, extractTenantId, resolveAccountIdentity, selectAccountCandidates, StoredAccountSummary, listStoredAccounts, buildAccountTenantIndex } from '../clients/account';
+import { AuthError, onAccountChange, findAccountsByTenant, getStoredAccountSummaries, hasUsableTenantId, extractTenantId, resolveAccountIdentity, selectAccountCandidates, StoredAccountSummary, listStoredAccounts, buildAccountTenantIndex } from '../clients/account';
 import { whoAmIAsync } from '../clients/dataverseClient';
 import { pickAccount } from '../services/accountEnvPicker';
 import { LspMethods } from '../constants';
@@ -58,9 +58,39 @@ const repairAttempted = new Set<string>();
 
 const accountRepairAttempted = new Set<string>();
 const autoAccountRepairAttempted = new Set<string>();
+const autoAccountRepairInProgress = new Set<string>();
+const MAX_CONCURRENT_ACCOUNT_REPAIRS = 3;
+let activeAccountRepairs = 0;
+let accountRepairGeneration = 0;
+const accountRepairWaiters: Array<() => void> = [];
+
+const acquireAccountRepairSlot = async (): Promise<void> => {
+  if (activeAccountRepairs < MAX_CONCURRENT_ACCOUNT_REPAIRS) {
+    activeAccountRepairs++;
+    return;
+  }
+
+  await new Promise<void>(resolve => accountRepairWaiters.push(resolve));
+  activeAccountRepairs++;
+};
+
+const releaseAccountRepairSlot = (): void => {
+  activeAccountRepairs--;
+  accountRepairWaiters.shift()?.();
+};
+
+export const runWithAccountRepairLimit = async <T>(operation: () => Promise<T>): Promise<T> => {
+  await acquireAccountRepairSlot();
+  try {
+    return await operation();
+  } finally {
+    releaseAccountRepairSlot();
+  }
+};
 
 const clearRepairCaches = (workspaceUri?: string): void => {
   if (!workspaceUri) {
+    accountRepairGeneration++;
     repairAttempted.clear();
     accountRepairAttempted.clear();
     autoAccountRepairAttempted.clear();
@@ -94,6 +124,22 @@ const updateConnectionFile = (workspaceUri: string, mutate: (connectionData: Rec
     mutate(connectionData);
     fs.writeFileSync(connFilePath, JSON.stringify(connectionData), 'utf-8');
     return true;
+  } catch {
+    return false;
+  }
+};
+
+const hasPersistedAccountIdentity = (workspaceUri: string): boolean => {
+  const connFilePath = path.join(Uri.parse(workspaceUri).fsPath, '.mcs', 'conn.json');
+  if (!fs.existsSync(connFilePath)) {
+    return false;
+  }
+
+  try {
+    const connectionData = JSON.parse(fs.readFileSync(connFilePath, 'utf-8')) as {
+      AccountInfo?: { AccountId?: string; AccountEmail?: string };
+    };
+    return !!(blankToUndefined(connectionData.AccountInfo?.AccountId) || blankToUndefined(connectionData.AccountInfo?.AccountEmail));
   } catch {
     return false;
   }
@@ -308,30 +354,54 @@ async function listWorkspaces(): Promise<CopilotStudioWorkspace[]> {
       workspaces.push(data);
     }
 
-    if (pendingAccountRepairs.length > 0) {
-      try {
-        const storedAccounts = await listStoredAccounts();
-        const accountsByTenant = buildAccountTenantIndex(storedAccounts);
-        const repairDeps: Partial<AccountRepairDeps> = {
-          findAccounts: tenantId => {
-            const normalizedTenantId = blankToUndefined(tenantId)?.toLowerCase();
-            return normalizedTenantId ? accountsByTenant.get(normalizedTenantId) ?? [] : [];
-          },
-          listAllAccounts: () => storedAccounts,
-        };
-        for (const pendingRepair of pendingAccountRepairs) {
-          await tryRepairAccountInfo(pendingRepair.syncInfo, pendingRepair.workspaceUri, repairDeps, false);
-        }
-      } catch {
-        logger.logWarning(TelemetryEventsKeys.SyncWorkspaceError, 'Could not inspect signed-in accounts while resolving workspace account information.');
-      }
-    }
+    setTimeout(() => scheduleAutomaticAccountRepairs(pendingAccountRepairs), 0);
 
     return workspaces;
   } catch (error) {
     return [];
   }
 }
+
+const scheduleAutomaticAccountRepairs = (repairs: { syncInfo: AgentSyncInfo; workspaceUri: string }[]): void => {
+  const pendingRepairs = repairs.filter(repair => {
+    if (autoAccountRepairAttempted.has(repair.workspaceUri) || autoAccountRepairInProgress.has(repair.workspaceUri)) {
+      return false;
+    }
+    autoAccountRepairInProgress.add(repair.workspaceUri);
+    return true;
+  });
+  if (pendingRepairs.length === 0) {
+    return;
+  }
+
+  const generation = accountRepairGeneration;
+  void (async () => {
+    try {
+      const storedAccounts = await listStoredAccounts();
+      const accountsByTenant = buildAccountTenantIndex(storedAccounts);
+      const repairDeps: Partial<AccountRepairDeps> = {
+        findAccounts: tenantId => {
+          const normalizedTenantId = blankToUndefined(tenantId)?.toLowerCase();
+          return normalizedTenantId ? accountsByTenant.get(normalizedTenantId) ?? [] : [];
+        },
+        listAllAccounts: () => storedAccounts,
+        canPersist: () => generation === accountRepairGeneration,
+      };
+
+      await Promise.all(pendingRepairs.map(pendingRepair => runWithAccountRepairLimit(
+        () => tryRepairAccountInfo(pendingRepair.syncInfo, pendingRepair.workspaceUri, repairDeps, false))));
+    } catch {
+      logger.logWarning(TelemetryEventsKeys.SyncWorkspaceError, 'Could not inspect signed-in accounts while resolving workspace account information.');
+    } finally {
+      for (const pendingRepair of pendingRepairs) {
+        autoAccountRepairInProgress.delete(pendingRepair.workspaceUri);
+      }
+      if (generation !== accountRepairGeneration) {
+        refreshAndNotify();
+      }
+    }
+  })();
+};
 
 /**
  * Attempts to resolve a missing agentManagementEndpoint from the BAP single-environment API.
@@ -386,7 +456,10 @@ export interface AccountRepairDeps {
   listAllAccounts: () => StoredAccountSummary[];
   promptForAccount: (candidates: StoredAccountSummary[]) => Promise<StoredAccountSummary | undefined>;
   validateAccount: (candidate: StoredAccountSummary) => Promise<boolean>;
+  canPersist: () => boolean;
 }
+
+type AccountValidationFailure = 'conclusive' | 'transient';
 
 const validateSelectedAccountTenant = (tenantId: string | undefined, candidate: StoredAccountSummary): boolean => {
   const expectedTenantId = blankToUndefined(tenantId);
@@ -407,19 +480,24 @@ const validateAccountForEnvironment = async (syncInfo: AgentSyncInfo, candidate:
     return false;
   }
 
-  try {
-    await whoAmIAsync(
-      Uri.parse(dataverseEndpoint),
-      null,
-      candidate.accountId,
-      candidate.accountEmail,
-      interactive);
-    return true;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    logger.logDebug('Workspace', `Dataverse environment validation failed: <pii>${message}</pii>`);
-    return false;
+  await whoAmIAsync(
+    Uri.parse(dataverseEndpoint),
+    null,
+    candidate.accountId,
+    candidate.accountEmail,
+    interactive);
+  return true;
+};
+
+const classifyAccountValidationFailure = (error: unknown): AccountValidationFailure => {
+  if (error instanceof AuthError) {
+    return error.classification === 'terminal' ? 'conclusive' : 'transient';
   }
+
+  const message = error instanceof Error ? error.message : String(error);
+  return /\b403\b|not a member|previously failed:.*(?:access denied|not a member)/i.test(message)
+    ? 'conclusive'
+    : 'transient';
 };
 
 const tryRepairTenantId = (accountInfo: AgentSyncInfo['accountInfo'], workspaceUri: string): boolean => {
@@ -487,11 +565,26 @@ export async function tryRepairAccountInfo(
     return false;
   }
 
-  const canAccessEnvironment = validateSelectedAccountTenant(accountInfo.tenantId, selectedAccount)
-    ? await (deps?.validateAccount ?? (candidate => validateAccountForEnvironment(syncInfo, candidate, interactive)))(selectedAccount)
-    : false;
+  let canAccessEnvironment = false;
+  let validationFailure: AccountValidationFailure | undefined;
+  if (!validateSelectedAccountTenant(accountInfo.tenantId, selectedAccount)) {
+    validationFailure = 'conclusive';
+  } else {
+    try {
+      canAccessEnvironment = await (deps?.validateAccount ?? (candidate => validateAccountForEnvironment(syncInfo, candidate, interactive)))(selectedAccount);
+      if (!canAccessEnvironment) {
+        validationFailure = 'conclusive';
+      }
+    } catch (error) {
+      validationFailure = classifyAccountValidationFailure(error);
+      const message = error instanceof Error ? error.message : String(error);
+      logger.logDebug('Workspace', `Dataverse environment validation failed: <pii>${message}</pii>`);
+    }
+  }
   if (!canAccessEnvironment) {
-    attemptedRepairs.add(workspaceUri);
+    if (validationFailure === 'conclusive') {
+      attemptedRepairs.add(workspaceUri);
+    }
     if (interactive) {
       const accountLabel = selectedAccount.accountEmail ?? selectedAccount.accountId;
       logger.logWarning(
@@ -500,6 +593,13 @@ export async function tryRepairAccountInfo(
     } else {
       logger.logDebug('Workspace', `Skipped automatic account repair because the candidate could not access the Dataverse environment for <pii>${workspaceUri}</pii>`);
     }
+    return false;
+  }
+
+  if (deps?.canPersist && !deps.canPersist()) {
+    return false;
+  }
+  if (!interactive && hasPersistedAccountIdentity(workspaceUri)) {
     return false;
   }
 

@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { Uri } from 'vscode';
-import { getDuplicateDisplayNames, buildAgentIdentityTooltip, tryRepairAccountInfo, tryRepairAgentManagementEndpoint, chooseAccountForWorkspace, CopilotStudioWorkspace } from '../../sync/localWorkspaces';
+import { getDuplicateDisplayNames, buildAgentIdentityTooltip, tryRepairAccountInfo, tryRepairAgentManagementEndpoint, chooseAccountForWorkspace, CopilotStudioWorkspace, runWithAccountRepairLimit } from '../../sync/localWorkspaces';
 import { AgentSyncInfo } from '../../types';
 import { StoredAccountSummary } from '../../clients/account';
 
@@ -102,6 +102,61 @@ describe('tryRepairAccountInfo without interaction', () => {
 		assertCloudCacheUntouched(agentFolder, cloudCacheBefore);
 	});
 
+	test('caches a conclusive environment validation failure', async () => {
+		const workspaceUri = Uri.file(createWorkspaceFolder()).toString();
+		let validationCalls = 0;
+		const deps = {
+			findAccounts: () => [{ accountId: 'oid.a30263b9-1caf-4db5-ab53-ed3850c0bd1f', accountEmail: 'wrong@contoso.com' }],
+			validateAccount: async () => {
+				validationCalls++;
+				return false;
+			},
+		};
+
+		await tryRepairAccountInfo(makeSyncInfo(), workspaceUri, deps, false);
+		await tryRepairAccountInfo(makeSyncInfo(), workspaceUri, deps, false);
+
+		assert.strictEqual(validationCalls, 1);
+	});
+
+	test('retries automatic repair after a transient environment validation failure', async () => {
+		const workspaceUri = Uri.file(createWorkspaceFolder()).toString();
+		let validationCalls = 0;
+		const deps = {
+			findAccounts: () => [{ accountId: 'oid.a30263b9-1caf-4db5-ab53-ed3850c0bd1f', accountEmail: 'only@contoso.com' }],
+			validateAccount: async () => {
+				validationCalls++;
+				throw new Error('network request failed');
+			},
+		};
+
+		await tryRepairAccountInfo(makeSyncInfo(), workspaceUri, deps, false);
+		await tryRepairAccountInfo(makeSyncInfo(), workspaceUri, deps, false);
+
+		assert.strictEqual(validationCalls, 2);
+	});
+
+	test('does not overwrite an account persisted while automatic validation is running', async () => {
+		const agentFolder = createWorkspaceFolder();
+		const workspaceUri = Uri.file(agentFolder).toString();
+		const syncInfo = makeSyncInfo();
+
+		const repaired = await tryRepairAccountInfo(syncInfo, workspaceUri, {
+			findAccounts: () => [{ accountId: 'auto.a30263b9-1caf-4db5-ab53-ed3850c0bd1f', accountEmail: 'auto@contoso.com' }],
+			validateAccount: async () => {
+				const connection = readConnectionFile(agentFolder);
+				connection.AccountInfo.AccountId = 'manual.a30263b9-1caf-4db5-ab53-ed3850c0bd1f';
+				connection.AccountInfo.AccountEmail = 'manual@contoso.com';
+				fs.writeFileSync(path.join(agentFolder, '.mcs', 'conn.json'), JSON.stringify(connection), 'utf-8');
+				return true;
+			},
+		}, false);
+
+		assert.strictEqual(repaired, false);
+		assert.strictEqual(syncInfo.accountInfo.accountId, '');
+		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.AccountEmail, 'manual@contoso.com');
+	});
+
 	test('leaves an ambiguous tenant unresolved without prompting or writing', async () => {
 		const agentFolder = createWorkspaceFolder();
 		const cloudCacheBefore = snapshotCloudCache(agentFolder);
@@ -123,6 +178,27 @@ describe('tryRepairAccountInfo without interaction', () => {
 		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.AccountId, '');
 		assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.AccountEmail, null);
 		assertCloudCacheUntouched(agentFolder, cloudCacheBefore);
+	});
+
+	describe('account repair concurrency', () => {
+		test('runs no more than three repairs concurrently', async () => {
+			let active = 0;
+			let maximumActive = 0;
+			let release: (() => void) | undefined;
+			const barrier = new Promise<void>(resolve => { release = resolve; });
+
+			const operations = Array.from({ length: 7 }, () => runWithAccountRepairLimit(async () => {
+				active++;
+				maximumActive = Math.max(maximumActive, active);
+				await barrier;
+				active--;
+			}));
+
+			await new Promise(resolve => setTimeout(resolve, 20));
+			release?.();
+			await Promise.all(operations);
+			assert.strictEqual(maximumActive, 3);
+		});
 	});
 
 	test('does not block a later explicit account selection after an ambiguous automatic attempt', async () => {

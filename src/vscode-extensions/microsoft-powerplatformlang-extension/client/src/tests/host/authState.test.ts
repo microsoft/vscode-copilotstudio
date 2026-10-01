@@ -10,6 +10,7 @@ import {
 	clearRecoverableAuthState,
 	hasRecoverableAuthState,
 	getAccountHealth,
+	getAccountCandidateHealth,
 	isAccountSignedInSync,
 	getAccessTokenByAccountId,
 	getCopilotStudioAccessTokenByAccountId,
@@ -168,6 +169,15 @@ describe('isIdentityUnbound', () => {
 });
 
 describe('Unresolved account state', () => {
+	test('terminal candidates are unavailable unless another candidate remains usable', () => {
+		const terminalState = () => 'terminal' as const;
+		assert.strictEqual(getAccountCandidateHealth(NO_ACCOUNTS, terminalState), 'signedOut');
+		assert.strictEqual(getAccountCandidateHealth(ONE_ACCOUNT, terminalState), 'terminal');
+		assert.strictEqual(
+			getAccountCandidateHealth(TWO_ACCOUNTS, accountId => accountId === TWO_ACCOUNTS[0].accountId ? 'terminal' : undefined),
+			'unresolved');
+	});
+
 	test('an ambiguous tenant offers a selection instead of reporting signed out', () => {
 		assert.strictEqual(selectAccountCandidates(TWO_ACCOUNTS, REAL_TENANT, () => NO_ACCOUNTS).length, 2);
 		assert.strictEqual(isIdentityUnbound('', undefined), true);
