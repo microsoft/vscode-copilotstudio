@@ -4,6 +4,7 @@ using System.Text;
 using Microsoft.Agents.ObjectModel;
 using Microsoft.Agents.Platform.Content;
 using Microsoft.CopilotStudio.McsCore;
+using Microsoft.CopilotStudio.McsCore.Yaml;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Moq;
 using Xunit;
@@ -542,8 +543,196 @@ public class SkillFolderLayoutTests
         Assert.Contains($"manifestSchemaName: {Bot}.file.getusweather.SKILL.md", preview, StringComparison.Ordinal);
     }
 
+    private const string BaseManifest = "---\nname: get-us-weather\n---\nShared line.\nOriginal body.\n";
+    private const string LocalManifest = "---\nname: get-us-weather\n---\nShared line.\nLocal body.\n";
+    private const string RemoteManifest = "---\nname: get-us-weather\n---\nShared line.\nRemote body.\n";
+
+    private static readonly AgentFilePath SkillAnchorPath = new AgentFilePath("behaviors/get-us-weather/skill.mcs.yml");
+
+    private static (DialogComponent Base, DialogComponent Local, DialogComponent Remote) SkillMergeInputs(string localContent, string remoteContent)
+    {
+        var id = Guid.NewGuid();
+        return (
+            CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", id, BaseManifest),
+            CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", id, localContent),
+            CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", id, remoteContent));
+    }
+
+    [Fact]
+    public void MergeComponent_SkillContentConflict_DoesNotMarkTheAnchorAsConflicted()
+    {
+        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var (baseSkill, local, remote) = SkillMergeInputs(LocalManifest, RemoteManifest);
+
+        sync.MergeComponent(baseSkill.SchemaNameString!, baseSkill, local, remote, out var conflictedYaml);
+
+        Assert.Null(conflictedYaml);
+    }
+
+    [Fact]
+    public void MergeComponent_SkillContentConflict_KeepsTheMarkersInTheSkillContent()
+    {
+        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var (baseSkill, local, remote) = SkillMergeInputs(LocalManifest, RemoteManifest);
+
+        var merged = sync.MergeComponent(baseSkill.SchemaNameString!, baseSkill, local, remote, out _);
+
+        var content = SkillBodyProjection.GetContent(merged!);
+        Assert.True(McsConflictMarkers.Contains(content));
+        Assert.Contains("Local body.", content!, StringComparison.Ordinal);
+        Assert.Contains("Remote body.", content!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MergeComponent_SkillContentConflict_RoutesTheConflictToTheManifestFile()
+    {
+        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var (baseSkill, local, remote) = SkillMergeInputs(LocalManifest, RemoteManifest);
+
+        var merged = sync.MergeComponent(baseSkill.SchemaNameString!, baseSkill, local, remote, out _);
+
+        Assert.True(SkillBodyProjection.TryGetManifestWrite(merged!, SkillAnchorPath, out var manifestPath, out var manifestText));
+        Assert.Equal("behaviors/get-us-weather/SKILL.md", manifestPath.ToString());
+        Assert.True(McsConflictMarkers.Contains(manifestText));
+    }
+
+    [Fact]
+    public void MergeComponent_SkillContentConflict_LeavesTheAnchorFreeOfContentAndMarkers()
+    {
+        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var (baseSkill, local, remote) = SkillMergeInputs(LocalManifest, RemoteManifest);
+
+        var merged = sync.MergeComponent(baseSkill.SchemaNameString!, baseSkill, local, remote, out _);
+
+        var anchor = McsComponentBodyWriter.SerializeComponent(merged!, CloudDefinition(), SkillAnchorPath);
+        Assert.DoesNotContain("content:", anchor, StringComparison.Ordinal);
+        Assert.False(McsConflictMarkers.Contains(anchor));
+    }
+
+    [Fact]
+    public void MergeComponent_SkillContentDisjointEdits_KeepsBothSides()
+    {
+        const string wideBase = "---\nname: get-us-weather\n---\nIntro line.\nfiller a\nfiller b\nfiller c\nfiller d\nOutro line.\n";
+        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var id = Guid.NewGuid();
+        var baseSkill = CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", id, wideBase);
+        var local = CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", id, wideBase.Replace("Intro line.", "Local intro."));
+        var remote = CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", id, wideBase.Replace("Outro line.", "Remote outro."));
+
+        var merged = sync.MergeComponent(baseSkill.SchemaNameString!, baseSkill, local, remote, out var conflictedYaml);
+
+        Assert.Null(conflictedYaml);
+        var content = SkillBodyProjection.GetContent(merged!);
+        Assert.False(McsConflictMarkers.Contains(content));
+        Assert.Contains("Local intro.", content!, StringComparison.Ordinal);
+        Assert.Contains("Remote outro.", content!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MergeComponent_SkillAnchorConflict_ExcludesContentFromTheConflictedYaml()
+    {
+        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var id = Guid.NewGuid();
+        var baseSkill = CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", id, BaseManifest, "base description");
+        var local = CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", id, LocalManifest, "local description");
+        var remote = CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", id, RemoteManifest, "remote description");
+
+        var merged = sync.MergeComponent(baseSkill.SchemaNameString!, baseSkill, local, remote, out var conflictedYaml);
+
+        Assert.DoesNotContain("Local body.", conflictedYaml ?? string.Empty, StringComparison.Ordinal);
+        Assert.True(McsConflictMarkers.Contains(SkillBodyProjection.GetContent(merged!)));
+    }
+
     private static string NormalizeKeys(string body)
         => string.Join("\n", body.Replace("\r\n", "\n").Split('\n').Select(line => line.Trim()).Where(line => line.Length > 0).OrderBy(line => line, StringComparer.Ordinal));
+
+    [Fact]
+    public void Serialize_ConflictedDescription_WritesBoundariesAtColumnZero()
+    {
+        var lines = SerializeConflictedSkill().Replace("\r\n", "\n").Split('\n');
+
+        Assert.Contains(lines, line => line.StartsWith("<<<<<<<", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line == "=======");
+        Assert.Contains(lines, line => line.StartsWith(">>>>>>>", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Serialize_ConflictedDescription_KeepsBothSidesAsIndentedDescriptionEntries()
+    {
+        var lines = SerializeConflictedSkill().Replace("\r\n", "\n").Split('\n');
+
+        Assert.Contains(lines, line => line == "  description: LOCAL text");
+        Assert.Contains(lines, line => line == "  description: REMOTE text");
+    }
+
+    [Fact]
+    public void Serialize_ConflictedDescription_DoesNotEscapeTheMarkersIntoAQuotedScalar()
+    {
+        Assert.DoesNotContain("\\n", SerializeConflictedSkill(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Serialize_ConflictedDescription_IsDetectedByTheWorkspaceGate()
+    {
+        Assert.True(McsConflictMarkers.Contains(SerializeConflictedSkill()));
+    }
+
+    [Fact]
+    public void Serialize_ConflictedDescription_BecomesValidYamlOnceASideIsAccepted()
+    {
+        var resolved = string.Join(
+            "\n",
+            SerializeConflictedSkill()
+                .Replace("\r\n", "\n")
+                .Split('\n')
+                .Where(line => !McsConflictMarkers.IsMarkerLine(line) && line != "  description: REMOTE text"));
+
+        var parsed = McsYamlReader.Parse(resolved);
+
+        Assert.Equal("LOCAL text", ((IDictionary<string, object?>)parsed[McsMetadata.PropertyName]!)[McsMetadata.DescriptionKey]);
+    }
+
+    [Fact]
+    public void Serialize_OrdinaryDescription_IsUnchangedByTheConflictPath()
+    {
+        var skill = CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", Guid.NewGuid(), "body", "an ordinary description");
+
+        var preview = McsComponentBodyWriter.SerializeComponent(skill, CloudDefinition(), SkillPreviewPath);
+
+        Assert.False(McsConflictMarkers.Contains(preview));
+        Assert.Contains("description: an ordinary description", preview, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReplaceBodyPreservingMetadata_ConflictedDescription_KeepsTheMarkersInTheHeader()
+    {
+        var skill = CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", Guid.NewGuid(), "body", McsConflictMarkers.Build("LOCAL text", "REMOTE text"));
+
+        var rewritten = McsComponentBodyWriter.ReplaceBodyPreservingMetadata(skill, CloudDefinition(), SkillPreviewPath, "kind: ReplacementBody\n");
+
+        Assert.True(McsConflictMarkers.Contains(rewritten));
+        Assert.Contains("  description: LOCAL text", rewritten, StringComparison.Ordinal);
+        Assert.Contains("  description: REMOTE text", rewritten, StringComparison.Ordinal);
+        Assert.Contains("kind: ReplacementBody", rewritten, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReplaceBodyPreservingMetadata_ConflictedDescription_StillWritesTheLocalDisplayName()
+    {
+        var skill = CreateSkill($"{Bot}.skill.get-us-weather", "LOCAL Friendly Name", Guid.NewGuid(), "body", McsConflictMarkers.Build("LOCAL text", "REMOTE text"));
+
+        var rewritten = McsComponentBodyWriter.ReplaceBodyPreservingMetadata(skill, CloudDefinition(), SkillPreviewPath, "kind: ReplacementBody\n");
+
+        Assert.Contains("componentName: LOCAL Friendly Name", rewritten, StringComparison.Ordinal);
+    }
+
+    private static readonly AgentFilePath SkillPreviewPath = new AgentFilePath("behaviors/get-us-weather/skill.mcs.yml");
+
+    private static string SerializeConflictedSkill()
+    {
+        var skill = CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", Guid.NewGuid(), "body", McsConflictMarkers.Build("LOCAL text", "REMOTE text"));
+        return McsComponentBodyWriter.SerializeComponent(skill, CloudDefinition(), SkillPreviewPath);
+    }
 
     [Fact]
     public async Task Migration_AlreadyNestedWorkspace_DoesNotRewriteAnyFile()

@@ -66,6 +66,8 @@ public class CliAgentNodeGMergeTests
         "  kind: ConversationHistory\n" +
         "botSchemaName: crf9a_nagentn1_T2U1EY\n";
 
+    private const string MetadataSchema = "cr834_n2a8_PwdEI5.action.crf9a_nagentn1_T2U1EY_iL5CJBUv";
+
     private readonly ITestOutputHelper _output;
 
     public CliAgentNodeGMergeTests(ITestOutputHelper output)
@@ -188,6 +190,33 @@ public class CliAgentNodeGMergeTests
         Assert.Contains(">>>>>>>", merged);
     }
 
+    [Fact]
+    public void MergeStrings_LocalIndentationChange_IsNotTreatedAsUnchanged()
+    {
+        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+
+        const string original = "root:\n  child: value\n";
+        const string local = "root:\n        child: value\n";
+
+        var merged = sync.MergeStrings(original, local, original);
+
+        Assert.Contains("        child: value", merged, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MergeStrings_IndentationOnlyConflict_IsSurfacedNotSilentlyCollapsed()
+    {
+        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+
+        const string original = "root:\n  child: value\n";
+        const string local = "root:\n    child: value\n";
+        const string remote = "root:\n      child: value\n";
+
+        var merged = sync.MergeStrings(original, local, remote);
+
+        Assert.Contains("<<<<<<<", merged, StringComparison.Ordinal);
+    }
+
     // --- MergeComponent: full recompile of a CLI-shaped component --------------------
 
     [Fact]
@@ -202,8 +231,9 @@ public class CliAgentNodeGMergeTests
         var remoteComp = MakeDialogComponent(schema,
             McpToolBody.Replace("shared_workiqsharepoint\n", "shared_REMOTE_EDIT\n"));
 
-        var merged = sync.MergeComponent(schema, baseComp, localComp, remoteComp);
+        var merged = sync.MergeComponent(schema, baseComp, localComp, remoteComp, out var conflictedYaml);
 
+        Assert.Null(conflictedYaml);
         Assert.NotNull(merged);
         var mergedYaml = SerializeRoot(merged!);
         Assert.Contains("mcp_LOCAL_EDIT", mergedYaml);
@@ -223,30 +253,143 @@ public class CliAgentNodeGMergeTests
         var remoteComp = MakeDialogComponent(schema,
             McpToolBody.Replace("operationId: mcp_SharePointRemoteServer", "operationId: mcp_REMOTE"));
 
-        // Lock the classic conflict behaviour end-to-end: when local and remote
-        // edit the SAME line differently, the merge MUST NOT silently collapse
-        // to one side. The settled classic strategy surfaces git-style markers
-        // in the merged body (MergeStrings); depending on the body's parser
-        // tolerance the subsequent recompile may also throw. Either outcome is
-        // acceptable — both keep the conflict visible. (Mirror-classic: Node G
-        // does not introduce an out-of-band ConflictRecord.)
-        var threw = false;
-        string body = string.Empty;
-        try
-        {
-            var merged = sync.MergeComponent(schema, baseComp, localComp, remoteComp);
-            body = SerializeRoot(merged!);
-        }
-        catch (Exception ex)
-        {
-            threw = true;
-            _output.WriteLine($"MergeComponent threw on same-subtree conflict: {ex.GetType().Name}: {ex.Message}");
-        }
+        var merged = sync.MergeComponent(schema, baseComp, localComp, remoteComp, out var conflictedYaml);
 
-        Assert.True(
-            threw || body.Contains("<<<<<<<"),
-            "A true same-subtree conflict must remain visible (git markers in the body) " +
-            "or fail the recompile — it must never be silently resolved to one side.");
+        Assert.NotNull(conflictedYaml);
+        Assert.Contains("<<<<<<<", conflictedYaml!, StringComparison.Ordinal);
+        Assert.Contains(">>>>>>>", conflictedYaml!, StringComparison.Ordinal);
+        Assert.Contains("mcp_LOCAL", conflictedYaml!, StringComparison.Ordinal);
+        Assert.Contains("mcp_REMOTE", conflictedYaml!, StringComparison.Ordinal);
+        Assert.NotNull(merged);
+    }
+
+    [Fact]
+    public void MergeComponent_SameSubtreeConflict_ReturnedComponentIsNotTruncated()
+    {
+        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+
+        const string schema = "Default_draft_rxzs_q.tool.WorkIQSharePointPreview-WorkIQSharePointPreview";
+        var baseComp = MakeDialogComponent(schema, McpToolBody);
+        var localComp = MakeDialogComponent(schema,
+            McpToolBody.Replace("operationId: mcp_SharePointRemoteServer", "operationId: mcp_LOCAL"));
+        var remoteComp = MakeDialogComponent(schema,
+            McpToolBody.Replace("operationId: mcp_SharePointRemoteServer", "operationId: mcp_REMOTE"));
+
+        var merged = sync.MergeComponent(schema, baseComp, localComp, remoteComp, out _);
+
+        Assert.Equal(SerializeRoot(localComp), SerializeRoot(merged!));
+    }
+
+    // --- mcs.metadata three-way merge ------------------------------------------------
+
+    [Fact]
+    public void MergeComponent_DescriptionChangedOnBothSides_SurfacesBothInConflictMarkers()
+    {
+        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+
+        var merged = sync.MergeComponent(
+            MetadataSchema,
+            MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 1, "NAgent N1", "base description"),
+            MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 1, "NAgent N1", "LOCAL description"),
+            MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 2, "NAgent N1", "REMOTE description"),
+            out _);
+
+        Assert.NotNull(merged);
+        Assert.True(McsConflictMarkers.TrySplit(merged!.Description, out var ours, out var theirs));
+        Assert.Equal("LOCAL description", ours);
+        Assert.Equal("REMOTE description", theirs);
+    }
+
+    [Fact]
+    public void MergeComponent_DescriptionChangedOnBothSides_NeverSilentlyDiscardsTheLocalEdit()
+    {
+        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+
+        var merged = sync.MergeComponent(
+            MetadataSchema,
+            MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 1, "NAgent N1", "base description"),
+            MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 1, "NAgent N1", "LOCAL description"),
+            MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 2, "NAgent N1", "REMOTE description"),
+            out _);
+
+        Assert.Contains("LOCAL description", merged!.Description!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MergeComponent_DisplayNameChangedOnBothSides_KeepsLocalWithoutMarkers()
+    {
+        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+
+        var merged = sync.MergeComponent(
+            MetadataSchema,
+            MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 1, "Base Name", "same"),
+            MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 1, "Local Name", "same"),
+            MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 2, "Remote Name", "same"),
+            out _);
+
+        Assert.Equal("Local Name", merged!.DisplayName);
+        Assert.False(McsConflictMarkers.Contains(merged.DisplayName));
+    }
+
+    [Fact]
+    public void MergeComponent_DescriptionChangedOnlyRemotely_TakesRemoteWithoutMarkers()
+    {
+        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+
+        var merged = sync.MergeComponent(
+            MetadataSchema,
+            MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 1, "NAgent N1", "base description"),
+            MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 1, "NAgent N1", "base description"),
+            MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 2, "NAgent N1", "REMOTE description"),
+            out _);
+
+        Assert.Equal("REMOTE description", merged!.Description);
+    }
+
+    [Fact]
+    public void MergeComponent_DescriptionChangedOnlyLocally_KeepsLocalWithoutMarkers()
+    {
+        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+
+        var merged = sync.MergeComponent(
+            MetadataSchema,
+            MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 1, "NAgent N1", "base description"),
+            MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 1, "NAgent N1", "LOCAL description"),
+            MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 2, "NAgent N1", "base description"),
+            out _);
+
+        Assert.Equal("LOCAL description", merged!.Description);
+    }
+
+    [Fact]
+    public void MergeComponent_DescriptionIdenticalOnBothSides_ReportsNoConflict()
+    {
+        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+
+        var merged = sync.MergeComponent(
+            MetadataSchema,
+            MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 1, "NAgent N1", "base description"),
+            MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 1, "NAgent N1", "SAME edit"),
+            MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 2, "NAgent N1", "SAME edit"),
+            out _);
+
+        Assert.Equal("SAME edit", merged!.Description);
+    }
+
+    [Fact]
+    public void MergeComponent_LocalComponentAbsent_TakesRemoteWithoutMarkers()
+    {
+        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+
+        var merged = sync.MergeComponent(
+            MetadataSchema,
+            MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 1, "NAgent N1", "base description"),
+            null,
+            MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 2, "NAgent N1", "REMOTE description"),
+            out _);
+
+        Assert.Equal("REMOTE description", merged!.Description);
+        Assert.False(McsConflictMarkers.Contains(merged.Description));
     }
 
     // --- ApplyThreeWayMerge orchestration -------------------------------------------

@@ -257,6 +257,7 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
       logger.logInfo(TelemetryEventsKeys.SyncWorkspaceSuccess, successLog.message, successLog.data);
     }
     logAIPromptIssues(result.aiPromptResponse);
+    logSyncConflicts(result.message);
     return result;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -281,6 +282,15 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
       throw error;
     }
   }
+}
+
+export function logSyncConflicts(message: string | undefined): boolean {
+  if (!message) {
+    return false;
+  }
+
+  logger.logWarning(TelemetryEventsKeys.SyncWorkspaceWarning, message);
+  return true;
 }
 
 export function logWorkflowIssues(workflows: WorkflowResponse[] | undefined, suppressDisabledWarnings = false): boolean {

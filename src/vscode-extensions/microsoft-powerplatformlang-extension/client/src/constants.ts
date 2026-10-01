@@ -84,6 +84,7 @@ export const TelemetryEventsKeys = {
   SyncWorkspaceClick: "SyncWorkspaceClick",
   SyncWorkspaceCancel: "SyncWorkspaceCancel",
   SyncWorkspaceSuccess: "SyncWorkspaceSuccess",
+  SyncWorkspaceWarning: "SyncWorkspaceWarning",
   SyncWorkspaceError: "SyncWorkspaceError",
   GetRemoteFileError: "GetRemoteFileError",
   GetLocalFileError: "GetLocalFileError",

@@ -590,6 +590,71 @@ public class DiscardLocalChangesTests
         Assert.Single(result.Skipped);
     }
 
+    [Fact]
+    public async Task ReadForDiscard_MalformedComponentFile_DoesNotThrow()
+    {
+        var (synchronizer, workspace, accessor) = await CreateCorruptedWorkspaceAsync("discard-malformed-read");
+
+        var (definition, unreadable) = await synchronizer.ReadWorkspaceDefinitionForDiscardAsync(workspace, CancellationToken.None);
+
+        Assert.NotNull(definition);
+        var change = Assert.Single(unreadable);
+        Assert.Equal("topics/Hello.mcs.yml", change.Uri);
+        Assert.Equal(CorruptedSchema, change.SchemaName);
+        Assert.Equal(ChangeType.Update, change.ChangeType);
+        Assert.Contains("<<<<<<<", ReadText(accessor, "topics/Hello.mcs.yml"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ReadForDiscard_ThenDiscard_RestoresTheMalformedFile()
+    {
+        var (synchronizer, workspace, accessor) = await CreateCorruptedWorkspaceAsync("discard-malformed-restore");
+
+        var (_, unreadable) = await synchronizer.ReadWorkspaceDefinitionForDiscardAsync(workspace, CancellationToken.None);
+        var result = synchronizer.DiscardLocalChanges(workspace, unreadable);
+
+        Assert.Equal(1, result.Restored);
+        Assert.DoesNotContain("<<<<<<<", ReadText(accessor, "topics/Hello.mcs.yml"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ReadForDiscard_CleanWorkspace_ReportsNoUnreadableFiles()
+    {
+        var (synchronizer, workspace, _) = await CreateCorruptedWorkspaceAsync("discard-clean", corrupt: false);
+
+        var (_, unreadable) = await synchronizer.ReadWorkspaceDefinitionForDiscardAsync(workspace, CancellationToken.None);
+
+        Assert.Empty(unreadable);
+    }
+
+    private const string CorruptedSchema = "cr123_natest.topic.Hello";
+
+    private static async Task<(WorkspaceSynchronizer Synchronizer, DirectoryPath Workspace, IFileAccessor Accessor)> CreateCorruptedWorkspaceAsync(string folder, bool corrupt = true)
+    {
+        var (synchronizer, factory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath($"c:/test/{folder}-{Guid.NewGuid():N}/");
+        var accessor = factory.Create(workspace);
+
+        var topic = CodeSerializer.Deserialize<BotElement>("kind: AdaptiveDialog\nbeginDialog:\n  kind: OnRecognizedIntent\n") as DialogBase;
+        var component = new DialogComponent(
+            schemaName: CorruptedSchema,
+            displayName: "Hello",
+            description: string.Empty,
+            id: Guid.NewGuid(),
+            parentBotComponentId: default,
+            dialog: topic!);
+
+        WorkspaceSynchronizer.WriteCloudCache(accessor, new BotDefinition().WithComponents(new BotComponentBase[] { component }));
+        await accessor.WriteAsync(
+            new AgentFilePath("topics/Hello.mcs.yml"),
+            corrupt
+                ? "kind: AdaptiveDialog\n<<<<<<< ours\nbeginDialog:\n  kind: OnRecognizedIntent\n=======\nbeginDialog:\n  kind: OnUnknownIntent\n>>>>>>> theirs\n"
+                : "kind: AdaptiveDialog\nbeginDialog:\n  kind: OnRecognizedIntent\n",
+            CancellationToken.None);
+
+        return (synchronizer, workspace, accessor);
+    }
+
     private static string ReadText(IFileAccessor accessor, string path)
     {
         using var stream = accessor.OpenRead(new AgentFilePath(path));

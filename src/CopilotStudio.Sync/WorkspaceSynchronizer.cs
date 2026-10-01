@@ -311,7 +311,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         ISyncDataverseClient dataverseClient,
         AgentSyncInfo syncInfo,
         CancellationToken cancellationToken,
-        bool downloadAllKnowledgeFiles = false)
+        bool downloadAllKnowledgeFiles = false,
+        ICollection<WorkspaceDiagnostic>? conflicts = null)
     {
         if (operationContext is BotComponentCollectionAuthoringOperationContext collectionContext)
         {
@@ -364,7 +365,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         // (schema-name) based and path-agnostic, so the CLI layered shape
         // flows through it unchanged — the layered files were already read
         // back into schema-name-keyed components by the Node E/F readers.
-        var updatedChangeSet = ApplyThreeWayMerge(localChanges, remoteChanges, originalSnapshot, out var conflictedSettingsYaml);
+        var updatedChangeSet = ApplyThreeWayMerge(localChanges, remoteChanges, originalSnapshot, out var mergeConflicts);
 
         var deletedComponents = ImmutableArray.CreateBuilder<BotComponentBase>();
         foreach (var item in updatedChangeSet.BotComponentChanges.OfType<BotComponentDelete>())
@@ -386,11 +387,24 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var downloadedFiles = await DownloadKnowledgeComponentsAsync(fileAccessor, dataverseClient, newSnapshot, fileComponents, knowledgeFolderOverrides, skipMissingAttachments: true, cancellationToken).ConfigureAwait(false);
         RecordKnowledgeFilesBaseline(fileAccessor, newSnapshot, SelectDownloadedComponents(fileComponents, downloadedFiles), knowledgeFolderOverrides);
 
-        var updatedDefinition = await UpdateWorkspaceDirectoryAsync(fileAccessor, workspaceFolder, updatedChangeSet, previousDefinition, deletedComponents.ToArray(), cancellationToken: cancellationToken, pathGroundingDefinition: newSnapshot, overrideConnectionReferences: connectionReferencesNeedOverride || deletedComponents.Count > 0).ConfigureAwait(false);
+        var updatedDefinition = await UpdateWorkspaceDirectoryAsync(fileAccessor, workspaceFolder, updatedChangeSet, previousDefinition, deletedComponents.ToArray(), cancellationToken: cancellationToken, pathGroundingDefinition: GroundPreservedComponents(newSnapshot, mergeConflicts), overrideConnectionReferences: connectionReferencesNeedOverride || deletedComponents.Count > 0).ConfigureAwait(false);
 
-        if (conflictedSettingsYaml != null)
+        var reportedConflicts = conflicts != null ? new List<WorkspaceDiagnostic>() : null;
+        if (mergeConflicts.SettingsYaml != null)
         {
-            await fileAccessor.WriteAsync(SettingsPath, new UTF8Encoding(false).GetBytes(conflictedSettingsYaml), cancellationToken).ConfigureAwait(false);
+            await fileAccessor.WriteAsync(SettingsPath, new UTF8Encoding(false).GetBytes(mergeConflicts.SettingsYaml), cancellationToken).ConfigureAwait(false);
+            reportedConflicts?.Add(CreateConflictDiagnostic(SettingsPath.ToString(), mergeConflicts.SettingsYaml));
+        }
+
+        await WriteConflictedComponentsAsync(fileAccessor, mergeConflicts, newSnapshot, reportedConflicts, cancellationToken).ConfigureAwait(false);
+
+        if (conflicts != null && reportedConflicts != null)
+        {
+            CollectSkillManifestConflicts(fileAccessor, updatedDefinition, updatedDefinition.Components.ToList(), BuildComponentFolderOverrides(fileAccessor, updatedDefinition), reportedConflicts);
+            foreach (var diagnostic in WorkspaceDiagnostic.GetDistinct(reportedConflicts))
+            {
+                conflicts.Add(diagnostic);
+            }
         }
 
         WriteCloudCache(fileAccessor, newSnapshot);
@@ -574,9 +588,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         (PvaComponentChangeSet ChangeSet, ImmutableArray<Change> Changes) localChanges,
         (PvaComponentChangeSet ChangeSet, ImmutableArray<Change> Changes) remoteChanges,
         DefinitionBase? originalSnapshot,
-        out string? conflictedSettingsYaml)
+        out MergeConflictReport conflicts)
     {
-        conflictedSettingsYaml = null;
+        conflicts = new MergeConflictReport();
         var localChangesWithoutKnowledgeFiles = localChanges.Changes
             .Where(c => c.ChangeKind != BotElementKind.FileAttachmentComponent.ToString())
             .ToImmutableArray();
@@ -608,12 +622,25 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 }
 
                 // Merge changes into a new component
-                var updatedComponent = MergeComponent(schemaName, originalComponent, localChange, remoteChangeComponent);
+                var updatedComponent = MergeComponent(schemaName, originalComponent, localChange, remoteChangeComponent, out var conflictedComponentYaml, out var conflicted);
+
+                if (conflicted && updatedComponent != null)
+                {
+                    conflicts.ComponentsBySchemaName[schemaName] = new MergeConflictComponent(conflictedComponentYaml, updatedComponent);
+                }
 
                 // Update change set with new component
                 if (remoteChange != null)
                 {
                     updatedChangeSetBuilder.BotComponentChanges.Remove(remoteChange);
+                }
+                else if (conflicted && localChange != null && originalComponent != null)
+                {
+                    var remoteDelete = updatedChangeSetBuilder.BotComponentChanges.OfType<BotComponentDelete>().FirstOrDefault(change => change.BotComponentId == originalComponent.Id);
+                    if (remoteDelete != null)
+                    {
+                        updatedChangeSetBuilder.BotComponentChanges.Remove(remoteDelete);
+                    }
                 }
 
                 if (localChange == null)
@@ -636,7 +663,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             // remoteChanges.ChangeSet.Bot is non-null — guarded by the if-condition above
             var remoteBot = remoteChanges.ChangeSet.Bot!;
-            var bot = MergeBotEntitySettings((originalSnapshot as BotDefinition)?.Entity, localChanges.ChangeSet.Bot, remoteBot, out conflictedSettingsYaml);
+            var bot = MergeBotEntitySettings((originalSnapshot as BotDefinition)?.Entity, localChanges.ChangeSet.Bot, remoteBot, out var conflictedSettingsYaml);
+            conflicts.SettingsYaml = conflictedSettingsYaml;
             // The 3-way merge operates on settings YAML only (WithOnlySettingsYamlProperties
             // strips IconBase64 and other metadata from original/remote). Restore non-settings
             // properties — including IconBase64 — from the remote bot.
@@ -657,65 +685,54 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return updatedChangeSet;
     }
 
-    internal string MergeStrings(
-      string? original,
-      string? local,
-      string? remote)
+    internal string MergeStrings(string? original, string? local, string? remote)
     {
         var encoding = Encoding.UTF8;
-
         var diffOption = new DiffOptions();
-        diffOption.Flags |= DiffOptionFlags.IgnoreWhiteSpace;
-
-        var originalFile = DiffFile.Create(
-            new StringReader(original ?? string.Empty),
-            encoding,
-            diffOption);
-
-        var localFile = DiffFile.Create(
-            new StringReader(local ?? string.Empty),
-            encoding,
-            diffOption);
-
-        var remoteDiff = DiffFile.Create(
-            new StringReader(remote ?? string.Empty),
-            encoding,
-            diffOption);
-
+        var originalFile = DiffFile.Create(new StringReader(original ?? string.Empty), encoding, diffOption);
+        var localFile = DiffFile.Create(new StringReader(local ?? string.Empty), encoding, diffOption);
+        var remoteDiff = DiffFile.Create(new StringReader(remote ?? string.Empty), encoding, diffOption);
         var mergeOptions = new MergeOptions();
-        mergeOptions.Flags |= DiffOptionFlags.IgnoreWhiteSpace;
-        var comparer = new DiffLineComparer(mergeOptions);
-
-        var mergeList = MergeFinder.Merge(originalFile, localFile, remoteDiff, comparer, mergeOptions);
-
+        var mergeList = MergeFinder.Merge(originalFile, localFile, remoteDiff, new DiffLineComparer(mergeOptions), mergeOptions);
         using var writer = new StringWriter();
-
-        var mergeOutput = new MergeOutput(mergeOptions, writer);
-        mergeOutput.Output(originalFile, localFile, remoteDiff, mergeList);
+        new MergeOutput(mergeOptions, writer).Output(originalFile, localFile, remoteDiff, mergeList);
         return writer.ToString();
     }
 
-    internal BotComponentBase? MergeComponent(
-        string schemaName,
-        BotComponentBase? originalComponent,
-        BotComponentBase? localChange,
-        BotComponentBase? remoteChange)
+    internal BotComponentBase? MergeComponent(string schemaName, BotComponentBase? originalComponent, BotComponentBase? localChange, BotComponentBase? remoteChange, out string? conflictedComponentYaml)
+        => MergeComponent(schemaName, originalComponent, localChange, remoteChange, out conflictedComponentYaml, out _);
+
+    internal BotComponentBase? MergeComponent(string schemaName, BotComponentBase? originalComponent, BotComponentBase? localChange, BotComponentBase? remoteChange, out string? conflictedComponentYaml, out bool conflicted)
     {
-        // originalComponent contains DisplayName/Description in the Component, content with syntax in the RootElement
-        // localChange will only have correct syntax on the RootElement
-        // remoteChange contains DisplayName/Description in the Component, content with syntax in the RootElement
-        // steps:
-        // - create a McsYml file content for localChange and remoteChange
-        // - merge the file
+        conflictedComponentYaml = null;
 
-        var localChangeYaml = localChange?.RootElement == null ? null : CodeSerializer.Serialize(localChange.RootElement);
-        var originalComponentYaml = GetMcsYaml(originalComponent);
-        var remoteChangeYaml = GetMcsYaml(remoteChange);
+        var isInlineSkill = SkillBodyProjection.IsInlineSkill(originalComponent) || SkillBodyProjection.IsInlineSkill(localChange) || SkillBodyProjection.IsInlineSkill(remoteChange);
+        var mergedSkillContent = isInlineSkill
+            ? MergeStrings(SkillBodyProjection.GetContent(originalComponent), SkillBodyProjection.GetContent(localChange), SkillBodyProjection.GetContent(remoteChange))
+            : null;
 
-        var mergedString = MergeStrings(originalComponentYaml, localChangeYaml, remoteChangeYaml);
+        var localAnchor = WithoutSkillContent(localChange);
+        var mergedString = MergeStrings(GetMcsYaml(WithoutSkillContent(originalComponent)), localAnchor?.RootElement == null ? null : CodeSerializer.Serialize(localAnchor.RootElement), GetMcsYaml(WithoutSkillContent(remoteChange)));
+
+        var mergedMetaDescription = TryMergeMetaInfo(originalComponent?.Description, localChange?.Description, remoteChange?.Description, out var description)
+            ? description
+            : McsConflictMarkers.Build(localChange?.Description, remoteChange?.Description);
+
+        var bodyConflicted = ContainsConflictMarkers(mergedString);
+        conflicted = bodyConflicted || (localChange != null && remoteChange == null);
+
+        if (conflicted)
+        {
+            conflictedComponentYaml = bodyConflicted ? mergedString : null;
+            var conflictedComponent = WithSkillContent(localChange ?? remoteChange ?? originalComponent, isInlineSkill, mergedSkillContent);
+
+            return localChange != null && remoteChange != null ? WithDescription(conflictedComponent, mergedMetaDescription) : conflictedComponent;
+        }
+
         var mergedContent = CodeSerializer.Deserialize(mergedString, originalComponent?.RootElement?.GetType() ?? localChange?.RootElement?.GetType() ?? remoteChange?.RootElement?.GetType() ?? typeof(BotElement), null);
-        var mergedMetaDisplayName = MergeMetaInfo(originalComponent?.DisplayName, localChange?.DisplayName, remoteChange?.DisplayName);
-        var mergedMetaDescription = MergeMetaInfo(originalComponent?.Description, localChange?.Description, remoteChange?.Description);
+        var mergedMetaDisplayName = TryMergeMetaInfo(originalComponent?.DisplayName, localChange?.DisplayName, remoteChange?.DisplayName, out var displayName)
+            ? displayName
+            : localChange?.DisplayName;
 
         var (component, error) = _fileParser.CompileFileModel(schemaName, mergedContent, mergedMetaDisplayName, mergedMetaDescription);
 
@@ -744,7 +761,25 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             mergedComponent = mergedBuilder.Build();
         }
 
-        return mergedComponent;
+        return WithSkillContent(mergedComponent, isInlineSkill, mergedSkillContent);
+    }
+
+    private static BotComponentBase? WithoutSkillContent(BotComponentBase? component)
+        => component == null ? null : SkillBodyProjection.WithContent(component, null);
+
+    private static BotComponentBase? WithSkillContent(BotComponentBase? component, bool isInlineSkill, string? content)
+        => !isInlineSkill || component == null ? component : SkillBodyProjection.WithContent(component, string.IsNullOrEmpty(content) ? null : content);
+
+    private static BotComponentBase? WithDescription(BotComponentBase? component, string? description)
+    {
+        if (component == null || string.Equals(component.Description, description, StringComparison.Ordinal))
+        {
+            return component;
+        }
+
+        var builder = component.ToBuilder();
+        builder.Description = description;
+        return builder.Build();
     }
 
     internal ImmutableArray<string> GetConflicts(ImmutableArray<Change> local, ImmutableArray<Change> remote)
@@ -752,24 +787,29 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return local.Select(m => m.SchemaName).Intersect(remote.Select(r => r.SchemaName)).ToImmutableArray();
     }
 
-    private static string? MergeMetaInfo(string? originalMeta, string? localMeta, string? remoteMeta)
+    /// <summary>Resolves a three-way metadata merge, returning false only when both sides are present and changed the value differently.</summary>
+    private static bool TryMergeMetaInfo(string? originalMeta, string? localMeta, string? remoteMeta, out string? merged)
     {
+        merged = localMeta;
+
         if (localMeta == remoteMeta)
         {
-            return localMeta;
+            return true;
         }
 
         if (originalMeta == localMeta)
         {
-            return remoteMeta;
+            merged = remoteMeta;
+            return true;
         }
 
         if (originalMeta == remoteMeta)
         {
-            return localMeta;
+            return true;
         }
 
-        return remoteMeta;
+        merged = remoteMeta;
+        return localMeta == null || remoteMeta == null;
     }
 
     public async Task<PushChangesetResult> PushChangesetAsync(
@@ -1124,6 +1164,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var newHashes = new ConcurrentDictionary<string, string>(baseline, StringComparer.OrdinalIgnoreCase);
         var uploaded = new ConcurrentBag<string>();
 
+        ThrowIfWorkspaceInvalid(fileAccessor, snapshot, folderOverrides);
+
 #if NETSTANDARD2_0
         foreach (var component in fileComponents)
         {
@@ -1471,6 +1513,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             effectiveDefinition = DetectNewLocalSkills(fileAccessor, effectiveDefinition, cloudSnapshot, out _);
             effectiveDefinition = DetectNewKnowledgeFiles(workspaceFolder, effectiveDefinition, out var newKnowledgeComponents, cancellationToken);
             MaterializeNewKnowledgeFileMetadata(workspaceFolder, effectiveDefinition, newKnowledgeComponents, cancellationToken);
+
+            ThrowIfWorkspaceInvalid(fileAccessor, effectiveDefinition, BuildComponentFolderOverrides(fileAccessor, effectiveDefinition));
 
             var (changeSet, changes) = GetLocalChanges(effectiveDefinition, cloudSnapshot, fileAccessor, changeToken, isRemoteChange: false, deferMissingParents: true, out var deferredMissingParent, collectionOwnedComponentSchemaNames);
 
@@ -5397,9 +5441,42 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return localBot;
     }
 
-    internal static bool ContainsConflictMarkers(string mergedYaml)
+    internal static bool ContainsConflictMarkers(string mergedYaml) => McsConflictMarkers.Contains(mergedYaml);
+
+    private async Task WriteConflictedComponentsAsync(IFileAccessor fileAccessor, MergeConflictReport conflicts, DefinitionBase groundingDefinition, ICollection<WorkspaceDiagnostic>? reported, CancellationToken cancellationToken)
     {
-        return mergedYaml.Contains("<<<<<<<", StringComparison.Ordinal) || mergedYaml.Contains(">>>>>>>", StringComparison.Ordinal);
+        if (conflicts.ComponentsBySchemaName.Count == 0)
+        {
+            return;
+        }
+
+        var definition = GroundPreservedComponents(groundingDefinition, conflicts);
+        var folderOverrides = BuildComponentFolderOverrides(fileAccessor, definition);
+        var encoding = new UTF8Encoding(false);
+
+        foreach (var conflict in conflicts.ComponentsBySchemaName)
+        {
+            if (conflict.Value.Yaml == null)
+            {
+                continue;
+            }
+
+            var component = conflict.Value.Component;
+            var path = ResolveOnDiskComponentPath(fileAccessor, GetStickyComponentPath(component, definition, folderOverrides), component, definition);
+            var body = McsComponentBodyWriter.ReplaceBodyPreservingMetadata(component, definition, path, conflict.Value.Yaml);
+            await fileAccessor.WriteAsync(path, encoding.GetBytes(body), cancellationToken).ConfigureAwait(false);
+            reported?.Add(CreateConflictDiagnostic(path.ToString(), body));
+        }
+    }
+
+    private static DefinitionBase GroundPreservedComponents(DefinitionBase groundingDefinition, MergeConflictReport conflicts)
+    {
+        var preserved = conflicts.ComponentsBySchemaName.Values
+            .Select(conflict => conflict.Component)
+            .Where(component => !groundingDefinition.TryGetComponentBySchemaName(component.SchemaNameString, out _))
+            .ToList();
+
+        return preserved.Count == 0 ? groundingDefinition : groundingDefinition.WithComponents(groundingDefinition.Components.Concat(preserved));
     }
 
     internal static bool TryGetSettingsYaml(BotEntity? entity, out string? settingsYaml)
@@ -5523,7 +5600,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     /// insert/update set from a definition missing the disk references, so CLI
     /// connection-reference CREATE/UPDATE are missed on the VS Code push/diff path (the delete
     /// side already enumerates disk via <c>ListDiskLogicalNames</c>). This mirrors the overlay
-    /// <see cref="ReadWorkspaceDefinitionAsync"/> applies on the sync-engine path, and is a
+    /// <see cref="IWorkspaceSynchronizer.ReadWorkspaceDefinitionAsync"/> applies on the sync-engine path, and is a
     /// no-op for classic agents and for an already-overlaid definition.
     /// </summary>
     private DefinitionBase OverlayCliConnectionReferences(DefinitionBase definition, IFileAccessor fileAccessor, CancellationToken cancellationToken)
@@ -6480,9 +6557,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 }
 
                 var clientDataJson = await fileAccessor.ReadStringAsync(jsonPath, cancellationToken).ConfigureAwait(false);
-                var yamlText = await fileAccessor.ReadStringAsync(metadataPath, cancellationToken).ConfigureAwait(false);
-                var metadata = McsYamlObjectMapper.DeserializeStrict<WorkflowMetadata>(yamlText)
-                    ?? throw new InvalidOperationException($"Workflow metadata file is empty or invalid.");
+                var metadata = await ReadWorkflowMetadataAsync(fileAccessor, metadataPath, cancellationToken).ConfigureAwait(false);
                 metadata.ClientData = clientDataJson;
                 workflows.Add(metadata);
                 workflowMetadataRelativePaths[metadata.WorkflowId] = $"{WorkflowFolder}/{workflowName}/metadata.yml";
@@ -7388,8 +7463,18 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
     }
 
-    public async Task<DefinitionBase> ReadWorkspaceDefinitionAsync(DirectoryPath workspaceFolder, CancellationToken cancellationToken, bool checkKnowledgeFiles = false)
+    public Task<DefinitionBase> ReadWorkspaceDefinitionAsync(DirectoryPath workspaceFolder, CancellationToken cancellationToken, bool checkKnowledgeFiles = false) => ReadWorkspaceDefinitionAsync(workspaceFolder, cancellationToken, checkKnowledgeFiles, diagnostics: null, validate: true);
+
+    public async Task<(DefinitionBase Definition, ImmutableArray<Change> UnreadableChanges)> ReadWorkspaceDefinitionForDiscardAsync(DirectoryPath workspaceFolder, CancellationToken cancellationToken)
     {
+        var diagnostics = new SyncDiagnosticsCollector();
+        var definition = await ReadWorkspaceDefinitionAsync(workspaceFolder, cancellationToken, checkKnowledgeFiles: true, diagnostics, validate: false).ConfigureAwait(false);
+        return (definition, diagnostics.UnreadableFiles);
+    }
+
+    internal async Task<DefinitionBase> ReadWorkspaceDefinitionAsync(DirectoryPath workspaceFolder, CancellationToken cancellationToken, bool checkKnowledgeFiles, SyncDiagnosticsCollector? diagnostics, bool validate)
+    {
+        var readDiagnostics = new List<WorkspaceDiagnostic>();
         var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var definition = ReadCloudCacheSnapshot(fileAccessor, allowMissing: true);
         if (definition == null)
@@ -7434,8 +7519,15 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         // schemaName change — see CliAgentBotEntityReader for rationale.
         if (isCliLayoutAdopted && definition is BotDefinition botForOverlay && botForOverlay.Entity != null)
         {
-            var overlaidEntity = CliAgentBotEntityReader.Overlay(fileAccessor, botForOverlay.Entity);
-            definition = botForOverlay.WithEntity(overlaidEntity);
+            try
+            {
+                var overlaidEntity = CliAgentBotEntityReader.Overlay(fileAccessor, botForOverlay.Entity);
+                definition = botForOverlay.WithEntity(overlaidEntity);
+            }
+            catch (WorkspaceValidationException failure)
+            {
+                readDiagnostics.AddRange(failure.Diagnostics);
+            }
         }
 
         var updatedComponents = new List<BotComponentBase>();
@@ -7503,18 +7595,19 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 cancellationToken.ThrowIfCancellationRequested();
                 yaml = await reader.ReadToEndAsync().ConfigureAwait(false);
 
-                deserialized = CodeSerializer.Deserialize(yaml, component.RootElement?.GetType() ?? typeof(BotElement), null);
+                deserialized = McsYamlValidator.Deserialize(yaml, component.RootElement?.GetType() ?? typeof(BotElement), null);
             }
-            catch (Exception ex) when (isCliAgent && ex is not OperationCanceledException)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                // CliAgentSyncSupport / Node E (rubber-duck non-blocking #4):
-                // CLI-path deserialize errors must not abort the entire
-                // read, but cancellation must still propagate. Scope the
-                // skip-and-warn to CLI files only (classic shape was
-                // hard-fail before Node E and stays hard-fail to preserve
-                // pre-existing behavior).
-                _syncProgress.Report(
-                    $"CLI component file '{filePath}' could not be read or parsed: {ex.Message}. Keeping cloud-cache version.");
+                readDiagnostics.Add(WorkspaceDiagnostic.FromException(filePath.ToString(), ex));
+                diagnostics?.AddUnreadableFile(new Change
+                {
+                    ChangeType = ChangeType.Update,
+                    Name = component.SchemaNameString,
+                    Uri = filePath.ToString(),
+                    SchemaName = component.SchemaNameString,
+                    ChangeKind = component.Kind.ToString(),
+                });
                 updatedComponents.Add(component);
                 continue;
             }
@@ -7568,9 +7661,19 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    var yaml = await fileAccessor.ReadStringAsync(localFile, cancellationToken).ConfigureAwait(false);
+                    BotElement? element;
+                    try
+                    {
+                        var yaml = await fileAccessor.ReadStringAsync(localFile, cancellationToken).ConfigureAwait(false);
+                        element = McsYamlValidator.Deserialize(yaml, typeof(BotElement), null);
+                    }
+                    catch (Exception failure) when (IsProjectionSerializationFailure(failure) || failure is IOException or UnauthorizedAccessException)
+                    {
+                        readDiagnostics.Add(WorkspaceDiagnostic.FromException(localFile.ToString(), failure));
+                        continue;
+                    }
 
-                    if (CodeSerializer.Deserialize(yaml, typeof(BotElement), null) is not BotElement element)
+                    if (element == null)
                     {
                         continue;
                     }
@@ -7597,7 +7700,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             // new files the user authored locally (no cloud-cache match).
             // Mirrors the classic new-file scan but uses the route-specific
             // filename → schemaName projections (TryProjectSchemaNameFromFilePath).
-            ScanForNewCliFiles(fileAccessor, definition, updatedComponents, existingSchemaNames, cancellationToken);
+            ScanForNewCliFiles(fileAccessor, definition, updatedComponents, existingSchemaNames, readDiagnostics, cancellationToken);
         }
 
         if (checkKnowledgeFiles)
@@ -7619,6 +7722,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             updatedComponents.AddRange(synthesizedSkills);
             updatedComponents.AddRange(newKnowledgeComponents);
         }
+
+        CollectSkillManifestConflicts(fileAccessor, definition, updatedComponents, readFolderOverrides, readDiagnostics);
 
         // Read environment variables from environmentvariables/*.mcs.yml
         var updatedEnvVars = await ReadEnvironmentVariablesAsync(fileAccessor, definition, cancellationToken).ConfigureAwait(false);
@@ -7661,7 +7766,60 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }
         }
 
+        diagnostics?.AddRange(readDiagnostics);
+
+        if (validate && readDiagnostics.Count > 0)
+        {
+            throw new WorkspaceValidationException(readDiagnostics.ToImmutableArray());
+        }
         return readDefinition;
+    }
+
+    private static WorkspaceDiagnostic CreateConflictDiagnostic(string filePath, string? text) => new WorkspaceDiagnostic(filePath, McsConflictMarkers.Message, McsConflictMarkers.FindFirstMarkerLine(text), 1, WorkspaceDiagnosticKind.MergeConflict);
+
+    private void ThrowIfWorkspaceInvalid(IFileAccessor fileAccessor, DefinitionBase definition, IReadOnlyDictionary<string, string> folderOverrides)
+    {
+        var problems = new List<WorkspaceDiagnostic>();
+
+        CollectSkillManifestConflicts(fileAccessor, definition, definition.Components.ToList(), folderOverrides, problems);
+
+        if (problems.Count > 0)
+        {
+            throw new WorkspaceValidationException(problems.ToImmutableArray());
+        }
+    }
+
+    private void CollectSkillManifestConflicts(IFileAccessor fileAccessor, DefinitionBase definition, List<BotComponentBase> components, IReadOnlyDictionary<string, string> folderOverrides, ICollection<WorkspaceDiagnostic> readDiagnostics)
+    {
+        var visitedPaths = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var component in components)
+        {
+            if (component is not DialogComponent { Dialog: InlineAgentSkill skill })
+            {
+                continue;
+            }
+
+            var hasFolder = SkillLink.TryGetSkillName(GetStickyComponentPath(component, definition, folderOverrides), out var folderName);
+            var filePath = hasFolder
+                ? SkillLayout.GetManifestPath(folderName).ToString()
+                : component.SchemaNameString ?? SkillLayout.ManifestFileName;
+            var hasManifestFile = hasFolder && SkillLayout.HasManifestFile(fileAccessor, folderName);
+            if (hasManifestFile && !visitedPaths.Add(filePath))
+            {
+                continue;
+            }
+
+            var manifestText = hasManifestFile
+                ? SkillLayout.ReadManifestText(fileAccessor, folderName)
+                : skill.Content;
+
+            if (!McsConflictMarkers.Contains(manifestText))
+            {
+                continue;
+            }
+
+            readDiagnostics.Add(CreateConflictDiagnostic(filePath, manifestText));
+        }
     }
 
     private static DefinitionBase? ReadCachelessCliDefinitionOrNull(IFileAccessor fileAccessor)
@@ -7671,43 +7829,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             return null;
         }
 
-        string yaml;
-        try
-        {
-            using var stream = fileAccessor.OpenRead(SettingsPath);
-            using var reader = new StreamReader(stream, Encoding.UTF8);
-            yaml = reader.ReadToEnd();
-        }
-        catch (Exception ex)
-        {
-            if (fileAccessor.Exists(AgentSyncMarkerPath))
-            {
-                throw new InvalidOperationException(
-                    $"CLI settings.mcs.yml could not be read from a cacheless workspace: {ex.Message}.",
-                    ex);
-            }
-
-            return null;
-        }
-
-        BotEntity? entity;
-        try
-        {
-            entity = CodeSerializer.Deserialize<BotEntity>(yaml);
-        }
-        catch (Exception ex)
-        {
-            if (fileAccessor.Exists(AgentSyncMarkerPath))
-            {
-                throw new InvalidOperationException(
-                    $"CLI settings.mcs.yml is malformed in a cacheless workspace: {ex.Message}.",
-                    ex);
-            }
-
-            return null;
-        }
-
-        if (entity != null && AgentClassifier.DetectAuthoringShape(entity) == AuthoringShape.CliCopilot)
+        var entity = CliAgentBotEntityReader.Read(fileAccessor);
+        if (AgentClassifier.DetectAuthoringShape(entity) == AuthoringShape.CliCopilot)
         {
             return new BotDefinition(entity: entity);
         }
@@ -7750,6 +7873,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         DefinitionBase definition,
         List<BotComponentBase> updatedComponents,
         HashSet<string> existingSchemaNames,
+        List<WorkspaceDiagnostic> readDiagnostics,
         CancellationToken cancellationToken)
     {
         var knownPaths = definition.Components
@@ -7771,19 +7895,21 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 }
 
                 string yaml;
+                BotElement? element;
                 try
                 {
                     using var stream = fileAccessor.OpenRead(file);
                     using var sr = new StreamReader(stream, Encoding.UTF8);
                     yaml = sr.ReadToEnd();
+                    element = McsYamlValidator.Deserialize(yaml, typeof(BotElement), null);
                 }
-                catch (Exception ex)
+                catch (Exception failure) when (IsProjectionSerializationFailure(failure) || failure is IOException or UnauthorizedAccessException)
                 {
-                    _syncProgress.Report($"CLI new-file scan: '{file}' could not be read: {ex.Message}. Skipping.");
+                    readDiagnostics.Add(WorkspaceDiagnostic.FromException(file.ToString(), failure));
                     continue;
                 }
 
-                if (CodeSerializer.Deserialize(yaml, typeof(BotElement), null) is not BotElement element)
+                if (element == null)
                 {
                     continue;
                 }
@@ -8004,10 +8130,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 continue;
             }
 
-            var yaml = await fileAccessor.ReadStringAsync(metadataPath, cancellationToken).ConfigureAwait(false);
             var json = await fileAccessor.ReadStringAsync(jsonPath, cancellationToken).ConfigureAwait(false);
-            var metadata = McsYamlObjectMapper.DeserializeStrict<WorkflowMetadata>(yaml)
-                ?? throw new InvalidOperationException($"Workflow metadata file is empty or invalid.");
+            var metadata = await ReadWorkflowMetadataAsync(fileAccessor, metadataPath, cancellationToken).ConfigureAwait(false);
             metadata.ClientData = json;
             var (definition, _) = GetFlowDefinition(metadata);
             cloudFlowDefinitions.Add(definition);
@@ -8018,6 +8142,25 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             Workflows = cloudFlowDefinitions.ToImmutableArray(),
             ConnectionReferences = ImmutableArray<ConnectionReference>.Empty
         };
+    }
+
+    private static async Task<WorkflowMetadata> ReadWorkflowMetadataAsync(IFileAccessor fileAccessor, AgentFilePath metadataPath, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var yaml = await fileAccessor.ReadStringAsync(metadataPath, cancellationToken).ConfigureAwait(false);
+            if (McsConflictMarkers.Contains(yaml))
+            {
+                throw new WorkspaceValidationException([CreateConflictDiagnostic(metadataPath.ToString(), yaml)]);
+            }
+
+            return McsYamlObjectMapper.DeserializeStrict<WorkflowMetadata>(yaml)
+                ?? throw new McsYamlFormatException("Workflow metadata file is empty or invalid.", 0, 0);
+        }
+        catch (Exception failure) when (failure is McsYamlFormatException or IOException or UnauthorizedAccessException)
+        {
+            throw new WorkspaceValidationException([WorkspaceDiagnostic.FromException(metadataPath.ToString(), failure)]);
+        }
     }
 
     private async Task<CloudFlowMetadata> GetRemoteWorkflowContentAsync(ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CancellationToken cancellationToken)
@@ -9406,14 +9549,14 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         CancellationToken cancellationToken)
     {
         // Read the pushed (expected) workspace definition
-        var expectedDefinition = await ReadWorkspaceDefinitionAsync(workspaceFolder, cancellationToken).ConfigureAwait(false);
+        var expectedDefinition = await ReadWorkspaceDefinitionAsync(workspaceFolder, cancellationToken, checkKnowledgeFiles: false, diagnostics: null, validate: false).ConfigureAwait(false);
 
         using var verificationWorkspace = _fileAccessorFactory.LeaseTemporaryWorkspace("mcs-verify-");
         var tempWorkspace = verificationWorkspace.Root;
         var referenceTracker = new ReferenceTracker();
         await CloneChangesAsync(tempWorkspace, referenceTracker, operationContext, dataverseClient, syncInfo, cancellationToken).ConfigureAwait(false);
 
-        var serverDefinition = await ReadWorkspaceDefinitionAsync(tempWorkspace, cancellationToken).ConfigureAwait(false);
+        var serverDefinition = await ReadWorkspaceDefinitionAsync(tempWorkspace, cancellationToken, checkKnowledgeFiles: false, diagnostics: null, validate: false).ConfigureAwait(false);
 
         // Compare per-entity-type: group expected changes by ChangeKind, count matches in server state
         var (_, expectedChanges) = await GetLocalChangesAsync(tempWorkspace, expectedDefinition, dataverseClient, syncInfo, cancellationToken).ConfigureAwait(false);

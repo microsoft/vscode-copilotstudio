@@ -279,12 +279,6 @@ public class McsYamlReaderTests
         Assert.Empty(McsYamlReader.Parse(string.Empty));
     }
 
-    [Fact]
-    public void KeepsLastValueForDuplicateKeys()
-    {
-        Assert.Equal("2", McsYamlReader.Parse("a: 1\na: 2\n")["a"]);
-    }
-
     [Theory]
     [InlineData("a:\n  <<: *base\n  b: 1\n")]
     [InlineData("a: *missing\n")]
@@ -946,6 +940,74 @@ public class McsYamlReaderTests
     public void TreatsUnicodeLineBreaksAsEntrySeparators(string yaml)
     {
         Assert.Equal(new Dictionary<string, object?> { ["a"] = "b", ["c"] = "d" }, McsYamlReader.Parse(yaml));
+    }
+
+    [Theory]
+    [InlineData("displayName: first\ndisplayName: second\n")]
+    [InlineData("a: 1\nb: 2\na: 3\n")]
+    [InlineData("parent:\n  child: 1\n  child: 2\n")]
+    [InlineData("a: {x: 1, x: 2}\n")]
+    [InlineData("a: same\na: same\n")]
+    [InlineData("items:\n- key: 1\n  key: 2\n")]
+    public void ThrowsOnDuplicateMappingKey(string yaml)
+    {
+        Assert.Throws<McsYamlFormatException>(() => McsYamlReader.Parse(yaml));
+    }
+
+    [Fact]
+    public void DuplicateMappingKeyReportsNameAndBothPositions()
+    {
+        var failure = Assert.Throws<McsYamlFormatException>(() => McsYamlReader.Parse("alpha: 1\nbeta: 2\nalpha: 3\n"));
+
+        Assert.Contains("alpha", failure.Message, StringComparison.Ordinal);
+        Assert.Contains("line 1", failure.Message, StringComparison.Ordinal);
+        Assert.Equal(3, failure.Line);
+    }
+
+    [Theory]
+    [InlineData("a: 1\nb: 1\n")]
+    [InlineData("parent:\n  child: 1\nother:\n  child: 2\n")]
+    [InlineData("items:\n- key: 1\n- key: 2\n")]
+    public void AllowsRepeatedKeyNamesInSeparateMappings(string yaml)
+    {
+        McsYamlReader.Parse(yaml);
+    }
+
+    [Fact]
+    public void LargeMappingOfDistinctKeysParsesWithoutQuadraticCost()
+    {
+        const int keyCount = 30000;
+        var builder = new System.Text.StringBuilder();
+        for (var index = 0; index < keyCount; index++)
+        {
+            builder.Append("key").Append(index).Append(": ").Append(index).Append('\n');
+        }
+
+        var yaml = builder.ToString();
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var document = McsYamlReader.Parse(yaml);
+        stopwatch.Stop();
+
+        Assert.Equal(keyCount, document.Count);
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(2.5), $"Parsing {keyCount} distinct keys took {stopwatch.ElapsedMilliseconds}ms.");
+    }
+
+    [Fact]
+    public void LargeMappingStillReportsTheFirstPositionOfADuplicateKey()
+    {
+        var builder = new System.Text.StringBuilder("duplicated: first\n");
+        for (var index = 0; index < 5000; index++)
+        {
+            builder.Append("key").Append(index).Append(": ").Append(index).Append('\n');
+        }
+
+        builder.Append("duplicated: second\n");
+
+        var failure = Assert.Throws<McsYamlFormatException>(() => McsYamlReader.Parse(builder.ToString()));
+
+        Assert.Equal(McsYamlError.DuplicateKey, failure.Error);
+        Assert.Contains("line 1", failure.Message, StringComparison.Ordinal);
+        Assert.Equal(5002, failure.Line);
     }
 
     [Fact]

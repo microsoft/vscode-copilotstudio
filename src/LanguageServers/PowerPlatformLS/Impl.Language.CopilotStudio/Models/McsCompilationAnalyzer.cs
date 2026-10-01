@@ -12,6 +12,7 @@
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Validation;
     using System.Collections.Generic;
     using System.Diagnostics;
+    using System.Diagnostics.CodeAnalysis;
     using System.Linq;
 
     /// <summary>
@@ -74,15 +75,7 @@
                 return [];
             }
 
-            BotElement? currentFileRootElement;
-            try
-            {
-                currentFileRootElement = GetDocumentRoot(document);
-            }
-            catch (InvalidOperationException)
-            {
-                currentFileRootElement = null;
-            }
+            TryGetDocumentRoot(document, out var currentFileRootElement);
 
             IEnumerable<Diagnostic> diagnostics;
             if (currentFileRootElement == null)
@@ -177,6 +170,21 @@
             }
 
             return new System.Uri(fileUri.Substring(0, fileUri.Length - relativePath.Length));
+        }
+
+        /// <summary>Resolves the document root, returning false when the file failed to parse and has no model.</summary>
+        public bool TryGetDocumentRoot(McsLspDocument document, [NotNullWhen(true)] out BotElement? root)
+        {
+            try
+            {
+                root = GetDocumentRoot(document);
+                return root != null;
+            }
+            catch (InvalidOperationException)
+            {
+                root = null;
+                return false;
+            }
         }
 
         /// <summary>

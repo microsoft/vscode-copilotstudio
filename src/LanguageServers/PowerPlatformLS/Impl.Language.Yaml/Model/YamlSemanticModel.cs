@@ -10,28 +10,6 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.Yaml.Model
         public YamlSemanticModel(string text)
         {
             _document = McsYamlReader.ParseDocument(text);
-            RejectDuplicateKeys(_document);
-        }
-
-        private static void RejectDuplicateKeys(McsYamlDocument document)
-        {
-            foreach (var node in document.NodesInDocumentOrder())
-            {
-                var properties = node.Properties;
-                if (properties == null || properties.Count < 2)
-                {
-                    continue;
-                }
-
-                var seen = new HashSet<string>(properties.Count, StringComparer.Ordinal);
-                foreach (var property in properties)
-                {
-                    if (!seen.Add(property.Name))
-                    {
-                        throw new McsYamlFormatException($"Duplicate key {property.Name}", property.NameStart.Line, property.NameStart.Column);
-                    }
-                }
-            }
         }
 
         public IEnumerable<YNodeProperty> AllPropertyNodes

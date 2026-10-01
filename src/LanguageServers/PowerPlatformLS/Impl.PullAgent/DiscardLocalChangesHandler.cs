@@ -43,22 +43,26 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             try
             {
                 var workspace = (IMcsWorkspace)context.Workspace;
-                var definition = await _workspaceSynchronizer
-                    .ReadWorkspaceDefinitionAsync(workspace.FolderPath, cancellationToken, checkKnowledgeFiles: true)
+                var (definition, unreadableChanges) = await _workspaceSynchronizer
+                    .ReadWorkspaceDefinitionForDiscardAsync(workspace.FolderPath, cancellationToken)
                     .ConfigureAwait(false);
                 var diffDefinition = OverlayCompiledComponentCollections(
                     definition,
                     workspace.Definition);
-                var (_, localChanges) = await _workspaceSynchronizer
+                var (_, detectedChanges) = await _workspaceSynchronizer
                     .GetLocalChangesAsync(workspace.FolderPath, diffDefinition, cancellationToken)
                     .ConfigureAwait(false);
+                var localChanges = detectedChanges
+                    .AddRange(unreadableChanges)
+                    .DistinctBy(change => (change.SchemaName.ToUpperInvariant(), change.Uri.ToUpperInvariant()))
+                    .ToImmutableArray();
                 var result = _workspaceSynchronizer.DiscardLocalChanges(
                     workspace.FolderPath,
                     definition,
                     localChanges);
 
-                var updatedDefinition = await _workspaceSynchronizer
-                    .ReadWorkspaceDefinitionAsync(workspace.FolderPath, cancellationToken, checkKnowledgeFiles: true)
+                var (updatedDefinition, remainingUnreadable) = await _workspaceSynchronizer
+                    .ReadWorkspaceDefinitionForDiscardAsync(workspace.FolderPath, cancellationToken)
                     .ConfigureAwait(false);
                 var (_, remainingChanges) = await _workspaceSynchronizer
                     .GetLocalChangesAsync(workspace.FolderPath, updatedDefinition, cancellationToken)
@@ -68,6 +72,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                         string.Equals(skipped.SchemaName, change.SchemaName, StringComparison.OrdinalIgnoreCase)
                         && string.Equals(skipped.Path, change.Uri, StringComparison.OrdinalIgnoreCase)));
                 remainingChanges = remainingChanges
+                    .AddRange(remainingUnreadable)
                     .AddRange(skippedChanges)
                     .DistinctBy(change => (change.SchemaName.ToUpperInvariant(), change.Uri.ToUpperInvariant()))
                     .ToImmutableArray();

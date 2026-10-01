@@ -12,23 +12,42 @@ internal static class McsComponentBodyWriter
 
     internal static string SerializeComponent(BotComponentBase component, DefinitionBase definition, AgentFilePath path) => Serialize(SkillBodyProjection.PrepareForWrite(component, path), SkillBodyProjection.GetBodyMetadata(component, definition, path));
 
+    internal static string ReplaceBodyPreservingMetadata(BotComponentBase component, DefinitionBase definition, AgentFilePath path, string replacementBody)
+    {
+        var extraValues = BuildExtraValues(SkillBodyProjection.GetBodyMetadata(component, definition, path));
+        _ = ExtractMetadataBlocks(SerializeComponent(component, definition, path), out var authoredLines);
+
+        if (authoredLines.Count == 0 && extraValues.Count == 0 && string.IsNullOrEmpty(component.DisplayName) && string.IsNullOrEmpty(component.Description))
+        {
+            return replacementBody;
+        }
+
+        return ComposeBlock(component, authoredLines, extraValues) + replacementBody;
+    }
+
     internal static string Serialize(BotComponentBase component, McsMetadata extraMetadata)
     {
         using var writer = new StringWriter();
         CodeSerializer.SerializeAsMcsYml(writer, component);
         var body = writer.ToString();
 
-        var extraValues = new Dictionary<string, string>(StringComparer.Ordinal);
-        AddValue(extraValues, McsMetadata.SchemaNameKey, extraMetadata.SchemaName);
-        AddValue(extraValues, McsMetadata.BundleKey, extraMetadata.Bundle);
-        AddValue(extraValues, McsMetadata.ManifestSchemaNameKey, extraMetadata.ManifestSchemaName);
-        if (extraValues.Count == 0)
+        var extraValues = BuildExtraValues(extraMetadata);
+        if (extraValues.Count == 0 && !McsConflictMarkers.Contains(component.Description))
         {
             return body;
         }
 
         var remainder = ExtractMetadataBlocks(body, out var authoredLines);
         return ComposeBlock(component, authoredLines, extraValues) + remainder;
+    }
+
+    private static Dictionary<string, string> BuildExtraValues(McsMetadata extraMetadata)
+    {
+        var extraValues = new Dictionary<string, string>(StringComparer.Ordinal);
+        AddValue(extraValues, McsMetadata.SchemaNameKey, extraMetadata.SchemaName);
+        AddValue(extraValues, McsMetadata.BundleKey, extraMetadata.Bundle);
+        AddValue(extraValues, McsMetadata.ManifestSchemaNameKey, extraMetadata.ManifestSchemaName);
+        return extraValues;
     }
 
     private static void AddValue(IDictionary<string, string> values, string key, string? value)
@@ -54,33 +73,66 @@ internal static class McsComponentBodyWriter
             }
 
             string? currentKey = null;
-            while (index + 1 < lines.Length && IsIndented(lines[index + 1]))
+            var keyIndent = -1;
+            var blankLines = new List<string>();
+
+            while (index + 1 < lines.Length && (lines[index + 1].Length == 0 || IsIndented(lines[index + 1])))
             {
                 index++;
-                var key = TryGetKey(lines[index]);
+                if (lines[index].Length == 0)
+                {
+                    blankLines.Add(lines[index]);
+                    continue;
+                }
+
+                var indent = IndentWidth(lines[index]);
+                if (keyIndent < 0)
+                {
+                    keyIndent = indent;
+                }
+
+                var key = indent == keyIndent ? TryGetKey(lines[index]) : null;
                 if (key != null)
                 {
-                    currentKey = key;
-                    if (!authoredLines.ContainsKey(key))
+                    blankLines.Clear();
+                    currentKey = authoredLines.ContainsKey(key) ? null : key;
+                    if (currentKey != null)
                     {
-                        authoredLines[key] = new List<string> { lines[index] };
+                        authoredLines[currentKey] = new List<string> { lines[index] };
                     }
-                    else
-                    {
-                        currentKey = null;
-                    }
+
+                    continue;
                 }
-                else if (currentKey != null)
+
+                if (currentKey == null)
                 {
-                    authoredLines[currentKey].Add(lines[index]);
+                    blankLines.Clear();
+                    continue;
                 }
+
+                authoredLines[currentKey].AddRange(blankLines);
+                authoredLines[currentKey].Add(lines[index]);
+                blankLines.Clear();
             }
+
+            remainder.AddRange(blankLines);
         }
 
         return string.Join("\n", remainder);
     }
 
-    private static bool IsIndented(string line) => line.StartsWith(" ", StringComparison.Ordinal) || line.StartsWith("\t", StringComparison.Ordinal);
+    private static bool IsIndented(string line) => IndentWidth(line) > 0;
+
+    private static int IndentWidth(string line)
+    {
+        var width = 0;
+        while (width < line.Length && (line[width] == ' ' || line[width] == '\t'))
+        {
+            width++;
+        }
+
+        return width;
+    }
 
     private static string? TryGetKey(string line)
     {
@@ -97,25 +149,45 @@ internal static class McsComponentBodyWriter
     private static string ComposeBlock(BotComponentBase component, Dictionary<string, List<string>> authoredLines, IDictionary<string, string> extraValues)
     {
         var lines = new List<string>();
-        foreach (var key in new[] { McsMetadata.ComponentNameKey, McsMetadata.DescriptionKey })
-        {
-            if (authoredLines.TryGetValue(key, out var authored))
-            {
-                lines.AddRange(authored);
-            }
-        }
+        AppendMetadataEntry(lines, McsMetadata.ComponentNameKey, component.DisplayName, authoredLines);
 
-        if (lines.Count == 0)
+        if (McsConflictMarkers.TrySplit(component.Description, out var ours, out var theirs))
         {
-            var fallback = new Dictionary<string, string>(StringComparer.Ordinal);
-            AddValue(fallback, McsMetadata.ComponentNameKey, component.DisplayName);
-            AddValue(fallback, McsMetadata.DescriptionKey, component.Description);
-            lines.AddRange(IndentValues(fallback));
+            lines.AddRange(ConflictedEntry(McsMetadata.DescriptionKey, ours, theirs));
+        }
+        else
+        {
+            AppendMetadataEntry(lines, McsMetadata.DescriptionKey, component.Description, authoredLines);
         }
 
         lines.AddRange(IndentValues(extraValues));
         return MetadataBlockHeader + "\n" + string.Join("\n", lines) + "\n";
     }
 
-    private static IEnumerable<string> IndentValues(IDictionary<string, string> values) => McsYamlWriter.Write(values.ToDictionary(entry => entry.Key, entry => (object?)entry.Value, StringComparer.Ordinal)).Replace("\r\n", "\n").TrimEnd('\n').Split('\n').Select(line => "  " + line);
+    private static void AppendMetadataEntry(List<string> lines, string key, string? value, Dictionary<string, List<string>> authoredLines)
+    {
+        if (authoredLines.TryGetValue(key, out var authored))
+        {
+            lines.AddRange(authored);
+            return;
+        }
+
+        var fallback = new Dictionary<string, string>(StringComparer.Ordinal);
+        AddValue(fallback, key, value);
+        lines.AddRange(IndentValues(fallback));
+    }
+
+    private static IEnumerable<string> ConflictedEntry(string key, string ours, string theirs)
+    {
+        var lines = new List<string> { McsConflictMarkers.OursLine };
+        lines.AddRange(IndentValues(new Dictionary<string, string>(StringComparer.Ordinal) { [key] = ours }));
+        lines.Add(McsConflictMarkers.SplitterLine);
+        lines.AddRange(IndentValues(new Dictionary<string, string>(StringComparer.Ordinal) { [key] = theirs }));
+        lines.Add(McsConflictMarkers.TheirsLine);
+        return lines;
+    }
+
+    private static IEnumerable<string> IndentValues(IDictionary<string, string> values) => values.Count == 0
+        ? Array.Empty<string>()
+        : McsYamlWriter.Write(values.ToDictionary(entry => entry.Key, entry => (object?)entry.Value, StringComparer.Ordinal)).Replace("\r\n", "\n").TrimEnd('\n').Split('\n').Select(line => "  " + line);
 }

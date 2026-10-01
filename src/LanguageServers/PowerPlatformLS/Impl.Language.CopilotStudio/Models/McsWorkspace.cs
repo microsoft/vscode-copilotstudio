@@ -8,6 +8,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.Extensions.FileProviders;
     using Microsoft.CopilotStudio.McsCore;
+    using Microsoft.CopilotStudio.McsCore.Yaml;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Contracts.Internal;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
@@ -63,6 +64,37 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models
         }
 
         public AuthoringShape AuthoringShape => AgentClassifier.DetectAuthoringShape(CompilationAnalyzer?.RootDefinition);
+
+        public IEnumerable<(AgentFilePath FilePath, Exception Failure)> GetUnreadableDocuments()
+        {
+            foreach (var entry in _documents)
+            {
+                var document = entry.Value.As<McsLspDocument>();
+                if (document.IsIcon || document.FileModel is DefinitionBase)
+                {
+                    continue;
+                }
+
+                var failure = Record(document.Text);
+                if (failure != null)
+                {
+                    yield return (document.RelativePath, failure);
+                }
+            }
+        }
+
+        private static McsYamlFormatException? Record(string text)
+        {
+            try
+            {
+                McsYamlValidator.ThrowIfMalformed(text);
+                return null;
+            }
+            catch (McsYamlFormatException failure)
+            {
+                return failure;
+            }
+        }
 
         public override void AddDocument(LspDocument document)
         {

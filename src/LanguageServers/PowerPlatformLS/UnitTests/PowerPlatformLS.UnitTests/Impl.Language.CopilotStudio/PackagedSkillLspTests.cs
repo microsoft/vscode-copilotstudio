@@ -4,6 +4,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
     using Microsoft.Agents.ObjectModel.FileProjection;
     using Microsoft.CopilotStudio.McsCore;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
+    using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Exceptions;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models;
     using System;
@@ -260,6 +261,38 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
 
                 Assert.True(workspace.RemoveMissingDocuments(world.GetRequiredService<IClientWorkspaceFileProvider>()));
                 Assert.DoesNotContain(workspace.Definition.Components.OfType<DialogComponent>(), component => component.Dialog is InlineAgentSkill);
+            }
+            finally
+            {
+                Directory.Delete(destination, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void UnopenedConflictedFile_IsReportedByWorkspaceDiagnostics()
+        {
+            var source = Path.GetFullPath(Path.Combine("TestData", "Workspace", "NestedSkillWorkspace"));
+            var destination = Path.Combine(Path.GetTempPath(), "conflict-probe-" + Guid.NewGuid().ToString("N"));
+            CopyDirectory(source, destination);
+
+            try
+            {
+                var anchorPath = Path.Combine(destination, "behaviors", "get-us-weather", "skill.mcs.yml");
+                File.WriteAllText(anchorPath, "<<<<<<< \n" + File.ReadAllText(anchorPath) + "\n=======\nkind: InlineAgentSkill\n>>>>>>> \n");
+
+                var world = new World(destination);
+                var workspace = world.GetWorkspace();
+                workspace.BuildCompilationModel();
+
+                var anchor = world.GetDocument(new Uri(anchorPath));
+                Assert.NotNull(anchor);
+
+                var diagnostics = workspace.GetDiagnostics(world.GetRequestContext(anchor!, 0))
+                    .Where(parameters => parameters.Uri.ToString().EndsWith("skill.mcs.yml", StringComparison.OrdinalIgnoreCase))
+                    .SelectMany(parameters => parameters.Diagnostics)
+                    .ToList();
+
+                Assert.Contains(diagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error && diagnostic.Message == McsConflictMarkers.Message);
             }
             finally
             {
