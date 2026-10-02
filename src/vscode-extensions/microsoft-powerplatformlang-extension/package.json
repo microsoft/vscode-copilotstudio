@@ -405,6 +405,7 @@
     "pretest": "npm run compile-tests && npm run compile && npm run lint",
     "lint": "eslint client/src",
     "test": "node ./scripts/runHostTests.js",
+    "test:packaging": "node --test scripts/tests/",
     "postinstall": "(cd client && npm install)",
     "package": "node ./scripts/packageVsix.js"
   },
