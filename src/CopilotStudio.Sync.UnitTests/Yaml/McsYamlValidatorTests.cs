@@ -13,6 +13,7 @@ public class McsYamlValidatorTests
     [InlineData("kind: AdaptiveDialog\ndisplayName: one\ndisplayName: two\n", "DuplicateKey")]
     [InlineData("outer:\n  inner: one\n  inner: two\n", "DuplicateKey")]
     [InlineData("kind: AdaptiveDialog\n<<<<<<< ours\ndisplayName: local\n=======\ndisplayName: remote\n>>>>>>> theirs\n", "MergeConflict")]
+    [InlineData("kind: InlineAgentSkill\ncontent: |\n  <<<<<<< ours\n  local\n  =======\n  remote\n  >>>>>>> theirs\n", "MergeConflict")]
     public void RejectsShapesThatSilentlyLoseContent(string yaml, string expectedError)
     {
         var failure = Assert.Throws<McsYamlFormatException>(() => McsYamlValidator.ThrowIfMalformed(yaml));
@@ -38,6 +39,11 @@ public class McsYamlValidatorTests
     [InlineData("kind: AdaptiveDialog\ntext: |-\n  Line one\n  \tLine two\n")]
     [InlineData("kind: AdaptiveDialog\ninputType: {}\noutputType: {}\n")]
     [InlineData("items:\n- name: one\n- name: two\n")]
+    [InlineData("description: \"show <<<<<<< in the example\"\n")]
+    [InlineData("description: 'show >>>>>>> in the example'\n")]
+    [InlineData("description: show <<<<<<< and >>>>>>> in the example\n")]
+    [InlineData("content: |\r\n  show <<<<<<< and >>>>>>> in the example\r\n")]
+    [InlineData("# <<<<<<< ours\nkind: AdaptiveDialog\n# >>>>>>> theirs\n")]
     [InlineData("")]
     public void ToleratesShapesTheObjectDeserializerAccepts(string yaml)
     {
@@ -62,5 +68,15 @@ public class McsYamlValidatorTests
     public void DeserializeReturnsTheElementForValidYaml()
     {
         Assert.NotNull(McsYamlValidator.Deserialize("kind: AdaptiveDialog\n", typeof(Agents.ObjectModel.AdaptiveDialog), null));
+    }
+
+    [Theory]
+    [InlineData("show <<<<<<< in the example")]
+    [InlineData("show >>>>>>> in the example")]
+    public void DeserializePreservesLiteralMarkerText(string text)
+    {
+        var entity = McsYamlValidator.Deserialize<Agents.ObjectModel.BotEntity>($"displayName: \"{text}\"\n");
+
+        Assert.Equal(text, entity!.DisplayName);
     }
 }

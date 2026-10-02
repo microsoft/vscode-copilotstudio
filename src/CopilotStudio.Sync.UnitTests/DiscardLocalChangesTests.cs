@@ -3,6 +3,7 @@
 using Microsoft.Agents.ObjectModel;
 using Microsoft.Agents.Platform.Content;
 using Microsoft.CopilotStudio.McsCore;
+using Microsoft.CopilotStudio.McsCore.Yaml;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Moq;
 using System.Collections.Immutable;
@@ -625,6 +626,66 @@ public class DiscardLocalChangesTests
         var (_, unreadable) = await synchronizer.ReadWorkspaceDefinitionForDiscardAsync(workspace, CancellationToken.None);
 
         Assert.Empty(unreadable);
+    }
+
+    public static IEnumerable<object[]> InvalidSettings()
+    {
+        foreach (var template in new[] { "default-1.0.0", "cliagent-1.0.0" })
+        {
+            foreach (var text in new[]
+            {
+                "displayName: Local\ndisplayName: Other\n",
+                "configuration:\n\trecognizer: invalid\n",
+                "displayName: \"unterminated\n",
+                "<<<<<<< ours\ndisplayName: Local\n=======\ndisplayName: Remote\n>>>>>>> theirs\n",
+            })
+            {
+                yield return new object[] { template, text };
+            }
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(InvalidSettings))]
+    public async Task ReadForDiscard_UnreadableSettings_RestoresCachedSettings(string template, string text)
+    {
+        var (synchronizer, workspace, accessor) = await CreateSettingsWorkspaceAsync(template);
+        var cache = ReadText(accessor, ".mcs/botdefinition.json");
+        var token = ReadText(accessor, ".mcs/changetoken.txt");
+        await accessor.WriteAsync(new AgentFilePath("settings.mcs.yml"), text, CancellationToken.None);
+
+        await Assert.ThrowsAsync<WorkspaceValidationException>(
+            () => synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None));
+        var (definition, unreadable) = await synchronizer.ReadWorkspaceDefinitionForDiscardAsync(workspace, CancellationToken.None);
+
+        var change = Assert.Single(unreadable);
+        Assert.Equal(ChangeType.Update, change.ChangeType);
+        Assert.Equal("settings.mcs.yml", change.Uri);
+        Assert.Equal("Settings", change.Name);
+        Assert.Equal("entity", change.SchemaName);
+        var entity = Assert.IsType<BotDefinition>(definition).Entity!;
+        Assert.Equal(entity.Kind.ToString(), change.ChangeKind);
+        Assert.Equal("Cached agent", entity.DisplayName);
+        Assert.Equal(text, ReadText(accessor, "settings.mcs.yml"));
+        Assert.Equal(cache, ReadText(accessor, ".mcs/botdefinition.json"));
+        Assert.Equal(token, ReadText(accessor, ".mcs/changetoken.txt"));
+        var (_, changes) = synchronizer.GetLocalChanges(
+            definition, WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!, accessor, token);
+        Assert.DoesNotContain(changes, candidate => candidate.SchemaName == "entity");
+
+        var result = synchronizer.DiscardLocalChanges(workspace, definition, unreadable);
+
+        Assert.Equal(1, result.Restored);
+        Assert.Equal(0, result.Deleted);
+        Assert.Empty(result.Skipped);
+        var restored = McsYamlValidator.Deserialize<BotEntity>(ReadText(accessor, "settings.mcs.yml"))!;
+        Assert.Equal("Cached agent", restored.DisplayName);
+        Assert.Equal("discard_settings_agent", restored.SchemaName.Value);
+        Assert.Equal(template, restored.Template);
+        Assert.Equal(cache, ReadText(accessor, ".mcs/botdefinition.json"));
+        Assert.Equal(token, ReadText(accessor, ".mcs/changetoken.txt"));
+        await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None);
+        Assert.Empty((await synchronizer.ReadWorkspaceDefinitionForDiscardAsync(workspace, CancellationToken.None)).UnreadableChanges);
     }
 
     [Theory]

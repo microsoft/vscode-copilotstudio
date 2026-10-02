@@ -20,7 +20,6 @@ public class ConflictMarkerDetectionTests
     [Theory]
     [InlineData("a: 1\nb: 2\n")]
     [InlineData("a: '<<<< not a marker'\n")]
-    [InlineData("a: 1\n  <<<<<<< indented\n")]
     [InlineData("description: \"show <<<<<<< in the example\"\n")]
     [InlineData("description: 'show >>>>>>> in the example'\n")]
     [InlineData("description: show <<<<<<< and >>>>>>> in the example\n")]
@@ -39,6 +38,7 @@ public class ConflictMarkerDetectionTests
     [InlineData(null)]
     public void IgnoresTextWithoutLineLeadingMarkers(string? text)
     {
+        Assert.False(McsConflictMarkers.Contains(text));
         Assert.Equal(0, McsConflictMarkers.FindFirstMarkerLine(text));
     }
 
@@ -52,6 +52,7 @@ public class ConflictMarkerDetectionTests
     [InlineData("description: \"show <<<<<<< in the example\"\n\n>>>>>>> theirs", 3)]
     public void ReportsFirstMarkerLine(string text, int expectedLine)
     {
+        Assert.True(McsConflictMarkers.Contains(text));
         Assert.Equal(expectedLine, McsConflictMarkers.FindFirstMarkerLine(text));
     }
 

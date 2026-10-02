@@ -116,11 +116,13 @@ public class SkillManifestConflictTests
         Assert.Contains("behaviors/skill-1/SKILL.md(5,1)", failure.Message, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task ReadWorkspaceDefinition_CleanSkillManifest_DoesNotThrow()
+    [Theory]
+    [InlineData("")]
+    [InlineData("Show <<<<<<< and >>>>>>> in the example.\n")]
+    public async Task ReadWorkspaceDefinition_CleanSkillManifest_DoesNotThrow(string instructions)
     {
         var (sync, accessor, workspace) = await CreateWorkspaceAsync();
-        Write(accessor, "behaviors/skill-1/SKILL.md", CleanManifest);
+        Write(accessor, "behaviors/skill-1/SKILL.md", CleanManifest + instructions);
 
         var read = await sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
 
@@ -172,12 +174,14 @@ public class SkillManifestConflictTests
         Assert.Equal(WorkspaceDiagnosticKind.MergeConflict, diagnostic.Kind);
     }
 
-    [Fact]
-    public async Task Push_CleanPackagedSkillManifest_IsNotBlocked()
+    [Theory]
+    [InlineData("Instructions.\n")]
+    [InlineData("Show <<<<<<< and >>>>>>> in the example.\n")]
+    public async Task Push_CleanPackagedSkillManifest_IsNotBlocked(string instructions)
     {
         var (sync, accessor, workspace) = await CreateWorkspaceAsync();
         WorkspaceSynchronizer.WriteCloudCache(accessor, CloudDefinition());
-        WritePackagedSkill(accessor, "Instructions.\n");
+        WritePackagedSkill(accessor, instructions);
 
         var definition = await sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
 
