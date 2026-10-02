@@ -622,11 +622,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 }
 
                 // Merge changes into a new component
-                var updatedComponent = MergeComponent(schemaName, originalComponent, localChange, remoteChangeComponent, out var conflictedComponentYaml, out var conflicted, out var conflictedDisplayName);
+                var updatedComponent = MergeComponent(schemaName, originalComponent, localChange, remoteChangeComponent, out var conflict);
+                var conflicted = conflict.Conflicted;
 
                 if (conflicted && updatedComponent != null)
                 {
-                    conflicts.ComponentsBySchemaName[schemaName] = new MergeConflictComponent(conflictedComponentYaml, updatedComponent, conflictedDisplayName);
+                    conflicts.ComponentsBySchemaName[schemaName] = new MergeConflictComponent(conflict.Yaml, updatedComponent, conflict.DisplayName, conflict.Description);
                 }
 
                 // Update change set with new component
@@ -699,13 +700,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return writer.ToString();
     }
 
-    internal BotComponentBase? MergeComponent(string schemaName, BotComponentBase? originalComponent, BotComponentBase? localChange, BotComponentBase? remoteChange, out string? conflictedComponentYaml)
-        => MergeComponent(schemaName, originalComponent, localChange, remoteChange, out conflictedComponentYaml, out _, out _);
-
-    internal BotComponentBase? MergeComponent(string schemaName, BotComponentBase? originalComponent, BotComponentBase? localChange, BotComponentBase? remoteChange, out string? conflictedComponentYaml, out bool conflicted)
-        => MergeComponent(schemaName, originalComponent, localChange, remoteChange, out conflictedComponentYaml, out conflicted, out _);
-
-    internal BotComponentBase? MergeComponent(string schemaName, BotComponentBase? originalComponent, BotComponentBase? localChange, BotComponentBase? remoteChange, out string? conflictedComponentYaml, out bool conflicted, out string? conflictedDisplayName)
+    internal BotComponentBase? MergeComponent(string schemaName, BotComponentBase? originalComponent, BotComponentBase? localChange, BotComponentBase? remoteChange, out ComponentMergeConflict conflict)
     {
         var isInlineSkill = SkillBodyProjection.IsInlineSkill(originalComponent) || SkillBodyProjection.IsInlineSkill(localChange) || SkillBodyProjection.IsInlineSkill(remoteChange);
         var mergedSkillContent = isInlineSkill
@@ -713,20 +708,24 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             : null;
 
         var localAnchor = WithoutSkillContent(localChange);
-        var mergedString = MergeStrings(GetMcsYaml(WithoutSkillContent(originalComponent)), localAnchor?.RootElement == null ? null : CodeSerializer.Serialize(localAnchor.RootElement), GetMcsYaml(WithoutSkillContent(remoteChange)));
+        var mergedString = MergeStrings(GetMcsYaml(WithoutSkillContent(originalComponent)), SerializeAnchor(localAnchor), GetMcsYaml(WithoutSkillContent(remoteChange)));
 
         var descriptionConflicted = !TryMergeMetaInfo(originalComponent?.Description, localChange?.Description, remoteChange?.Description, out var description);
-        var mergedMetaDescription = descriptionConflicted
-            ? McsConflictMarkers.Build(localChange?.Description, remoteChange?.Description)
-            : description;
+        var mergedMetaDescription = descriptionConflicted ? localChange?.Description : description;
 
         var displayNameConflicted = !TryMergeMetaInfo(originalComponent?.DisplayName, localChange?.DisplayName, remoteChange?.DisplayName, out var displayName);
-        conflictedDisplayName = displayNameConflicted ? McsConflictMarkers.Build(localChange?.DisplayName, remoteChange?.DisplayName) : null;
 
         var bodyConflicted = ContainsConflictMarkers(mergedString);
-        var preserveComponent = bodyConflicted || (localChange != null && remoteChange == null);
-        conflicted = preserveComponent || descriptionConflicted || displayNameConflicted;
-        conflictedComponentYaml = bodyConflicted || descriptionConflicted || displayNameConflicted ? mergedString : null;
+        var remoteDeleted = localChange != null && remoteChange == null;
+        var preserveComponent = bodyConflicted || remoteDeleted;
+
+        conflict = new ComponentMergeConflict(
+            preserveComponent || descriptionConflicted || displayNameConflicted,
+            remoteDeleted
+                ? McsConflictMarkers.Build(SerializeAnchor(localAnchor), null)
+                : bodyConflicted || descriptionConflicted || displayNameConflicted ? mergedString : null,
+            displayNameConflicted ? new McsMetadataConflict(localChange?.DisplayName, remoteChange?.DisplayName) : null,
+            descriptionConflicted ? new McsMetadataConflict(localChange?.Description, remoteChange?.Description) : null);
 
         if (preserveComponent)
         {
@@ -770,6 +769,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private static BotComponentBase? WithoutSkillContent(BotComponentBase? component)
         => component == null ? null : SkillBodyProjection.WithContent(component, null);
+
+    private static string? SerializeAnchor(BotComponentBase? anchor)
+        => anchor?.RootElement == null ? null : CodeSerializer.Serialize(anchor.RootElement);
 
     private static BotComponentBase? WithSkillContent(BotComponentBase? component, bool isInlineSkill, string? content)
         => !isInlineSkill || component == null ? component : SkillBodyProjection.WithContent(component, string.IsNullOrEmpty(content) ? null : content);
@@ -5467,7 +5469,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
             var component = conflict.Value.Component;
             var path = ResolveOnDiskComponentPath(fileAccessor, GetStickyComponentPath(component, definition, folderOverrides), component, definition);
-            var body = McsComponentBodyWriter.ReplaceBodyPreservingMetadata(component, definition, path, conflict.Value.Yaml, conflict.Value.DisplayName);
+            var body = McsComponentBodyWriter.ReplaceBodyPreservingMetadata(component, definition, path, conflict.Value.Yaml, conflict.Value.DisplayName, conflict.Value.Description);
             await fileAccessor.WriteAsync(path, encoding.GetBytes(body), cancellationToken).ConfigureAwait(false);
             reported?.Add(CreateConflictDiagnostic(path.ToString(), body));
         }

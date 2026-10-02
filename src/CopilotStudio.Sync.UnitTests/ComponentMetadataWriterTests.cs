@@ -72,11 +72,53 @@ public class ComponentMetadataWriterTests
     [Fact]
     public void ReplaceBodyPreservingMetadata_ConflictedDescription_KeepsBothSidesAndTheDisplayName()
     {
-        var rewritten = Rewrite(McsConflictMarkers.Build("LOCAL text", "REMOTE text"));
+        var rewritten = McsComponentBodyWriter.ReplaceBodyPreservingMetadata(CreateComponent("LOCAL text"), Definition(), TopicPath, "kind: ReplacementBody\n", descriptionConflict: new McsMetadataConflict("LOCAL text", "REMOTE text"));
 
         Assert.Contains("componentName: Weather", rewritten, StringComparison.Ordinal);
         Assert.Contains("  description: LOCAL text", rewritten, StringComparison.Ordinal);
         Assert.Contains("  description: REMOTE text", rewritten, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReplaceBodyPreservingMetadata_DescriptionQuotingAConflictExample_IsNotRewrittenIntoRealMarkers()
+    {
+        const string description = "To resolve, keep one side:\n<<<<<<< ours\nlocal text\n=======\nremote text\n>>>>>>> theirs\nthen sync again.";
+
+        var rewritten = Rewrite(description);
+
+        Assert.False(McsConflictMarkers.Contains(rewritten));
+        Assert.Equal(description, ReadMetadata(rewritten)[McsMetadata.DescriptionKey]);
+    }
+
+    [Fact]
+    public void SerializeComponent_DescriptionQuotingAConflictExample_IsNotRewrittenIntoRealMarkers()
+    {
+        const string description = "To resolve, keep one side:\n<<<<<<< ours\nlocal text\n=======\nremote text\n>>>>>>> theirs\nthen sync again.";
+
+        var serialized = McsComponentBodyWriter.SerializeComponent(CreateComponent(description), Definition(), TopicPath);
+
+        Assert.False(McsConflictMarkers.Contains(serialized));
+        Assert.Equal(description, ReadMetadata(serialized)[McsMetadata.DescriptionKey]);
+    }
+
+    [Fact]
+    public void ReplaceBodyPreservingMetadata_ConflictSideQuotingASplitterLine_KeepsEachSideIntact()
+    {
+        const string ours = "Overview\n=======\nLocal details.";
+
+        var rewritten = McsComponentBodyWriter.ReplaceBodyPreservingMetadata(CreateComponent(ours), Definition(), TopicPath, "kind: ReplacementBody\n", descriptionConflict: new McsMetadataConflict(ours, "REMOTE text"));
+
+        var lines = rewritten.Replace("\r\n", "\n").Split('\n');
+        var start = Array.FindIndex(lines, line => line.StartsWith("<<<<<<<", StringComparison.Ordinal));
+        var splitter = Array.FindIndex(lines, line => line == "=======");
+        var end = Array.FindIndex(lines, line => line.StartsWith(">>>>>>>", StringComparison.Ordinal));
+
+        Assert.Equal(3, lines.Count(McsConflictMarkers.IsMarkerLine));
+        Assert.True(start >= 0 && start < splitter && splitter < end);
+        var oursSide = string.Join('\n', lines[(start + 1)..splitter]);
+        Assert.Contains("Local details.", oursSide, StringComparison.Ordinal);
+        Assert.DoesNotContain("REMOTE text", oursSide, StringComparison.Ordinal);
+        Assert.Equal("  description: REMOTE text", string.Join('\n', lines[(splitter + 1)..end]));
     }
 
     private static string Rewrite(string description)

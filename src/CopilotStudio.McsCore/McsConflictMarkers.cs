@@ -25,32 +25,6 @@ internal static class McsConflictMarkers
     /// <summary>Wraps both sides of an unresolved conflict in git-style markers anchored at column zero.</summary>
     internal static string Build(string? ours, string? theirs) => string.Join("\n", OursLine, ours ?? string.Empty, SplitterLine, theirs ?? string.Empty, TheirsLine);
 
-    /// <summary>Recovers the two sides of a value previously wrapped by <see cref="Build"/>.</summary>
-    internal static bool TrySplit(string? text, out string ours, out string theirs)
-    {
-        ours = string.Empty;
-        theirs = string.Empty;
-
-        if (!Contains(text))
-        {
-            return false;
-        }
-
-        var lines = SplitLines(text!);
-        var start = Array.FindIndex(lines, line => line.StartsWith(OursMarker, StringComparison.Ordinal));
-        var splitter = Array.FindIndex(lines, line => string.Equals(line, SplitterMarker, StringComparison.Ordinal));
-        var end = Array.FindIndex(lines, line => line.StartsWith(TheirsMarker, StringComparison.Ordinal));
-
-        if (start < 0 || splitter <= start || end <= splitter)
-        {
-            return false;
-        }
-
-        ours = string.Join("\n", lines.Skip(start + 1).Take(splitter - start - 1));
-        theirs = string.Join("\n", lines.Skip(splitter + 1).Take(end - splitter - 1));
-        return true;
-    }
-
     /// <summary>True when the line is a conflict boundary or the splitter, which never carry leading indentation.</summary>
     internal static bool IsMarkerLine(string? line) => line != null && (IsBoundaryLine(line) || string.Equals(line, SplitterMarker, StringComparison.Ordinal));
 

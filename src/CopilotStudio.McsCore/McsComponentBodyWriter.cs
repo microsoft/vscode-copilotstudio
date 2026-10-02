@@ -12,17 +12,18 @@ internal static class McsComponentBodyWriter
 
     internal static string SerializeComponent(BotComponentBase component, DefinitionBase definition, AgentFilePath path) => Serialize(SkillBodyProjection.PrepareForWrite(component, path), SkillBodyProjection.GetBodyMetadata(component, definition, path));
 
-    internal static string ReplaceBodyPreservingMetadata(BotComponentBase component, DefinitionBase definition, AgentFilePath path, string replacementBody, string? conflictedDisplayName = null)
+    internal static string ReplaceBodyPreservingMetadata(BotComponentBase component, DefinitionBase definition, AgentFilePath path, string replacementBody, McsMetadataConflict? displayNameConflict = null, McsMetadataConflict? descriptionConflict = null)
     {
         var extraValues = BuildExtraValues(SkillBodyProjection.GetBodyMetadata(component, definition, path));
         _ = ExtractMetadataBlocks(SerializeComponent(component, definition, path), out var authoredLines);
 
-        if (authoredLines.Count == 0 && extraValues.Count == 0 && string.IsNullOrEmpty(component.DisplayName) && string.IsNullOrEmpty(component.Description) && conflictedDisplayName == null)
+        if (authoredLines.Count == 0 && extraValues.Count == 0 && string.IsNullOrEmpty(component.DisplayName) && string.IsNullOrEmpty(component.Description)
+            && displayNameConflict == null && descriptionConflict == null)
         {
             return replacementBody;
         }
 
-        return ComposeBlock(component, authoredLines, extraValues, conflictedDisplayName) + replacementBody;
+        return ComposeBlock(component, authoredLines, extraValues, displayNameConflict, descriptionConflict) + replacementBody;
     }
 
     internal static string Serialize(BotComponentBase component, McsMetadata extraMetadata)
@@ -32,7 +33,7 @@ internal static class McsComponentBodyWriter
         var body = writer.ToString();
 
         var extraValues = BuildExtraValues(extraMetadata);
-        if (extraValues.Count == 0 && !McsConflictMarkers.Contains(component.Description))
+        if (extraValues.Count == 0)
         {
             return body;
         }
@@ -146,21 +147,21 @@ internal static class McsComponentBodyWriter
         return key.Length > 0 && key[0] != '-' ? key : null;
     }
 
-    private static string ComposeBlock(BotComponentBase component, Dictionary<string, List<string>> authoredLines, IDictionary<string, string> extraValues, string? conflictedDisplayName = null)
+    private static string ComposeBlock(BotComponentBase component, Dictionary<string, List<string>> authoredLines, IDictionary<string, string> extraValues, McsMetadataConflict? displayNameConflict = null, McsMetadataConflict? descriptionConflict = null)
     {
         var lines = new List<string>();
-        if (McsConflictMarkers.TrySplit(conflictedDisplayName, out var ourName, out var theirName))
+        if (displayNameConflict is { } nameConflict)
         {
-            lines.AddRange(ConflictedEntry(McsMetadata.ComponentNameKey, ourName, theirName));
+            lines.AddRange(ConflictedEntry(McsMetadata.ComponentNameKey, nameConflict.Ours, nameConflict.Theirs));
         }
         else
         {
             AppendMetadataEntry(lines, McsMetadata.ComponentNameKey, component.DisplayName, authoredLines);
         }
 
-        if (McsConflictMarkers.TrySplit(component.Description, out var ours, out var theirs))
+        if (descriptionConflict is { } textConflict)
         {
-            lines.AddRange(ConflictedEntry(McsMetadata.DescriptionKey, ours, theirs));
+            lines.AddRange(ConflictedEntry(McsMetadata.DescriptionKey, textConflict.Ours, textConflict.Theirs));
         }
         else
         {
@@ -184,12 +185,12 @@ internal static class McsComponentBodyWriter
         lines.AddRange(IndentValues(fallback));
     }
 
-    private static IEnumerable<string> ConflictedEntry(string key, string ours, string theirs)
+    private static IEnumerable<string> ConflictedEntry(string key, string? ours, string? theirs)
     {
         var lines = new List<string> { McsConflictMarkers.OursLine };
-        lines.AddRange(IndentValues(new Dictionary<string, string>(StringComparer.Ordinal) { [key] = ours }));
+        lines.AddRange(IndentValues(new Dictionary<string, string>(StringComparer.Ordinal) { [key] = ours ?? string.Empty }));
         lines.Add(McsConflictMarkers.SplitterLine);
-        lines.AddRange(IndentValues(new Dictionary<string, string>(StringComparer.Ordinal) { [key] = theirs }));
+        lines.AddRange(IndentValues(new Dictionary<string, string>(StringComparer.Ordinal) { [key] = theirs ?? string.Empty }));
         lines.Add(McsConflictMarkers.TheirsLine);
         return lines;
     }

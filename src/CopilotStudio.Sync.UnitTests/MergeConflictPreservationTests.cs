@@ -76,6 +76,59 @@ public class MergeConflictPreservationTests
         Assert.False(context.Accessor.Exists(new AgentFilePath(ToolPath)));
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Pull_RemoteDeleteWithLocalMetadataOnlyEdit_ReportsTheFileAndBlocksTheNextPush(bool editDescription)
+    {
+        var context = await CloneAsync();
+        if (editDescription)
+        {
+            EditDescription(context, "local description");
+        }
+        else
+        {
+            EditDisplayName(context, "Renamed Locally");
+        }
+
+        var localDefinition = await context.Sync.ReadWorkspaceDefinitionAsync(context.Workspace, CancellationToken.None);
+
+        SetupChangeset(context, new BotComponentDelete(context.ToolId, 1));
+        var conflicts = new List<WorkspaceDiagnostic>();
+        await PullAsync(context, localDefinition, conflicts);
+
+        var diagnostic = Assert.Single(conflicts);
+        Assert.Equal(ToolPath, diagnostic.FilePath);
+        Assert.Equal(WorkspaceDiagnosticKind.MergeConflict, diagnostic.Kind);
+        var text = ReadFile(context, ToolPath);
+        Assert.Contains(editDescription ? "local description" : "Renamed Locally", text, StringComparison.Ordinal);
+        Assert.Equal(McsConflictMarkers.FindFirstMarkerLine(text), diagnostic.Line);
+        Assert.True(diagnostic.Line > 0);
+        Assert.DoesNotContain("<<<<<<<", ReadFile(context, ".mcs/botdefinition.json"), StringComparison.Ordinal);
+        var failure = await Assert.ThrowsAsync<WorkspaceValidationException>(
+            () => context.Sync.ReadWorkspaceDefinitionAsync(context.Workspace, CancellationToken.None));
+        Assert.Equal(ToolPath, Assert.Single(failure.Diagnostics).FilePath);
+    }
+
+    [Fact]
+    public async Task Pull_RemoteDeleteWithLocalMetadataOnlyEdit_ResolvingTheMarkersUnblocksTheNextPush()
+    {
+        var context = await CloneAsync();
+        EditDescription(context, "local description");
+        var localDefinition = await context.Sync.ReadWorkspaceDefinitionAsync(context.Workspace, CancellationToken.None);
+
+        SetupChangeset(context, new BotComponentDelete(context.ToolId, 1));
+        await PullAsync(context, localDefinition);
+
+        var resolved = string.Join('\n', ReadFile(context, ToolPath).Replace("\r\n", "\n").Split('\n')
+            .Where(line => !McsConflictMarkers.IsMarkerLine(line)));
+        WriteFile(context, ToolPath, resolved);
+
+        var reread = await context.Sync.ReadWorkspaceDefinitionAsync(context.Workspace, CancellationToken.None);
+
+        Assert.Contains(reread.Components, component => component.Description == "local description");
+    }
+
     [Fact]
     public void ApplyThreeWayMerge_RemoteDeleteWithLocalSkillContentEdit_DropsTheRemoteDelete()
     {

@@ -231,9 +231,9 @@ public class CliAgentNodeGMergeTests
         var remoteComp = MakeDialogComponent(schema,
             McpToolBody.Replace("shared_workiqsharepoint\n", "shared_REMOTE_EDIT\n"));
 
-        var merged = sync.MergeComponent(schema, baseComp, localComp, remoteComp, out var conflictedYaml);
+        var merged = sync.MergeComponent(schema, baseComp, localComp, remoteComp, out var conflict);
 
-        Assert.Null(conflictedYaml);
+        Assert.Null(conflict.Yaml);
         Assert.NotNull(merged);
         var mergedYaml = SerializeRoot(merged!);
         Assert.Contains("mcp_LOCAL_EDIT", mergedYaml);
@@ -253,13 +253,13 @@ public class CliAgentNodeGMergeTests
         var remoteComp = MakeDialogComponent(schema,
             McpToolBody.Replace("operationId: mcp_SharePointRemoteServer", "operationId: mcp_REMOTE"));
 
-        var merged = sync.MergeComponent(schema, baseComp, localComp, remoteComp, out var conflictedYaml);
+        var merged = sync.MergeComponent(schema, baseComp, localComp, remoteComp, out var conflict);
 
-        Assert.NotNull(conflictedYaml);
-        Assert.Contains("<<<<<<<", conflictedYaml!, StringComparison.Ordinal);
-        Assert.Contains(">>>>>>>", conflictedYaml!, StringComparison.Ordinal);
-        Assert.Contains("mcp_LOCAL", conflictedYaml!, StringComparison.Ordinal);
-        Assert.Contains("mcp_REMOTE", conflictedYaml!, StringComparison.Ordinal);
+        Assert.NotNull(conflict.Yaml);
+        Assert.Contains("<<<<<<<", conflict.Yaml!, StringComparison.Ordinal);
+        Assert.Contains(">>>>>>>", conflict.Yaml!, StringComparison.Ordinal);
+        Assert.Contains("mcp_LOCAL", conflict.Yaml!, StringComparison.Ordinal);
+        Assert.Contains("mcp_REMOTE", conflict.Yaml!, StringComparison.Ordinal);
         Assert.NotNull(merged);
     }
 
@@ -292,16 +292,14 @@ public class CliAgentNodeGMergeTests
             MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 1, "NAgent N1", "base description"),
             MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 1, "NAgent N1", "LOCAL description"),
             MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 2, "NAgent N1", "REMOTE description"),
-            out var conflictedYaml,
-            out var conflicted);
+            out var conflict);
 
-        Assert.True(conflicted);
-        Assert.NotNull(conflictedYaml);
-        Assert.False(McsConflictMarkers.Contains(conflictedYaml));
+        Assert.True(conflict.Conflicted);
+        Assert.NotNull(conflict.Yaml);
+        Assert.False(McsConflictMarkers.Contains(conflict.Yaml));
         Assert.NotNull(merged);
-        Assert.True(McsConflictMarkers.TrySplit(merged!.Description, out var ours, out var theirs));
-        Assert.Equal("LOCAL description", ours);
-        Assert.Equal("REMOTE description", theirs);
+        Assert.Equal(new McsMetadataConflict("LOCAL description", "REMOTE description"), conflict.Description);
+        Assert.Equal("LOCAL description", merged!.Description);
     }
 
     [Fact]
@@ -332,9 +330,8 @@ public class CliAgentNodeGMergeTests
         Assert.Equal("Remote name", component.DisplayName);
         Assert.Equal(remote.Id, component.Id);
         Assert.Equal(remote.Version, component.Version);
-        Assert.True(McsConflictMarkers.TrySplit(component.Description, out var ours, out var theirs));
-        Assert.Equal("LOCAL description", ours);
-        Assert.Equal("REMOTE description", theirs);
+        Assert.Equal(new McsMetadataConflict("LOCAL description", "REMOTE description"), conflict.Value.Description);
+        Assert.Equal("LOCAL description", component.Description);
     }
 
     [Fact]
@@ -408,11 +405,10 @@ public class CliAgentNodeGMergeTests
             MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 1, "NAgent N1", "base description"),
             MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 1, "NAgent N1", "SAME edit"),
             MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 2, "NAgent N1", "SAME edit"),
-            out var conflictedYaml,
-            out var conflicted);
+            out var conflict);
 
-        Assert.False(conflicted);
-        Assert.Null(conflictedYaml);
+        Assert.False(conflict.Conflicted);
+        Assert.Null(conflict.Yaml);
         Assert.Equal("SAME edit", merged!.Description);
     }
 

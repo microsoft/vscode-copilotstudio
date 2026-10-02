@@ -37,50 +37,6 @@ public class MetadataConflictMarkerTests
         Assert.True(McsConflictMarkers.Contains(McsConflictMarkers.Build(Ours, Theirs)));
     }
 
-    [Fact]
-    public void TrySplit_RoundTripsBothSides()
-    {
-        Assert.True(McsConflictMarkers.TrySplit(McsConflictMarkers.Build(Ours, Theirs), out var ours, out var theirs));
-        Assert.Equal(Ours, ours);
-        Assert.Equal(Theirs, theirs);
-    }
-
-    [Fact]
-    public void TrySplit_RoundTripsMultiLineSides()
-    {
-        const string multiLineOurs = "first local\nsecond local";
-        const string multiLineTheirs = "first remote\nsecond remote";
-
-        Assert.True(McsConflictMarkers.TrySplit(McsConflictMarkers.Build(multiLineOurs, multiLineTheirs), out var ours, out var theirs));
-        Assert.Equal(multiLineOurs, ours);
-        Assert.Equal(multiLineTheirs, theirs);
-    }
-
-    [Fact]
-    public void TrySplit_RoundTripsEmptySides()
-    {
-        Assert.True(McsConflictMarkers.TrySplit(McsConflictMarkers.Build(null, Theirs), out var ours, out var theirs));
-        Assert.Equal(string.Empty, ours);
-        Assert.Equal(Theirs, theirs);
-    }
-
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("an ordinary description")]
-    public void TrySplit_RejectsValuesWithoutMarkers(string? value)
-    {
-        Assert.False(McsConflictMarkers.TrySplit(value, out var ours, out var theirs));
-        Assert.Equal(string.Empty, ours);
-        Assert.Equal(string.Empty, theirs);
-    }
-
-    [Fact]
-    public void TrySplit_RejectsATruncatedConflictBlock()
-    {
-        Assert.False(McsConflictMarkers.TrySplit("<<<<<<< \nlocal only\n", out _, out _));
-    }
-
     [Theory]
     [InlineData("<<<<<<< ")]
     [InlineData("=======")]
