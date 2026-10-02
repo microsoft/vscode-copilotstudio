@@ -137,6 +137,42 @@ public class MergeConflictPreservationTests
         Assert.Equal(WorkspaceDiagnosticKind.MergeConflict, diagnostic.Kind);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Pull_DescriptionConflict_ReportsTheFileAndPreservesTheMergedBody(bool remoteBodyChanged)
+    {
+        var context = await CloneAsync();
+        EditDescription(context, "local description");
+        var localDefinition = await context.Sync.ReadWorkspaceDefinitionAsync(context.Workspace, CancellationToken.None);
+        var remoteBody = remoteBodyChanged ? "crf9a_REMOTE_EDIT" : "crf9a_nagentn1_T2U1EY";
+        SetupChangeset(context, new BotComponentUpdate(CreateTool(context.ToolId, "remote description", remoteBody, version: 2)));
+        var conflicts = new List<WorkspaceDiagnostic>();
+
+        var pulled = await PullAsync(context, localDefinition, conflicts);
+
+        var diagnostic = Assert.Single(conflicts);
+        Assert.Equal(ToolPath, diagnostic.FilePath);
+        Assert.Equal(WorkspaceDiagnosticKind.MergeConflict, diagnostic.Kind);
+        var text = ReadFile(context, ToolPath);
+        Assert.Equal(McsConflictMarkers.FindFirstMarkerLine(text), diagnostic.Line);
+        Assert.True(diagnostic.Line > 0);
+        Assert.Equal(1, diagnostic.Column);
+        Assert.Contains("local description", text, StringComparison.Ordinal);
+        Assert.Contains("remote description", text, StringComparison.Ordinal);
+        Assert.Contains(remoteBody, text, StringComparison.Ordinal);
+        Assert.Single(text.Split('\n').Where(line => line.TrimEnd('\r') == "mcs.metadata:"));
+        var component = Assert.Single(pulled.Components.Where(component => component.SchemaNameString == ToolSchema));
+        Assert.Contains(remoteBody, CodeSerializer.Serialize(Assert.IsAssignableFrom<DialogBase>(component.RootElement)), StringComparison.Ordinal);
+        var cached = Assert.Single(ReadCache(context).Components.Where(component => component.SchemaNameString == ToolSchema));
+        Assert.Equal("remote description", cached.Description);
+        Assert.DoesNotContain("local description", ReadFile(context, ".mcs/botdefinition.json"), StringComparison.Ordinal);
+        Assert.DoesNotContain("<<<<<<<", ReadFile(context, ".mcs/botdefinition.json"), StringComparison.Ordinal);
+        var failure = await Assert.ThrowsAsync<WorkspaceValidationException>(
+            () => context.Sync.ReadWorkspaceDefinitionAsync(context.Workspace, CancellationToken.None));
+        Assert.Equal(ToolPath, Assert.Single(failure.Diagnostics).FilePath);
+    }
+
     [Fact]
     public async Task Pull_SettingsConflict_ReportsTheSettingsFile()
     {

@@ -704,8 +704,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     internal BotComponentBase? MergeComponent(string schemaName, BotComponentBase? originalComponent, BotComponentBase? localChange, BotComponentBase? remoteChange, out string? conflictedComponentYaml, out bool conflicted)
     {
-        conflictedComponentYaml = null;
-
         var isInlineSkill = SkillBodyProjection.IsInlineSkill(originalComponent) || SkillBodyProjection.IsInlineSkill(localChange) || SkillBodyProjection.IsInlineSkill(remoteChange);
         var mergedSkillContent = isInlineSkill
             ? MergeStrings(SkillBodyProjection.GetContent(originalComponent), SkillBodyProjection.GetContent(localChange), SkillBodyProjection.GetContent(remoteChange))
@@ -714,16 +712,18 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var localAnchor = WithoutSkillContent(localChange);
         var mergedString = MergeStrings(GetMcsYaml(WithoutSkillContent(originalComponent)), localAnchor?.RootElement == null ? null : CodeSerializer.Serialize(localAnchor.RootElement), GetMcsYaml(WithoutSkillContent(remoteChange)));
 
-        var mergedMetaDescription = TryMergeMetaInfo(originalComponent?.Description, localChange?.Description, remoteChange?.Description, out var description)
-            ? description
-            : McsConflictMarkers.Build(localChange?.Description, remoteChange?.Description);
+        var descriptionConflicted = !TryMergeMetaInfo(originalComponent?.Description, localChange?.Description, remoteChange?.Description, out var description);
+        var mergedMetaDescription = descriptionConflicted
+            ? McsConflictMarkers.Build(localChange?.Description, remoteChange?.Description)
+            : description;
 
         var bodyConflicted = ContainsConflictMarkers(mergedString);
-        conflicted = bodyConflicted || (localChange != null && remoteChange == null);
+        var preserveComponent = bodyConflicted || (localChange != null && remoteChange == null);
+        conflicted = preserveComponent || descriptionConflicted;
+        conflictedComponentYaml = bodyConflicted || descriptionConflicted ? mergedString : null;
 
-        if (conflicted)
+        if (preserveComponent)
         {
-            conflictedComponentYaml = bodyConflicted ? mergedString : null;
             var conflictedComponent = WithSkillContent(localChange ?? remoteChange ?? originalComponent, isInlineSkill, mergedSkillContent);
 
             return localChange != null && remoteChange != null ? WithDescription(conflictedComponent, mergedMetaDescription) : conflictedComponent;
@@ -5700,6 +5700,15 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return result;
     }
 
+    private static Change CreateSettingsChange(BotEntity entity) => new Change
+    {
+        ChangeType = ChangeType.Update,
+        Name = "Settings",
+        Uri = SettingsPath.ToString(),
+        SchemaName = "entity",
+        ChangeKind = entity.Kind.ToString(),
+    };
+
     public (PvaComponentChangeSet, ImmutableArray<Change>) GetLocalChanges(DefinitionBase localDefinition, DefinitionBase cloudSnapshot, IFileAccessor fileAccessor, string? changeToken, bool isRemoteChange = false)
         => GetLocalChanges(localDefinition, cloudSnapshot, fileAccessor, changeToken, isRemoteChange, deferMissingParents: false, out _);
 
@@ -5759,15 +5768,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 if (!leftComparison.Equals(rightComparison, NodeComparison.Structural)
                     && !SettingsProjectionsMatch(leftComparison, rightComparison))
                 {
-                    var settingsPathValue = SettingsPath.ToString();
-                    var change = new Change
-                    {
-                        ChangeType = ChangeType.Update,
-                        Name = "Settings",
-                        Uri = settingsPathValue,
-                        SchemaName = "entity",
-                        ChangeKind = botEntity.Kind.ToString()
-                    };
+                    var change = CreateSettingsChange(botEntity);
 
                     if (cloudSnapshotEntity is null)
                     {
@@ -7764,6 +7765,13 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 entityBuilder.IconBase64 = localIconBase64;
                 readDefinition = botDefinitionWithIcon.WithEntity(entityBuilder.Build());
             }
+        }
+
+        if (diagnostics != null
+            && readDefinition is BotDefinition { Entity: { } settingsEntity }
+            && readDiagnostics.Any(diagnostic => diagnostic.FilePath == SettingsPath.ToString()))
+        {
+            diagnostics.AddUnreadableFile(CreateSettingsChange(settingsEntity));
         }
 
         diagnostics?.AddRange(readDiagnostics);

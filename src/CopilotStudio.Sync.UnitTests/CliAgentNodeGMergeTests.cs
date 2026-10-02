@@ -292,10 +292,47 @@ public class CliAgentNodeGMergeTests
             MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 1, "NAgent N1", "base description"),
             MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 1, "NAgent N1", "LOCAL description"),
             MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 2, "NAgent N1", "REMOTE description"),
-            out _);
+            out var conflictedYaml,
+            out var conflicted);
 
+        Assert.True(conflicted);
+        Assert.NotNull(conflictedYaml);
+        Assert.False(McsConflictMarkers.Contains(conflictedYaml));
         Assert.NotNull(merged);
         Assert.True(McsConflictMarkers.TrySplit(merged!.Description, out var ours, out var theirs));
+        Assert.Equal("LOCAL description", ours);
+        Assert.Equal("REMOTE description", theirs);
+    }
+
+    [Fact]
+    public void ApplyThreeWayMerge_DescriptionConflict_PreservesMergedBodyAndReportsConflict()
+    {
+        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var original = MakeDialogComponent(MetadataSchema, McpToolBody, null, 1, "Base name", "base description");
+        var local = MakeDialogComponent(MetadataSchema,
+            McpToolBody.Replace("operationId: mcp_SharePointRemoteServer", "operationId: mcp_LOCAL"),
+            null, 1, "Base name", "LOCAL description");
+        var remote = MakeDialogComponent(MetadataSchema,
+            McpToolBody.Replace("shared_workiqsharepoint\n", "shared_REMOTE\n"),
+            null, 2, "Remote name", "REMOTE description");
+
+        var merged = sync.ApplyThreeWayMerge(
+            MakeUpdateChanges(local), MakeUpdateChanges(remote),
+            new BotDefinition().WithComponents(new[] { original }), out var conflicts);
+
+        var conflict = Assert.Single(conflicts.ComponentsBySchemaName);
+        Assert.Equal(MetadataSchema, conflict.Key);
+        Assert.Contains("mcp_LOCAL", conflict.Value.Yaml);
+        Assert.Contains("shared_REMOTE", conflict.Value.Yaml);
+        Assert.False(McsConflictMarkers.Contains(conflict.Value.Yaml));
+        var component = Assert.Single(merged.BotComponentChanges.OfType<BotComponentUpsert>()).Component!;
+        Assert.Equal(conflict.Value.Component, component);
+        Assert.Contains("mcp_LOCAL", SerializeRoot(component));
+        Assert.Contains("shared_REMOTE", SerializeRoot(component));
+        Assert.Equal("Remote name", component.DisplayName);
+        Assert.Equal(remote.Id, component.Id);
+        Assert.Equal(remote.Version, component.Version);
+        Assert.True(McsConflictMarkers.TrySplit(component.Description, out var ours, out var theirs));
         Assert.Equal("LOCAL description", ours);
         Assert.Equal("REMOTE description", theirs);
     }
@@ -371,8 +408,11 @@ public class CliAgentNodeGMergeTests
             MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 1, "NAgent N1", "base description"),
             MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 1, "NAgent N1", "SAME edit"),
             MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 2, "NAgent N1", "SAME edit"),
-            out _);
+            out var conflictedYaml,
+            out var conflicted);
 
+        Assert.False(conflicted);
+        Assert.Null(conflictedYaml);
         Assert.Equal("SAME edit", merged!.Description);
     }
 

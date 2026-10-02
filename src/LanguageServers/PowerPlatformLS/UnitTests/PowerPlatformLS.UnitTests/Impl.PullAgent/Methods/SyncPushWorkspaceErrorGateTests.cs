@@ -63,6 +63,15 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             Assert.True(failure == null, failure?.Message);
         }
 
+        [Theory]
+        [InlineData("settings.mcs.yml", "displayName: \"show <<<<<<< in the example\"\n")]
+        [InlineData("behaviors/get-us-weather/skill.mcs.yml", "kind: InlineAgentSkill\ncontent: \"show >>>>>>> in the example\"\n")]
+        [InlineData("behaviors/get-us-weather/skill.mcs.yml", "kind: InlineAgentSkill\ncontent: |\n  show <<<<<<< and >>>>>>> in the example\n")]
+        public void LiteralMarkerText_IsNotBlocked(string path, string content)
+        {
+            Assert.Null(GateFailureFor(path, content));
+        }
+
         [Fact]
         public void ConflictedDocument_IsBlocked()
         {

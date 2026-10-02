@@ -33,6 +33,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio.Method
             var error = Assert.Single(diagnostics);
             Assert.Equal(DiagnosticSeverity.Error, error.Severity);
             Assert.Equal("Unresolved merge conflict. Choose one side, remove the conflict markers, then sync again.", error.Message);
+            Assert.Equal(8, error.Range!.Value.Start.Line);
         }
 
         [Fact]
@@ -62,10 +63,13 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio.Method
             Assert.Empty(diagnostics.Where(diagnostic => diagnostic.Message.Contains("Unresolved merge conflict", StringComparison.Ordinal)));
         }
 
-        [Fact]
-        public async Task NoDiagnostic_OnMarkerLikeTextInsideScalar_Async()
+        [Theory]
+        [InlineData("use <<<< arrows")]
+        [InlineData("show <<<<<<< in the example")]
+        [InlineData("show >>>>>>> in the example")]
+        public async Task NoDiagnostic_OnMarkerLikeTextInsideScalar_Async(string text)
         {
-            var diagnostics = await GetDiagnosticsAsync("file:///c:/ws/topics/Goodbye.mcs.yml", "kind: AdaptiveDialog\ndisplayName: \"use <<<< arrows\"\n");
+            var diagnostics = await GetDiagnosticsAsync("file:///c:/ws/topics/Goodbye.mcs.yml", $"kind: AdaptiveDialog\ndisplayName: \"{text}\"\n");
 
             Assert.Empty(diagnostics.Where(diagnostic => diagnostic.Message.Contains("Unresolved merge conflict", StringComparison.Ordinal)));
         }

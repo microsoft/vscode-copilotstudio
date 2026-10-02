@@ -20,7 +20,7 @@ internal static class McsConflictMarkers
 
     internal const string TheirsLine = TheirsMarker + " ";
 
-    internal static bool Contains(string? text) => text != null && (text.Contains(OursMarker, StringComparison.Ordinal) || text.Contains(TheirsMarker, StringComparison.Ordinal));
+    internal static bool Contains(string? text) => FindFirstMarkerLine(text) > 0;
 
     /// <summary>Wraps both sides of an unresolved conflict in git-style markers anchored at column zero.</summary>
     internal static string Build(string? ours, string? theirs) => string.Join("\n", OursLine, ours ?? string.Empty, SplitterLine, theirs ?? string.Empty, TheirsLine);
@@ -85,6 +85,11 @@ internal static class McsConflictMarkers
 
     private static bool IsConflictBoundary(string text, int start, int end)
     {
+        while (start < end && (text[start] == ' ' || text[start] == '\t'))
+        {
+            start++;
+        }
+
         return (end - start) >= OursMarker.Length && (string.CompareOrdinal(text, start, OursMarker, 0, OursMarker.Length) == 0 || string.CompareOrdinal(text, start, TheirsMarker, 0, TheirsMarker.Length) == 0);
     }
 }
