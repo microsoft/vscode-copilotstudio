@@ -1,0 +1,21 @@
+<Solution>
+  <Folder Name="/LanguageServers/">
+    <Project Path="LanguageServers/CLaSP/Microsoft.CommonLanguageServerProtocol.Framework.csproj" />
+    <Project Path="LanguageServers/PowerPlatformLS/Contracts.FileLayout/Contracts.FileLayout.csproj" />
+    <Project Path="LanguageServers/PowerPlatformLS/Contracts.Internal/Contracts.Internal.csproj" />
+    <Project Path="LanguageServers/PowerPlatformLS/Contracts.LSP/Contracts.LSP.csproj" />
+    <Project Path="LanguageServers/PowerPlatformLS/Impl.Core/Impl.Core.csproj" />
+    <Project Path="LanguageServers/PowerPlatformLS/Impl.Language.CopilotStudio/Impl.Language.CopilotStudio.csproj" />
+    <Project Path="LanguageServers/PowerPlatformLS/Impl.Language.PowerFx/Impl.Language.PowerFx.csproj" />
+    <Project Path="LanguageServers/PowerPlatformLS/Impl.Language.Yaml/Impl.Language.Yaml.csproj" />
+    <Project Path="LanguageServers/PowerPlatformLS/Impl.PullAgent/Impl.PullAgent.csproj" />
+    <Project Path="LanguageServers/PowerPlatformLS/LanguageServerHost/LanguageServerHost.csproj" />
+    <Project Path="LanguageServers/PowerPlatformLS/UnitTests/PowerPlatformLS.UnitTests/PowerPlatformLS.UnitTests.csproj" />
+  </Folder>
+  <Project Path="CopilotStudio.McsCore/CopilotStudio.McsCore.csproj" />
+  <Project Path="CopilotStudio.Sync.E2ETests/CopilotStudio.Sync.E2ETests.csproj" />
+  <Project Path="CopilotStudio.Sync.Net48Smoke/CopilotStudio.Sync.Net48Smoke.csproj" />
+  <Project Path="CopilotStudio.Sync.TestHarness/CopilotStudio.Sync.TestHarness.csproj" />
+  <Project Path="CopilotStudio.Sync.UnitTests/CopilotStudio.Sync.UnitTests.csproj" />
+  <Project Path="CopilotStudio.Sync/CopilotStudio.Sync.csproj" />
+</Solution>
