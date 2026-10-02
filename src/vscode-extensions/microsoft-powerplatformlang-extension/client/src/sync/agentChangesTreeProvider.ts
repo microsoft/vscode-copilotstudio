@@ -333,7 +333,8 @@ class AgentChangesTreeDataProvider implements TreeDataProvider<AgentChangesTreeI
   }
 
   /**
-   * Returns workspaces with complete connection metadata and a usable account binding.
+   * Returns workspaces that have a connection file and syncInfo.
+   * Uses the same criteria as workspaceScm.ts for SCM registration.
    */
   private getConnectedWorkspaces(): CopilotStudioWorkspace[] {
     return getAllWorkspaces().filter(isWorkspaceConnected);

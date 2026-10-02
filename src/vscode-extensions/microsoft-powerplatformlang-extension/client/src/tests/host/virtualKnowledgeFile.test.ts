@@ -19,7 +19,12 @@ describe('virtualKnowledgeFileSystemProvider', () => {
 
     const syncInfo = {
         agentId: 'agent-123',
-        dataverseEndpoint: 'https://my-copilotstudio-endpoint'
+        dataverseEndpoint: 'https://my-copilotstudio-endpoint',
+        accountInfo: {
+            accountId: 'account.tenant',
+            accountEmail: 'dev@contoso.com',
+            tenantId: 'tenant'
+        }
     };
 
     const remoteFiles = [
@@ -104,7 +109,12 @@ describe('virtualKnowledgeFileSystemProvider', () => {
             displayName: 'Root Agent',
             syncInfo: {
                 agentId: 'agent-456',
-                dataverseEndpoint: 'https://my-other-copilotstudio-endpoint'
+                dataverseEndpoint: 'https://my-other-copilotstudio-endpoint',
+                accountInfo: {
+                    accountId: 'replacement.tenant',
+                    accountEmail: 'replacement@contoso.com',
+                    tenantId: 'tenant'
+                }
             }
         } as any;
 
@@ -115,6 +125,37 @@ describe('virtualKnowledgeFileSystemProvider', () => {
         assert.ok(seenSyncInfos.length > 0, 'refresh should issue a list request after retarget');
         assert.ok(seenSyncInfos.every(info => info?.agentId === 'agent-456'), 'refresh should use the retargeted syncInfo');
         assert.ok(!seenSyncInfos.some(info => info?.agentId === 'agent-123'), 'refresh must not reuse the stale syncInfo');
+    });
+
+    test('refresh silently skips a workspace whose account is not bound yet', async () => {
+        const lspMod = require('../../services/lspClient');
+        let payloadCalls = 0;
+        let errorCalls = 0;
+        lspMod.buildLspRequestPayload = async () => {
+            payloadCalls++;
+            return {};
+        };
+        (logger.logError as any) = () => {
+            errorCalls++;
+        };
+
+        provider.addWorkspace({
+            ...workspace,
+            syncInfo: {
+                ...syncInfo,
+                accountInfo: {
+                    ...syncInfo.accountInfo,
+                    accountId: '',
+                    accountEmail: undefined
+                }
+            }
+        } as any);
+
+        await provider.refresh();
+
+        assert.strictEqual(payloadCalls, 0);
+        assert.strictEqual(errorCalls, 0);
+        assert.strictEqual(provider.getEntries().length, 0);
     });
 
     test('addWorkspace clears cached components for the re-added workspace', async () => {
