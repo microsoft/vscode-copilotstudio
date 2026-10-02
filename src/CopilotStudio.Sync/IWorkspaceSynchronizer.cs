@@ -195,7 +195,7 @@ public interface IWorkspaceSynchronizer
         CancellationToken cancellationToken,
         AuthoringOperationContextBase? contentSaveContextOverride = null);
 
-    void ThrowIfWorkspaceInvalid(DirectoryPath workspaceFolder, DefinitionBase workspaceDefinition);
+    Task ThrowIfWorkspaceInvalidAsync(DirectoryPath workspaceFolder, DefinitionBase workspaceDefinition, CancellationToken cancellationToken);
 
     /// <summary>
     /// Lists the agent's knowledge files from the local cloud-cache snapshot.

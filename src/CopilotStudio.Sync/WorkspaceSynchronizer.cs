@@ -7800,7 +7800,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
     }
 
-    public void ThrowIfWorkspaceInvalid(DirectoryPath workspaceFolder, DefinitionBase workspaceDefinition)
+    public async Task ThrowIfWorkspaceInvalidAsync(DirectoryPath workspaceFolder, DefinitionBase workspaceDefinition, CancellationToken cancellationToken)
     {
         var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var cloudSnapshot = ReadCloudCacheSnapshot(fileAccessor, allowMissing: true);
@@ -7808,7 +7808,63 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             ? workspaceDefinition
             : DetectNewLocalSkills(fileAccessor, workspaceDefinition, cloudSnapshot, out _);
 
-        ThrowIfWorkspaceInvalid(fileAccessor, definition, BuildComponentFolderOverrides(fileAccessor, definition));
+        var problems = new List<WorkspaceDiagnostic>();
+
+        CollectSkillManifestConflicts(fileAccessor, definition, definition.Components.ToList(), BuildComponentFolderOverrides(fileAccessor, definition), problems);
+        await CollectComponentMetadataFailuresAsync(fileAccessor, problems, cancellationToken).ConfigureAwait(false);
+
+        ThrowIfAnyProblem(problems);
+    }
+
+    private async Task CollectComponentMetadataFailuresAsync(IFileAccessor fileAccessor, ICollection<WorkspaceDiagnostic> problems, CancellationToken cancellationToken)
+    {
+        foreach (var workflowFolder in EnumerateComponentFolders(fileAccessor, WorkflowFolder))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var metadataPath = new AgentFilePath($"{workflowFolder}/metadata.yml");
+            if (!fileAccessor.Exists(metadataPath))
+            {
+                continue;
+            }
+
+            try
+            {
+                await ReadWorkflowMetadataAsync(fileAccessor, metadataPath, cancellationToken).ConfigureAwait(false);
+            }
+            catch (WorkspaceValidationException failure)
+            {
+                foreach (var diagnostic in failure.Diagnostics)
+                {
+                    problems.Add(diagnostic);
+                }
+            }
+        }
+
+        foreach (var promptFolder in EnumerateComponentFolders(fileAccessor, PromptsFolder))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var metadataPath = new AgentFilePath($"{promptFolder}/metadata.yml");
+            if (!fileAccessor.Exists(metadataPath))
+            {
+                continue;
+            }
+
+            try
+            {
+                var yaml = await fileAccessor.ReadStringAsync(metadataPath, cancellationToken).ConfigureAwait(false);
+                if (McsConflictMarkers.Contains(yaml))
+                {
+                    problems.Add(CreateConflictDiagnostic(metadataPath.ToString(), yaml));
+                    continue;
+                }
+
+                McsYamlObjectMapper.Deserialize<AIPromptMetadata>(yaml);
+            }
+            catch (Exception failure) when (failure is McsYamlFormatException or IOException or UnauthorizedAccessException)
+            {
+                problems.Add(WorkspaceDiagnostic.FromException(metadataPath.ToString(), failure));
+            }
+        }
     }
 
     private void ThrowIfWorkspaceInvalid(IFileAccessor fileAccessor, DefinitionBase definition, IReadOnlyDictionary<string, string> folderOverrides)
@@ -7817,6 +7873,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         CollectSkillManifestConflicts(fileAccessor, definition, definition.Components.ToList(), folderOverrides, problems);
 
+        ThrowIfAnyProblem(problems);
+    }
+
+    private static void ThrowIfAnyProblem(List<WorkspaceDiagnostic> problems)
+    {
         if (problems.Count > 0)
         {
             throw new WorkspaceValidationException(problems.ToImmutableArray());

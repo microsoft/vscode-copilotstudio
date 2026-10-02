@@ -295,7 +295,7 @@ public class SkillManifestConflictTests
 
         var definition = await sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
 
-        sync.ThrowIfWorkspaceInvalid(workspace, definition);
+        await sync.ThrowIfWorkspaceInvalidAsync(workspace, definition, CancellationToken.None);
         await PushAsync(sync, workspace, definition);
     }
 
@@ -309,7 +309,7 @@ public class SkillManifestConflictTests
         var definition = await sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
         Write(accessor, "behaviors/skill-1/SKILL.md", ConflictedManifest);
 
-        var failure = Assert.Throws<WorkspaceValidationException>(() => sync.ThrowIfWorkspaceInvalid(workspace, definition));
+        var failure = await Assert.ThrowsAsync<WorkspaceValidationException>(() => sync.ThrowIfWorkspaceInvalidAsync(workspace, definition, CancellationToken.None));
 
         Assert.Equal("behaviors/skill-1/SKILL.md", Assert.Single(failure.Diagnostics).FilePath);
     }
@@ -323,7 +323,7 @@ public class SkillManifestConflictTests
 
         var definition = await sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
 
-        sync.ThrowIfWorkspaceInvalid(workspace, definition);
+        await sync.ThrowIfWorkspaceInvalidAsync(workspace, definition, CancellationToken.None);
     }
 
     private static BotDefinition CloudDefinition()

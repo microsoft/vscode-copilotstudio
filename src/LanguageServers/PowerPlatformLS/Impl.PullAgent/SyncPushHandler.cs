@@ -32,7 +32,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             var classification = AgentClassifier.Classify(workspace.Definition, workspace.FolderPath.ToString());
             AuthoringSupportGate.EnsureAllowed(classification, SyncOperation.Push);
 
-            _synchronizer.ThrowIfWorkspaceInvalid(workspace.FolderPath, workspace.Definition);
+            await _synchronizer.ThrowIfWorkspaceInvalidAsync(workspace.FolderPath, workspace.Definition, cancellationToken);
 
             await ConnectionHelper.ProvisionConnectionsAsync(_synchronizer, workspace.FolderPath, workspace.Definition, dataverseClient, cancellationToken);
 

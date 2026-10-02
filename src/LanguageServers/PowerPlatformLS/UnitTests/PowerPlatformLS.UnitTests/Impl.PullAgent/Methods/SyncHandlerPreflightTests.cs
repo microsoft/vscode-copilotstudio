@@ -30,6 +30,55 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
         private const string UnsupportedPath = "entities/Unsupported.mcs.yml";
         private const string ConflictedManifest = "---\nname: get-us-weather\n---\n<<<<<<< ours\nLocal instructions\n=======\nRemote instructions\n>>>>>>> theirs\n";
         private const string LiteralMarkerManifest = "---\nname: get-us-weather\n---\nA conflict starts with an indented marker:\n\n  <<<<<<< ours\n\nand ends with:\n\n  >>>>>>> theirs\n";
+        private const string WorkflowMetadataPath = "workflows/Send Email/metadata.yml";
+        private const string PromptMetadataPath = "prompts/Summarize_00000000000000000000000000000001/metadata.yml";
+        private const string ValidWorkflowMetadata = "workflowId: 00000000-0000-0000-0000-000000000001\nname: Send Email\n";
+        private const string ConflictedWorkflowMetadata = "<<<<<<< ours\nname: Send Email\n=======\nname: Send Mail\n>>>>>>> theirs\n";
+        private const string MalformedWorkflowMetadata = "name: Send Email\nname: Send Email\n";
+
+        [Theory]
+        [InlineData(WorkflowMetadataPath, ConflictedWorkflowMetadata)]
+        [InlineData(WorkflowMetadataPath, MalformedWorkflowMetadata)]
+        [InlineData(PromptMetadataPath, ConflictedWorkflowMetadata)]
+        [InlineData(PromptMetadataPath, MalformedWorkflowMetadata)]
+        public async Task InvalidComponentMetadata_FailsBeforeAnyCloudWrite(string path, string content)
+        {
+            using var fixture = new PreflightFixture();
+            fixture.Write(path, content);
+
+            var response = await fixture.SyncAsync(push: true);
+
+            Assert.Equal(400, response.Code);
+            Assert.Contains(path, response.Message, StringComparison.Ordinal);
+            fixture.AssertNoCloudWrites();
+            Assert.Equal(content, fixture.Read(path));
+        }
+
+        [Fact]
+        public async Task ValidWorkflowMetadata_ReachesTheCloudWrites()
+        {
+            using var fixture = new PreflightFixture();
+            fixture.Write(WorkflowMetadataPath, ValidWorkflowMetadata);
+
+            var response = await fixture.SyncAsync(push: true);
+
+            Assert.Equal(200, response.Code);
+            fixture.AssertPushCompleted();
+        }
+
+        [Fact]
+        public async Task RepairingInvalidWorkflowMetadata_ReachesTheCloudWrites()
+        {
+            using var fixture = new PreflightFixture();
+            fixture.Write(WorkflowMetadataPath, ConflictedWorkflowMetadata);
+            Assert.Equal(400, (await fixture.SyncAsync(push: true)).Code);
+            fixture.AssertNoCloudWrites();
+
+            fixture.Write(WorkflowMetadataPath, ValidWorkflowMetadata);
+
+            Assert.Equal(200, (await fixture.SyncAsync(push: true)).Code);
+            fixture.AssertPushCompleted();
+        }
 
         [Fact]
         public async Task ConflictedSkillManifest_FailsBeforeAnyCloudWrite()
@@ -47,14 +96,14 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
         }
 
         [Fact]
-        public void ConflictedSkillManifest_IsNotCaughtByTheDocumentGateAlone()
+        public async Task ConflictedSkillManifest_IsNotCaughtByTheDocumentGateAlone()
         {
             using var fixture = new PreflightFixture();
             fixture.Write(ManifestPath, ConflictedManifest);
 
             Assert.Empty(fixture.Workspace.GetUnreadableDocuments());
-            Assert.Throws<WorkspaceValidationException>(
-                () => fixture.Synchronizer.ThrowIfWorkspaceInvalid(fixture.Workspace.FolderPath, fixture.Workspace.Definition));
+            await Assert.ThrowsAsync<WorkspaceValidationException>(
+                () => fixture.Synchronizer.ThrowIfWorkspaceInvalidAsync(fixture.Workspace.FolderPath, fixture.Workspace.Definition, CancellationToken.None));
         }
 
         [Fact]
@@ -136,8 +185,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
                 _synchronizer.Setup(service => service.IsSyncInfoAvailable(It.IsAny<DirectoryPath>())).Returns(false);
                 _synchronizer.Setup(service => service.GetSyncInfoAsync(It.IsAny<DirectoryPath>()))
                     .ReturnsAsync(new AgentSyncInfo { AgentId = Guid.NewGuid() });
-                _synchronizer.Setup(service => service.ThrowIfWorkspaceInvalid(It.IsAny<DirectoryPath>(), It.IsAny<DefinitionBase>()))
-                    .Callback((DirectoryPath folder, DefinitionBase definition) => Synchronizer.ThrowIfWorkspaceInvalid(folder, definition));
+                _synchronizer.Setup(service => service.ThrowIfWorkspaceInvalidAsync(It.IsAny<DirectoryPath>(), It.IsAny<DefinitionBase>(), It.IsAny<CancellationToken>()))
+                    .Returns((DirectoryPath folder, DefinitionBase definition, CancellationToken token) => Synchronizer.ThrowIfWorkspaceInvalidAsync(folder, definition, token));
                 _synchronizer.Setup(service => service.PushCustomConnectorsAsync(It.IsAny<DirectoryPath>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<CancellationToken>()))
                     .ReturnsAsync(new CustomConnectorPushResult());
                 _synchronizer.Setup(service => service.ProvisionConnectionReferencesAsync(It.IsAny<DirectoryPath>(), It.IsAny<DefinitionBase>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<CancellationToken>(), It.IsAny<IReadOnlyDictionary<string, Guid>?>()))
