@@ -25,6 +25,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             _fileProvider = fileProvider;
         }
 
+        protected override bool BlocksOnUnreadableDocuments => true;
+
         protected override async Task<(DefinitionBase Definition, ImmutableArray<WorkflowResponse> Workflows, ImmutableArray<SyncDataverseClient.AIPromptResponse> AIPrompts, string Warning)> ExecuteAsync(SyncAgentRequest request, IMcsWorkspace workspace, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CancellationToken cancellationToken)
         {
             var conflicts = new List<CopilotStudio.Sync.WorkspaceDiagnostic>();
