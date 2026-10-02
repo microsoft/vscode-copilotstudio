@@ -272,7 +272,7 @@ public class MergeConflictPreservationTests
     }
 
     [Fact]
-    public async Task Pull_DisplayNameConflict_ReportsTheFileAndKeepsTheLocalName()
+    public async Task Pull_DisplayNameConflict_ReportsTheFileAndBlocksTheNextPush()
     {
         var context = await CloneAsync();
         EditDisplayName(context, "Renamed Locally");
@@ -286,8 +286,38 @@ public class MergeConflictPreservationTests
         Assert.Equal(ToolPath, diagnostic.FilePath);
         Assert.Equal(WorkspaceDiagnosticKind.MergeConflict, diagnostic.Kind);
         var text = ReadFile(context, ToolPath);
+        Assert.Equal(McsConflictMarkers.FindFirstMarkerLine(text), diagnostic.Line);
+        Assert.True(diagnostic.Line > 0);
+        Assert.Equal(1, diagnostic.Column);
         Assert.Contains("Renamed Locally", text, StringComparison.Ordinal);
-        Assert.DoesNotContain("Renamed Remotely", text, StringComparison.Ordinal);
+        Assert.Contains("Renamed Remotely", text, StringComparison.Ordinal);
+        Assert.Single(text.Split('\n').Where(line => line.TrimEnd('\r') == "mcs.metadata:"));
+        var cached = Assert.Single(ReadCache(context).Components.Where(component => component.SchemaNameString == ToolSchema));
+        Assert.Equal("Renamed Remotely", cached.DisplayName);
+        Assert.DoesNotContain("Renamed Locally", ReadFile(context, ".mcs/botdefinition.json"), StringComparison.Ordinal);
+        Assert.DoesNotContain("<<<<<<<", ReadFile(context, ".mcs/botdefinition.json"), StringComparison.Ordinal);
+        var failure = await Assert.ThrowsAsync<WorkspaceValidationException>(
+            () => context.Sync.ReadWorkspaceDefinitionAsync(context.Workspace, CancellationToken.None));
+        Assert.Equal(ToolPath, Assert.Single(failure.Diagnostics).FilePath);
+    }
+
+    [Fact]
+    public async Task Pull_DisplayNameConflict_ResolvingTheMarkersUnblocksTheNextPush()
+    {
+        var context = await CloneAsync();
+        EditDisplayName(context, "Renamed Locally");
+        var localDefinition = await context.Sync.ReadWorkspaceDefinitionAsync(context.Workspace, CancellationToken.None);
+        SetupChangeset(context, new BotComponentUpdate(CreateTool(context.ToolId, BaseDescription, "crf9a_nagentn1_T2U1EY", version: 2, displayName: "Renamed Remotely")));
+
+        await PullAsync(context, localDefinition);
+
+        var resolved = string.Join('\n', ReadFile(context, ToolPath).Replace("\r\n", "\n").Split('\n')
+            .Where(line => !McsConflictMarkers.IsMarkerLine(line) && line != "  componentName: Renamed Locally"));
+        WriteFile(context, ToolPath, resolved);
+
+        var reread = await context.Sync.ReadWorkspaceDefinitionAsync(context.Workspace, CancellationToken.None);
+
+        Assert.Equal("Renamed Remotely", Assert.Single(reread.Components.Where(component => component.SchemaNameString == ToolSchema)).DisplayName);
     }
 
     [Fact]

@@ -622,11 +622,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 }
 
                 // Merge changes into a new component
-                var updatedComponent = MergeComponent(schemaName, originalComponent, localChange, remoteChangeComponent, out var conflictedComponentYaml, out var conflicted);
+                var updatedComponent = MergeComponent(schemaName, originalComponent, localChange, remoteChangeComponent, out var conflictedComponentYaml, out var conflicted, out var conflictedDisplayName);
 
                 if (conflicted && updatedComponent != null)
                 {
-                    conflicts.ComponentsBySchemaName[schemaName] = new MergeConflictComponent(conflictedComponentYaml, updatedComponent);
+                    conflicts.ComponentsBySchemaName[schemaName] = new MergeConflictComponent(conflictedComponentYaml, updatedComponent, conflictedDisplayName);
                 }
 
                 // Update change set with new component
@@ -700,9 +700,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     }
 
     internal BotComponentBase? MergeComponent(string schemaName, BotComponentBase? originalComponent, BotComponentBase? localChange, BotComponentBase? remoteChange, out string? conflictedComponentYaml)
-        => MergeComponent(schemaName, originalComponent, localChange, remoteChange, out conflictedComponentYaml, out _);
+        => MergeComponent(schemaName, originalComponent, localChange, remoteChange, out conflictedComponentYaml, out _, out _);
 
     internal BotComponentBase? MergeComponent(string schemaName, BotComponentBase? originalComponent, BotComponentBase? localChange, BotComponentBase? remoteChange, out string? conflictedComponentYaml, out bool conflicted)
+        => MergeComponent(schemaName, originalComponent, localChange, remoteChange, out conflictedComponentYaml, out conflicted, out _);
+
+    internal BotComponentBase? MergeComponent(string schemaName, BotComponentBase? originalComponent, BotComponentBase? localChange, BotComponentBase? remoteChange, out string? conflictedComponentYaml, out bool conflicted, out string? conflictedDisplayName)
     {
         var isInlineSkill = SkillBodyProjection.IsInlineSkill(originalComponent) || SkillBodyProjection.IsInlineSkill(localChange) || SkillBodyProjection.IsInlineSkill(remoteChange);
         var mergedSkillContent = isInlineSkill
@@ -718,6 +721,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             : description;
 
         var displayNameConflicted = !TryMergeMetaInfo(originalComponent?.DisplayName, localChange?.DisplayName, remoteChange?.DisplayName, out var displayName);
+        conflictedDisplayName = displayNameConflicted ? McsConflictMarkers.Build(localChange?.DisplayName, remoteChange?.DisplayName) : null;
 
         var bodyConflicted = ContainsConflictMarkers(mergedString);
         var preserveComponent = bodyConflicted || (localChange != null && remoteChange == null);
@@ -5463,7 +5467,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
             var component = conflict.Value.Component;
             var path = ResolveOnDiskComponentPath(fileAccessor, GetStickyComponentPath(component, definition, folderOverrides), component, definition);
-            var body = McsComponentBodyWriter.ReplaceBodyPreservingMetadata(component, definition, path, conflict.Value.Yaml);
+            var body = McsComponentBodyWriter.ReplaceBodyPreservingMetadata(component, definition, path, conflict.Value.Yaml, conflict.Value.DisplayName);
             await fileAccessor.WriteAsync(path, encoding.GetBytes(body), cancellationToken).ConfigureAwait(false);
             reported?.Add(CreateConflictDiagnostic(path.ToString(), body));
         }
@@ -7924,12 +7928,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 ? SkillLayout.ReadManifestText(fileAccessor, folderName)
                 : skill.Content;
 
-            if (!McsConflictMarkers.ContainsBoundary(manifestText))
+            if (!McsConflictMarkers.Contains(manifestText))
             {
                 continue;
             }
 
-            readDiagnostics.Add(CreateConflictDiagnostic(filePath, McsConflictMarkers.FindFirstBoundaryLine(manifestText)));
+            readDiagnostics.Add(CreateConflictDiagnostic(filePath, McsConflictMarkers.FindFirstMarkerLine(manifestText)));
         }
     }
 

@@ -67,6 +67,24 @@ public class SkillManifestConflictTests
         "  Cloud 2 - When this skill is activated:\n" +
         "  >>>>>>> (Incoming Change)\n";
 
+    private const string IndentedConflictPromptMetadata =
+        "name: P1\n" +
+        "instructions: |-\n" +
+        "  Resolve a merge conflict like this:\n" +
+        "  <<<<<<< ours\n" +
+        "  local text\n" +
+        "  =======\n" +
+        "  remote text\n" +
+        "  >>>>>>> theirs\n";
+
+    private const string ConflictedPromptMetadata =
+        "name: P1\n" +
+        "<<<<<<< ours\n" +
+        "templateid: 5d0b4f9a-8f1c-4a6d-9c1e-1d7b0d2a3f41\n" +
+        "=======\n" +
+        "templateid: 9e2c4b17-3a5d-4f80-8b2a-6c9f1e4d5a73\n" +
+        ">>>>>>> theirs\n";
+
     private static async Task<(WorkspaceSynchronizer Sync, InMemoryFileAccessor Accessor, DirectoryPath Workspace)> CreateWorkspaceAsync()
     {
         var (synchronizer, factory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
@@ -463,5 +481,32 @@ public class SkillManifestConflictTests
         var read = await sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
 
         Assert.Empty(read.Components);
+    }
+
+    [Fact]
+    public async Task ThrowIfWorkspaceInvalid_IndentedConflictExampleInPromptMetadata_IsNotBlocked()
+    {
+        var (sync, accessor, workspace) = await CreateWorkspaceAsync();
+        WorkspaceSynchronizer.WriteCloudCache(accessor, CloudDefinition());
+        Write(accessor, $"prompts/P1-{Guid.NewGuid()}/metadata.yml", IndentedConflictPromptMetadata);
+
+        await sync.ThrowIfWorkspaceInvalidAsync(workspace, CloudDefinition(), CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ThrowIfWorkspaceInvalid_ColumnZeroConflictInPromptMetadata_IsBlocked()
+    {
+        var (sync, accessor, workspace) = await CreateWorkspaceAsync();
+        WorkspaceSynchronizer.WriteCloudCache(accessor, CloudDefinition());
+        var metadataPath = $"prompts/P1-{Guid.NewGuid()}/metadata.yml";
+        Write(accessor, metadataPath, ConflictedPromptMetadata);
+
+        var failure = await Assert.ThrowsAsync<WorkspaceValidationException>(
+            () => sync.ThrowIfWorkspaceInvalidAsync(workspace, CloudDefinition(), CancellationToken.None));
+
+        var diagnostic = Assert.Single(failure.Diagnostics);
+        Assert.Equal(metadataPath, diagnostic.FilePath);
+        Assert.Equal(WorkspaceDiagnosticKind.MergeConflict, diagnostic.Kind);
+        Assert.Equal(2, diagnostic.Line);
     }
 }

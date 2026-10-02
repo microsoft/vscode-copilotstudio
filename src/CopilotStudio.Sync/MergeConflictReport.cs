@@ -15,4 +15,4 @@ internal sealed class MergeConflictReport
 }
 
 /// <summary>A component preserved by an unresolved merge, with the conflicted body to write when the merge produced one.</summary>
-internal sealed record MergeConflictComponent(string? Yaml, BotComponentBase Component);
+internal sealed record MergeConflictComponent(string? Yaml, BotComponentBase Component, string? DisplayName = null);

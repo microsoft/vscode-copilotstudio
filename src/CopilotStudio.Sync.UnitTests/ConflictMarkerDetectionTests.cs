@@ -34,6 +34,9 @@ public class ConflictMarkerDetectionTests
     [InlineData("content: |\n  <<<<<<< ours\n  =======\n")]
     [InlineData("content: |\n  <<<<<<< ours\n  local\n  ======= not the splitter\n  remote\n  >>>>>>> theirs\n")]
     [InlineData("content: |\n    <<<<<<< ours\n  =======\n    >>>>>>> theirs\n")]
+    [InlineData("a: 1\n  <<<<<<< ours\n  b: 2\n  =======\n  b: 3\n  >>>>>>> theirs\n")]
+    [InlineData("content: |\r\n  ---\r\n  <<<<<<< ours\r\n  local\r\n  =======\r\n  remote\r\n  >>>>>>> theirs\r\n")]
+    [InlineData("content: |\n\t<<<<<<< ours\n\tlocal\n\t=======\n\tremote\n\t>>>>>>> theirs\n")]
     [InlineData("")]
     [InlineData(null)]
     public void IgnoresTextWithoutLineLeadingMarkers(string? text)
@@ -46,9 +49,6 @@ public class ConflictMarkerDetectionTests
     [InlineData("<<<<<<< ours\n", 1)]
     [InlineData("a: 1\n<<<<<<< ours\n", 2)]
     [InlineData("a: 1\nb: 2\nc: 3\n>>>>>>> theirs\n", 4)]
-    [InlineData("a: 1\n  <<<<<<< ours\n  b: 2\n  =======\n  b: 3\n  >>>>>>> theirs\n", 2)]
-    [InlineData("content: |\r\n  ---\r\n  <<<<<<< ours\r\n  local\r\n  =======\r\n  remote\r\n  >>>>>>> theirs\r\n", 3)]
-    [InlineData("content: |\n\t<<<<<<< ours\n\tlocal\n\t=======\n\tremote\n\t>>>>>>> theirs\n", 2)]
     [InlineData("description: \"show <<<<<<< in the example\"\n\n>>>>>>> theirs", 3)]
     public void ReportsFirstMarkerLine(string text, int expectedLine)
     {

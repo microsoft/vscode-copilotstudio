@@ -12,17 +12,17 @@ internal static class McsComponentBodyWriter
 
     internal static string SerializeComponent(BotComponentBase component, DefinitionBase definition, AgentFilePath path) => Serialize(SkillBodyProjection.PrepareForWrite(component, path), SkillBodyProjection.GetBodyMetadata(component, definition, path));
 
-    internal static string ReplaceBodyPreservingMetadata(BotComponentBase component, DefinitionBase definition, AgentFilePath path, string replacementBody)
+    internal static string ReplaceBodyPreservingMetadata(BotComponentBase component, DefinitionBase definition, AgentFilePath path, string replacementBody, string? conflictedDisplayName = null)
     {
         var extraValues = BuildExtraValues(SkillBodyProjection.GetBodyMetadata(component, definition, path));
         _ = ExtractMetadataBlocks(SerializeComponent(component, definition, path), out var authoredLines);
 
-        if (authoredLines.Count == 0 && extraValues.Count == 0 && string.IsNullOrEmpty(component.DisplayName) && string.IsNullOrEmpty(component.Description))
+        if (authoredLines.Count == 0 && extraValues.Count == 0 && string.IsNullOrEmpty(component.DisplayName) && string.IsNullOrEmpty(component.Description) && conflictedDisplayName == null)
         {
             return replacementBody;
         }
 
-        return ComposeBlock(component, authoredLines, extraValues) + replacementBody;
+        return ComposeBlock(component, authoredLines, extraValues, conflictedDisplayName) + replacementBody;
     }
 
     internal static string Serialize(BotComponentBase component, McsMetadata extraMetadata)
@@ -146,10 +146,17 @@ internal static class McsComponentBodyWriter
         return key.Length > 0 && key[0] != '-' ? key : null;
     }
 
-    private static string ComposeBlock(BotComponentBase component, Dictionary<string, List<string>> authoredLines, IDictionary<string, string> extraValues)
+    private static string ComposeBlock(BotComponentBase component, Dictionary<string, List<string>> authoredLines, IDictionary<string, string> extraValues, string? conflictedDisplayName = null)
     {
         var lines = new List<string>();
-        AppendMetadataEntry(lines, McsMetadata.ComponentNameKey, component.DisplayName, authoredLines);
+        if (McsConflictMarkers.TrySplit(conflictedDisplayName, out var ourName, out var theirName))
+        {
+            lines.AddRange(ConflictedEntry(McsMetadata.ComponentNameKey, ourName, theirName));
+        }
+        else
+        {
+            AppendMetadataEntry(lines, McsMetadata.ComponentNameKey, component.DisplayName, authoredLines);
+        }
 
         if (McsConflictMarkers.TrySplit(component.Description, out var ours, out var theirs))
         {

@@ -22,27 +22,6 @@ internal static class McsConflictMarkers
 
     internal static bool Contains(string? text) => FindFirstMarkerLine(text) > 0;
 
-    internal static int FindFirstBoundaryLine(string? text)
-    {
-        if (text == null)
-        {
-            return 0;
-        }
-
-        var lines = SplitLines(text);
-        for (var index = 0; index < lines.Length; index++)
-        {
-            if (TryGetBoundaryIndent(lines[index], out var indent) && indent == 0)
-            {
-                return index + 1;
-            }
-        }
-
-        return 0;
-    }
-
-    internal static bool ContainsBoundary(string? text) => FindFirstBoundaryLine(text) > 0;
-
     /// <summary>Wraps both sides of an unresolved conflict in git-style markers anchored at column zero.</summary>
     internal static string Build(string? ours, string? theirs) => string.Join("\n", OursLine, ours ?? string.Empty, SplitterLine, theirs ?? string.Empty, TheirsLine);
 
@@ -73,8 +52,9 @@ internal static class McsConflictMarkers
     }
 
     /// <summary>True when the line is a conflict boundary or the splitter, which never carry leading indentation.</summary>
-    internal static bool IsMarkerLine(string? line) => line != null && (line.StartsWith(OursMarker, StringComparison.Ordinal) || string.Equals(line, SplitterMarker, StringComparison.Ordinal) || line.StartsWith(TheirsMarker, StringComparison.Ordinal));
+    internal static bool IsMarkerLine(string? line) => line != null && (IsBoundaryLine(line) || string.Equals(line, SplitterMarker, StringComparison.Ordinal));
 
+    /// <summary>Finds the one-based line of the first boundary anchored at column zero, or zero when the text carries no unresolved conflict.</summary>
     internal static int FindFirstMarkerLine(string? text)
     {
         if (text == null)
@@ -85,7 +65,7 @@ internal static class McsConflictMarkers
         var lines = SplitLines(text);
         for (var index = 0; index < lines.Length; index++)
         {
-            if (TryGetBoundaryIndent(lines[index], out var indent) && (indent == 0 || CompletesConflictBlock(lines, index, indent)))
+            if (IsBoundaryLine(lines[index]))
             {
                 return index + 1;
             }
@@ -96,46 +76,6 @@ internal static class McsConflictMarkers
 
     private static string[] SplitLines(string text) => text.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
 
-    private static bool TryGetBoundaryIndent(string line, out int indent)
-    {
-        indent = 0;
-        while (indent < line.Length && (line[indent] == ' ' || line[indent] == '\t'))
-        {
-            indent++;
-        }
-
-        return StartsWithMarker(line, indent, OursMarker) || StartsWithMarker(line, indent, TheirsMarker);
-    }
-
-    private static bool StartsWithMarker(string line, int indent, string marker)
-        => line.Length - indent >= marker.Length && string.CompareOrdinal(line, indent, marker, 0, marker.Length) == 0;
-
-    private static bool CompletesConflictBlock(string[] lines, int oursIndex, int indent)
-    {
-        if (!StartsWithMarker(lines[oursIndex], indent, OursMarker))
-        {
-            return false;
-        }
-
-        var splitter = -1;
-        for (var index = oursIndex + 1; index < lines.Length; index++)
-        {
-            if (splitter < 0)
-            {
-                if (string.Equals(lines[index].Substring(Math.Min(indent, lines[index].Length)), SplitterMarker, StringComparison.Ordinal))
-                {
-                    splitter = index;
-                }
-
-                continue;
-            }
-
-            if (StartsWithMarker(lines[index], indent, TheirsMarker))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    private static bool IsBoundaryLine(string line)
+        => line.StartsWith(OursMarker, StringComparison.Ordinal) || line.StartsWith(TheirsMarker, StringComparison.Ordinal);
 }

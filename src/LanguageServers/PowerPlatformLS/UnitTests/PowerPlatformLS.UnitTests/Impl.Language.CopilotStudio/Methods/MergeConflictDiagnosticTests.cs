@@ -15,15 +15,27 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio.Method
             "  componentName: skill-1\n" +
             "  schemaName: cr834_n2a8.skill.skill-1_X-1\n" +
             "kind: InlineAgentSkill\n" +
+            "<<<<<<< (Current Change)\n" +
+            "content: Local 4 - When this skill is activated\n" +
+            "=======\n" +
+            "content: Cloud 2 - When this skill is activated\n" +
+            ">>>>>>> (Incoming Change)\n";
+
+        private const string SkillAnchorDocumentingAConflict =
+            "mcs.metadata:\n" +
+            "  componentName: skill-1\n" +
+            "  schemaName: cr834_n2a8.skill.skill-1_X-1\n" +
+            "kind: InlineAgentSkill\n" +
             "content: |\n" +
             "  ---\n" +
             "  name: skill-1\n" +
             "  ---\n" +
-            "  <<<<<<< (Current Change)\n" +
-            "  Local 4 - When this skill is activated:\n" +
+            "  A conflict looks like:\n" +
+            "  <<<<<<< ours\n" +
+            "  local text\n" +
             "  =======\n" +
-            "  Cloud 2 - When this skill is activated:\n" +
-            "  >>>>>>> (Incoming Change)\n";
+            "  remote text\n" +
+            "  >>>>>>> theirs\n";
 
         [Fact]
         public async Task Diagnostic_OnConflictedSkillAnchor_Async()
@@ -33,7 +45,15 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio.Method
             var error = Assert.Single(diagnostics);
             Assert.Equal(DiagnosticSeverity.Error, error.Severity);
             Assert.Equal("Unresolved merge conflict. Choose one side, remove the conflict markers, then sync again.", error.Message);
-            Assert.Equal(8, error.Range!.Value.Start.Line);
+            Assert.Equal(4, error.Range!.Value.Start.Line);
+        }
+
+        [Fact]
+        public async Task NoDiagnostic_OnSkillAnchorDocumentingAConflict_Async()
+        {
+            var diagnostics = await GetDiagnosticsAsync("file:///c:/ws/behaviors/skill-1/skill.mcs.yml", SkillAnchorDocumentingAConflict);
+
+            Assert.Empty(diagnostics.Where(diagnostic => diagnostic.Message.Contains("Unresolved merge conflict", StringComparison.Ordinal)));
         }
 
         [Fact]

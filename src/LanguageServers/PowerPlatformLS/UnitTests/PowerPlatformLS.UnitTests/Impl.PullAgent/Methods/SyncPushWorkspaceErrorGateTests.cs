@@ -82,14 +82,16 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
         [InlineData("behaviors/get-us-weather/skill.mcs.yml", "kind: InlineAgentSkill\ncontent: \"show >>>>>>> in the example\"\n")]
         [InlineData("behaviors/get-us-weather/skill.mcs.yml", "kind: InlineAgentSkill\ncontent: |\n  show <<<<<<< and >>>>>>> in the example\n")]
         [InlineData("behaviors/get-us-weather/skill.mcs.yml", "kind: InlineAgentSkill\ncontent: |\n  <<<<<<< opens a conflict\n  >>>>>>> closes one\n")]
+        [InlineData("behaviors/get-us-weather/skill.mcs.yml", "kind: InlineAgentSkill\ncontent: |\n  <<<<<<< ours\n  local text\n  =======\n  remote text\n  >>>>>>> theirs\n")]
         public void LiteralMarkerText_IsNotBlocked(string path, string content)
         {
             Assert.Null(GateFailureFor(path, content));
         }
 
         [Theory]
-        [InlineData("behaviors/get-us-weather/skill.mcs.yml", "kind: InlineAgentSkill\ncontent: |\n  <<<<<<< ours\n  local text\n  =======\n  remote text\n  >>>>>>> theirs\n")]
-        public void IndentedConflictBlock_IsBlocked(string path, string content)
+        [InlineData("behaviors/get-us-weather/skill.mcs.yml", "kind: InlineAgentSkill\n<<<<<<< ours\ncontent: local text\n=======\ncontent: remote text\n>>>>>>> theirs\n")]
+        [InlineData("settings.mcs.yml", "<<<<<<< ours\ndisplayName: local\n=======\ndisplayName: remote\n>>>>>>> theirs\n")]
+        public void ColumnZeroConflictBlock_IsBlocked(string path, string content)
         {
             var failure = GateFailureFor(path, content);
 
