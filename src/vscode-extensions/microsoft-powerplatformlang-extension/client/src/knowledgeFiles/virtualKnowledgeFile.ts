@@ -6,7 +6,7 @@ import { knowledgeTreeDataProvider } from './knowledgeFileTree';
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import logger, { formatPii, PiiRedactionType } from '../services/logger';
 import { LspMethods, TelemetryEventsKeys } from '../constants';
-import { AuthError } from '../clients/account';
+import { AuthError, isIdentityUnbound } from '../clients/account';
 import {
   DownloadKnowledgeFilesRequest,
   DownloadKnowledgeFilesResponse,
@@ -203,7 +203,10 @@ export class virtualKnowledgeFileSystemProvider implements vscode.FileSystemProv
 
   private async refreshWorkspace(ws: CopilotStudioWorkspace): Promise<void> {
     const { syncInfo, workspaceUri } = ws;
-    if (!syncInfo || !syncInfo.dataverseEndpoint || !syncInfo.agentId) {
+    if (!syncInfo
+      || !syncInfo.dataverseEndpoint
+      || !syncInfo.agentId
+      || isIdentityUnbound(syncInfo.accountInfo?.accountId, syncInfo.accountInfo?.accountEmail)) {
       return;
     }
 
