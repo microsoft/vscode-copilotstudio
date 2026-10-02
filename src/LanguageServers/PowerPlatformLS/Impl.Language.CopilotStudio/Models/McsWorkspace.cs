@@ -75,7 +75,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models
                     continue;
                 }
 
-                var failure = Record(document.Text);
+                var failure = Record(document, CompilationAnalyzer);
                 if (failure != null)
                 {
                     yield return (document.RelativePath, failure);
@@ -83,17 +83,24 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models
             }
         }
 
-        private static McsYamlFormatException? Record(string text)
+        private static Exception? Record(McsLspDocument document, McsCompilationAnalyzer? analyzer)
         {
             try
             {
-                McsYamlValidator.ThrowIfMalformed(text);
-                return null;
+                McsYamlValidator.ThrowIfMalformed(document.Text);
             }
             catch (McsYamlFormatException failure)
             {
                 return failure;
             }
+
+            if (document.FileModel == null && document.ParsingInfo.Diagnostic is { Severity: DiagnosticSeverity.Error } diagnostic)
+            {
+                var position = diagnostic.Range?.Start;
+                return new McsYamlFormatException(diagnostic.Message, position?.Line + 1 ?? 0, position?.Character + 1 ?? 0);
+            }
+
+            return analyzer != null && analyzer.TryGetUncompiledDocumentFailure(document, out var uncompiled) ? uncompiled : null;
         }
 
         public override void AddDocument(LspDocument document)

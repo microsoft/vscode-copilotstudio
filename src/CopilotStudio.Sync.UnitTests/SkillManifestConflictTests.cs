@@ -43,6 +43,30 @@ public class SkillManifestConflictTests
         "---\n" +
         "Local 1 - When this skill is activated:\n";
 
+    private const string LiteralMarkerManifest =
+        "---\n" +
+        "name: skill-1\n" +
+        "description: description of skill 1\n" +
+        "---\n" +
+        "A git conflict starts with an indented marker:\n" +
+        "\n" +
+        "  <<<<<<< ours\n" +
+        "\n" +
+        "and ends with:\n" +
+        "\n" +
+        "  >>>>>>> theirs\n";
+
+    private const string IndentedConflictManifest =
+        "---\n" +
+        "name: skill-1\n" +
+        "description: description of skill 1\n" +
+        "---\n" +
+        "  <<<<<<< (Current Change)\n" +
+        "  Local 1 - When this skill is activated:\n" +
+        "  =======\n" +
+        "  Cloud 2 - When this skill is activated:\n" +
+        "  >>>>>>> (Incoming Change)\n";
+
     private static async Task<(WorkspaceSynchronizer Sync, InMemoryFileAccessor Accessor, DirectoryPath Workspace)> CreateWorkspaceAsync()
     {
         var (synchronizer, factory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
@@ -230,6 +254,72 @@ public class SkillManifestConflictTests
         WorkspaceSynchronizer.WriteCloudCache(accessor, definition);
 
         Assert.Null(await Record.ExceptionAsync(() => sync.UploadKnowledgeFilesAsync(workspace, new Mock<Dataverse.ISyncDataverseClient>().Object, CancellationToken.None)));
+    }
+
+    [Fact]
+    public async Task ReadWorkspaceDefinition_LiteralMarkerTextInManifest_DoesNotThrow()
+    {
+        var (sync, accessor, workspace) = await CreateWorkspaceAsync();
+        Write(accessor, "behaviors/skill-1/SKILL.md", LiteralMarkerManifest);
+
+        var read = await sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
+
+        Assert.Contains(read.Components, component => component is DialogComponent { Dialog: InlineAgentSkill });
+    }
+
+    [Fact]
+    public async Task ReadWorkspaceDefinition_IndentedConflictInManifest_Throws()
+    {
+        var (sync, accessor, workspace) = await CreateWorkspaceAsync();
+        Write(accessor, "behaviors/skill-1/SKILL.md", IndentedConflictManifest);
+
+        var failure = await Assert.ThrowsAsync<WorkspaceValidationException>(
+            () => sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true));
+
+        var diagnostic = Assert.Single(failure.Diagnostics);
+        Assert.Equal("behaviors/skill-1/SKILL.md", diagnostic.FilePath);
+        Assert.Equal(WorkspaceDiagnosticKind.MergeConflict, diagnostic.Kind);
+        Assert.Equal(5, diagnostic.Line);
+    }
+
+    [Fact]
+    public async Task Push_LiteralMarkerTextInManifest_IsNotBlocked()
+    {
+        var (sync, accessor, workspace) = await CreateWorkspaceAsync();
+        WorkspaceSynchronizer.WriteCloudCache(accessor, CloudDefinition());
+        WritePackagedSkill(accessor, LiteralMarkerManifest);
+
+        var definition = await sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
+
+        sync.ThrowIfWorkspaceInvalid(workspace, definition);
+        await PushAsync(sync, workspace, definition);
+    }
+
+    [Fact]
+    public async Task ThrowIfWorkspaceInvalid_ConflictedManifest_BlocksWithoutPushing()
+    {
+        var (sync, accessor, workspace) = await CreateWorkspaceAsync();
+        WorkspaceSynchronizer.WriteCloudCache(accessor, CloudDefinition());
+        WritePackagedSkill(accessor, CleanManifest);
+
+        var definition = await sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
+        Write(accessor, "behaviors/skill-1/SKILL.md", ConflictedManifest);
+
+        var failure = Assert.Throws<WorkspaceValidationException>(() => sync.ThrowIfWorkspaceInvalid(workspace, definition));
+
+        Assert.Equal("behaviors/skill-1/SKILL.md", Assert.Single(failure.Diagnostics).FilePath);
+    }
+
+    [Fact]
+    public async Task ThrowIfWorkspaceInvalid_CleanManifest_DoesNotBlock()
+    {
+        var (sync, accessor, workspace) = await CreateWorkspaceAsync();
+        WorkspaceSynchronizer.WriteCloudCache(accessor, CloudDefinition());
+        WritePackagedSkill(accessor, CleanManifest);
+
+        var definition = await sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
+
+        sync.ThrowIfWorkspaceInvalid(workspace, definition);
     }
 
     private static BotDefinition CloudDefinition()

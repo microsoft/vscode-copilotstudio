@@ -7670,6 +7670,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                     catch (Exception failure) when (IsProjectionSerializationFailure(failure) || failure is IOException or UnauthorizedAccessException)
                     {
                         readDiagnostics.Add(WorkspaceDiagnostic.FromException(localFile.ToString(), failure));
+                        AddUnreadableNewFile(diagnostics, localFile);
                         continue;
                     }
 
@@ -7700,7 +7701,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             // new files the user authored locally (no cloud-cache match).
             // Mirrors the classic new-file scan but uses the route-specific
             // filename → schemaName projections (TryProjectSchemaNameFromFilePath).
-            ScanForNewCliFiles(fileAccessor, definition, updatedComponents, existingSchemaNames, readDiagnostics, cancellationToken);
+            ScanForNewCliFiles(fileAccessor, definition, updatedComponents, existingSchemaNames, readDiagnostics, diagnostics, cancellationToken);
         }
 
         if (checkKnowledgeFiles)
@@ -7776,6 +7777,31 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     }
 
     private static WorkspaceDiagnostic CreateConflictDiagnostic(string filePath, string? text) => new WorkspaceDiagnostic(filePath, McsConflictMarkers.Message, McsConflictMarkers.FindFirstMarkerLine(text), 1, WorkspaceDiagnosticKind.MergeConflict);
+
+    private static void AddUnreadableNewFile(SyncDiagnosticsCollector? diagnostics, AgentFilePath path)
+    {
+        if (diagnostics != null && !path.Equals(SettingsPath) && !path.Equals(ComponentCollectionPath)
+            && !path.Equals(ReferencesCollectionPath) && !path.Equals(ConnectionReferencesPath))
+        {
+            diagnostics.AddUnreadableFile(new Change
+            {
+                ChangeType = ChangeType.Create,
+                Name = path.ToString(),
+                Uri = path.ToString(),
+            });
+        }
+    }
+
+    public void ThrowIfWorkspaceInvalid(DirectoryPath workspaceFolder, DefinitionBase workspaceDefinition)
+    {
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
+        var cloudSnapshot = ReadCloudCacheSnapshot(fileAccessor, allowMissing: true);
+        var definition = cloudSnapshot == null
+            ? workspaceDefinition
+            : DetectNewLocalSkills(fileAccessor, workspaceDefinition, cloudSnapshot, out _);
+
+        ThrowIfWorkspaceInvalid(fileAccessor, definition, BuildComponentFolderOverrides(fileAccessor, definition));
+    }
 
     private void ThrowIfWorkspaceInvalid(IFileAccessor fileAccessor, DefinitionBase definition, IReadOnlyDictionary<string, string> folderOverrides)
     {
@@ -7874,6 +7900,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         List<BotComponentBase> updatedComponents,
         HashSet<string> existingSchemaNames,
         List<WorkspaceDiagnostic> readDiagnostics,
+        SyncDiagnosticsCollector? diagnostics,
         CancellationToken cancellationToken)
     {
         var knownPaths = definition.Components
@@ -7906,6 +7933,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 catch (Exception failure) when (IsProjectionSerializationFailure(failure) || failure is IOException or UnauthorizedAccessException)
                 {
                     readDiagnostics.Add(WorkspaceDiagnostic.FromException(file.ToString(), failure));
+                    AddUnreadableNewFile(diagnostics, file);
                     continue;
                 }
 

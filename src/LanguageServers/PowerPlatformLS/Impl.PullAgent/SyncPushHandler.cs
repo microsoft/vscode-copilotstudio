@@ -32,6 +32,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             var classification = AgentClassifier.Classify(workspace.Definition, workspace.FolderPath.ToString());
             AuthoringSupportGate.EnsureAllowed(classification, SyncOperation.Push);
 
+            _synchronizer.ThrowIfWorkspaceInvalid(workspace.FolderPath, workspace.Definition);
+
             await ConnectionHelper.ProvisionConnectionsAsync(_synchronizer, workspace.FolderPath, workspace.Definition, dataverseClient, cancellationToken);
 
             var activationMode = request.DraftConnectionReferenceWorkflows ? CopilotStudio.Sync.WorkflowActivationMode.DraftWhenConnectionReferencesExist : CopilotStudio.Sync.WorkflowActivationMode.DraftWhenConnectionsUnbound;

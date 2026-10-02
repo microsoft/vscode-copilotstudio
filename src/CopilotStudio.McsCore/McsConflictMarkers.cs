@@ -20,7 +20,7 @@ internal static class McsConflictMarkers
 
     internal const string TheirsLine = TheirsMarker + " ";
 
-    internal static bool Contains(string? text) => text != null && (text.Contains(OursMarker, StringComparison.Ordinal) || text.Contains(TheirsMarker, StringComparison.Ordinal));
+    internal static bool Contains(string? text) => FindFirstMarkerLine(text) > 0;
 
     /// <summary>Wraps both sides of an unresolved conflict in git-style markers anchored at column zero.</summary>
     internal static string Build(string? ours, string? theirs) => string.Join("\n", OursLine, ours ?? string.Empty, SplitterLine, theirs ?? string.Empty, TheirsLine);
@@ -36,7 +36,7 @@ internal static class McsConflictMarkers
             return false;
         }
 
-        var lines = text!.Replace("\r\n", "\n").Split('\n');
+        var lines = SplitLines(text!);
         var start = Array.FindIndex(lines, line => line.StartsWith(OursMarker, StringComparison.Ordinal));
         var splitter = Array.FindIndex(lines, line => string.Equals(line, SplitterMarker, StringComparison.Ordinal));
         var end = Array.FindIndex(lines, line => line.StartsWith(TheirsMarker, StringComparison.Ordinal));
@@ -61,30 +61,60 @@ internal static class McsConflictMarkers
             return 0;
         }
 
-        var line = 1;
-        var lineStart = 0;
-
-        for (var index = 0; index <= text.Length; index++)
+        var lines = SplitLines(text);
+        for (var index = 0; index < lines.Length; index++)
         {
-            if (index != text.Length && text[index] != '\n')
+            if (TryGetBoundaryIndent(lines[index], out var indent) && (indent == 0 || CompletesConflictBlock(lines, index, indent)))
             {
-                continue;
+                return index + 1;
             }
-
-            if (IsConflictBoundary(text, lineStart, index))
-            {
-                return line;
-            }
-
-            line++;
-            lineStart = index + 1;
         }
 
         return 0;
     }
 
-    private static bool IsConflictBoundary(string text, int start, int end)
+    private static string[] SplitLines(string text) => text.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
+
+    private static bool TryGetBoundaryIndent(string line, out int indent)
     {
-        return (end - start) >= OursMarker.Length && (string.CompareOrdinal(text, start, OursMarker, 0, OursMarker.Length) == 0 || string.CompareOrdinal(text, start, TheirsMarker, 0, TheirsMarker.Length) == 0);
+        indent = 0;
+        while (indent < line.Length && (line[indent] == ' ' || line[indent] == '\t'))
+        {
+            indent++;
+        }
+
+        return StartsWithMarker(line, indent, OursMarker) || StartsWithMarker(line, indent, TheirsMarker);
+    }
+
+    private static bool StartsWithMarker(string line, int indent, string marker)
+        => line.Length - indent >= marker.Length && string.CompareOrdinal(line, indent, marker, 0, marker.Length) == 0;
+
+    private static bool CompletesConflictBlock(string[] lines, int oursIndex, int indent)
+    {
+        if (!StartsWithMarker(lines[oursIndex], indent, OursMarker))
+        {
+            return false;
+        }
+
+        var splitter = -1;
+        for (var index = oursIndex + 1; index < lines.Length; index++)
+        {
+            if (splitter < 0)
+            {
+                if (string.Equals(lines[index].Substring(Math.Min(indent, lines[index].Length)), SplitterMarker, StringComparison.Ordinal))
+                {
+                    splitter = index;
+                }
+
+                continue;
+            }
+
+            if (StartsWithMarker(lines[index], indent, TheirsMarker))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

@@ -627,6 +627,118 @@ public class DiscardLocalChangesTests
         Assert.Empty(unreadable);
     }
 
+    [Theory]
+    [InlineData("default-1.0.0")]
+    [InlineData("cliagent-1.0.0")]
+    public async Task ReadForDiscard_ValidSettings_ReportsNoUnreadableSettings(string template)
+    {
+        var (synchronizer, workspace, accessor) = await CreateSettingsWorkspaceAsync(template);
+        var settings = ReadText(accessor, "settings.mcs.yml");
+
+        var (_, unreadable) = await synchronizer.ReadWorkspaceDefinitionForDiscardAsync(workspace, CancellationToken.None);
+
+        Assert.Empty(unreadable);
+        Assert.Equal(settings, ReadText(accessor, "settings.mcs.yml"));
+    }
+
+    [Theory]
+    [InlineData("default-1.0.0", "topics/New.mcs.yml")]
+    [InlineData("cliagent-1.0.0", "capabilities/tools/New.mcs.yml")]
+    public async Task ReadForDiscard_MalformedNewFiles_AreDeletedWithoutChangingCachedFiles(string template, string path)
+    {
+        var (synchronizer, workspace, accessor) = await CreateSettingsWorkspaceAsync(template);
+        var cache = ReadText(accessor, ".mcs/botdefinition.json");
+        var settings = ReadText(accessor, "settings.mcs.yml");
+        var token = ReadText(accessor, ".mcs/changetoken.txt");
+        var otherPath = path.Replace("New", "Other");
+        const string malformed = "kind: AdaptiveDialog\nkind: AdaptiveDialog\n";
+        const string conflicted = "<<<<<<< ours\nkind: AdaptiveDialog\n=======\nkind: TaskDialog\n>>>>>>> theirs\n";
+        await accessor.WriteAsync(new AgentFilePath(path), malformed, CancellationToken.None);
+        await accessor.WriteAsync(new AgentFilePath(otherPath), conflicted, CancellationToken.None);
+
+        var failure = await Assert.ThrowsAsync<WorkspaceValidationException>(
+            () => synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None));
+        Assert.Equal(2, failure.Diagnostics.Length);
+        var (definition, unreadable) = await synchronizer.ReadWorkspaceDefinitionForDiscardAsync(workspace, CancellationToken.None);
+
+        Assert.Equal(new[] { path, otherPath }.OrderBy(value => value), unreadable.Select(change => change.Uri).OrderBy(value => value));
+        Assert.All(unreadable, change =>
+        {
+            Assert.Equal(ChangeType.Create, change.ChangeType);
+            Assert.False(string.IsNullOrEmpty(change.Name));
+        });
+        Assert.Empty(definition.Components);
+        Assert.Equal(malformed, ReadText(accessor, path));
+        Assert.Equal(conflicted, ReadText(accessor, otherPath));
+        var (_, detectedChanges) = synchronizer.GetLocalChanges(
+            definition, WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!, accessor, token);
+        Assert.Empty(detectedChanges);
+
+        var result = synchronizer.DiscardLocalChanges(workspace, definition, unreadable);
+
+        Assert.Equal(2, result.Deleted);
+        Assert.Equal(0, result.Restored);
+        Assert.Empty(result.Skipped);
+        Assert.False(accessor.Exists(new AgentFilePath(path)));
+        Assert.False(accessor.Exists(new AgentFilePath(otherPath)));
+        Assert.Equal(cache, ReadText(accessor, ".mcs/botdefinition.json"));
+        Assert.Equal(settings, ReadText(accessor, "settings.mcs.yml"));
+        Assert.Equal(token, ReadText(accessor, ".mcs/changetoken.txt"));
+        Assert.Empty((await synchronizer.ReadWorkspaceDefinitionForDiscardAsync(workspace, CancellationToken.None)).UnreadableChanges);
+    }
+
+    [Fact]
+    public async Task ReadForDiscard_MalformedExistingAndNewComponents_RestoresOnlyTheExistingComponent()
+    {
+        var (synchronizer, workspace, accessor) = await CreateCorruptedWorkspaceAsync("discard-mixed");
+        const string newPath = "topics/New.mcs.yml";
+        await accessor.WriteAsync(new AgentFilePath(newPath), "kind: AdaptiveDialog\nkind: AdaptiveDialog\n", CancellationToken.None);
+        var cache = ReadText(accessor, ".mcs/botdefinition.json");
+
+        var (definition, unreadable) = await synchronizer.ReadWorkspaceDefinitionForDiscardAsync(workspace, CancellationToken.None);
+
+        Assert.Equal(2, unreadable.Length);
+        Assert.Equal(ChangeType.Update, Assert.Single(unreadable.Where(change => change.Uri == "topics/Hello.mcs.yml")).ChangeType);
+        Assert.Equal(ChangeType.Create, Assert.Single(unreadable.Where(change => change.Uri == newPath)).ChangeType);
+        var result = synchronizer.DiscardLocalChanges(workspace, definition, unreadable);
+        Assert.Equal(1, result.Restored);
+        Assert.Equal(1, result.Deleted);
+        Assert.Empty(result.Skipped);
+        Assert.False(accessor.Exists(new AgentFilePath(newPath)));
+        Assert.DoesNotContain("<<<<<<<", ReadText(accessor, "topics/Hello.mcs.yml"), StringComparison.Ordinal);
+        Assert.Equal(cache, ReadText(accessor, ".mcs/botdefinition.json"));
+    }
+
+    [Theory]
+    [InlineData("connectionreferences.mcs.yml")]
+    [InlineData("references.mcs.yml")]
+    [InlineData("collection.mcs.yml")]
+    public async Task ReadForDiscard_MalformedWorkspaceMetadata_IsNotDeletedAsANewComponent(string path)
+    {
+        var (synchronizer, workspace, accessor) = await CreateSettingsWorkspaceAsync("default-1.0.0");
+        const string text = "<<<<<<< ours\nvalue: one\n=======\nvalue: two\n>>>>>>> theirs\n";
+        await accessor.WriteAsync(new AgentFilePath(path), text, CancellationToken.None);
+
+        var (definition, unreadable) = await synchronizer.ReadWorkspaceDefinitionForDiscardAsync(workspace, CancellationToken.None);
+        Assert.DoesNotContain(unreadable, change => change.Uri == path && change.ChangeType == ChangeType.Create);
+        synchronizer.DiscardLocalChanges(workspace, definition, unreadable);
+
+        Assert.Equal(text, ReadText(accessor, path));
+    }
+
+    private static async Task<(WorkspaceSynchronizer Synchronizer, DirectoryPath Workspace, IFileAccessor Accessor)> CreateSettingsWorkspaceAsync(string template)
+    {
+        var (synchronizer, factory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath($"c:/test/discard-settings-{Guid.NewGuid():N}/");
+        var accessor = factory.Create(workspace);
+        var settings = $"schemaName: discard_settings_agent\ndisplayName: Cached agent\ntemplate: {template}\n";
+        var entity = CodeSerializer.Deserialize<BotEntity>(settings)!;
+        WorkspaceSynchronizer.WriteCloudCache(accessor, new BotDefinition().WithEntity(entity));
+        await accessor.WriteAsync(new AgentFilePath("settings.mcs.yml"), settings, CancellationToken.None);
+        await accessor.WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "cached-token", CancellationToken.None);
+        return (synchronizer, workspace, accessor);
+    }
+
     private const string CorruptedSchema = "cr123_natest.topic.Hello";
 
     private static async Task<(WorkspaceSynchronizer Synchronizer, DirectoryPath Workspace, IFileAccessor Accessor)> CreateCorruptedWorkspaceAsync(string folder, bool corrupt = true)
