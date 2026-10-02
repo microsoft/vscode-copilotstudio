@@ -2,7 +2,7 @@
   <PropertyGroup>
     <AspNetCoreVersion>10.0.1</AspNetCoreVersion>
     <PowerFxPackageVersion>1.8.1</PowerFxPackageVersion>
-    <AgentsPackageVersion>2026.5.4</AgentsPackageVersion>
+    <AgentsPackageVersion>2026.9.30.262-prerelease</AgentsPackageVersion>
   </PropertyGroup>
 
   <!-- Microsoft.Agents.* packages (from CCI-Dependency feed) -->
