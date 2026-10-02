@@ -272,10 +272,21 @@ public class SkillManifestConflictTests
     }
 
     [Fact]
-    public async Task ReadWorkspaceDefinition_IndentedConflictInManifest_Throws()
+    public async Task ReadWorkspaceDefinition_IndentedConflictInManifest_IsNotBlocked()
     {
         var (sync, accessor, workspace) = await CreateWorkspaceAsync();
         Write(accessor, "behaviors/skill-1/SKILL.md", IndentedConflictManifest);
+
+        var read = await sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
+
+        Assert.Contains(read.Components, component => component is DialogComponent { Dialog: InlineAgentSkill });
+    }
+
+    [Fact]
+    public async Task ReadWorkspaceDefinition_ColumnZeroConflictInManifest_Throws()
+    {
+        var (sync, accessor, workspace) = await CreateWorkspaceAsync();
+        Write(accessor, "behaviors/skill-1/SKILL.md", ConflictedManifest);
 
         var failure = await Assert.ThrowsAsync<WorkspaceValidationException>(
             () => sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true));
@@ -283,7 +294,7 @@ public class SkillManifestConflictTests
         var diagnostic = Assert.Single(failure.Diagnostics);
         Assert.Equal("behaviors/skill-1/SKILL.md", diagnostic.FilePath);
         Assert.Equal(WorkspaceDiagnosticKind.MergeConflict, diagnostic.Kind);
-        Assert.Equal(5, diagnostic.Line);
+        Assert.True(diagnostic.Line > 0);
     }
 
     [Fact]

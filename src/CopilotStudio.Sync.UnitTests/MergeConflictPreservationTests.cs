@@ -20,6 +20,7 @@ public class MergeConflictPreservationTests
     private const string ToolPath = "capabilities/tools/action.crf9a_nagentn1_T2U1EY_iL5CJBUv.mcs.yml";
     private const string SkillSchema = "cr834_n2a8_PwdEI5.skill.get-us-weather";
     private const string BaseDescription = "base description";
+    private const string BaseDisplayName = "NAgent N1";
 
     [Fact]
     public async Task Pull_RemoteDeleteWithLocalEdit_KeepsTheConflictedFile()
@@ -269,6 +270,41 @@ public class MergeConflictPreservationTests
         Assert.Contains("<<<<<<<", fileContent, StringComparison.Ordinal);
         Assert.DoesNotContain("Renamed Remotely", fileContent, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task Pull_DisplayNameConflict_ReportsTheFileAndKeepsTheLocalName()
+    {
+        var context = await CloneAsync();
+        EditDisplayName(context, "Renamed Locally");
+        var localDefinition = await context.Sync.ReadWorkspaceDefinitionAsync(context.Workspace, CancellationToken.None);
+        SetupChangeset(context, new BotComponentUpdate(CreateTool(context.ToolId, BaseDescription, "crf9a_nagentn1_T2U1EY", version: 2, displayName: "Renamed Remotely")));
+        var conflicts = new List<WorkspaceDiagnostic>();
+
+        await PullAsync(context, localDefinition, conflicts);
+
+        var diagnostic = Assert.Single(conflicts);
+        Assert.Equal(ToolPath, diagnostic.FilePath);
+        Assert.Equal(WorkspaceDiagnosticKind.MergeConflict, diagnostic.Kind);
+        var text = ReadFile(context, ToolPath);
+        Assert.Contains("Renamed Locally", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Renamed Remotely", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Pull_DisplayNameChangedOnOneSideOnly_ReportsNothing()
+    {
+        var context = await CloneAsync();
+        var localDefinition = await context.Sync.ReadWorkspaceDefinitionAsync(context.Workspace, CancellationToken.None);
+        SetupChangeset(context, new BotComponentUpdate(CreateTool(context.ToolId, BaseDescription, "crf9a_nagentn1_T2U1EY", version: 2, displayName: "Renamed Remotely")));
+        var conflicts = new List<WorkspaceDiagnostic>();
+
+        await PullAsync(context, localDefinition, conflicts);
+
+        Assert.Empty(conflicts);
+    }
+
+    private static void EditDisplayName(PullContext context, string displayName)
+        => WriteFile(context, ToolPath, ReadFile(context, ToolPath).Replace(BaseDisplayName, displayName));
 
     private sealed record PullContext(
         WorkspaceSynchronizer Sync,

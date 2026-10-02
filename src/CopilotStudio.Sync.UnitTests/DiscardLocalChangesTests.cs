@@ -835,6 +835,13 @@ public class DiscardLocalChangesTests
         return reader.ReadToEnd();
     }
 
+    private static void WriteText(IFileAccessor accessor, string path, string content)
+    {
+        using var stream = accessor.OpenWrite(new AgentFilePath(path));
+        var bytes = System.Text.Encoding.UTF8.GetBytes(content);
+        stream.Write(bytes, 0, bytes.Length);
+    }
+
     private sealed class FaultOnDeleteFileAccessorFactory : IFileAccessorFactory
     {
         private readonly string _faultDeletePath;

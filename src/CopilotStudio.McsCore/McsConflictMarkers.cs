@@ -22,6 +22,27 @@ internal static class McsConflictMarkers
 
     internal static bool Contains(string? text) => FindFirstMarkerLine(text) > 0;
 
+    internal static int FindFirstBoundaryLine(string? text)
+    {
+        if (text == null)
+        {
+            return 0;
+        }
+
+        var lines = SplitLines(text);
+        for (var index = 0; index < lines.Length; index++)
+        {
+            if (TryGetBoundaryIndent(lines[index], out var indent) && indent == 0)
+            {
+                return index + 1;
+            }
+        }
+
+        return 0;
+    }
+
+    internal static bool ContainsBoundary(string? text) => FindFirstBoundaryLine(text) > 0;
+
     /// <summary>Wraps both sides of an unresolved conflict in git-style markers anchored at column zero.</summary>
     internal static string Build(string? ours, string? theirs) => string.Join("\n", OursLine, ours ?? string.Empty, SplitterLine, theirs ?? string.Empty, TheirsLine);
 

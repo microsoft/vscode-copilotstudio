@@ -717,10 +717,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             ? McsConflictMarkers.Build(localChange?.Description, remoteChange?.Description)
             : description;
 
+        var displayNameConflicted = !TryMergeMetaInfo(originalComponent?.DisplayName, localChange?.DisplayName, remoteChange?.DisplayName, out var displayName);
+
         var bodyConflicted = ContainsConflictMarkers(mergedString);
         var preserveComponent = bodyConflicted || (localChange != null && remoteChange == null);
-        conflicted = preserveComponent || descriptionConflicted;
-        conflictedComponentYaml = bodyConflicted || descriptionConflicted ? mergedString : null;
+        conflicted = preserveComponent || descriptionConflicted || displayNameConflicted;
+        conflictedComponentYaml = bodyConflicted || descriptionConflicted || displayNameConflicted ? mergedString : null;
 
         if (preserveComponent)
         {
@@ -730,9 +732,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
 
         var mergedContent = CodeSerializer.Deserialize(mergedString, originalComponent?.RootElement?.GetType() ?? localChange?.RootElement?.GetType() ?? remoteChange?.RootElement?.GetType() ?? typeof(BotElement), null);
-        var mergedMetaDisplayName = TryMergeMetaInfo(originalComponent?.DisplayName, localChange?.DisplayName, remoteChange?.DisplayName, out var displayName)
-            ? displayName
-            : localChange?.DisplayName;
+        var mergedMetaDisplayName = displayNameConflicted ? localChange?.DisplayName : displayName;
 
         var (component, error) = _fileParser.CompileFileModel(schemaName, mergedContent, mergedMetaDisplayName, mergedMetaDescription);
 
@@ -7600,15 +7600,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                readDiagnostics.Add(WorkspaceDiagnostic.FromException(filePath.ToString(), ex));
-                diagnostics?.AddUnreadableFile(new Change
-                {
-                    ChangeType = ChangeType.Update,
-                    Name = component.SchemaNameString,
-                    Uri = filePath.ToString(),
-                    SchemaName = component.SchemaNameString,
-                    ChangeKind = component.Kind.ToString(),
-                });
+                RecordUnreadableComponent(readDiagnostics, diagnostics, filePath, component, ex);
                 updatedComponents.Add(component);
                 continue;
             }
@@ -7622,7 +7614,16 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
             if (error != null || parsed == null)
             {
-                // Fall back to cloud cache version if file cannot be parsed
+                if (component.RootElement != null)
+                {
+                    RecordUnreadableComponent(
+                        readDiagnostics,
+                        diagnostics,
+                        filePath,
+                        component,
+                        error ?? new InvalidOperationException("This file could not be interpreted as a supported component, so the last synced version is being used. Fix or remove it, then sync again."));
+                }
+
                 updatedComponents.Add(component);
                 continue;
             }
@@ -7784,7 +7785,22 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return readDefinition;
     }
 
-    private static WorkspaceDiagnostic CreateConflictDiagnostic(string filePath, string? text) => new WorkspaceDiagnostic(filePath, McsConflictMarkers.Message, McsConflictMarkers.FindFirstMarkerLine(text), 1, WorkspaceDiagnosticKind.MergeConflict);
+    private static void RecordUnreadableComponent(List<WorkspaceDiagnostic> readDiagnostics, SyncDiagnosticsCollector? diagnostics, AgentFilePath filePath, BotComponentBase component, Exception failure)
+    {
+        readDiagnostics.Add(WorkspaceDiagnostic.FromException(filePath.ToString(), failure));
+        diagnostics?.AddUnreadableFile(new Change
+        {
+            ChangeType = ChangeType.Update,
+            Name = component.SchemaNameString,
+            Uri = filePath.ToString(),
+            SchemaName = component.SchemaNameString,
+            ChangeKind = component.Kind.ToString(),
+        });
+    }
+
+    private static WorkspaceDiagnostic CreateConflictDiagnostic(string filePath, string? text) => CreateConflictDiagnostic(filePath, McsConflictMarkers.FindFirstMarkerLine(text));
+
+    private static WorkspaceDiagnostic CreateConflictDiagnostic(string filePath, int line) => new WorkspaceDiagnostic(filePath, McsConflictMarkers.Message, line, 1, WorkspaceDiagnosticKind.MergeConflict);
 
     private static void AddUnreadableNewFile(SyncDiagnosticsCollector? diagnostics, AgentFilePath path)
     {
@@ -7908,12 +7924,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 ? SkillLayout.ReadManifestText(fileAccessor, folderName)
                 : skill.Content;
 
-            if (!McsConflictMarkers.Contains(manifestText))
+            if (!McsConflictMarkers.ContainsBoundary(manifestText))
             {
                 continue;
             }
 
-            readDiagnostics.Add(CreateConflictDiagnostic(filePath, manifestText));
+            readDiagnostics.Add(CreateConflictDiagnostic(filePath, McsConflictMarkers.FindFirstBoundaryLine(manifestText)));
         }
     }
 
