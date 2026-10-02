@@ -2,17 +2,18 @@
   <PropertyGroup>
     <AspNetCoreVersion>10.0.1</AspNetCoreVersion>
     <PowerFxPackageVersion>1.8.1</PowerFxPackageVersion>
-    <AgentsPackageVersion>2026.5.4</AgentsPackageVersion>
   </PropertyGroup>
 
-  <!-- Microsoft.Agents.* packages (from CCI-Dependency feed) -->
+  <!-- Microsoft.Agents.* (objectmodel) packages, published to nuget.org.
+       Versions are kept current by Dependabot (the "objectmodel" group in
+       .github/dependabot.yml). The six packages publish in lockstep at one version. -->
   <ItemGroup>
-    <PackageReference Update="Microsoft.Agents.ObjectModel" Version="$(AgentsPackageVersion)" />
-    <PackageReference Update="Microsoft.Agents.ObjectModel.Dataverse" Version="$(AgentsPackageVersion)" />
-    <PackageReference Update="Microsoft.Agents.ObjectModel.NodeGenerators" Version="$(AgentsPackageVersion)" />
-    <PackageReference Update="Microsoft.Agents.ObjectModel.PowerFx" Version="$(AgentsPackageVersion)" />
-    <PackageReference Update="Microsoft.Agents.Platform.Content" Version="$(AgentsPackageVersion)" />
-    <PackageReference Update="Microsoft.Agents.Platform.Content.Internal" Version="$(AgentsPackageVersion)" />
+    <PackageReference Update="Microsoft.Agents.ObjectModel" Version="2026.5.4" />
+    <PackageReference Update="Microsoft.Agents.ObjectModel.Dataverse" Version="2026.5.4" />
+    <PackageReference Update="Microsoft.Agents.ObjectModel.NodeGenerators" Version="2026.5.4" />
+    <PackageReference Update="Microsoft.Agents.ObjectModel.PowerFx" Version="2026.5.4" />
+    <PackageReference Update="Microsoft.Agents.Platform.Content" Version="2026.5.4" />
+    <PackageReference Update="Microsoft.Agents.Platform.Content.Internal" Version="2026.5.4" />
   </ItemGroup>
 
   <!-- Runtime / framework packages -->
