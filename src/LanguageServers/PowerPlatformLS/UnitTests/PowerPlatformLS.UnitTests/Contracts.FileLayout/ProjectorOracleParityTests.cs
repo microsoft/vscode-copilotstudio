@@ -476,7 +476,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
 
                 { "agent", new[] { "Microsoft.Agents.ObjectModel.GptComponentMetadata", "Microsoft.Agents.ObjectModel.AgentDialog" } },
                 { "actions/", new[] { "Microsoft.Agents.ObjectModel.TaskDialog" } },
-                { "agents/", new[] { "Microsoft.Agents.ObjectModel.TaskDialog" } },
+                { "agents/", new[] { "Microsoft.Agents.ObjectModel.TaskDialog", "Microsoft.Agents.ObjectModel.ConnectedAgentToolBase" } },
                 { "knowledge/", new[] { "Microsoft.Agents.ObjectModel.KnowledgeSource" } },
                 { "knowledge/files/", new[] { "Microsoft.Agents.ObjectModel.FileAttachmentComponent" } },
                 { "topics/", new[] { "Microsoft.Agents.ObjectModel.AdaptiveDialog" } },
@@ -484,7 +484,9 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
                 { "entities/", new[] { "Microsoft.Agents.ObjectModel.EntityWithAnnotatedSamples" } },
                 { "settings/", new[] { "Microsoft.Agents.ObjectModel.BotSettingsBase" } },
                 { "trigger/", new[] { "Microsoft.Agents.ObjectModel.ExternalTriggerConfiguration" } },
-                { "skills/", new[] { "Microsoft.Agents.ObjectModel.SkillDefinition" } },
+                { "skills/", new[] { "Microsoft.Agents.ObjectModel.SkillDefinition", "Microsoft.Agents.ObjectModel.AgentSkillBase" } },
+                { "tools/", new[] { "Microsoft.Agents.ObjectModel.AgentToolBase" } },
+                { "hooks/", new[] { "Microsoft.Agents.ObjectModel.AgentHook" } },
                 { "translations/", new[] { "Microsoft.Agents.ObjectModel.AdaptiveDialog" } },
 
                 // CLI three-layer (D21). Knowledge/file attachments are shared types, so
