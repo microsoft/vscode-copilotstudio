@@ -1,11 +1,12 @@
 
 const { buildLanguageServer } = require('../../shared/scripts/buildLsp');
+const { getHostRuntimeIdentifier } = require('../../shared/scripts/hostRuntime');
 const path = require('path');
 const localLanguageServerPath = path.join(__dirname, '..', '..', '..', 'LanguageServers', 'PowerPlatformLS', 'LanguageServerHost', 'LanguageServerHost.csproj');
 const outputPath = path.join(__dirname, "..", "lspOut");
 const rawArgs = process.argv.slice(2);
 
-let target = 'win-x64';
+let target = getHostRuntimeIdentifier();
 
 for (let i = 0; i < rawArgs.length; i++) {
     const arg = rawArgs[i];

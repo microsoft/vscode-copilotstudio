@@ -19,8 +19,7 @@ const targets = {
     'linux-x64': 'linux-x64',
     'linux-arm64': 'linux-arm64',
     'darwin-x64': 'osx-x64',
-    // Keep this aligned with extension.proj: macOS packages currently use the x64 LSP binary for both VSIX targets.
-    'darwin-arm64': 'osx-x64',
+    'darwin-arm64': 'osx-arm64',
 };
 
 const rawArgs = process.argv.slice(2);

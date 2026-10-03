@@ -4,6 +4,7 @@ obj/**
 out/**
 bin/**
 scripts/buildLsp.js
+scripts/tests/**
 node_modules/**
 extension.proj
 .gitignore

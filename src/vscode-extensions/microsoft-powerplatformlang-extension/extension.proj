@@ -52,9 +52,10 @@
     <Exec Command="..\node_modules\.bin\vsce package --target linux-arm64 --no-dependencies $(PreReleaseArg)" WorkingDirectory="$(WorkingDirectory)" ConsoleToMsBuild="true"/>
     <RemoveDir Directories="$(WorkingDirectory)\lspOut\" />
 
-    <!-- macOS will pack x64 for both targets -->
     <Copy SourceFiles ="@(LSPOsxX64ToCopy)" DestinationFolder="$(WorkingDirectory)\lspOut\%(RecursiveDir)" />
     <Exec Command="..\node_modules\.bin\vsce package --target darwin-x64 --no-dependencies $(PreReleaseArg)" WorkingDirectory="$(WorkingDirectory)" ConsoleToMsBuild="true"/>
+    <RemoveDir Directories="$(WorkingDirectory)\lspOut\" />
+    <Copy SourceFiles ="@(LSPOsxARM64ToCopy)" DestinationFolder="$(WorkingDirectory)\lspOut\%(RecursiveDir)" />
     <Exec Command="..\node_modules\.bin\vsce package --target darwin-arm64 --no-dependencies $(PreReleaseArg)" WorkingDirectory="$(WorkingDirectory)" ConsoleToMsBuild="true"/>
     <RemoveDir Directories="$(WorkingDirectory)\lspOut\" />
   </Target>

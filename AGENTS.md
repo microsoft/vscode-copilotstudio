@@ -49,6 +49,9 @@ npm run lint
 # Run VS Code extension tests
 npm test
 
+# Run packaging/build-script tests (no dependencies or VS Code required)
+npm run test:packaging
+
 # Package a target-specific pre-release VSIX (default target: win32-x64)
 npm run package -- --target win32-x64
 
@@ -75,7 +78,7 @@ Supported targets:
 | `linux-x64` | `linux-x64` |
 | `linux-arm64` | `linux-arm64` |
 | `osx-x64` | `darwin-x64` |
-| `osx-x64` | `darwin-arm64` |
+| `osx-arm64` | `darwin-arm64` |
 
 ```bash
 npm run package -- --target <vs-code-target>
@@ -396,7 +399,8 @@ agent-name/
 The extension publishes LSP binaries for 6 platforms via `extension.proj`:
 - `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64`
 - Each publish uses `--self-contained` and `PublishSingleFile`
-- macOS uses x64 binary for both x64 and arm64 targets
+- Every VS Code target ships the language server binary built for its own architecture; `darwin-arm64` ships the `osx-arm64` binary so Apple Silicon machines do not require Rosetta 2
+- `npm run buildLsp` / `npm run watchLsp` default to the host machine's runtime identifier; pass `--target <runtime-identifier>` to override
 
 ### LSP Transport
 
@@ -418,6 +422,13 @@ The extension publishes LSP binaries for 6 platforms via `extension.proj`:
 - Location: `client/src/tests/host/`
 - Test workspace: `LanguageServers/PowerPlatformLS/UnitTests/PowerPlatformLS.UnitTests/TestData/WorkspaceWithSubAgents`
 - Runner: `scripts/runHostTests.js` loads `client/out/tests/host/runner.js`
+
+### Packaging Tests
+- Framework: Node test runner (`node --test`), no npm dependencies and no VS Code host
+- Location: `src/vscode-extensions/microsoft-powerplatformlang-extension/scripts/tests/`
+- Command: `npm run test:packaging`
+- Guards the architecture contract: every VS Code target must publish, stage, and package the language server runtime identifier matching its own OS and architecture, and `buildLsp`/`watchLsp` must default to the host runtime identifier
+- Not run by PR CI (which is .NET only); run locally when changing packaging targets or language server build scripts
 
 ## CI/CD
 - Pull requests to `main` run `.github/workflows/pr.yml`, which restores, builds, and tests `src/build.proj` in Debug configuration.
