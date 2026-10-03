@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { resetAccount, isIdentityUnbound, resolveAccountIdentity } from '../clients/account';
 import { SyncRequest, SyncResponse, WorkflowResponse, AIPromptResponse } from '../types';
-import { CopilotStudioWorkspace, tryRepairAgentManagementEndpoint, tryRepairAccountInfo } from './localWorkspaces';
+import { CopilotStudioWorkspace, getAccountRepairFailureMessage, refreshSyncInfoFromConnection, repairAccountInfo, tryRepairAgentManagementEndpoint } from './localWorkspaces';
 import { uploadKnowledgeFiles } from '../knowledgeFiles/uploadKnowledgeFiles';
 import { virtualKnowledgeFileSystemProvider } from '../knowledgeFiles/virtualKnowledgeFile';
 import { knowledgeTreeDataProvider } from '../knowledgeFiles/knowledgeFileTree';
@@ -210,12 +210,23 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
 }
 
 export async function sync(workspace: CopilotStudioWorkspace, displayText: string, methodName: string, silent: boolean, suppressErrorNotification = false, suppressDisabledWorkflowWarnings = false, draftConnectionReferenceWorkflows = false, retryOnUserNotMember = true): Promise<SyncResponse> {
-  const { syncInfo, workspaceUri } = workspace;
-  if (!syncInfo) {
+  const { workspaceUri } = workspace;
+  if (!workspace.syncInfo) {
     throw new Error(`${displayText} failed. Connection file .mcs::conn.json is missing, please clone again.`);
   }
 
-  await tryRepairAccountInfo(syncInfo, workspaceUri);
+  let repairOutcome = await repairAccountInfo(workspace.syncInfo, workspaceUri);
+  if (repairOutcome === 'stale') {
+    repairOutcome = await repairAccountInfo(workspace.syncInfo, workspaceUri);
+  }
+  if (repairOutcome !== 'repaired' && repairOutcome !== 'already-bound') {
+    throw new Error(getAccountRepairFailureMessage(displayText, repairOutcome));
+  }
+
+  const syncInfo = refreshSyncInfoFromConnection(workspace.syncInfo, workspaceUri);
+  if (!syncInfo) {
+    throw new Error(`${displayText} failed. Connection file .mcs::conn.json is missing or invalid, please clone again.`);
+  }
 
   // On-demand repair: resolve missing agentManagementEndpoint from BAP single-environment lookup.
   // PAC-cloned workspaces may have null endpoint when user lacks PP admin role.
@@ -237,6 +248,7 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
     throw new Error(`${displayText} failed. Could not determine which account this agent belongs to. Select the account that owns it and try again.`);
   }
 
+  workspace.syncInfo = syncInfo;
   const request: SyncRequest = {
     ...await buildLspRequestPayload(syncInfo, undefined, undefined, true),
     workspaceUri,
@@ -257,6 +269,7 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
       logger.logInfo(TelemetryEventsKeys.SyncWorkspaceSuccess, successLog.message, successLog.data);
     }
     logAIPromptIssues(result.aiPromptResponse);
+    logSyncConflicts(result.message);
     return result;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -281,6 +294,15 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
       throw error;
     }
   }
+}
+
+export function logSyncConflicts(message: string | undefined): boolean {
+  if (!message) {
+    return false;
+  }
+
+  logger.logWarning(TelemetryEventsKeys.SyncWorkspaceWarning, message);
+  return true;
 }
 
 export function logWorkflowIssues(workflows: WorkflowResponse[] | undefined, suppressDisabledWarnings = false): boolean {

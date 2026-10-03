@@ -9,6 +9,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
+    using System.Collections.Generic;
     using System.Collections.Immutable;
     using System.Threading;
     using System.Threading.Tasks;
@@ -24,15 +25,18 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             _fileProvider = fileProvider;
         }
 
-        protected override async Task<(DefinitionBase, ImmutableArray<WorkflowResponse>, ImmutableArray<SyncDataverseClient.AIPromptResponse>)> ExecuteAsync(SyncAgentRequest request, IMcsWorkspace workspace, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CancellationToken cancellationToken)
+        protected override bool BlocksOnUnreadableDocuments => true;
+
+        protected override async Task<(DefinitionBase Definition, ImmutableArray<WorkflowResponse> Workflows, ImmutableArray<SyncDataverseClient.AIPromptResponse> AIPrompts, string Warning)> ExecuteAsync(SyncAgentRequest request, IMcsWorkspace workspace, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CancellationToken cancellationToken)
         {
-            var updatedDefinition = await _synchronizer.PullExistingChangesAsync(workspace.FolderPath, operationContext, workspace.Definition, dataverseClient, syncInfo, cancellationToken).ConfigureAwait(false);
+            var conflicts = new List<CopilotStudio.Sync.WorkspaceDiagnostic>();
+            var updatedDefinition = await _synchronizer.PullExistingChangesAsync(workspace.FolderPath, operationContext, workspace.Definition, dataverseClient, syncInfo, cancellationToken, downloadAllKnowledgeFiles: false, conflicts).ConfigureAwait(false);
             if (workspace is Workspace trackedWorkspace)
             {
                 trackedWorkspace.RemoveMissingDocuments(_fileProvider);
             }
 
-            return (updatedDefinition, ImmutableArray<WorkflowResponse>.Empty, ImmutableArray<Microsoft.CopilotStudio.Sync.Dataverse.SyncDataverseClient.AIPromptResponse>.Empty);
+            return (updatedDefinition, ImmutableArray<WorkflowResponse>.Empty, ImmutableArray<Microsoft.CopilotStudio.Sync.Dataverse.SyncDataverseClient.AIPromptResponse>.Empty, LspExceptionHandler.DescribeConflicts(conflicts));
         }
     }
 }

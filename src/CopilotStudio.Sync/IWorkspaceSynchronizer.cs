@@ -135,6 +135,7 @@ public interface IWorkspaceSynchronizer
     /// <param name="syncInfo">Synchronization information for the agent.</param>
     /// <param name="cancellationToken">Used to cancel the request</param>
     /// <param name="downloadAllKnowledgeFiles">True/False to download or not all knowledge files.</param>
+    /// <param name="conflicts">Receives one diagnostic per file left with unresolved merge markers by this pull.</param>
     /// <returns>A task representing the asynchronous operation</returns>
     Task<DefinitionBase> PullExistingChangesAsync(
         DirectoryPath workspaceFolder,
@@ -143,7 +144,8 @@ public interface IWorkspaceSynchronizer
         ISyncDataverseClient dataverseClient,
         AgentSyncInfo syncInfo,
         CancellationToken cancellationToken,
-        bool downloadAllKnowledgeFiles = false);
+        bool downloadAllKnowledgeFiles = false,
+        ICollection<WorkspaceDiagnostic>? conflicts = null);
 
     /// <summary>
     /// Pushes local changes to the cloud service and receives updated change information.
@@ -192,6 +194,8 @@ public interface IWorkspaceSynchronizer
         ImmutableArray<AIPromptMetadata> aiPrompts,
         CancellationToken cancellationToken,
         AuthoringOperationContextBase? contentSaveContextOverride = null);
+
+    Task ThrowIfWorkspaceInvalidAsync(DirectoryPath workspaceFolder, DefinitionBase workspaceDefinition, CancellationToken cancellationToken);
 
     /// <summary>
     /// Lists the agent's knowledge files from the local cloud-cache snapshot.
@@ -405,6 +409,14 @@ public interface IWorkspaceSynchronizer
     /// <param name="checkKnowledgeFiles">Whether to check knowledge files in the workspace.</param>
     /// <returns>The workspace definition.</returns>
     Task<DefinitionBase> ReadWorkspaceDefinitionAsync(DirectoryPath workspaceFolder, CancellationToken cancellationToken, bool checkKnowledgeFiles = false);
+
+    /// <summary>
+    /// Reads the workspace definition without failing on unreadable files, so a discard can restore them.
+    /// </summary>
+    /// <param name="workspaceFolder">The workspace folder.</param>
+    /// <param name="cancellationToken">Cancellation token to cancel the operation.</param>
+    /// <returns>The workspace definition and a restore change for every file whose content could not be parsed.</returns>
+    Task<(DefinitionBase Definition, ImmutableArray<Change> UnreadableChanges)> ReadWorkspaceDefinitionForDiscardAsync(DirectoryPath workspaceFolder, CancellationToken cancellationToken);
 
     /// <summary>
     /// Verifies a push by re-cloning the agent from the server to a temporary workspace

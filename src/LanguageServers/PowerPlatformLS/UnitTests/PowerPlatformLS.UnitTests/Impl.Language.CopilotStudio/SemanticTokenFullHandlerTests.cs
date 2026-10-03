@@ -39,5 +39,26 @@
             Assert.True(result.Data?.Length > 0);
             Assert.Equal(requestContext.Index.ToString(), result.ResultId);
         }
+
+        [Fact]
+        public async Task SemanticTokens_ConflictedDocument_ReturnsNoTokensInsteadOfFailingTheRequest()
+        {
+            var world = new World();
+            var doc = world.AddFile("topic2.mcs.yml");
+            var requestContext = world.GetRequestContext(doc, 0);
+
+            requestContext.Document.UpdateText(
+                "<<<<<<< (Current Change)\nkind: AdaptiveDialog\ndisplayName: Local\n=======\nkind: AdaptiveDialog\ndisplayName: Remote\n>>>>>>> (Incoming Change)\n");
+
+            var handler = new SemanticTokenFullHandler(Mock.Of<ILspLogger>());
+
+            var result = await handler.HandleRequestAsync(
+                new SemanticTokensParams { TextDocument = new TextDocumentIdentifier { Uri = requestContext.Document.Uri } },
+                requestContext,
+                CancellationToken.None);
+
+            Assert.NotNull(result);
+            Assert.Equal(requestContext.Index.ToString(), result.ResultId);
+        }
     }
 }

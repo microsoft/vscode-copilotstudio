@@ -7,7 +7,8 @@ import { AccountInfo, AgentSyncInfo } from "../types";
 import { getIcon } from "../icon";
 import { getClusterCategory, isChildUri, blankToUndefined } from '../utils/genericUtils';
 import { DEFAULT_ENVIRONMENT_LOOKUPS, EnvironmentLookup } from '../clients/bapClient';
-import { onAccountChange, findAccountsByTenant, getStoredAccountSummaries, hasUsableTenantId, extractTenantId, resolveAccountIdentity, selectAccountCandidates, StoredAccountSummary } from '../clients/account';
+import { AuthError, extractTenantId, getAuthAccountState, getStoredAccountSummaries, hasUsableTenantId, onAuthStateChanged, resolveAccountIdentity, selectAccountCandidates, StoredAccountSummary } from '../clients/account';
+import { whoAmIAsync } from '../clients/dataverseClient';
 import { pickAccount } from '../services/accountEnvPicker';
 import { LspMethods } from '../constants';
 import logger from '../services/logger';
@@ -50,31 +51,159 @@ let refreshInProgress = false;
 const MAX_REFRESH_ITERATIONS = 3;
 let iterations = 0;
 
-// Per-session cache of workspaces where endpoint repair was attempted and failed.
-// Prevents repeated BAP calls on every workspace refresh.
-// Cleared on auth/session changes so a sign-in can retry.
-const repairAttempted = new Set<string>();
+const MAX_CONCURRENT_ACCOUNT_REPAIRS = 3;
+const TRANSIENT_ACCOUNT_REPAIR_RETRY_MS = 30_000;
+const accountRepairQueue = new Map<string, string>();
+const runningAccountRepairs = new Map<string, boolean>();
+const accountRepairRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const activeWorkspaceRepairKeys = new Set<string>();
+let accountRepairVersion = 0;
+let disposed = false;
 
-const accountRepairAttempted = new Set<string>();
+interface ConnectionFile {
+  contents: string;
+  syncInfo: Partial<AgentSyncInfo>;
+}
 
-const clearRepairCaches = (): void => {
-  repairAttempted.clear();
-  accountRepairAttempted.clear();
+export interface AccountRepairInput {
+  connectionContents: string;
+  dataverseEndpoint: string;
+  tenantId?: string;
+  accountId?: string;
+  accountEmail?: string;
+}
+
+export type AccountRepairOutcome =
+  | 'repaired'
+  | 'already-bound'
+  | 'ambiguous'
+  | 'inaccessible'
+  | 'transient-failure'
+  | 'stale'
+  | 'failed';
+
+export function getAccountRepairFailureMessage(displayText: string, outcome: AccountRepairOutcome): string {
+  switch (outcome) {
+    case 'ambiguous':
+      return `${displayText} failed. Select the appropriate account, or add it if it is not listed.`;
+    case 'inaccessible':
+      return `${displayText} failed. This account cannot access the environment. Select an account with access, or add it if it is not listed.`;
+    case 'transient-failure':
+      return `${displayText} failed. Could not verify account access. Try again.`;
+    case 'stale':
+      return `${displayText} failed because the connection changed. Try again.`;
+    default:
+      return `${displayText} failed. Check .mcs::conn.json and try again.`;
+  }
+}
+
+type ConnectionFileUpdateResult = 'updated' | 'stale' | 'failed';
+
+const getWorkspaceRepairKey = (workspaceUri: string): string => {
+  const workspacePath = path.resolve(Uri.parse(workspaceUri).fsPath);
+  return process.platform === 'win32' ? workspacePath.toLowerCase() : workspacePath;
 };
 
-const updateConnectionFile = (workspaceUri: string, mutate: (connectionData: Record<string, unknown>) => void): boolean => {
+const readConnectionFile = (workspaceUri: string): ConnectionFile | undefined => {
   const connFilePath = path.join(Uri.parse(workspaceUri).fsPath, '.mcs', 'conn.json');
-  if (!fs.existsSync(connFilePath)) {
-    return false;
+  try {
+    const contents = fs.readFileSync(connFilePath, 'utf-8');
+    const {
+      AccountInfo,
+      AgentId,
+      AgentManagementEndpoint,
+      ComponentCollectionId,
+      DataverseEndpoint,
+      EnvironmentDisplayName,
+      EnvironmentId,
+      SolutionVersions,
+    } = JSON.parse(contents);
+    const accountInfo: AccountInfo | undefined = AccountInfo
+      ? {
+        accountId: blankToUndefined(AccountInfo.AccountId ?? undefined),
+        accountEmail: blankToUndefined(AccountInfo.AccountEmail ?? undefined),
+        tenantId: blankToUndefined(AccountInfo.TenantId ?? undefined) ?? '',
+        clusterCategory: AccountInfo.clusterCategory ?? undefined,
+      }
+      : undefined;
+    return {
+      contents,
+      syncInfo: {
+        dataverseEndpoint: blankToUndefined(DataverseEndpoint ?? undefined),
+        agentManagementEndpoint: blankToUndefined(AgentManagementEndpoint ?? undefined),
+        environmentId: blankToUndefined(EnvironmentId ?? undefined),
+        environmentDisplayName: blankToUndefined(EnvironmentDisplayName ?? undefined),
+        agentId: blankToUndefined(AgentId ?? undefined),
+        componentCollectionId: blankToUndefined(ComponentCollectionId ?? undefined),
+        accountInfo,
+        solutionVersions: SolutionVersions
+          ? {
+            solutionVersions: SolutionVersions.SolutionVersions ?? {},
+            copilotStudioSolutionVersion: blankToUndefined(SolutionVersions.CopilotStudioSolutionVersion ?? undefined) ?? '',
+          }
+          : undefined,
+      },
+    };
+  } catch {
+    return undefined;
+  }
+};
+
+const readAccountRepairInput = (workspaceUri: string): AccountRepairInput | undefined => {
+  const connection = readConnectionFile(workspaceUri);
+  if (!connection) {
+    return undefined;
+  }
+
+  const {
+    accountInfo,
+    dataverseEndpoint,
+  } = connection.syncInfo;
+  if (!accountInfo || !dataverseEndpoint) {
+    return undefined;
   }
 
   try {
-    const connectionData = JSON.parse(fs.readFileSync(connFilePath, 'utf-8')) as Record<string, unknown>;
-    mutate(connectionData);
-    fs.writeFileSync(connFilePath, JSON.stringify(connectionData), 'utf-8');
-    return true;
+    const endpoint = Uri.parse(dataverseEndpoint, true);
+    if (endpoint.scheme !== 'https' || !endpoint.authority) {
+      return undefined;
+    }
   } catch {
-    return false;
+    return undefined;
+  }
+
+  return {
+    connectionContents: connection.contents,
+    dataverseEndpoint,
+    tenantId: accountInfo.tenantId,
+    accountId: accountInfo.accountId,
+    accountEmail: accountInfo.accountEmail,
+  };
+};
+
+const updateConnectionFileIfUnchanged = (
+  workspaceUri: string,
+  expectedContents: string,
+  mutate: (connectionData: Record<string, unknown>) => boolean,
+  canPersist: () => boolean = () => true
+): ConnectionFileUpdateResult => {
+  const connFilePath = path.join(Uri.parse(workspaceUri).fsPath, '.mcs', 'conn.json');
+  try {
+    const currentContents = fs.readFileSync(connFilePath, 'utf-8');
+    if (!canPersist() || currentContents !== expectedContents) {
+      return 'stale';
+    }
+
+    const connectionData = JSON.parse(currentContents) as Record<string, unknown> | null;
+    if (!connectionData || typeof connectionData !== 'object' || Array.isArray(connectionData)
+      || !mutate(connectionData)) {
+      return 'failed';
+    }
+
+    fs.writeFileSync(connFilePath, JSON.stringify(connectionData), 'utf-8');
+    return 'updated';
+  } catch {
+    return 'failed';
   }
 };
 
@@ -185,8 +314,32 @@ export const hasConnectionFileInWorkspace = (workspaceUri: string): boolean => {
 };
 
 export async function initializeLocalWorkspaces(context: ExtensionContext) {
-  // Clear endpoint repair negative cache on auth changes so sign-in can retry.
-  context.subscriptions.push(await onAccountChange(() => clearRepairCaches()));
+  disposed = false;
+  accountRepairVersion++;
+  context.subscriptions.push(onAuthStateChanged(() => {
+    if (disposed) {
+      return;
+    }
+    accountRepairVersion++;
+    for (const timer of accountRepairRetryTimers.values()) {
+      clearTimeout(timer);
+    }
+    accountRepairRetryTimers.clear();
+    for (const localWorkspace of workspaceCache) {
+      enqueueAutomaticAccountRepair(localWorkspace.workspaceUri, true);
+    }
+  }));
+  context.subscriptions.push(Disposable.create(() => {
+    disposed = true;
+    accountRepairVersion++;
+    for (const timer of accountRepairRetryTimers.values()) {
+      clearTimeout(timer);
+    }
+    accountRepairRetryTimers.clear();
+    accountRepairQueue.clear();
+    activeWorkspaceRepairKeys.clear();
+    refreshPending = false;
+  }));
 
   const allFileWatcher = workspace.createFileSystemWatcher('**/*.*');
   allFileWatcher.onDidChange(async (uri) => {
@@ -197,18 +350,28 @@ export async function initializeLocalWorkspaces(context: ExtensionContext) {
       || loweredPath.endsWith('settings.mcs.yml')
       || loweredPath.endsWith('collection.mcs.yml')) {
       if (loweredPath.endsWith('.mcs/conn.json')) {
-        clearRepairCaches(); // conn.json changed — allow repair to re-run.
+        const workspaceUri = Uri.file(path.dirname(path.dirname(uri.fsPath))).toString();
+        enqueueAutomaticAccountRepair(workspaceUri, true);
       }
       refreshAndNotify();
     }
   });
+  context.subscriptions.push(allFileWatcher);
 
   context.subscriptions.push(workspace.onDidOpenTextDocument(e => {
     e.uri.scheme === 'file' && refreshAndNotify();
   }));
 
   context.subscriptions.push(
-    workspace.onDidChangeWorkspaceFolders(() => {
+    workspace.onDidChangeWorkspaceFolders(event => {
+      for (const removed of event.removed) {
+        const removedUri = removed.uri.toString();
+        for (const localWorkspace of workspaceCache) {
+          if (isChildUri(localWorkspace.workspaceUri, removedUri)) {
+            cancelAutomaticAccountRepair(localWorkspace.workspaceUri);
+          }
+        }
+      }
       refreshAndNotify();
     })
   );
@@ -223,6 +386,9 @@ export function addWorkspaceChangeSubscription(callback: WorkspaceChangeCallback
 }
 
 export async function updateWorkspaceCache(ws: CopilotStudioWorkspace): Promise<CopilotStudioWorkspace[]> {
+  if (disposed) {
+    return workspaceCache;
+  }
   const existingIndex = workspaceCache.findIndex(w => w.workspaceUri === ws.workspaceUri);
   if (existingIndex !== -1) {
     workspaceCache[existingIndex] = ws;
@@ -235,6 +401,9 @@ export async function updateWorkspaceCache(ws: CopilotStudioWorkspace): Promise<
 }
 
 async function refreshAndNotify() {
+  if (disposed) {
+    return;
+  }
   refreshPending = true;
 
   if (refreshInProgress) {
@@ -251,10 +420,18 @@ async function refreshAndNotify() {
         break;
       }
       refreshPending = false;
-      workspaceCache = await listWorkspaces();
+      const workspaces = await listWorkspaces();
+      if (!workspaces || disposed) {
+        return;
+      }
+      workspaceCache = workspaces;
+      reconcileAutomaticAccountRepairs(workspaceCache);
 
       // Notify subscribers (they might call refreshAndNotify again; that just sets refreshPending=true).
       for (const callback of callbacks) {
+        if (disposed) {
+          return;
+        }
         callback(workspaceCache);
       }
     }
@@ -264,12 +441,24 @@ async function refreshAndNotify() {
   }
 }
 
-async function listWorkspaces(): Promise<CopilotStudioWorkspace[]> {
+async function listWorkspaces(): Promise<CopilotStudioWorkspace[] | undefined> {
   try {
     const workspaces: CopilotStudioWorkspace[] = [];
     const response = await lspClient.sendRequest<ListWorkspacesResponse>(LspMethods.LIST_WORKSPACES);
+    if (disposed) {
+      return undefined;
+    }
     for (const workspaceUri of response.workspaceUris) {
+      if (!isInCurrentWorkspaceFolders(workspaceUri)) {
+        continue;
+      }
       const data = await lspClient.sendRequest<WorkspaceDetailsResponse>(LspMethods.GET_WORKSPACE_DETAILS, { workspaceUri });
+      if (disposed) {
+        return undefined;
+      }
+      if (!isInCurrentWorkspaceFolders(workspaceUri)) {
+        continue;
+      }
       data.icon = getWorkspaceIcon(data.type, data.IconFilePath);
       workspaces.push(data);
     }
@@ -279,35 +468,208 @@ async function listWorkspaces(): Promise<CopilotStudioWorkspace[]> {
   }
 }
 
+const isInCurrentWorkspaceFolders = (workspaceUri: string): boolean =>
+  workspace.workspaceFolders?.some(folder => isChildUri(workspaceUri, folder.uri.toString())) ?? false;
+
+const cancelAutomaticAccountRepair = (workspaceUri: string): void => {
+  const key = getWorkspaceRepairKey(workspaceUri);
+  cancelAutomaticAccountRepairByKey(key);
+};
+
+const cancelAutomaticAccountRepairByKey = (key: string): void => {
+  activeWorkspaceRepairKeys.delete(key);
+  const retryTimer = accountRepairRetryTimers.get(key);
+  if (retryTimer) {
+    clearTimeout(retryTimer);
+    accountRepairRetryTimers.delete(key);
+  }
+  accountRepairQueue.delete(key);
+};
+
+const reconcileAutomaticAccountRepairs = (workspaces: CopilotStudioWorkspace[]): void => {
+  if (disposed) {
+    return;
+  }
+  const currentKeys = new Set(workspaces.map(candidate => getWorkspaceRepairKey(candidate.workspaceUri)));
+  for (const key of [...activeWorkspaceRepairKeys]) {
+    if (!currentKeys.has(key)) {
+      cancelAutomaticAccountRepairByKey(key);
+    }
+  }
+  for (const localWorkspace of workspaces) {
+    activeWorkspaceRepairKeys.add(getWorkspaceRepairKey(localWorkspace.workspaceUri));
+    enqueueAutomaticAccountRepair(localWorkspace.workspaceUri);
+  }
+};
+
+export function refreshSyncInfoFromConnection(
+  syncInfo: AgentSyncInfo,
+  workspaceUri: string
+): AgentSyncInfo | undefined {
+  const connection = readConnectionFile(workspaceUri)?.syncInfo;
+  if (!connection?.accountInfo || !connection.solutionVersions) {
+    return undefined;
+  }
+
+  const {
+    accountInfo,
+    agentId,
+    agentManagementEndpoint,
+    componentCollectionId,
+    dataverseEndpoint,
+    environmentDisplayName,
+    environmentId,
+    solutionVersions,
+  } = connection;
+  return {
+    ...syncInfo,
+    dataverseEndpoint: dataverseEndpoint ?? '',
+    agentManagementEndpoint: agentManagementEndpoint ?? '',
+    environmentId: environmentId ?? '',
+    environmentDisplayName,
+    agentId,
+    componentCollectionId,
+    accountInfo,
+    solutionVersions,
+  };
+}
+
+const enqueueAutomaticAccountRepair = (workspaceUri: string, force: boolean = false): void => {
+  const key = getWorkspaceRepairKey(workspaceUri);
+  if (disposed || !activeWorkspaceRepairKeys.has(key)) {
+    return;
+  }
+  const retryTimer = accountRepairRetryTimers.get(key);
+  if (retryTimer) {
+    if (!force) {
+      return;
+    }
+    clearTimeout(retryTimer);
+    accountRepairRetryTimers.delete(key);
+  }
+
+  if (runningAccountRepairs.has(key)) {
+    if (force) {
+      runningAccountRepairs.set(key, true);
+    }
+    return;
+  }
+
+  if (accountRepairQueue.has(key)) {
+    return;
+  }
+
+  accountRepairQueue.set(key, workspaceUri);
+  drainAccountRepairQueue();
+};
+
+const scheduleAutomaticAccountRepairRetry = (workspaceUri: string): void => {
+  const key = getWorkspaceRepairKey(workspaceUri);
+  if (disposed || !activeWorkspaceRepairKeys.has(key) || accountRepairRetryTimers.has(key)) {
+    return;
+  }
+
+  accountRepairRetryTimers.set(key, setTimeout(() => {
+    accountRepairRetryTimers.delete(key);
+    if (!disposed && activeWorkspaceRepairKeys.has(key)) {
+      enqueueAutomaticAccountRepair(workspaceUri);
+    }
+  }, TRANSIENT_ACCOUNT_REPAIR_RETRY_MS));
+};
+
+const drainAccountRepairQueue = (): void => {
+  while (!disposed && runningAccountRepairs.size < MAX_CONCURRENT_ACCOUNT_REPAIRS && accountRepairQueue.size > 0) {
+    const [key, workspaceUri] = accountRepairQueue.entries().next().value!;
+    accountRepairQueue.delete(key);
+    if (!activeWorkspaceRepairKeys.has(key)) {
+      continue;
+    }
+    runningAccountRepairs.set(key, false);
+    const repairVersion = accountRepairVersion;
+
+    void (async () => {
+      let outcome: AccountRepairOutcome = 'failed';
+      try {
+        const syncInfo = workspaceCache.find(candidate => getWorkspaceRepairKey(candidate.workspaceUri) === key)?.syncInfo;
+        outcome = await repairAccountInfo(
+          syncInfo,
+          workspaceUri,
+          undefined,
+          false,
+          false,
+          () => !disposed
+            && repairVersion === accountRepairVersion
+            && activeWorkspaceRepairKeys.has(key));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.logDebug('Workspace', `Automatic account repair failed: <pii>${message}</pii>`);
+        outcome = 'transient-failure';
+      }
+
+      const rerunRequested = runningAccountRepairs.get(key);
+      runningAccountRepairs.delete(key);
+      if (rerunRequested) {
+        enqueueAutomaticAccountRepair(workspaceUri, true);
+      } else if (outcome === 'repaired') {
+        void refreshAndNotify();
+      } else if (outcome === 'stale') {
+        enqueueAutomaticAccountRepair(workspaceUri, true);
+      } else if (outcome === 'transient-failure') {
+        scheduleAutomaticAccountRepairRetry(workspaceUri);
+      }
+      drainAccountRepairQueue();
+    })();
+  }
+};
+
 /**
  * Attempts to resolve a missing agentManagementEndpoint from the BAP single-environment API.
  * PAC-cloned workspaces may have a null endpoint when the user lacks PP admin role for the
- * admin-scoped BAP list. The single-environment lookup (GET /environments/{id}) may succeed
- * where the admin list fails.
- *
- * If resolved, updates syncInfo in place and rewrites conn.json to disk.
- * Returns true if the endpoint was repaired.
+ * admin-scoped BAP list. The single-environment lookup may succeed where the admin list fails.
  */
 export async function tryRepairAgentManagementEndpoint(syncInfo: AgentSyncInfo, workspaceUri: string, lookups?: EnvironmentLookup[]): Promise<boolean> {
-  if (syncInfo.agentManagementEndpoint) {
-    return true;
-  }
-
-  if (!syncInfo.environmentId || !syncInfo.accountInfo || repairAttempted.has(workspaceUri)) {
+  const connection = readConnectionFile(workspaceUri);
+  if (!connection) {
     return false;
   }
 
-  const agentManagementUrl = await resolveAgentManagementUrl(syncInfo.environmentId, syncInfo.accountInfo, lookups ?? DEFAULT_ENVIRONMENT_LOOKUPS);
-  if (agentManagementUrl) {
-    syncInfo.agentManagementEndpoint = agentManagementUrl;
-    if (!updateConnectionFile(workspaceUri, connectionData => { connectionData.AgentManagementEndpoint = agentManagementUrl; })) {
-      logger.logWarning(TelemetryEventsKeys.SyncWorkspaceError, 'Resolved the agent management endpoint but could not save it to .mcs/conn.json. It will be resolved again next time.');
-    }
+  const {
+    accountInfo,
+    agentManagementEndpoint,
+    environmentId,
+  } = connection.syncInfo;
+  if (!accountInfo) {
+    return false;
+  }
+
+  if (agentManagementEndpoint) {
+    syncInfo.agentManagementEndpoint = agentManagementEndpoint;
     return true;
   }
 
-  repairAttempted.add(workspaceUri);
-  return false;
+  if (!environmentId) {
+    return false;
+  }
+
+  const authVersion = accountRepairVersion;
+  const agentManagementUrl = await resolveAgentManagementUrl(environmentId, accountInfo, lookups ?? DEFAULT_ENVIRONMENT_LOOKUPS);
+  if (!agentManagementUrl || authVersion !== accountRepairVersion) {
+    return false;
+  }
+
+  const persisted = updateConnectionFileIfUnchanged(workspaceUri, connection.contents, connectionData => {
+    connectionData.AgentManagementEndpoint = agentManagementUrl;
+    return true;
+  });
+  if (persisted !== 'updated') {
+    if (persisted === 'failed') {
+      logger.logDebug('Workspace', 'Resolved the agent management endpoint but could not save it to .mcs/conn.json. It will be resolved again next time.');
+    }
+    return false;
+  }
+
+  syncInfo.agentManagementEndpoint = agentManagementUrl;
+  return true;
 }
 
 const resolveAgentManagementUrl = async (environmentId: string, accountInfo: AccountInfo, lookups: EnvironmentLookup[]): Promise<string | undefined> => {
@@ -331,100 +693,226 @@ export interface AccountRepairDeps {
   findAccounts: (tenantId?: string) => StoredAccountSummary[];
   listAllAccounts: () => StoredAccountSummary[];
   promptForAccount: (candidates: StoredAccountSummary[]) => Promise<StoredAccountSummary | undefined>;
+  validateAccount: (candidate: StoredAccountSummary, input: AccountRepairInput) => Promise<boolean>;
 }
 
-const tryRepairTenantId = (accountInfo: AgentSyncInfo['accountInfo'], workspaceUri: string): boolean => {
-  if (hasUsableTenantId(accountInfo.tenantId)) {
-    return false;
+type AccountValidationFailure = 'inaccessible' | 'transient';
+
+const classifyAccountValidationFailure = (error: unknown): AccountValidationFailure => {
+  if (error instanceof AuthError) {
+    return error.classification === 'terminal' ? 'inaccessible' : 'transient';
   }
 
-  const derivedTenantId = extractTenantId(accountInfo.accountId);
-  if (!derivedTenantId) {
-    return false;
+  const message = error instanceof Error ? error.message : String(error);
+  return /\b403\b|not a member|previously failed:.*(?:access denied|not a member)/i.test(message)
+    ? 'inaccessible'
+    : 'transient';
+};
+
+const validateSelectedAccountTenant = (tenantId: string | undefined, candidate: StoredAccountSummary): boolean => {
+  if (!hasUsableTenantId(tenantId)) {
+    return true;
   }
+  return extractTenantId(candidate.accountId) === tenantId?.toLowerCase();
+};
 
-  accountInfo.tenantId = derivedTenantId;
-  const persisted = updateConnectionFile(workspaceUri, connectionData => {
-    const persistedAccountInfo = connectionData.AccountInfo as Record<string, unknown> | undefined;
-    if (persistedAccountInfo) {
-      persistedAccountInfo.TenantId = derivedTenantId;
-    }
-  });
-
-  if (!persisted) {
-    logger.logWarning(TelemetryEventsKeys.SyncWorkspaceError, 'Resolved the tenant but could not save it to .mcs/conn.json. It will be resolved again next time.');
-  }
-
+const validateAccountForEnvironment = async (
+  input: AccountRepairInput,
+  candidate: StoredAccountSummary,
+  interactive: boolean
+): Promise<boolean> => {
+  await whoAmIAsync(
+    Uri.parse(input.dataverseEndpoint),
+    null,
+    candidate.accountId,
+    candidate.accountEmail,
+    interactive);
   return true;
 };
 
-export async function tryRepairAccountInfo(syncInfo: AgentSyncInfo, workspaceUri: string, deps?: Partial<AccountRepairDeps>): Promise<boolean> {
-  const accountInfo = syncInfo.accountInfo;
-  if (!accountInfo) {
-    return false;
+const getAccountCandidatesForRepair = (
+  input: AccountRepairInput,
+  accounts: StoredAccountSummary[],
+  tenantMatches: StoredAccountSummary[],
+  interactive: boolean,
+  includeAllAccounts: boolean
+): StoredAccountSummary[] => {
+  const availableAccounts = interactive
+    ? accounts
+    : accounts.filter(account => getAuthAccountState(account.accountId, account.accountEmail) !== 'terminal');
+  if (includeAllAccounts) {
+    return availableAccounts;
   }
 
-  if (blankToUndefined(accountInfo.accountId) || blankToUndefined(accountInfo.accountEmail)) {
-    tryRepairTenantId(accountInfo, workspaceUri);
-    return true;
-  }
+  const availableTenantMatches = interactive
+    ? tenantMatches
+    : tenantMatches.filter(account => getAuthAccountState(account.accountId, account.accountEmail) !== 'terminal');
+  return selectAccountCandidates(availableTenantMatches, input.tenantId, () => availableAccounts);
+};
 
-  if (accountRepairAttempted.has(workspaceUri)) {
-    return false;
-  }
-
-  const tenantMatches = (deps?.findAccounts ?? findAccountsByTenant)(accountInfo.tenantId);
-  const candidates = selectAccountCandidates(
-    tenantMatches,
-    accountInfo.tenantId,
-    deps?.listAllAccounts ?? getStoredAccountSummaries);
-
-  if (candidates.length === 0) {
-    accountRepairAttempted.add(workspaceUri);
-    return false;
-  }
-
-  const selectedAccount = candidates.length === 1 ? candidates[0] : await (deps?.promptForAccount ?? promptForAccountSelection)(candidates);
-  if (!selectedAccount) {
-    return false;
-  }
-
-  const derivedTenantId = hasUsableTenantId(accountInfo.tenantId) ? undefined : extractTenantId(selectedAccount.accountId);
-  accountInfo.accountId = selectedAccount.accountId;
-  accountInfo.accountEmail = selectedAccount.accountEmail;
-  if (derivedTenantId) {
-    accountInfo.tenantId = derivedTenantId;
-  }
-
-  const persisted = updateConnectionFile(workspaceUri, connectionData => {
-    const persistedAccountInfo = connectionData.AccountInfo as Record<string, unknown> | undefined;
-    if (persistedAccountInfo) {
-      persistedAccountInfo.AccountId = selectedAccount.accountId;
-      persistedAccountInfo.AccountEmail = selectedAccount.accountEmail ?? null;
-      if (derivedTenantId) {
-        persistedAccountInfo.TenantId = derivedTenantId;
-      }
+const persistTenantId = (
+  syncInfo: AgentSyncInfo | undefined,
+  workspaceUri: string,
+  input: AccountRepairInput,
+  tenantId: string,
+  canPersist: () => boolean
+): AccountRepairOutcome => {
+  const persisted = updateConnectionFileIfUnchanged(workspaceUri, input.connectionContents, connectionData => {
+    const accountInfo = connectionData.AccountInfo;
+    if (!accountInfo || typeof accountInfo !== 'object' || Array.isArray(accountInfo)) {
+      return false;
     }
-  });
-
-  if (!persisted) {
-    logger.logWarning(TelemetryEventsKeys.SyncWorkspaceError, 'Resolved the bound account but could not save it to .mcs/conn.json. It will be resolved again next time.');
+    (accountInfo as Record<string, unknown>).TenantId = tenantId;
+    return true;
+  }, canPersist);
+  if (persisted === 'stale') {
+    return 'stale';
+  }
+  if (persisted === 'failed') {
+    logger.logDebug('Workspace', 'Resolved the tenant but could not save it to .mcs/conn.json. It will be resolved again next time.');
+    return 'failed';
   }
 
-  logger.logDebug('Workspace', `Resolved the bound account from the tenant id for <pii>${workspaceUri}</pii>`);
-  return true;
+  if (syncInfo?.accountInfo) {
+    syncInfo.accountInfo.tenantId = tenantId;
+  }
+  return 'repaired';
+};
+
+export async function repairAccountInfo(
+  syncInfo: AgentSyncInfo | undefined,
+  workspaceUri: string,
+  deps?: Partial<AccountRepairDeps>,
+  interactive: boolean = true,
+  includeAllAccounts: boolean = false,
+  canPersist: () => boolean = () => true
+): Promise<AccountRepairOutcome> {
+  if (!canPersist()) {
+    return 'stale';
+  }
+  const input = readAccountRepairInput(workspaceUri);
+  if (!input) {
+    return 'failed';
+  }
+
+  const authVersion = accountRepairVersion;
+  if (input.accountId || input.accountEmail) {
+    if (hasUsableTenantId(input.tenantId)) {
+      return 'already-bound';
+    }
+
+    const derivedTenantId = extractTenantId(input.accountId);
+    if (!derivedTenantId) {
+      return 'failed';
+    }
+    if (authVersion !== accountRepairVersion) {
+      return 'stale';
+    }
+    return persistTenantId(syncInfo, workspaceUri, input, derivedTenantId, canPersist);
+  }
+
+  const tenantMatches = hasUsableTenantId(input.tenantId)
+    ? (deps?.findAccounts?.(input.tenantId)
+      ?? getStoredAccountSummaries().filter(account => extractTenantId(account.accountId) === input.tenantId?.toLowerCase()))
+    : [];
+  const accounts = includeAllAccounts || !hasUsableTenantId(input.tenantId)
+    ? (deps?.listAllAccounts ?? getStoredAccountSummaries)()
+    : tenantMatches;
+  const candidates = getAccountCandidatesForRepair(input, accounts, tenantMatches, interactive, includeAllAccounts);
+  if (candidates.length === 0 || (!interactive && candidates.length !== 1)) {
+    return 'ambiguous';
+  }
+
+  const selectedAccount = candidates.length === 1
+    ? candidates[0]
+    : await (deps?.promptForAccount ?? promptForAccountSelection)(candidates);
+  if (!selectedAccount) {
+    return 'ambiguous';
+  }
+  if (!validateSelectedAccountTenant(input.tenantId, selectedAccount)) {
+    return 'inaccessible';
+  }
+  if (!canPersist()) {
+    return 'stale';
+  }
+
+  try {
+    const canAccessEnvironment = deps?.validateAccount
+      ? await deps.validateAccount(selectedAccount, input)
+      : deps
+        ? true
+        : await validateAccountForEnvironment(input, selectedAccount, interactive);
+    if (!canAccessEnvironment) {
+      return 'inaccessible';
+    }
+  } catch (error) {
+    const failure = classifyAccountValidationFailure(error);
+    const message = error instanceof Error ? error.message : String(error);
+    logger.logDebug('Workspace', `Dataverse environment validation failed: <pii>${message}</pii>`);
+    return failure === 'inaccessible' ? 'inaccessible' : 'transient-failure';
+  }
+
+  if (!canPersist() || authVersion !== accountRepairVersion) {
+    return 'stale';
+  }
+
+  const derivedTenantId = extractTenantId(selectedAccount.accountId);
+  const persisted = updateConnectionFileIfUnchanged(workspaceUri, input.connectionContents, connectionData => {
+    const accountInfo = connectionData.AccountInfo;
+    if (!accountInfo || typeof accountInfo !== 'object' || Array.isArray(accountInfo)) {
+      return false;
+    }
+
+    const persistedAccountInfo = accountInfo as Record<string, unknown>;
+    persistedAccountInfo.AccountId = selectedAccount.accountId;
+    persistedAccountInfo.AccountEmail = selectedAccount.accountEmail ?? null;
+    if (derivedTenantId) {
+      persistedAccountInfo.TenantId = derivedTenantId;
+    }
+    return true;
+  }, canPersist);
+  if (persisted === 'stale') {
+    return 'stale';
+  }
+  if (persisted === 'failed') {
+    logger.logDebug('Workspace', 'Resolved the bound account but could not save it to .mcs/conn.json. It will be resolved again next time.');
+    return 'failed';
+  }
+
+  if (syncInfo?.accountInfo) {
+    syncInfo.accountInfo.accountId = selectedAccount.accountId;
+    syncInfo.accountInfo.accountEmail = selectedAccount.accountEmail;
+    if (derivedTenantId) {
+      syncInfo.accountInfo.tenantId = derivedTenantId;
+    }
+  }
+  logger.logDebug('Workspace', `Resolved the bound account from the current connection for <pii>${workspaceUri}</pii>`);
+  return 'repaired';
+}
+
+export async function tryRepairAccountInfo(
+  syncInfo: AgentSyncInfo,
+  workspaceUri: string,
+  deps?: Partial<AccountRepairDeps>,
+  interactive: boolean = true,
+  includeAllAccounts: boolean = false
+): Promise<boolean> {
+  const outcome = await repairAccountInfo(syncInfo, workspaceUri, deps, interactive, includeAllAccounts);
+  return outcome === 'repaired' || outcome === 'already-bound';
 }
 
 export async function chooseAccountForWorkspace(syncInfo: AgentSyncInfo, workspaceUri: string, deps?: Partial<AccountRepairDeps>): Promise<boolean> {
-  accountRepairAttempted.delete(workspaceUri);
-  return tryRepairAccountInfo(syncInfo, workspaceUri, deps);
+  const outcome = await repairAccountInfo(syncInfo, workspaceUri, deps, true, true);
+  if (outcome === 'repaired' || outcome === 'already-bound') {
+    return true;
+  }
+  if (outcome !== 'ambiguous') {
+    logger.logError(TelemetryEventsKeys.SyncWorkspaceError, getAccountRepairFailureMessage('Selecting the account', outcome));
+  }
+  return false;
 }
 
 const promptForAccountSelection = async (candidates: StoredAccountSummary[]): Promise<StoredAccountSummary | undefined> => {
-  if (candidates.length === 0) {
-    return undefined;
-  }
-
   const picked = await pickAccount('Choose the account used for this agent', { listAccounts: async () => candidates });
   return picked && picked !== 'cancelled' && picked.accountId ? { accountId: picked.accountId, accountEmail: blankToUndefined(picked.accountEmail) } : undefined;
 };

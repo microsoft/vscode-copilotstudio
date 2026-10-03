@@ -57,7 +57,14 @@ export function computeAgentAccountBadge(workspace: CopilotStudioWorkspace, isDu
 }
 
 export function isWorkspaceConnected(workspace: CopilotStudioWorkspace): boolean {
-  return !!(workspace.syncInfo && workspace.syncInfo.agentManagementEndpoint && hasConnectionFileInWorkspace(workspace.workspaceUri));
+  const syncInfo = workspace.syncInfo;
+  const account = syncInfo?.accountInfo;
+  return !!(
+    syncInfo?.agentManagementEndpoint
+    && account
+    && getAccountHealth(account.accountId, account.accountEmail, account.tenantId) === 'ok'
+    && hasConnectionFileInWorkspace(workspace.workspaceUri)
+  );
 }
 
 export function describeDisconnection(workspace: CopilotStudioWorkspace): { message: string; action: 'signin' | 'reattach' } {
