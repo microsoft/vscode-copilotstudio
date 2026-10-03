@@ -677,21 +677,26 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
                 .Where(t => !t.Name.StartsWith("Unknown", StringComparison.Ordinal))
                 .ToList();
 
+            // Routed by LspProjection (classic + CLI). A new ObjectModel dialog type must fail this test until it is reviewed and routed explicitly.
             var unmapped = dialogTypes
                 .Where(t => !typeof(AdaptiveDialog).IsAssignableFrom(t)
                             && !typeof(TaskDialog).IsAssignableFrom(t)
-                            && !typeof(AgentDialog).IsAssignableFrom(t)
-                            // https://github.com/microsoft/vscode-copilotstudio/issues/244
-
-                            // List of exclusion that will be worked on it soon. Components to exclude:
-                            // Microsoft.Agents.ObjectModel.ConnectorTool, Microsoft.Agents.ObjectModel.McpTool, Microsoft.Agents.ObjectModel.FabricTool, Microsoft.Agents.ObjectModel.WorkflowTool, Microsoft.Agents.ObjectModel.InlineAgentSkill, Microsoft.Agents.ObjectModel.ConnectedAgentTool
+                            && !typeof(AgentDialog).IsAssignableFrom(t)                            
                             && !typeof(ConnectorTool).IsAssignableFrom(t)
                             && !typeof(McpTool).IsAssignableFrom(t)
                             && !typeof(FabricTool).IsAssignableFrom(t)
                             && !typeof(WorkflowTool).IsAssignableFrom(t)
                             && !typeof(InlineAgentSkill).IsAssignableFrom(t)
                             && !typeof(ConnectedAgentTool).IsAssignableFrom(t)
-                            )
+                            && !typeof(PackagedMcpTool).IsAssignableFrom(t)
+                            && !typeof(BrokeredMcpTool).IsAssignableFrom(t)
+                            && !typeof(IQCapability).IsAssignableFrom(t)
+                            && !typeof(ImportedPackageSkill).IsAssignableFrom(t)
+                            && !typeof(AgentToAgentTool).IsAssignableFrom(t)
+                            && !typeof(SDKAgentTool).IsAssignableFrom(t)
+                            && !typeof(FoundryAgentTool).IsAssignableFrom(t)
+                            && !typeof(AgentHook).IsAssignableFrom(t)
+                        )
                 .Select(t => t.FullName)
                 .ToList();
 
