@@ -38,11 +38,10 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             var emptyChangeSet = new PvaComponentChangeSet(null, null, null);
             var synchronizer = new Mock<IWorkspaceSynchronizer>();
             synchronizer
-                .Setup(service => service.ReadWorkspaceDefinitionAsync(
+                .Setup(service => service.ReadWorkspaceDefinitionForDiscardAsync(
                     workspace.FolderPath,
-                    It.IsAny<CancellationToken>(),
-                    true))
-                .ReturnsAsync(projectedDefinition);
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(((DefinitionBase)projectedDefinition, ImmutableArray<Change>.Empty));
             synchronizer
                 .Setup(service => service.GetLocalChangesAsync(
                     workspace.FolderPath,
@@ -74,6 +73,62 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
 
             Assert.Equal(200, response.Code);
             Assert.Equal(1, response.Result.Deleted);
+        }
+
+        [Fact]
+        public async Task DiscardLocalChanges_UnreadableFile_IsStillDiscarded()
+        {
+            var workspacePath = Path.GetFullPath("TestData/Workspace/LocalWorkspace");
+            var world = new World(workspacePath);
+            var document = world.GetDocument(Path.Combine(workspacePath, "topics/Goodbye.mcs.yml"));
+            Assert.NotNull(document);
+            var requestContext = world.GetRequestContext(document!, 0);
+            var workspace = (Microsoft.PowerPlatformLS.Contracts.FileLayout.IMcsWorkspace)requestContext.Workspace;
+            var definition = new BotDefinition();
+            var unreadableChange = new Change
+            {
+                ChangeType = ChangeType.Update,
+                ChangeKind = BotElementKind.AdaptiveDialog.ToString(),
+                SchemaName = "bot.topic.Broken",
+                Uri = "topics/Broken.mcs.yml",
+            };
+            var emptyChangeSet = new PvaComponentChangeSet(null, null, null);
+            var discarded = ImmutableArray<Change>.Empty;
+
+            var synchronizer = new Mock<IWorkspaceSynchronizer>();
+            synchronizer
+                .Setup(service => service.ReadWorkspaceDefinitionForDiscardAsync(
+                    workspace.FolderPath,
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(((DefinitionBase)definition, ImmutableArray.Create(unreadableChange)));
+            synchronizer
+                .Setup(service => service.GetLocalChangesAsync(
+                    workspace.FolderPath,
+                    It.IsAny<DefinitionBase>(),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync((emptyChangeSet, ImmutableArray<Change>.Empty));
+            synchronizer
+                .Setup(service => service.DiscardLocalChanges(
+                    workspace.FolderPath,
+                    It.IsAny<DefinitionBase>(),
+                    It.IsAny<IReadOnlyCollection<Change>>()))
+                .Returns<DirectoryPath, DefinitionBase, IReadOnlyCollection<Change>>((_, _, changes) =>
+                {
+                    discarded = changes.ToImmutableArray();
+                    return new DiscardResult { Restored = changes.Count };
+                });
+
+            var handler = new DiscardLocalChangesHandler(
+                synchronizer.Object,
+                new Mock<ILspLogger>().Object);
+            var response = await handler.HandleRequestAsync(
+                new DiscardLocalChangesRequest { WorkspaceUri = new Uri(workspacePath) },
+                requestContext,
+                CancellationToken.None);
+
+            Assert.Equal(200, response.Code);
+            Assert.Equal("topics/Broken.mcs.yml", Assert.Single(discarded).Uri);
+            Assert.Equal(1, response.Result.Restored);
         }
 
         private static bool IsCompiledWithoutCollections(

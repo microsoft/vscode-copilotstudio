@@ -11,5 +11,7 @@
         DefinitionBase Definition { get; }
 
         AuthoringShape AuthoringShape { get; }
+
+        IEnumerable<(AgentFilePath FilePath, Exception Failure)> GetUnreadableDocuments();
     }
 }

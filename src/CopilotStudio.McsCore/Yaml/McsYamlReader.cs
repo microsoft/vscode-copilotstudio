@@ -1053,7 +1053,7 @@ internal static class McsYamlReader
             {
                 if (AtEnd)
                 {
-                    throw new McsYamlFormatException("Unterminated quoted scalar.", start.Line, start.Column);
+                    throw new McsYamlFormatException("Unterminated quoted scalar.", start.Line, start.Column, McsYamlError.UnterminatedQuote);
                 }
 
                 if (IsBreak(Current))
@@ -1063,7 +1063,7 @@ internal static class McsYamlReader
                     SkipSpacesAndTabs();
                     if (AtEnd)
                     {
-                        throw new McsYamlFormatException("Unterminated quoted scalar.", start.Line, start.Column);
+                        throw new McsYamlFormatException("Unterminated quoted scalar.", start.Line, start.Column, McsYamlError.UnterminatedQuote);
                     }
 
                     if (IsDocumentMarker("---") || IsDocumentMarker("..."))
@@ -1215,7 +1215,7 @@ internal static class McsYamlReader
                         ConsumeBreak();
                         if (!AtEnd && Current == '\t')
                         {
-                            throw Fail("Tabs are not allowed in indentation.");
+                            throw Fail("Tabs are not allowed in indentation.", McsYamlError.TabIndentation);
                         }
 
                         SkipSpacesAndTabs();
@@ -1712,7 +1712,7 @@ internal static class McsYamlReader
                     if (!AtEnd && !IsBreak(Current) && !IsCommentStart())
                     {
                         Restore(probe);
-                        throw Fail("Tabs are not allowed in indentation.");
+                        throw Fail("Tabs are not allowed in indentation.", McsYamlError.TabIndentation);
                     }
                 }
 
@@ -1853,6 +1853,8 @@ internal static class McsYamlReader
 
         private McsYamlFormatException Fail(string message) => new(message, _line, _column);
 
+        private McsYamlFormatException Fail(string message, McsYamlError error) => new(message, _line, _column, error);
+
         private enum FlowContext
         {
             None,
@@ -1931,19 +1933,35 @@ internal static class McsYamlReader
 }
 
 /// <summary>Reports YAML that the agent metadata reader cannot represent, with the source line and column.</summary>
+internal enum McsYamlError
+{
+    Syntax,
+    TabIndentation,
+    UnterminatedQuote,
+    DuplicateKey,
+    MergeConflict,
+}
+
 internal sealed class McsYamlFormatException : Exception
 {
     public McsYamlFormatException(string message) : this(message, 1, 1)
     {
     }
 
-    public McsYamlFormatException(string message, int line, int column) : base(message)
+    public McsYamlFormatException(string message, int line, int column) : this(message, line, column, McsYamlError.Syntax)
+    {
+    }
+
+    public McsYamlFormatException(string message, int line, int column, McsYamlError error) : base(message)
     {
         Line = line;
         Column = column;
+        Error = error;
     }
 
     public int Line { get; }
 
     public int Column { get; }
+
+    public McsYamlError Error { get; }
 }

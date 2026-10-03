@@ -5,6 +5,7 @@ import {
 	getActiveSyncUri,
 	getOrAddSynchronizer,
 	getSyncStateFor,
+	logSyncConflicts,
 	logWorkflowIssues,
 	onAnySyncStateChanged,
 	removeSynchronizer,
@@ -13,7 +14,7 @@ import {
 	withSyncCommandBusy,
 } from '../../sync/workspaceSynchronizer';
 import { resolveWorkspaceArg } from '../../commands/syncWorkspace';
-import logger, { formatFileName, prepareLogData, sanitizeErrorDetails } from '../../services/logger';
+import logger, { formatFileName, formatPii, prepareLogData, sanitizeErrorDetails } from '../../services/logger';
 import type { WorkflowResponse } from '../../types';
 
 import { ThemeIcon } from 'vscode';
@@ -235,6 +236,29 @@ describe('workspaceSynchronizer: sync success telemetry', () => {
 		assert.strictEqual(prepared.telemetryProperties.message, 'Sync failed: [REDACTED]');
 		assert.strictEqual(prepared.telemetryProperties.error, '[REDACTED]');
 	});
+
+	test('does not re-wrap content a caller already tagged', () => {
+		const tagged = `Could not parse ${formatFileName('topics/Goodbye.mcs.yml')}`;
+
+		assert.strictEqual(sanitizeErrorDetails(tagged), tagged);
+	});
+
+	test('keeps a workspace validation error readable while redacting its file and detail', () => {
+		const errorMessage = [
+			'1 workspace file could not be read:',
+			`  ${formatPii('topics/Jane Doe Onboarding.mcs.yml', 'WORKSPACE FILE DETAILS')}(12,5): ${formatPii("Duplicate key 'customer-private-key'.", 'WORKSPACE FILE DETAILS')}`,
+		].join('\n');
+		const prepared = prepareLogData('Failed to execute Apply operation', {
+			sessionId: 'test-session',
+			errorMessage: sanitizeErrorDetails(errorMessage),
+		});
+
+		assert.ok(prepared.displayMessage?.includes("topics/Jane Doe Onboarding.mcs.yml(12,5): Duplicate key 'customer-private-key'."));
+		assert.strictEqual(
+			prepared.telemetryProperties.errorMessage,
+			'1 workspace file could not be read:\n  [REDACTED WORKSPACE FILE DETAILS](12,5): [REDACTED WORKSPACE FILE DETAILS]',
+		);
+	});
 });
 
 /**
@@ -346,8 +370,7 @@ describe('workspaceSynchronizer: SyncState enum', () => {
 
 describe('workspaceSynchronizer: logWorkflowIssues', () => {
 
-	function captureLogs(run: () => void): { warnings: string[]; errors: string[] } {
-		const warnings: string[] = [];
+	function captureLogs(run: () => void): { warnings: string[]; errors: string[] } {		const warnings: string[] = [];
 		const errors: string[] = [];
 		const originalWarn = logger.logWarning;
 		const originalError = logger.logError;
@@ -420,6 +443,36 @@ describe('workspaceSynchronizer: logWorkflowIssues', () => {
 
 		const byId = new Map(workflows.map(workflow => [workflow.workflowId, workflow]));
 		assert.strictEqual(byId.size, 2);
+	});
+
+	test('reports a pull that left merge conflicts as a warning', () => {
+		const message = 'Resolve them before pushing:\n  <pii type="WORKSPACE FILE DETAILS" encoded="true">topics/Jane Doe.mcs.yml</pii>(3,1)';
+
+		let reported = false;
+		const { warnings } = captureLogs(() => { reported = logSyncConflicts(message); });
+
+		assert.strictEqual(reported, true);
+		assert.strictEqual(warnings.length, 1, `expected one warning log, got ${JSON.stringify(warnings)}`);
+		assert.strictEqual(warnings[0], message);
+	});
+
+	test('does not warn when the pull reported no conflicts', () => {
+		let reported = true;
+		const emptyWarnings = captureLogs(() => { reported = logSyncConflicts(''); }).warnings;
+
+		assert.strictEqual(reported, false);
+		assert.strictEqual(emptyWarnings.length, 0);
+		assert.strictEqual(logSyncConflicts(undefined), false);
+	});
+
+	test('keeps conflicted file names out of telemetry while showing them to the user', () => {
+		const message = 'Resolve them before pushing:\n  <pii type="WORKSPACE FILE DETAILS" encoded="true">topics/Jane Doe.mcs.yml</pii>(3,1)';
+
+		const prepared = prepareLogData(message, { sessionId: 'test-session' });
+
+		assert.ok(prepared.displayMessage?.includes('topics/Jane Doe.mcs.yml'), prepared.displayMessage);
+		assert.ok(!prepared.telemetryProperties.message.includes('Jane Doe'), prepared.telemetryProperties.message);
+		assert.ok(prepared.telemetryProperties.message.includes('[REDACTED WORKSPACE FILE DETAILS]'), prepared.telemetryProperties.message);
 	});
 });
 

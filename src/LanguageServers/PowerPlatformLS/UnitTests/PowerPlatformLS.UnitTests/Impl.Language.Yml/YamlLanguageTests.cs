@@ -100,7 +100,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.Yml
 
             var error = diagnostics.Single();
             Assert.Equal(DiagnosticSeverity.Error, error.Severity);
-            Assert.Contains("Duplicate key name", error.Message, StringComparison.Ordinal);
+            Assert.Contains("Duplicate key 'name'", error.Message, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -108,13 +108,38 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.Yml
         {
             var diagnostics = await GetDiagnosticsForYamlTextAsync("outer:\n  inner: one\n  inner: two\n");
 
-            Assert.Contains(diagnostics, diagnostic => diagnostic.Message.Contains("Duplicate key inner", StringComparison.Ordinal));
+            Assert.Contains(diagnostics, diagnostic => diagnostic.Message.Contains("Duplicate key 'inner'", StringComparison.Ordinal));
         }
 
         [Fact]
         public async Task NoDiagnostic_OnSameKeyInSiblingMappings_Async()
         {
             Assert.Empty(await GetDiagnosticsForYamlTextAsync("items:\n- name: one\n- name: two\n"));
+        }
+
+        [Fact]
+        public async Task Diagnostic_OnMergeConflictMarkers_ReplacesParseError_Async()
+        {
+            var diagnostics = await GetDiagnosticsForYamlTextAsync("name: Flow\n<<<<<<< ours\nvalue: local\n=======\nvalue: remote\n>>>>>>> theirs\n");
+
+            var error = diagnostics.Single();
+            Assert.Equal(DiagnosticSeverity.Error, error.Severity);
+            Assert.Equal("Unresolved merge conflict. Choose one side, remove the conflict markers, then sync again.", error.Message);
+            Assert.Equal(1, error.Range!.Value.Start.Line);
+        }
+
+        [Fact]
+        public async Task Diagnostic_OnMergeConflictMarkers_InOtherwiseValidYaml_Async()
+        {
+            var diagnostics = await GetDiagnosticsForYamlTextAsync("name: Flow\n>>>>>>> theirs\n");
+
+            Assert.Contains(diagnostics, diagnostic => diagnostic.Message.Contains("Unresolved merge conflict", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public async Task NoDiagnostic_OnMarkerLikeTextInsideScalar_Async()
+        {
+            Assert.Empty(await GetDiagnosticsForYamlTextAsync("name: Flow\ndescription: \"use <<<< arrows\"\n"));
         }
 
         [Fact]

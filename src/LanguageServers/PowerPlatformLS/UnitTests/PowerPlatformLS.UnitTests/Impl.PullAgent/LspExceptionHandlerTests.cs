@@ -1,6 +1,6 @@
 namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
 {
-    using Microsoft.CommonLanguageServerProtocol.Framework;
+    using Microsoft.CopilotStudio.Sync;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Impl.PullAgent;
     using Microsoft.PowerPlatformLS.Impl.Core.Lsp;
@@ -119,6 +119,145 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
             Assert.Equal("Agent is not connected", message);
             Assert.Empty(_testLogger.Error);
         }
+
+        [Fact]
+        public void Handle_WorkspaceValidationException_Returns_400_Without_Logging()
+        {
+            var ex = new WorkspaceValidationException(
+                [new WorkspaceDiagnostic("workflows/Notify Jane Doe-abc/metadata.yml", "Unexpected character.", 12, 5)]);
+
+            var (code, message) = LspExceptionHandler.Handle(ex, _logger);
+
+            Assert.Equal(400, code);
+            Assert.Equal(
+                "1 workspace file could not be read:" + Environment.NewLine + "  workflows/Notify Jane Doe-abc/metadata.yml(12,5): Unexpected character.",
+                StripPiiTags(message));
+            Assert.Empty(_testLogger.Error);
+            Assert.Empty(_testLogger.Warning);
+            Assert.DoesNotContain(_testLogger.Info, entry => entry.Contains("Notify Jane Doe", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void Handle_WorkspaceValidationException_TagsFileAndMessageSoTelemetryRedactsThem()
+        {
+            var ex = new WorkspaceValidationException(
+                [new WorkspaceDiagnostic("topics/Jane Doe Onboarding.mcs.yml", "Duplicate key 'customer-private-key'.", 12, 5)]);
+
+            var (_, message) = LspExceptionHandler.Handle(ex, _logger);
+            var redacted = RedactPiiTags(message);
+
+            Assert.DoesNotContain("Jane Doe Onboarding", redacted, StringComparison.Ordinal);
+            Assert.DoesNotContain("customer-private-key", redacted, StringComparison.Ordinal);
+            Assert.Contains("(12,5)", redacted, StringComparison.Ordinal);
+            Assert.Contains("1 workspace file could not be read", redacted, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void Handle_WorkspaceValidationException_EncodesContentThatWouldCloseTheMarker()
+        {
+            var ex = new WorkspaceValidationException(
+                [new WorkspaceDiagnostic("topics/One.mcs.yml", "Duplicate key '</pii>secret'.", 1, 1)]);
+
+            var (_, message) = LspExceptionHandler.Handle(ex, _logger);
+
+            Assert.DoesNotContain("secret", RedactPiiTags(message), StringComparison.Ordinal);
+            Assert.Contains("Duplicate key '</pii>secret'.", StripPiiTags(message), StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void Handle_WorkspaceValidationException_KeepsUnpositionedDiagnosticsReadable()
+        {
+            var ex = new WorkspaceValidationException(
+                [new WorkspaceDiagnostic("settings.mcs.yml", "Unreadable.", 0, 0)]);
+
+            var (_, message) = LspExceptionHandler.Handle(ex, _logger);
+
+            Assert.EndsWith("  settings.mcs.yml: Unreadable.", StripPiiTags(message), StringComparison.Ordinal);
+        }
+
+        private static readonly System.Text.RegularExpressions.Regex PiiTagPattern =
+            new("<pii(?: type=\"(?<type>[^\"]+)\")?(?: encoded=\"true\")?>(?<value>.*?)</pii>", System.Text.RegularExpressions.RegexOptions.Singleline);
+
+        [Fact]
+        public void DescribeConflicts_NoConflicts_ReturnsAnEmptyMessage()
+        {
+            Assert.Equal(string.Empty, LspExceptionHandler.DescribeConflicts(Array.Empty<WorkspaceDiagnostic>()));
+        }
+
+        [Fact]
+        public void DescribeConflicts_NamesEveryConflictedFileForTheUser()
+        {
+            var message = LspExceptionHandler.DescribeConflicts(
+            [
+                new WorkspaceDiagnostic("topics/Jane Doe Onboarding.mcs.yml", "Unresolved merge conflict.", 3, 1, WorkspaceDiagnosticKind.MergeConflict),
+                new WorkspaceDiagnostic("settings.mcs.yml", "Unresolved merge conflict.", 7, 1, WorkspaceDiagnosticKind.MergeConflict),
+            ]);
+
+            Assert.Contains("2 workspace files have unresolved merge conflicts", StripPiiTags(message), StringComparison.Ordinal);
+            Assert.Contains("topics/Jane Doe Onboarding.mcs.yml(3,1)", StripPiiTags(message), StringComparison.Ordinal);
+            Assert.Contains("settings.mcs.yml(7,1)", StripPiiTags(message), StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void DescribeConflicts_TagsFileNamesSoTelemetryRedactsThem()
+        {
+            var message = LspExceptionHandler.DescribeConflicts(
+                [new WorkspaceDiagnostic("topics/Jane Doe Onboarding.mcs.yml", "Unresolved merge conflict.", 3, 1, WorkspaceDiagnosticKind.MergeConflict)]);
+
+            Assert.DoesNotContain("Jane Doe Onboarding", RedactPiiTags(message), StringComparison.Ordinal);
+            Assert.Contains("(3,1)", RedactPiiTags(message), StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void DescribeConflicts_RepeatedManifestDiagnostic_UsesOneFileAndOneEntry()
+        {
+            const string path = "behaviors/skill-1/SKILL.md";
+            var message = LspExceptionHandler.DescribeConflicts(
+            [
+                new WorkspaceDiagnostic(path, "Unresolved merge conflict.", 6, 1, WorkspaceDiagnosticKind.MergeConflict),
+                new WorkspaceDiagnostic(path, "Unresolved merge conflict.", 6, 1, WorkspaceDiagnosticKind.MergeConflict),
+            ]);
+
+            Assert.Equal(
+                "1 workspace file has unresolved merge conflicts. Resolve them before pushing:" + Environment.NewLine
+                    + "  behaviors/skill-1/SKILL.md(6,1): Unresolved merge conflict.",
+                StripPiiTags(message));
+            Assert.DoesNotContain(path, RedactPiiTags(message), StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void DescribeConflicts_DifferentConflictsInOneFile_KeepBothEntriesButCountOneFile()
+        {
+            var message = LspExceptionHandler.DescribeConflicts(
+            [
+                new WorkspaceDiagnostic("behaviors/skill-1/SKILL.md", "Unresolved merge conflict.", 6, 1, WorkspaceDiagnosticKind.MergeConflict),
+                new WorkspaceDiagnostic("behaviors\\skill-1\\SKILL.md", "Unresolved merge conflict.", 16, 1, WorkspaceDiagnosticKind.MergeConflict),
+            ]);
+
+            Assert.StartsWith("1 workspace file has unresolved merge conflicts.", StripPiiTags(message), StringComparison.Ordinal);
+            Assert.Contains("(6,1)", message, StringComparison.Ordinal);
+            Assert.Contains("(16,1)", message, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void DescribeConflicts_CountsFilesBeforeRedactingTheirPaths()
+        {
+            var message = LspExceptionHandler.DescribeConflicts(
+            [
+                new WorkspaceDiagnostic("behaviors/first/SKILL.md", "Unresolved merge conflict.", 6, 1, WorkspaceDiagnosticKind.MergeConflict),
+                new WorkspaceDiagnostic("behaviors/second/SKILL.md", "Unresolved merge conflict.", 6, 1, WorkspaceDiagnosticKind.MergeConflict),
+                new WorkspaceDiagnostic("behaviors/first/SKILL.md", "Unresolved merge conflict.", 6, 1, WorkspaceDiagnosticKind.MergeConflict),
+            ]);
+
+            Assert.StartsWith("2 workspace files have unresolved merge conflicts.", StripPiiTags(message), StringComparison.Ordinal);
+            Assert.Equal(3, StripPiiTags(message).Split(Environment.NewLine).Length);
+        }
+
+        private static string StripPiiTags(string value)
+            => PiiTagPattern.Replace(value, match => match.Groups["value"].Value.Replace("&lt;", "<").Replace("&gt;", ">").Replace("&amp;", "&"));
+
+        private static string RedactPiiTags(string value)
+            => PiiTagPattern.Replace(value, match => $"[REDACTED {match.Groups["type"].Value}]");
 
         [Fact]
         public void Handle_OperationCancelled_By_User_Returns_499()
