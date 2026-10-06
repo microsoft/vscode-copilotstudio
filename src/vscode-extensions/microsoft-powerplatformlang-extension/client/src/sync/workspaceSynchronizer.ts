@@ -72,12 +72,16 @@ export interface PushOptions {
     draftConnectionReferenceWorkflows?: boolean;
 }
 
+export interface PullOptions {
+    suppressErrorNotification?: boolean;
+}
+
 export interface WorkspaceSynchronizer {
     workspace: CopilotStudioWorkspace;
     syncState: SyncState;
     lastOperationSucceeded: boolean;
     push: (options?: PushOptions) => Promise<SyncResponse | undefined>;
-    pull: (virtualProvider: virtualKnowledgeFileSystemProvider) => Promise<SyncResponse | undefined >;
+    pull: (virtualProvider: virtualKnowledgeFileSystemProvider, options?: PullOptions) => Promise<SyncResponse | undefined >;
     fetch: () => Promise<void>;
     subscribe: (listener: SyncStateListener) => () => void;
 }
@@ -172,10 +176,16 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
         return response;
       }, SyncState.Pushing);
     },
-    pull: async (virtualProvider: virtualKnowledgeFileSystemProvider): Promise<SyncResponse> => {
+    pull: async (virtualProvider: virtualKnowledgeFileSystemProvider, options: PullOptions = {}): Promise<SyncResponse> => {
       return await executeSyncOperation(async () => {
         const workspace = currentWorkspace;
-        const response = await sync(workspace, "getting changes", LspMethods.SYNC_PULL, false);
+        const response = await sync(
+          workspace,
+          "getting changes",
+          LspMethods.SYNC_PULL,
+          false,
+          options.suppressErrorNotification
+        );
         replaceLocalChanges(workspace.workspaceUri, response.localChanges);
 
         if (virtualProvider) {

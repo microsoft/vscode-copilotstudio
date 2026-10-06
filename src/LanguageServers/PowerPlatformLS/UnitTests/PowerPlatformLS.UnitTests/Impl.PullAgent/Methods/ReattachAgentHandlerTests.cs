@@ -16,6 +16,7 @@
     using System.Collections.Immutable;
     using System.IO;
     using System.Linq;
+    using System.Net;
     using System.Threading;
     using System.Threading.Tasks;
     using Xunit;
@@ -67,6 +68,44 @@
             Assert.False(response.IsNewAgent);
             Assert.Equal(existingAgentId, response.AgentSyncInfo!.AgentId);
             Assert.False(dataverseClient.CreateNewAgentCalled);
+        }
+
+        [Fact]
+        public async Task ReattachAgentRemoteCheckFindsExistingAgentWithoutChangingWorkspaceTest()
+        {
+            var context = CreateTestSetup();
+            context.Request.AllowRetarget = true;
+            context.Request.CheckRemoteAgentOnly = true;
+            var dataverseClient = new MockDataverseClient();
+            var synchronizer = new TestWorkspaceSynchronizerSyncInfoExists();
+            var handler = TestHandlerFactory.CreateHandler(dataverseClient, synchronizer, CreateOperationProvider());
+
+            var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
+
+            Assert.Equal(200, response.Code);
+            Assert.True(response.RemoteAgentExists);
+            Assert.False(dataverseClient.CreateNewAgentCalled);
+            Assert.False(synchronizer.ReattachCalled);
+            Assert.Equal(0, synchronizer.SavedSyncInfoCount);
+        }
+
+        [Fact]
+        public async Task ReattachAgentRemoteCheckReportsMissingAgentWithoutCreatingItTest()
+        {
+            var context = CreateTestSetup();
+            context.Request.AllowRetarget = true;
+            context.Request.CheckRemoteAgentOnly = true;
+            var dataverseClient = new MockDataverseClientWithMissingAgent();
+            var synchronizer = new TestWorkspaceSynchronizerSyncInfoExists();
+            var handler = TestHandlerFactory.CreateHandler(dataverseClient, synchronizer, CreateOperationProvider());
+
+            var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
+
+            Assert.Equal(200, response.Code);
+            Assert.False(response.RemoteAgentExists);
+            Assert.False(dataverseClient.CreateNewAgentCalled);
+            Assert.False(synchronizer.ReattachCalled);
+            Assert.Equal(0, synchronizer.SavedSyncInfoCount);
         }
 
         [Fact]
@@ -1228,5 +1267,11 @@
 
         public override Task<Guid> GetAgentIdBySchemaNameAsync(string schemaName, CancellationToken cancellationToken)
             => Task.FromResult(_existingAgentId);
+    }
+
+    internal class MockDataverseClientWithMissingAgent : MockDataverseClient
+    {
+        public override Task<AgentInfo> GetAgentInfoAsync(Guid agentId, CancellationToken cancellationToken)
+            => throw new DataverseRequestException(HttpStatusCode.NotFound, """{"error":{"code":"0x80040217","message":"Entity 'bot' does not exist"}}""");
     }
 }
