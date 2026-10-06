@@ -93,6 +93,38 @@ public class WorkflowDraftPushTests : IDisposable
         return dataverse;
     }
 
+    [Theory]
+    [InlineData("name: Notify: customer\n", WorkspaceDiagnosticKind.InvalidFile, 1, 13)]
+    [InlineData("name: one\nname: two\n", WorkspaceDiagnosticKind.InvalidFile, 2, 1)]
+    [InlineData("\n<<<<<<< ours\nname: one\n=======\nname: two\n>>>>>>> theirs\n", WorkspaceDiagnosticKind.MergeConflict, 2, 1)]
+    [InlineData("", WorkspaceDiagnosticKind.InvalidFile, 0, 0)]
+    public async Task InvalidWorkflowMetadata_PushAndDiffReturnSameDiagnostic(string yaml, WorkspaceDiagnosticKind kind, int line, int column)
+    {
+        var synchronizer = CreateSynchronizer();
+        WriteWorkflowFiles("{}");
+        File.WriteAllText(Path.Combine(_workflowFolder, "metadata.yml"), yaml);
+        var definition = new BotDefinition(entity: CodeSerializer.Deserialize<BotEntity>("schemaName: testbot\n")!);
+        var accessor = new FileAccessorFactory().Create(_workspace);
+        WorkspaceSynchronizer.WriteCloudCache(accessor, definition);
+        var dataverse = new Mock<ISyncDataverseClient>(MockBehavior.Strict);
+
+        var pushFailure = await Assert.ThrowsAsync<WorkspaceValidationException>(() =>
+            synchronizer.UpsertWorkflowForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None));
+        var diffFailure = await Assert.ThrowsAsync<WorkspaceValidationException>(() =>
+            synchronizer.GetLocalChangesAsync(_workspace, definition, CancellationToken.None));
+
+        var diagnostic = Assert.Single(pushFailure.Diagnostics);
+        Assert.Equal($"workflows/MyFlow-{_workflowId:D}/metadata.yml", diagnostic.FilePath);
+        Assert.Equal(kind, diagnostic.Kind);
+        Assert.Equal(line, diagnostic.Line);
+        Assert.Equal(column, diagnostic.Column);
+        Assert.Equal(diagnostic.ToString(), Assert.Single(diffFailure.Diagnostics).ToString());
+        Assert.Equal(pushFailure.Message, diffFailure.Message);
+        Assert.DoesNotContain(_root, pushFailure.Message, StringComparison.Ordinal);
+        Assert.Equal(yaml, File.ReadAllText(Path.Combine(_workflowFolder, "metadata.yml")));
+        dataverse.VerifyNoOtherCalls();
+    }
+
     [Fact]
     public async Task ReattachWithUnboundConnection_UploadsAsDraft()
     {

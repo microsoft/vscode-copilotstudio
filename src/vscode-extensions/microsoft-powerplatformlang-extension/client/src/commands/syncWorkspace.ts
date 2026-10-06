@@ -90,13 +90,13 @@ export const registerSyncCommands = (context: ExtensionContext) => {
   }));
 };
 
-// Checks .mcs.yml/.mcs.yaml files in the workspace and returns any diagnostics errors found
+// Checks YAML files in the workspace and returns any diagnostics errors found
 export const getDiagnosticsErrors = async (workspace: CopilotStudioWorkspace) => {
   let files = 0;
   let count = 0;
   const workspaceUri = Uri.parse(workspace.workspaceUri);
   const yamlFiles = await VSworkspace.findFiles(
-    new RelativePattern(workspaceUri, '**/*.mcs.{yml,yaml}')
+    new RelativePattern(workspaceUri, '**/*.{yml,yaml}')
   );
 
   // Open all files to ensure diagnostics are calculated

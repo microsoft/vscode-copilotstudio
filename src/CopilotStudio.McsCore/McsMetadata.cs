@@ -11,3 +11,6 @@ internal readonly record struct McsMetadata(string? ComponentName, string? Descr
     internal const string BundleKey = "bundle";
     internal const string ManifestSchemaNameKey = "manifestSchemaName";
 }
+
+/// <summary>Both sides of an unresolved metadata conflict, held apart from the authored value so marker-like text cannot be misread.</summary>
+internal readonly record struct McsMetadataConflict(string? Ours, string? Theirs);

@@ -21,7 +21,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         {
         }
 
-        protected override async Task<(DefinitionBase, ImmutableArray<WorkflowResponse>, ImmutableArray<SyncDataverseClient.AIPromptResponse>)> ExecuteAsync(SyncAgentRequest request, IMcsWorkspace workspace, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CancellationToken cancellationToken)
+        protected override async Task<(DefinitionBase Definition, ImmutableArray<WorkflowResponse> Workflows, ImmutableArray<SyncDataverseClient.AIPromptResponse> AIPrompts, string Warning)> ExecuteAsync(SyncAgentRequest request, IMcsWorkspace workspace, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CancellationToken cancellationToken)
         {
             // Fail-closed support gate (TDD D35): push is destructive to the cloud, so it
             // requires a Supported authoring shape. Classify from the definition AND the
@@ -31,6 +31,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             // (-> 400 user error) when blocked.
             var classification = AgentClassifier.Classify(workspace.Definition, workspace.FolderPath.ToString());
             AuthoringSupportGate.EnsureAllowed(classification, SyncOperation.Push);
+
+            await _synchronizer.ThrowIfWorkspaceInvalidAsync(workspace.FolderPath, workspace.Definition, cancellationToken);
 
             await ConnectionHelper.ProvisionConnectionsAsync(_synchronizer, workspace.FolderPath, workspace.Definition, dataverseClient, cancellationToken);
 
@@ -42,8 +44,10 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             var contentSaveContextOverride = await TryBuildComponentCollectionHostContextAsync(workspace, operationContext, dataverseClient, syncInfo, cancellationToken);
 
             await _synchronizer.PushLocalChangesAsync(workspace.FolderPath, operationContext, workspace.Definition, dataverseClient, syncInfo, cloudFlowMetadata, aiPromptMetadata, cancellationToken, contentSaveContextOverride);
-            return (workspace.Definition, workflowResponse, aiPromptResponse);
+            return (workspace.Definition, workflowResponse, aiPromptResponse, string.Empty);
         }
+
+        protected override bool BlocksOnUnreadableDocuments => true;
 
         private async Task<(ImmutableArray<WorkflowResponse>, CloudFlowMetadata?, ImmutableArray<SyncDataverseClient.AIPromptResponse>, ImmutableArray<SyncDataverseClient.AIPromptMetadata>)> UpsertComponentCollectionScopedAssetsAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? componentCollectionId, CopilotStudio.Sync.WorkflowActivationMode activationMode, CancellationToken cancellationToken)
         {

@@ -8,8 +8,11 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
+    using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
+    using System;
     using System.Collections.Immutable;
+    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
 
@@ -48,19 +51,24 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             try
             {
                 var workspace = (IMcsWorkspace)context.Workspace;
+                if (BlocksOnUnreadableDocuments)
+                {
+                    ThrowIfWorkspaceUnreadable(workspace);
+                }
+
                 await ConnectionHelper.ApplyConnectionContext(_islandControlPlaneService, _dataverseTokenManager, _dataverseHttpClientAccessor, _dataverseClient, request, _synchronizer, workspace);
 
                 var syncInfo = await _synchronizer.GetSyncInfoAsync(workspace.FolderPath);
                 var operationContext = await _operationContextProvider.GetAsync(syncInfo);
 
-                var (updatedDefinition, workflowResponse, aiPromptResponse) = await ExecuteAsync(request, workspace, operationContext, _dataverseClient, syncInfo, cancellationToken);
+                var (updatedDefinition, workflowResponse, aiPromptResponse, warning) = await ExecuteAsync(request, workspace, operationContext, _dataverseClient, syncInfo, cancellationToken);
                 var (_, localChanges) = await _synchronizer.GetLocalChangesAsync(workspace.FolderPath, updatedDefinition, _dataverseClient, syncInfo, cancellationToken);
 
                 return new SyncAgentResponse
                 {
                     Code = 200,
-                    Message = string.Empty,
-                    LocalChanges = localChanges,
+                    Message = warning,
+                    LocalChanges = LocalChangeDisplay.ForWorkspace(workspace, localChanges),
                     WorkflowResponse = workflowResponse,
                     AIPromptResponse = aiPromptResponse,
                 };
@@ -76,7 +84,24 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             }
         }
 
-        protected abstract Task<(DefinitionBase, ImmutableArray<WorkflowResponse>, ImmutableArray<SyncDataverseClient.AIPromptResponse>)> ExecuteAsync(
+        /// <summary>True for operations that must refuse a workspace whose files still report errors.</summary>
+        protected virtual bool BlocksOnUnreadableDocuments => false;
+
+        /// <summary>Throws when any tracked document is unreadable in a way that silently loses content, naming each offending file.</summary>
+        internal static void ThrowIfWorkspaceUnreadable(IMcsWorkspace workspace)
+        {
+            var problems = workspace.GetUnreadableDocuments()
+                .Select(entry => CopilotStudio.Sync.WorkspaceDiagnostic.FromException(entry.FilePath.ToString(), entry.Failure))
+                .OrderBy(diagnostic => diagnostic.FilePath, StringComparer.Ordinal)
+                .ToImmutableArray();
+
+            if (problems.Length > 0)
+            {
+                throw new CopilotStudio.Sync.WorkspaceValidationException(problems);
+            }
+        }
+
+        protected abstract Task<(DefinitionBase Definition, ImmutableArray<WorkflowResponse> Workflows, ImmutableArray<SyncDataverseClient.AIPromptResponse> AIPrompts, string Warning)> ExecuteAsync(
             SyncAgentRequest request,
             IMcsWorkspace workspace,
             AuthoringOperationContextBase operationContext,

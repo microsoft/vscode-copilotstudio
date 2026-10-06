@@ -207,10 +207,14 @@ export function sanitizeErrorDetails(errorMessage: string, agentNames: readonly 
     || right.priority - left.priority
     || right.end - right.start - (left.end - left.start));
 
+  const taggedSpans = [...errorMessage.matchAll(piiPattern)]
+    .filter(match => match.index !== undefined)
+    .map(match => ({ start: match.index as number, end: (match.index as number) + match[0].length }));
+
   let sanitized = '';
   let cursor = 0;
   for (const match of matches) {
-    if (match.start < cursor) {
+    if (match.start < cursor || taggedSpans.some(span => match.start < span.end && span.start < match.end)) {
       continue;
     }
     sanitized += errorMessage.slice(cursor, match.start);

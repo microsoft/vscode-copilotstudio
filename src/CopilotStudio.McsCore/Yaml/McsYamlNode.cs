@@ -44,7 +44,30 @@ internal sealed class McsYamlNode
 
     public static McsYamlNode ForTaggedScalar(string? scalar, McsYamlPosition start, McsYamlPosition end, string tag) => new(McsYamlNodeKind.Scalar, scalar, null, null, null, start, end) { _tag = tag };
 
-    public static McsYamlNode ForMapping(IReadOnlyList<McsYamlProperty> properties, McsYamlPosition start, McsYamlPosition end) => new(McsYamlNodeKind.Mapping, null, properties, null, null, start, end);
+    public static McsYamlNode ForMapping(IReadOnlyList<McsYamlProperty> properties, McsYamlPosition start, McsYamlPosition end)
+    {
+        ThrowIfDuplicateKey(properties);
+        return new(McsYamlNodeKind.Mapping, null, properties, null, null, start, end);
+    }
+
+    private static void ThrowIfDuplicateKey(IReadOnlyList<McsYamlProperty> properties)
+    {
+        if (properties.Count < 2)
+        {
+            return;
+        }
+
+        var firstPositionByName = new Dictionary<string, McsYamlPosition>(properties.Count, StringComparer.Ordinal);
+        foreach (var property in properties)
+        {
+            if (firstPositionByName.TryGetValue(property.Name, out var first))
+            {
+                throw new McsYamlFormatException($"Duplicate key '{property.Name}' (first defined at line {first.Line}, column {first.Column}).", property.NameStart.Line, property.NameStart.Column, McsYamlError.DuplicateKey);
+            }
+
+            firstPositionByName.Add(property.Name, property.NameStart);
+        }
+    }
 
     public static McsYamlNode ForSequence(IReadOnlyList<McsYamlNode> items, McsYamlPosition start, McsYamlPosition end) => new(McsYamlNodeKind.Sequence, null, null, items, null, start, end);
 

@@ -8,12 +8,12 @@
        Versions are kept current by Dependabot (the "objectmodel" group in
        .github/dependabot.yml). The six packages publish in lockstep at one version. -->
   <ItemGroup>
-    <PackageReference Update="Microsoft.Agents.ObjectModel" Version="2026.5.4" />
-    <PackageReference Update="Microsoft.Agents.ObjectModel.Dataverse" Version="2026.5.4" />
-    <PackageReference Update="Microsoft.Agents.ObjectModel.NodeGenerators" Version="2026.5.4" />
-    <PackageReference Update="Microsoft.Agents.ObjectModel.PowerFx" Version="2026.5.4" />
-    <PackageReference Update="Microsoft.Agents.Platform.Content" Version="2026.5.4" />
-    <PackageReference Update="Microsoft.Agents.Platform.Content.Internal" Version="2026.5.4" />
+    <PackageReference Update="Microsoft.Agents.ObjectModel" Version="2026.10.5.265" />
+    <PackageReference Update="Microsoft.Agents.ObjectModel.Dataverse" Version="2026.10.5.265" />
+    <PackageReference Update="Microsoft.Agents.ObjectModel.NodeGenerators" Version="2026.10.5.265" />
+    <PackageReference Update="Microsoft.Agents.ObjectModel.PowerFx" Version="2026.10.5.265" />
+    <PackageReference Update="Microsoft.Agents.Platform.Content" Version="2026.10.5.265" />
+    <PackageReference Update="Microsoft.Agents.Platform.Content.Internal" Version="2026.10.5.265" />
   </ItemGroup>
 
   <!-- Runtime / framework packages -->

@@ -3,7 +3,6 @@
     using Microsoft.PowerPlatformLS.Contracts.Internal;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common.Framework;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
-    using Microsoft.PowerPlatformLS.Contracts.Internal.Models.Lsp;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Validation;
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
     using System.Collections.Generic;
@@ -22,6 +21,12 @@
             if (document.IsWorkspaceLayoutMarker)
             {
                 return [];
+            }
+
+            var conflictDiagnostic = MergeConflictDiagnostic.TryCreate(document.Text);
+            if (conflictDiagnostic != null)
+            {
+                return [conflictDiagnostic];
             }
 
             var semanticModel = document.FileModel;
