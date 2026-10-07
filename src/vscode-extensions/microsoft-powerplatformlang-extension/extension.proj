@@ -52,8 +52,10 @@
     <Exec Command="..\node_modules\.bin\vsce package --target linux-arm64 --no-dependencies $(PreReleaseArg)" WorkingDirectory="$(WorkingDirectory)" ConsoleToMsBuild="true"/>
     <RemoveDir Directories="$(WorkingDirectory)\lspOut\" />
 
-    <!-- macOS will pack x64 for both targets -->
-    <Copy SourceFiles ="@(LSPOsxX64ToCopy)" DestinationFolder="$(WorkingDirectory)\lspOut\%(RecursiveDir)" />
+    <!-- macOS VSIXes ship BOTH architecture binaries in arch subfolders
+         (osx-x64 / osx-arm64); the extension selects the matching one at runtime. -->
+    <Copy SourceFiles ="@(LSPOsxX64ToCopy)" DestinationFolder="$(WorkingDirectory)\lspOut\osx-x64\%(RecursiveDir)" />
+    <Copy SourceFiles ="@(LSPOsxARM64ToCopy)" DestinationFolder="$(WorkingDirectory)\lspOut\osx-arm64\%(RecursiveDir)" />
     <Exec Command="..\node_modules\.bin\vsce package --target darwin-x64 --no-dependencies $(PreReleaseArg)" WorkingDirectory="$(WorkingDirectory)" ConsoleToMsBuild="true"/>
     <Exec Command="..\node_modules\.bin\vsce package --target darwin-arm64 --no-dependencies $(PreReleaseArg)" WorkingDirectory="$(WorkingDirectory)" ConsoleToMsBuild="true"/>
     <RemoveDir Directories="$(WorkingDirectory)\lspOut\" />

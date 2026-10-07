@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
+import * as fs from 'fs';
 import { ServerOptions, TransportKind, LanguageClient, LanguageClientOptions, State, LogMessageNotification, Trace } from "vscode-languageclient/node";
 import { TELEMETRY_CONNECTION_STRING, TelemetryEventsKeys } from '../constants';
 import { AccountInfo, AgentSyncInfo, EnvironmentInfo, RemoteApiRequest } from '../types';
@@ -145,8 +146,19 @@ class LspClientService {
     currentOutputChannel = outputChannel;
     currentSessionId = sessionId;
 
-    const cwd = path.join(context.extensionPath, 'lspOut');
-    const lspHostPath = path.join(cwd, "LanguageServerHost");
+    const lspOutDir = path.join(context.extensionPath, 'lspOut');
+    // macOS VSIXes ship both architecture binaries in arch subfolders
+    // (osx-x64 / osx-arm64) so the extension can select the one matching the
+    // host architecture (Apple Silicon vs Intel/Rosetta). Windows and Linux
+    // ship a single binary at the lspOut root, so fall back to that path.
+    const macArchDir = process.arch === 'arm64' ? 'osx-arm64' : 'osx-x64';
+    const macArchHostPath = path.join(lspOutDir, macArchDir, 'LanguageServerHost');
+    const flatHostPath = path.join(lspOutDir, 'LanguageServerHost');
+    const lspHostPath =
+      process.platform === 'darwin' && fs.existsSync(macArchHostPath)
+        ? macArchHostPath
+        : flatHostPath;
+    const cwd = path.dirname(lspHostPath);
   
     // On Linux, ensure the LanguageServerHost is executable
     if (process.platform === 'linux' || process.platform === 'darwin') {
