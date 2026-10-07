@@ -58,7 +58,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
                 await ConnectionHelper.ApplyConnectionContext(_islandControlPlaneService, _dataverseTokenManager, _dataverseHttpClientAccessor, _dataverseClient, request, _synchronizer, workspace);
 
-                var syncInfo = await _synchronizer.GetSyncInfoAsync(workspace.FolderPath);
+                var persistedSyncInfo = await _synchronizer.GetSyncInfoAsync(workspace.FolderPath);
+                var syncInfo = BuildEffectiveSyncInfo(persistedSyncInfo, request);
                 var operationContext = await _operationContextProvider.GetAsync(syncInfo);
 
                 var (updatedDefinition, workflowResponse, aiPromptResponse, warning) = await ExecuteAsync(request, workspace, operationContext, _dataverseClient, syncInfo, cancellationToken);
@@ -83,6 +84,19 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 };
             }
         }
+
+        private static AgentSyncInfo BuildEffectiveSyncInfo(AgentSyncInfo persistedSyncInfo, DataverseRequest request) => new()
+        {
+            AgentId = persistedSyncInfo.AgentId,
+            ComponentCollectionId = persistedSyncInfo.ComponentCollectionId,
+            EnvironmentDisplayName = persistedSyncInfo.EnvironmentDisplayName,
+            AuthoringShape = persistedSyncInfo.AuthoringShape,
+            AccountInfo = request.AccountInfo,
+            DataverseEndpoint = new Uri(request.EnvironmentInfo.DataverseUrl),
+            EnvironmentId = request.EnvironmentInfo.EnvironmentId,
+            AgentManagementEndpoint = new Uri(request.EnvironmentInfo.AgentManagementUrl),
+            SolutionVersions = request.SolutionVersions,
+        };
 
         /// <summary>True for operations that must refuse a workspace whose files still report errors.</summary>
         protected virtual bool BlocksOnUnreadableDocuments => false;

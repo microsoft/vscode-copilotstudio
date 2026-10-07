@@ -485,6 +485,106 @@ describe('workspaceSynchronizer: workspace binding', () => {
 		syncInfo: { accountInfo: { accountId, accountEmail: undefined, tenantId: '' } } as any,
 	});
 
+	const captureOverrideAccountInfo = async (
+		accountOverride: Parameters<typeof sync>[9]
+	): Promise<Record<string, unknown>> => {
+		const localWorkspaces = require('../../sync/localWorkspaces') as typeof import('../../sync/localWorkspaces');
+		const lspClient = require('../../services/lspClient') as typeof import('../../services/lspClient');
+		const originalRefreshSyncInfo = localWorkspaces.refreshSyncInfoFromConnection;
+		const originalRepairAccountInfo = localWorkspaces.repairAccountInfo;
+		const captureSnapshotDescriptor = Object.getOwnPropertyDescriptor(localWorkspaces, 'captureWorkspaceConnectionSnapshot');
+		const buildPayloadDescriptor = Object.getOwnPropertyDescriptor(lspClient, 'buildLspRequestPayload');
+		const persistedSyncInfo = {
+			accountInfo: {
+				accountId: 'persisted-account-id',
+				accountEmail: 'persisted@example.com',
+				tenantId: 'persisted-tenant-id',
+				clusterCategory: 2,
+			},
+			agentManagementEndpoint: 'https://api.example.com',
+			dataverseEndpoint: 'https://org.example.com',
+			environmentId: 'environment-id',
+		} as NonNullable<CopilotStudioWorkspace['syncInfo']>;
+		const workspace = {
+			...createMockWorkspace('Override Agent'),
+			syncInfo: persistedSyncInfo,
+		};
+		let capturedAccountInfo: Record<string, unknown> | undefined;
+
+		localWorkspaces.repairAccountInfo = async () => 'already-bound';
+		localWorkspaces.refreshSyncInfoFromConnection = () => persistedSyncInfo;
+		Object.defineProperty(localWorkspaces, 'captureWorkspaceConnectionSnapshot', {
+			value: () => 'connection-snapshot',
+			writable: true,
+			configurable: true,
+		});
+		Object.defineProperty(lspClient, 'buildLspRequestPayload', {
+			value: async (syncInfo: CopilotStudioWorkspace['syncInfo']) => {
+				capturedAccountInfo = syncInfo?.accountInfo as unknown as Record<string, unknown>;
+				throw new Error('captured override identity');
+			},
+			writable: true,
+			configurable: true,
+		});
+
+		try {
+			await assert.rejects(
+				() => sync(workspace, 'Refresh', 'test/sync', true, false, false, false, false, true, accountOverride),
+				/captured override identity/,
+			);
+			assert.ok(capturedAccountInfo);
+			return capturedAccountInfo;
+		} finally {
+			localWorkspaces.repairAccountInfo = originalRepairAccountInfo;
+			localWorkspaces.refreshSyncInfoFromConnection = originalRefreshSyncInfo;
+			if (captureSnapshotDescriptor) {
+				Object.defineProperty(localWorkspaces, 'captureWorkspaceConnectionSnapshot', captureSnapshotDescriptor);
+			}
+			if (buildPayloadDescriptor) {
+				Object.defineProperty(lspClient, 'buildLspRequestPayload', buildPayloadDescriptor);
+			}
+		}
+	};
+
+	test('does not retain a persisted account id or tenant for an email-only override', async () => {
+		const accountInfo = await captureOverrideAccountInfo({
+			accountEmail: 'selected@example.com',
+		});
+
+		assert.deepStrictEqual(accountInfo, {
+			accountId: undefined,
+			accountEmail: 'selected@example.com',
+			tenantId: '',
+			clusterCategory: 2,
+		});
+	});
+
+	test('does not retain a persisted email or tenant for an id-only override', async () => {
+		const accountInfo = await captureOverrideAccountInfo({
+			accountId: 'selected-account-id',
+		});
+
+		assert.deepStrictEqual(accountInfo, {
+			accountId: 'selected-account-id',
+			accountEmail: undefined,
+			tenantId: '',
+			clusterCategory: 2,
+		});
+	});
+
+	test('retains persisted identity for an override containing only account metadata', async () => {
+		const accountInfo = await captureOverrideAccountInfo({
+			clusterCategory: 3,
+		});
+
+		assert.deepStrictEqual(accountInfo, {
+			accountId: 'persisted-account-id',
+			accountEmail: 'persisted@example.com',
+			tenantId: 'persisted-tenant-id',
+			clusterCategory: 3,
+		});
+	});
+
 	test('adopts the latest workspace object instead of keeping the one it was created with', () => {
 		removeSynchronizer(bindingUri);
 		const stale = workspaceWithAccount('');

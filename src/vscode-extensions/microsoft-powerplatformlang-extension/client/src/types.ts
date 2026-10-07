@@ -190,6 +190,7 @@ export interface ReattachAgentRequest extends RemoteApiRequest {
   workspaceUri: string;
   allowRetarget?: boolean;
   conflictResolution?: RetargetConflictResolution;
+  checkRemoteAgentOnly?: boolean;
 }
 
 export enum RetargetConflictResolution {
@@ -202,6 +203,7 @@ export interface ReattachAgentResponse extends RemoteApiResponse {
   isNewAgent: boolean;
   requiresLocalPush?: boolean;
   schemaConflict?: boolean;
+  remoteAgentExists?: boolean;
   workflowResponse: WorkflowResponse[];
   aiPromptResponse?: AIPromptResponse[];
 }

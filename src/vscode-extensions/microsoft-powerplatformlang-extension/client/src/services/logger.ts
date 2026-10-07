@@ -357,7 +357,7 @@ const eventCategoryMap: Partial<Record<TelemetryEventType, LogCategory>> = {
   // Reattach
   [TelemetryEventsKeys.ReattachAgentClick]: LogCategory.Reattach,
   [TelemetryEventsKeys.ReattachAgentError]: LogCategory.Reattach,
-  [TelemetryEventsKeys.ReattachAgentInfo]: LogCategory.Reattach,
+  [TelemetryEventsKeys.ReattachAgentWarning]: LogCategory.Reattach,
   [TelemetryEventsKeys.ReattachAgentSuccess]: LogCategory.Reattach,
 
   // Environment / Tree

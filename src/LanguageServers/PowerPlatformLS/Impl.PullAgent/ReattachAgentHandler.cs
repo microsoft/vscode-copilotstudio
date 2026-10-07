@@ -10,6 +10,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
     using System;
+    using System.Net;
     using System.Threading;
     using System.Threading.Tasks;
 
@@ -84,6 +85,32 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 }
 
                 var isRetarget = isSyncInfoAvailable && request.AllowRetarget;
+
+                if (request.CheckRemoteAgentOnly)
+                {
+                    var existingSyncInfo = await _workspaceSynchronizer.GetSyncInfoAsync(workspaceFolder);
+                    var remoteAgentExists = false;
+                    if (existingSyncInfo.AgentId is Guid agentId && agentId != Guid.Empty)
+                    {
+                        try
+                        {
+                            await _dataverseClient.GetAgentInfoAsync(agentId, cancellationToken);
+                            remoteAgentExists = true;
+                        }
+                        catch (DataverseRequestException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+                        {
+                            // A deleted connected agent is an expected result of the existence check.
+                        }
+                    }
+
+                    return new ReattachAgentResponse()
+                    {
+                        Code = 200,
+                        Message = string.Empty,
+                        AgentSyncInfo = defaultSyncInfo,
+                        RemoteAgentExists = remoteAgentExists,
+                    };
+                }
 
                 string thisSchema = string.Empty;
                 string agentDisplayName = "ReattachAgent";
