@@ -31,6 +31,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Agents.ObjectModel.PowerFx" />
     <PackageReference Include="Microsoft.Agents.Platform.Content.Internal" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.Extensions.Http" />
   </ItemGroup>
 
