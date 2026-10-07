@@ -316,6 +316,10 @@ const pickTargetEnvironment = async (
           });
       }),
       quickPick.onDidAccept(() => {
+        if (accountTransitionInProgress || quickPick.busy) {
+          return;
+        }
+
         if (pickPhase === 'account') {
           const selectedAccount = quickPick.selectedItems[0] as ReattachAccountPickItem;
           if (selectedAccount?.account) {
@@ -332,12 +336,7 @@ const pickTargetEnvironment = async (
       })
     );
 
-    void loadAccountsOrEnvironments()
-      .then(() => {
-        if (!settled) {
-          quickPick.show();
-        }
-      })
+    void runAccountTransition(loadAccountsOrEnvironments)
       .catch(error => finish(undefined, error));
   });
 };

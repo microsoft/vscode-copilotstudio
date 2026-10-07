@@ -423,6 +423,41 @@ describe('executeReattachAgentCommand', () => {
 		}
 	});
 
+	test('ignores stale environment acceptance while switching accounts', async () => {
+		let completeAccountSwitch: (() => void) | undefined;
+		let pickerDisposedAfterStaleAccept = false;
+		const accountSwitch = new Promise<void>(resolve => {
+			completeAccountSwitch = resolve;
+		});
+		const harness = installFlowHarness({
+			switchAccount: async () => await accountSwitch,
+			configureQuickPick: quickPick => {
+				quickPick.onShow = picker => {
+					picker.selectedItems = [picker.items[0]];
+					if (picker.showCount === 1) {
+						picker.fireButton(picker.buttons[0]);
+						picker.fireAccept();
+						pickerDisposedAfterStaleAccept = picker.disposed;
+						completeAccountSwitch?.();
+						return;
+					}
+
+					picker.fireAccept();
+				};
+			},
+		});
+
+		try {
+			await executeReattachAgentCommand(harness.context, { workspace: harness.workspace });
+
+			assert.strictEqual(pickerDisposedAfterStaleAccept, false);
+			assert.strictEqual(harness.quickPick.showCount, 2);
+			assert.strictEqual(harness.requests.length, 1);
+		} finally {
+			harness.restore();
+		}
+	});
+
 	test('logs exactly one cancellation when the environment picker is dismissed', async () => {
 		const harness = installFlowHarness({
 			configureQuickPick: quickPick => {
@@ -461,6 +496,36 @@ describe('executeReattachAgentCommand', () => {
 					tenantId: 'tenant-b',
 				},
 			],
+			listEnvironments: async () => await new Promise<EnvironmentInfo[]>(() => undefined),
+		});
+		globalThis.setTimeout = ((callback: (...args: unknown[]) => void) => {
+			queueMicrotask(callback);
+			return 1 as unknown as NodeJS.Timeout;
+		}) as typeof globalThis.setTimeout;
+		globalThis.clearTimeout = (() => undefined) as typeof globalThis.clearTimeout;
+
+		try {
+			await executeReattachAgentCommand(harness.context, { workspace: harness.workspace });
+
+			assert.strictEqual(harness.requests.length, 0);
+			assert.strictEqual(harness.logs.filter(log => log.level === 'warning').length, 0);
+			const errorLogs = harness.logs.filter(log => log.level === 'error');
+			assert.strictEqual(errorLogs.length, 1);
+			assert.strictEqual(
+				errorLogs[0].message,
+				'Account and environment selection did not complete within 2 minutes. Please try again.'
+			);
+		} finally {
+			globalThis.setTimeout = originalSetTimeout;
+			globalThis.clearTimeout = originalClearTimeout;
+			harness.restore();
+		}
+	});
+
+	test('surfaces the account-transition timeout during initial environment loading', async () => {
+		const originalSetTimeout = globalThis.setTimeout;
+		const originalClearTimeout = globalThis.clearTimeout;
+		const harness = installFlowHarness({
 			listEnvironments: async () => await new Promise<EnvironmentInfo[]>(() => undefined),
 		});
 		globalThis.setTimeout = ((callback: (...args: unknown[]) => void) => {

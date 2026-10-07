@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { resetAccount, isIdentityUnbound, resolveAccountIdentity } from '../clients/account';
+import { resetAccount, hasUsableTenantId, isIdentityUnbound, resolveAccountIdentity } from '../clients/account';
 import { AccountInfo, SyncRequest, SyncResponse, WorkflowResponse, AIPromptResponse } from '../types';
 import { captureWorkspaceConnectionSnapshot, CopilotStudioWorkspace, getAccountRepairFailureMessage, persistWorkspaceAccountBinding, refreshSyncInfoFromConnection, repairAccountInfo, tryRepairAgentManagementEndpoint } from './localWorkspaces';
 import { uploadKnowledgeFiles } from '../knowledgeFiles/uploadKnowledgeFiles';
@@ -238,8 +238,13 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
     throw new Error(`${displayText} failed. Connection file .mcs::conn.json is missing, please clone again.`);
   }
 
-  const overrideIdentity = resolveAccountIdentity(accountOverride);
-  const hasAccountOverride = accountOverride !== undefined
+  const hasIdentityOverride = accountOverride !== undefined
+    && (!isIdentityUnbound(accountOverride.accountId, accountOverride.accountEmail)
+      || hasUsableTenantId(accountOverride.tenantId));
+  const overrideIdentity = hasIdentityOverride
+    ? resolveAccountIdentity(accountOverride)
+    : {};
+  const hasAccountOverride = hasIdentityOverride
     && !isIdentityUnbound(overrideIdentity.accountId, overrideIdentity.accountEmail);
   if (!hasAccountOverride) {
     let repairOutcome = await repairAccountInfo(workspace.syncInfo, workspaceUri);
@@ -262,6 +267,13 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
       accountInfo: {
         ...syncInfo.accountInfo,
         ...accountOverride,
+        ...(hasAccountOverride
+          ? {
+            accountId: overrideIdentity.accountId,
+            accountEmail: overrideIdentity.accountEmail,
+            tenantId: overrideIdentity.tenantId ?? '',
+          }
+          : {}),
       },
     }
     : syncInfo;

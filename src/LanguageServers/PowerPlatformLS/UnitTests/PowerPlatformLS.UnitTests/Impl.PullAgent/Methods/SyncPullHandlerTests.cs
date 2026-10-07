@@ -30,6 +30,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
         private const string Settings = "schemaName: test_agent\ndisplayName: Base\ntemplate: default-1.0.0\n";
         private const string Topic = "kind: AdaptiveDialog\nbeginDialog:\n  kind: OnRecognizedIntent\n  id: main\n";
         private const string Conflict = "<<<<<<< ours\ndisplayName: Local\n=======\ndisplayName: Remote\n>>>>>>> theirs\n";
+        private static readonly Guid PersistedTenantId = Guid.Empty;
+        private static readonly Guid SelectedTenantId = Guid.Parse("22222222-2222-2222-2222-222222222222");
 
         public static IEnumerable<object[]> InvalidDocuments()
         {
@@ -97,6 +99,17 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             Assert.Equal(200, response.Code);
             Assert.Equal(string.Empty, response.Message);
             fixture.AssertPullCalledOnce();
+        }
+
+        [Fact]
+        public async Task Pull_RepairsEmptyPersistedTenantInMemoryWithoutChangingPersistedWorkspaceIdentity()
+        {
+            using var fixture = new PullFixture();
+
+            var response = await fixture.PullAsync();
+
+            Assert.Equal(200, response.Code);
+            fixture.AssertRequestConnectionContextUsed();
         }
 
         [Fact]
@@ -171,6 +184,10 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             private readonly SyncPullHandler _handler;
             private readonly SyncAgentRequest _request;
             private readonly BotEntity _entity;
+            private readonly AgentSyncInfo _persistedSyncInfo;
+            private AgentSyncInfo? _operationSyncInfo;
+            private AgentSyncInfo? _pullSyncInfo;
+            private AgentSyncInfo? _localChangesSyncInfo;
 
             public PullFixture()
             {
@@ -196,7 +213,22 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
                 Workspace = World.GetWorkspace();
                 Workspace.BuildCompilationModel();
 
-                var syncInfo = new AgentSyncInfo { AgentId = Guid.NewGuid() };
+                _persistedSyncInfo = new AgentSyncInfo
+                {
+                    AgentId = Guid.NewGuid(),
+                    DataverseEndpoint = new Uri("https://persisted.crm.dynamics.com"),
+                    EnvironmentId = "persisted-environment",
+                    EnvironmentDisplayName = "Persisted environment",
+                    AccountInfo = new AccountInfo
+                    {
+                        AccountId = "persisted-account",
+                        AccountEmail = "persisted@example.com",
+                        TenantId = PersistedTenantId,
+                    },
+                    SolutionVersions = new SolutionInfo(),
+                    AgentManagementEndpoint = new Uri("https://persisted.agentmanagement.com"),
+                    AuthoringShape = AuthoringShape.CliCopilot,
+                };
                 var operation = new AuthoringOperationContext(null, new CdsOrganizationInfo(), new BotReference(), null, false);
                 var sync = new WorkspaceSynchronizer(new SyncMcsFileParser(LspProjectorService.Instance), factory, _island.Object, Mock.Of<ISyncProgress>(), new LspComponentPathResolver());
                 _island.Setup(value => value.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
@@ -205,22 +237,37 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
                     .ReturnsAsync(Array.Empty<SyncDataverseClient.WorkflowMetadata>());
                 _dataverse.Setup(value => value.DownloadAllAIPromptsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>()))
                     .ReturnsAsync(Array.Empty<SyncDataverseClient.AIPromptMetadata>());
-                _operationProvider.Setup(value => value.GetAsync(It.IsAny<AgentSyncInfo>())).ReturnsAsync(operation);
-                _synchronizer.Setup(value => value.GetSyncInfoAsync(It.IsAny<DirectoryPath>())).ReturnsAsync(syncInfo);
+                _operationProvider.Setup(value => value.GetAsync(It.IsAny<AgentSyncInfo>()))
+                    .Callback<AgentSyncInfo>(info => _operationSyncInfo = info)
+                    .ReturnsAsync(operation);
+                _synchronizer.Setup(value => value.GetSyncInfoAsync(It.IsAny<DirectoryPath>())).ReturnsAsync(_persistedSyncInfo);
                 _synchronizer.Setup(value => value.PullExistingChangesAsync(
                     It.IsAny<DirectoryPath>(), It.IsAny<AuthoringOperationContextBase>(), It.IsAny<DefinitionBase>(),
                     It.IsAny<ISyncDataverseClient>(), It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>(),
                     It.IsAny<bool>(), It.IsAny<ICollection<WorkspaceDiagnostic>>()))
                     .Returns((DirectoryPath folder, AuthoringOperationContextBase context, DefinitionBase definition, ISyncDataverseClient client, AgentSyncInfo info, CancellationToken token, bool downloadAll, ICollection<WorkspaceDiagnostic> conflicts)
-                        => sync.PullExistingChangesAsync(folder, context, definition, client, info, token, downloadAll, conflicts));
+                        =>
+                        {
+                            _pullSyncInfo = info;
+                            return sync.PullExistingChangesAsync(folder, context, definition, client, info, token, downloadAll, conflicts);
+                        });
                 _synchronizer.Setup(value => value.GetLocalChangesAsync(
                     It.IsAny<DirectoryPath>(), It.IsAny<DefinitionBase>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>()))
                     .Returns((DirectoryPath folder, DefinitionBase definition, ISyncDataverseClient client, AgentSyncInfo info, CancellationToken token)
-                        => sync.GetLocalChangesAsync(folder, definition, client, info, token));
+                        =>
+                        {
+                            _localChangesSyncInfo = info;
+                            return sync.GetLocalChangesAsync(folder, definition, client, info, token);
+                        });
                 _request = new SyncAgentRequest
                 {
                     WorkspaceUri = new Uri(Root),
-                    AccountInfo = new AccountInfo(),
+                    AccountInfo = new AccountInfo
+                    {
+                        AccountId = "selected-account",
+                        AccountEmail = "selected@example.com",
+                        TenantId = SelectedTenantId,
+                    },
                     EnvironmentInfo = new EnvironmentInfo
                     {
                         DataverseUrl = "https://test.crm.dynamics.com",
@@ -289,6 +336,34 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
                     It.IsAny<DirectoryPath>(), It.IsAny<AuthoringOperationContextBase>(), It.IsAny<DefinitionBase>(),
                     It.IsAny<ISyncDataverseClient>(), It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>(),
                     false, It.IsAny<ICollection<WorkspaceDiagnostic>>()), Times.Once);
+
+            public void AssertRequestConnectionContextUsed()
+            {
+                AssertEffective(_operationSyncInfo);
+                Assert.Same(_operationSyncInfo, _pullSyncInfo);
+                Assert.Same(_operationSyncInfo, _localChangesSyncInfo);
+
+                Assert.Equal("persisted-account", _persistedSyncInfo.AccountInfo?.AccountId);
+                Assert.Equal(PersistedTenantId, _persistedSyncInfo.AccountInfo?.TenantId);
+                Assert.Equal("persisted-environment", _persistedSyncInfo.EnvironmentId);
+                Assert.Equal(new Uri("https://persisted.agentmanagement.com"), _persistedSyncInfo.AgentManagementEndpoint);
+            }
+
+            private void AssertEffective(AgentSyncInfo? info)
+            {
+                Assert.NotNull(info);
+                Assert.Equal(_persistedSyncInfo.AgentId, info.AgentId);
+                Assert.Equal(_persistedSyncInfo.ComponentCollectionId, info.ComponentCollectionId);
+                Assert.Equal(_persistedSyncInfo.EnvironmentDisplayName, info.EnvironmentDisplayName);
+                Assert.Equal(_persistedSyncInfo.AuthoringShape, info.AuthoringShape);
+                Assert.Equal("selected-account", info.AccountInfo?.AccountId);
+                Assert.Equal("selected@example.com", info.AccountInfo?.AccountEmail);
+                Assert.Equal(SelectedTenantId, info.AccountInfo?.TenantId);
+                Assert.Equal(new Uri("https://test.crm.dynamics.com"), info.DataverseEndpoint);
+                Assert.Equal("test-environment", info.EnvironmentId);
+                Assert.Equal(new Uri("https://test.agentmanagement.com"), info.AgentManagementEndpoint);
+                Assert.Same(_request.SolutionVersions, info.SolutionVersions);
+            }
 
             public Task<SyncAgentResponse> PullAsync()
                 => _handler.HandleRequestAsync(_request, World.GetRequestContext(World.GetDocument(File(SettingsPath))!, 0), CancellationToken.None);
