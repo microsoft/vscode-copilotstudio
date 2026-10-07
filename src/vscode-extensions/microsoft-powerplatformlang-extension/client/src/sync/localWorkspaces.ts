@@ -210,14 +210,10 @@ const updateConnectionFileIfUnchanged = (
 export const persistWorkspaceAccountBinding = (
   syncInfo: AgentSyncInfo,
   workspaceUri: string,
-  accountInfo: AccountInfo
+  accountInfo: AccountInfo,
+  expectedConnectionContents: string
 ): void => {
-  const connection = readConnectionFile(workspaceUri);
-  if (!connection) {
-    throw new Error('Could not save the selected account because .mcs::conn.json is missing or invalid.');
-  }
-
-  const persisted = updateConnectionFileIfUnchanged(workspaceUri, connection.contents, connectionData => {
+  const persisted = updateConnectionFileIfUnchanged(workspaceUri, expectedConnectionContents, connectionData => {
     const persistedAccountInfo = connectionData.AccountInfo;
     if (!persistedAccountInfo || typeof persistedAccountInfo !== 'object' || Array.isArray(persistedAccountInfo)) {
       return false;
@@ -238,6 +234,9 @@ export const persistWorkspaceAccountBinding = (
 
   syncInfo.accountInfo = { ...accountInfo };
 };
+
+export const captureWorkspaceConnectionSnapshot = (workspaceUri: string): string | undefined =>
+  readConnectionFile(workspaceUri)?.contents;
 
 export const getAllWorkspaces = (): CopilotStudioWorkspace[] => workspaceCache;
 
@@ -665,11 +664,8 @@ export async function tryRepairAgentManagementEndpoint(syncInfo: AgentSyncInfo, 
     return false;
   }
 
-  const {
-    accountInfo,
-    agentManagementEndpoint,
-    environmentId,
-  } = connection.syncInfo;
+  const { agentManagementEndpoint, environmentId } = connection.syncInfo;
+  const { accountInfo } = syncInfo;
   if (!accountInfo) {
     return false;
   }

@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { resetAccount, isIdentityUnbound, resolveAccountIdentity } from '../clients/account';
 import { AccountInfo, SyncRequest, SyncResponse, WorkflowResponse, AIPromptResponse } from '../types';
-import { CopilotStudioWorkspace, getAccountRepairFailureMessage, persistWorkspaceAccountBinding, refreshSyncInfoFromConnection, repairAccountInfo, tryRepairAgentManagementEndpoint } from './localWorkspaces';
+import { captureWorkspaceConnectionSnapshot, CopilotStudioWorkspace, getAccountRepairFailureMessage, persistWorkspaceAccountBinding, refreshSyncInfoFromConnection, repairAccountInfo, tryRepairAgentManagementEndpoint } from './localWorkspaces';
 import { uploadKnowledgeFiles } from '../knowledgeFiles/uploadKnowledgeFiles';
 import { virtualKnowledgeFileSystemProvider } from '../knowledgeFiles/virtualKnowledgeFile';
 import { knowledgeTreeDataProvider } from '../knowledgeFiles/knowledgeFileTree';
@@ -272,6 +272,13 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
     await tryRepairAgentManagementEndpoint(requestSyncInfo, workspaceUri);
   }
 
+  const connectionSnapshot = accountOverride
+    ? captureWorkspaceConnectionSnapshot(workspaceUri)
+    : undefined;
+  if (accountOverride && connectionSnapshot === undefined) {
+    throw new Error(`${displayText} failed because the connection changed. Try again.`);
+  }
+
   const { accountInfo, agentManagementEndpoint, dataverseEndpoint, environmentId } = requestSyncInfo;
   if (!dataverseEndpoint || !environmentId) {
     throw new Error(`${displayText} failed. Connection settings in .mcs::conn.json are incomplete or invalid, please clone again.`);
@@ -300,8 +307,8 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
       : await vscode.window.withProgress({ location: vscode.ProgressLocation.SourceControl }, async () => {
         return await lspClient.sendRequest<SyncResponse>(methodName, request);
       });
-    if (accountOverride) {
-      persistWorkspaceAccountBinding(syncInfo, workspaceUri, request.accountInfo);
+    if (accountOverride && connectionSnapshot !== undefined) {
+      persistWorkspaceAccountBinding(syncInfo, workspaceUri, request.accountInfo, connectionSnapshot);
     }
     const durationMs = Date.now() - startTime;
     const workflowErrorsFound = logWorkflowIssues(result.workflowResponse, suppressDisabledWorkflowWarnings);

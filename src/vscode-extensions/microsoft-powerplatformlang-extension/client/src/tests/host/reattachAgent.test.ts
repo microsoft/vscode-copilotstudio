@@ -151,6 +151,8 @@ type FlowHarnessOptions = {
 		optionsOrItem: vscode.MessageOptions | string,
 		...items: string[]
 	) => Thenable<string | undefined>;
+	getDiagnosticsErrors?: () => Promise<{ count: number; files: number }>;
+	executeCommand?: (command: string) => Promise<void>;
 	onLog?: (level: LogRecord['level'], message: unknown) => void;
 };
 
@@ -223,6 +225,9 @@ const installFlowHarness = (options: FlowHarnessOptions = {}) => {
 			return typeof optionsOrItem === 'string' ? optionsOrItem : items[0];
 		}
 	);
+	addStub(vscode.commands, 'executeCommand', async (command: string) => {
+		await options.executeCommand?.(command);
+	});
 	addStub(accountModule, 'listStoredAccounts', async () => accounts);
 	addStub(accountModule, 'switchAccount', options.switchAccount ?? (async () => undefined));
 	addStub(accountModule, 'getPreferredTreeAccount', () => account);
@@ -300,10 +305,14 @@ const installFlowHarness = (options: FlowHarnessOptions = {}) => {
 		'registerVirtualKnowledgeProvider',
 		async () => ({})
 	);
-	addStub(syncWorkspaceModule, 'getDiagnosticsErrors', async () => ({
-		count: 0,
-		files: 0,
-	}));
+	addStub(
+		syncWorkspaceModule,
+		'getDiagnosticsErrors',
+		options.getDiagnosticsErrors ?? (async () => ({
+			count: 0,
+			files: 0,
+		}))
+	);
 	addStub(
 		connectionManagerModule,
 		'autoBindAgentConnections',
@@ -840,6 +849,54 @@ describe('executeReattachAgentCommand', () => {
 			]);
 			assert.strictEqual(harness.logs.filter(log => log.level === 'error').length, 0);
 		} finally {
+			harness.restore();
+		}
+	});
+
+	test('releases the sync guard before awaiting the diagnostics action', async () => {
+		let lockActive = false;
+		let resolveLockReleased: (() => void) | undefined;
+		const lockReleased = new Promise<void>(resolve => {
+			resolveLockReleased = resolve;
+		});
+		let resolveSelection: ((selection: string | undefined) => void) | undefined;
+		const selection = new Promise<string | undefined>(resolve => {
+			resolveSelection = resolve;
+		});
+		let actionObservedReleasedLock = false;
+		const harness = installFlowHarness({
+			attached: true,
+			currentEnvironmentId: 'old-environment',
+			targetEnvironmentId: 'new-environment',
+			getDiagnosticsErrors: async () => ({ count: 1, files: 1 }),
+			showWarningMessage: async (_message, optionsOrItem, ...items) =>
+				typeof optionsOrItem === 'string' ? await selection : items[0],
+			withSyncCommandBusy: async (_workspaceUri, action) => {
+				lockActive = true;
+				try {
+					return await action();
+				} finally {
+					lockActive = false;
+					resolveLockReleased?.();
+				}
+			},
+			executeCommand: async command => {
+				assert.strictEqual(command, 'workbench.actions.view.problems');
+				actionObservedReleasedLock = !lockActive;
+			},
+		});
+
+		try {
+			const command = executeReattachAgentCommand(harness.context, { workspace: harness.workspace });
+			await lockReleased;
+			assert.strictEqual(lockActive, false);
+			resolveSelection?.('View Details');
+			await command;
+
+			assert.strictEqual(actionObservedReleasedLock, true);
+			assert.strictEqual(harness.requests.length, 0);
+		} finally {
+			resolveSelection?.(undefined);
 			harness.restore();
 		}
 	});

@@ -79,11 +79,21 @@ type ReattachFailureAction = {
   command: string;
 };
 
+type ReattachOutcomeInteraction = {
+  selection: Thenable<string | undefined>;
+  action: ReattachFailureAction;
+};
+
+type ReattachExecutionResult = {
+  outcomeInteraction?: ReattachOutcomeInteraction;
+  workspacesNeedingConnections?: CopilotStudioWorkspace[];
+};
+
 class ReattachError extends Error {
   constructor(
     message: string,
     readonly level: ReattachFailureLevel = 'error',
-    readonly cause?: unknown,
+    readonly reason?: unknown,
     readonly action?: ReattachFailureAction
   ) {
     super(message);
@@ -736,7 +746,9 @@ const performReattachFlow = async (
   };
 };
 
-const logCommandOutcome = async (outcome: ReattachOutcome): Promise<void> => {
+const logCommandOutcome = (
+  outcome: ReattachOutcome
+): ReattachOutcomeInteraction | undefined => {
   if (outcome.kind === 'success') {
     logger.logInfo(TelemetryEventsKeys.ReattachAgentSuccess, outcome.message);
     return;
@@ -750,8 +762,9 @@ const logCommandOutcome = async (outcome: ReattachOutcome): Promise<void> => {
 
   const { error } = outcome;
   if (error instanceof ReattachError) {
-    const errorData = error.cause !== undefined ? { error: error.cause } : undefined;
-    if (!error.action) {
+    const { action, reason } = error;
+    const errorData = reason !== undefined ? { error: reason } : undefined;
+    if (!action) {
       if (error.level === 'warning') {
         logger.logWarning(TelemetryEventsKeys.ReattachAgentWarning, error.message, errorData);
       } else {
@@ -762,24 +775,31 @@ const logCommandOutcome = async (outcome: ReattachOutcome): Promise<void> => {
 
     const logData = {
       message: error.message,
-      ...(error.cause !== undefined ? { error: error.cause } : {}),
+      ...(reason !== undefined ? { error: reason } : {}),
     };
     const displayMessage = prepareLogData(error.message, {}).displayMessage ?? error.message;
-    let selection: string | undefined;
+
+    let selection: Thenable<string | undefined>;
     if (error.level === 'warning') {
       logger.logWarning(TelemetryEventsKeys.ReattachAgentWarning, undefined, logData);
-      selection = await vscode.window.showWarningMessage(displayMessage, error.action.label);
+      selection = vscode.window.showWarningMessage(displayMessage, action.label);
     } else {
       logger.logError(TelemetryEventsKeys.ReattachAgentError, undefined, logData);
-      selection = await vscode.window.showErrorMessage(displayMessage, error.action.label);
+      selection = vscode.window.showErrorMessage(displayMessage, action.label);
     }
-    if (selection === error.action.label) {
-      await vscode.commands.executeCommand(error.action.command);
-    }
+    return { selection, action };
   } else {
     logger.logError(TelemetryEventsKeys.ReattachAgentError, 'Error reattaching agent', {
       error,
     });
+  }
+};
+
+const completeOutcomeInteraction = async (
+  interaction: ReattachOutcomeInteraction | undefined
+): Promise<void> => {
+  if (interaction && await interaction.selection === interaction.action.label) {
+    await vscode.commands.executeCommand(interaction.action.command);
   }
 };
 
@@ -791,7 +811,7 @@ export const executeReattachAgentCommand = async (
     message: 'Reattach agent initiated',
   });
 
-  let workspacesNeedingConnections: CopilotStudioWorkspace[] | undefined = [];
+  let executionResult: ReattachExecutionResult = {};
   try {
     const activeSyncUri = getActiveSyncUri();
     if (activeSyncUri !== undefined) {
@@ -805,7 +825,7 @@ export const executeReattachAgentCommand = async (
     const isAttached = hasConnectionFileInWorkspace(workspace.workspaceUri);
     const pickedEnvironment = await pickTargetEnvironment(isAttached);
     const selectedAccount = pickedEnvironment.sourceAccount ?? getPreferredTreeAccount();
-    const connectionWorkspaces = await vscode.window.withProgress(
+    executionResult = await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
         title: isAttached ? 'Retargeting Agent...' : 'Reattaching Agent...',
@@ -830,22 +850,24 @@ export const executeReattachAgentCommand = async (
               : { kind: 'failed', error };
           }
 
-          await logCommandOutcome(outcome);
-          return result?.workspacesNeedingConnections;
+          return {
+            outcomeInteraction: logCommandOutcome(outcome),
+            workspacesNeedingConnections: result?.workspacesNeedingConnections,
+          };
         })
     );
-    workspacesNeedingConnections = connectionWorkspaces;
   } catch (error) {
-    await logCommandOutcome(
+    executionResult.outcomeInteraction = logCommandOutcome(
       error instanceof ReattachCancelledError
         ? { kind: 'cancelled', message: error.message }
         : { kind: 'failed', error }
     );
-    return;
   }
 
-  if (workspacesNeedingConnections) {
-    await promptManageConnectionsForWorkspaces(context, workspacesNeedingConnections);
+  await completeOutcomeInteraction(executionResult.outcomeInteraction);
+
+  if (executionResult.workspacesNeedingConnections) {
+    await promptManageConnectionsForWorkspaces(context, executionResult.workspacesNeedingConnections);
   }
 };
 

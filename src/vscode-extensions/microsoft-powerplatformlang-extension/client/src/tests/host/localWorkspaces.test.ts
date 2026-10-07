@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { Uri } from 'vscode';
-import { getDuplicateDisplayNames, buildAgentIdentityTooltip, persistWorkspaceAccountBinding, refreshSyncInfoFromConnection, tryRepairAccountInfo, tryRepairAgentManagementEndpoint, chooseAccountForWorkspace, CopilotStudioWorkspace } from '../../sync/localWorkspaces';
+import { captureWorkspaceConnectionSnapshot, getDuplicateDisplayNames, buildAgentIdentityTooltip, persistWorkspaceAccountBinding, refreshSyncInfoFromConnection, tryRepairAccountInfo, tryRepairAgentManagementEndpoint, chooseAccountForWorkspace, CopilotStudioWorkspace } from '../../sync/localWorkspaces';
 import { AgentSyncInfo } from '../../types';
 import { StoredAccountSummary } from '../../clients/account';
 import logger from '../../services/logger';
@@ -126,13 +126,15 @@ test('persists a selected Refresh account without changing unrelated connection 
 		accountEmail: 'previous@contoso.com',
 		tenantId: 'previous-tenant',
 	});
+	const connectionSnapshot = captureWorkspaceConnectionSnapshot(Uri.file(agentFolder).toString());
+	assert.ok(connectionSnapshot);
 
 	persistWorkspaceAccountBinding(syncInfo, Uri.file(agentFolder).toString(), {
 		accountId: 'selected-account',
 		accountEmail: 'selected@contoso.com',
 		tenantId: 'selected-tenant',
 		clusterCategory: 2,
-	});
+	}, connectionSnapshot);
 
 	assert.deepStrictEqual(syncInfo.accountInfo, {
 		accountId: 'selected-account',
@@ -146,6 +148,44 @@ test('persists a selected Refresh account without changing unrelated connection 
 	assert.strictEqual(persisted.AccountInfo.TenantId, 'selected-tenant');
 	assert.strictEqual(persisted.AccountInfo.clusterCategory, 2);
 	assert.deepStrictEqual(persisted.UnknownFutureKey, PAC_CONNECTION_FILE.UnknownFutureKey);
+});
+
+test('does not overwrite a connection binding changed while Refresh is running', () => {
+	const agentFolder = createWorkspaceFolder(connectionWithAccount({
+		AccountId: 'original-account',
+		AccountEmail: 'original@contoso.com',
+		TenantId: 'original-tenant',
+	}));
+	const workspaceUri = Uri.file(agentFolder).toString();
+	const connectionSnapshot = captureWorkspaceConnectionSnapshot(workspaceUri);
+	assert.ok(connectionSnapshot);
+	const concurrentConnection = readConnectionFile(agentFolder);
+	concurrentConnection.AccountInfo = {
+		...concurrentConnection.AccountInfo,
+		AccountId: 'concurrent-account',
+		AccountEmail: 'concurrent@contoso.com',
+		TenantId: 'concurrent-tenant',
+	};
+	fs.writeFileSync(
+		path.join(agentFolder, '.mcs', 'conn.json'),
+		JSON.stringify(concurrentConnection),
+		'utf-8'
+	);
+
+	assert.throws(
+		() => persistWorkspaceAccountBinding(
+			makeSyncInfo(),
+			workspaceUri,
+			{
+				accountId: 'selected-account',
+				accountEmail: 'selected@contoso.com',
+				tenantId: 'selected-tenant',
+			},
+			connectionSnapshot
+		),
+		/changed during Refresh/
+	);
+	assert.strictEqual(readConnectionFile(agentFolder).AccountInfo.AccountId, 'concurrent-account');
 });
 
 describe('tryRepairAccountInfo', () => {
@@ -710,6 +750,38 @@ describe('tryRepairAgentManagementEndpoint', () => {
 		assert.strictEqual(syncInfo.agentManagementEndpoint, 'https://powervamg.us-il106.gateway.prod.island.powerapps.com/');
 		assert.strictEqual(readConnectionFile(agentFolder).AgentManagementEndpoint, 'https://powervamg.us-il106.gateway.prod.island.powerapps.com/');
 		assertCloudCacheUntouched(agentFolder, cloudCacheBefore);
+	});
+
+	test('uses the supplied account instead of the stale account stored in the connection file', async () => {
+		const agentFolder = createWorkspaceFolder(connectionWithAccount({
+			AccountId: 'stale-account',
+			AccountEmail: 'stale@contoso.com',
+			TenantId: 'stale-tenant',
+		}, {
+			AgentManagementEndpoint: null,
+		}));
+		const syncInfo = makeEndpointSyncInfo();
+		syncInfo.accountInfo = {
+			accountId: 'selected-account',
+			accountEmail: 'selected@contoso.com',
+			tenantId: 'selected-tenant',
+		};
+		let lookupAccountId: string | null | undefined;
+		let lookupAccountEmail: string | undefined;
+
+		const repaired = await tryRepairAgentManagementEndpoint(
+			syncInfo,
+			Uri.file(agentFolder).toString(),
+			[async (_cluster, _environmentId, _filter, accountId, accountEmail) => {
+				lookupAccountId = accountId;
+				lookupAccountEmail = accountEmail;
+				return await environmentWithEndpoint();
+			}]
+		);
+
+		assert.strictEqual(repaired, true);
+		assert.strictEqual(lookupAccountId, 'selected-account');
+		assert.strictEqual(lookupAccountEmail, 'selected@contoso.com');
 	});
 
 	test('falls back to the next lookup when the first returns no endpoint', async () => {
