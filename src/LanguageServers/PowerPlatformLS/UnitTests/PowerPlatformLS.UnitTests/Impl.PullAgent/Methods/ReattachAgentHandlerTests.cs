@@ -109,6 +109,38 @@
         }
 
         [Fact]
+        public async Task ReattachAgentRemoteCheckIgnoresInvalidLocalSchemaTest()
+        {
+            var source = Path.GetFullPath(Path.Combine(TestDataPath, WorkspacePath));
+            var temporaryWorkspace = Path.Combine(Path.GetTempPath(), $"reattach-remote-check-{Guid.NewGuid()}");
+            CopyDirectory(source, temporaryWorkspace);
+            try
+            {
+                var settingsPath = Path.Combine(temporaryWorkspace, "settings.mcs.yml");
+                var settings = await File.ReadAllTextAsync(settingsPath);
+                await File.WriteAllTextAsync(settingsPath, settings.Replace("schemaName: cree9_agent", "schemaName: invalid schema"));
+
+                var context = CreateTestSetup(temporaryWorkspace);
+                context.Request.AllowRetarget = true;
+                context.Request.CheckRemoteAgentOnly = true;
+                var dataverseClient = new MockDataverseClient();
+                var synchronizer = new TestWorkspaceSynchronizerSyncInfoExists();
+                var handler = TestHandlerFactory.CreateHandler(dataverseClient, synchronizer, CreateOperationProvider());
+
+                var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
+
+                Assert.Equal(200, response.Code);
+                Assert.True(response.RemoteAgentExists);
+                Assert.False(dataverseClient.CreateNewAgentCalled);
+                Assert.Equal(0, synchronizer.SavedSyncInfoCount);
+            }
+            finally
+            {
+                Directory.Delete(temporaryWorkspace, recursive: true);
+            }
+        }
+
+        [Fact]
         public async Task ReattachAgentAlreadyConnectedReturns400Test()
         {
             var context = CreateTestSetup();
@@ -618,6 +650,20 @@
                 RequestContext = requestContext,
                 Request = request
             };
+        }
+
+        private static void CopyDirectory(string source, string destination)
+        {
+            Directory.CreateDirectory(destination);
+            foreach (var file in Directory.GetFiles(source))
+            {
+                File.Copy(file, Path.Combine(destination, Path.GetFileName(file)));
+            }
+
+            foreach (var directory in Directory.GetDirectories(source))
+            {
+                CopyDirectory(directory, Path.Combine(destination, Path.GetFileName(directory)));
+            }
         }
 
         private static IOperationContextProvider CreateOperationProvider()

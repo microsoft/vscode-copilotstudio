@@ -55,7 +55,7 @@ type ReattachWorkspaceResult = {
 type ReattachConnectionSummary = {
   boundConnectionCount: number;
   enabledWorkflowCount: number;
-  promptedForConnections: boolean;
+  workspacesNeedingConnections: CopilotStudioWorkspace[];
 };
 
 type ReattachOutcome =
@@ -310,7 +310,7 @@ const pickTargetEnvironment = async (
           const selectedAccount = quickPick.selectedItems[0] as ReattachAccountPickItem;
           if (selectedAccount?.account) {
             void runAccountTransition(() => loadEnvironmentsForAccount(selectedAccount.account))
-              .catch(finish);
+              .catch(error => finish(undefined, error));
           }
           return;
         }
@@ -408,7 +408,6 @@ const validateDiagnostics = async (
 };
 
 const runReattachForWorkspace = async (
-  context: vscode.ExtensionContext,
   workspace: CopilotStudioWorkspace,
   basePayload: Omit<
     ReattachAgentRequest,
@@ -466,19 +465,6 @@ const runReattachForWorkspace = async (
     ...workspace,
     syncInfo: response.agentSyncInfo,
   };
-  if (response.requiresLocalPush) {
-    try {
-      await pushNewWorkspace(context, reattachedWorkspace, wasRetarget);
-    } catch (error) {
-      if (wasRetarget) {
-        await lspClient.sendRequest<FinalizeRetargetResponse>(LspMethods.FINALIZE_RETARGET, {
-          workspaceUri,
-          pushSucceeded: false,
-        });
-      }
-      throw error;
-    }
-  }
 
   return { workspace: reattachedWorkspace, response, wasRetarget };
 };
@@ -510,56 +496,42 @@ const finalizeRetargets = async (
 
 const executeReattach = async (
   context: vscode.ExtensionContext,
-  workspace: CopilotStudioWorkspace,
   plan: ReattachPlan,
-  pickedEnvironment: ReattachEnvironmentPickItem,
-  isAttached: boolean
+  environment: EnvironmentInfo,
+  targetEnvironmentName: string,
+  selectedAccount?: Partial<AccountInfo>,
 ): Promise<ReattachWorkspaceResult[]> => {
   const reattachedWorkspaceResults: ReattachWorkspaceResult[] = [];
   try {
-    await vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Notification,
-        title: isAttached ? 'Retargeting Agent...' : 'Reattaching Agent...',
-        cancellable: false,
-      },
-      async () => {
-        await withSyncCommandBusy(workspace.workspaceUri, async () => {
-          const selectedAccount =
-            pickedEnvironment.sourceAccount ?? getPreferredTreeAccount();
-          const basePayload = await buildLspRequestPayload(
-            undefined,
-            pickedEnvironment.environment,
-            selectedAccount,
-            true
-          );
-          const targetEnvironmentName =
-            pickedEnvironment.label || 'the selected environment';
-
-          for (const workspaceToReattach of plan.workspaces) {
-            reattachedWorkspaceResults.push(
-              await runReattachForWorkspace(
-                context,
-                workspaceToReattach,
-                basePayload,
-                targetEnvironmentName
-              )
-            );
-          }
-
-          try {
-            await finalizeRetargets(reattachedWorkspaceResults, true);
-          } catch (error) {
-            logger.logWarning(
-              TelemetryEventsKeys.ReattachAgentWarning,
-              'Retarget succeeded but clearing the retarget backup failed; the workspaces remain on the new environment',
-              { error }
-            );
-          }
-        });
-      }
+    const basePayload = await buildLspRequestPayload(
+      undefined,
+      environment,
+      selectedAccount,
+      true
     );
-  } catch (operationError) {
+
+    for (const workspaceToReattach of plan.workspaces) {
+      const result = await runReattachForWorkspace(
+        workspaceToReattach,
+        basePayload,
+        targetEnvironmentName
+      );
+      reattachedWorkspaceResults.push(result);
+      if (result.response.requiresLocalPush) {
+        await pushNewWorkspace(context, result.workspace, result.wasRetarget);
+      }
+    }
+
+    try {
+      await finalizeRetargets(reattachedWorkspaceResults, true);
+    } catch (rollbackError) {
+      logger.logWarning(
+        TelemetryEventsKeys.ReattachAgentWarning,
+        'Retarget succeeded but clearing the retarget backup failed; the workspaces remain on the new environment',
+        { error: rollbackError }
+      );
+    }
+  } catch (error) {
     if (reattachedWorkspaceResults.some(result => result.wasRetarget)) {
       try {
         await finalizeRetargets(reattachedWorkspaceResults, false);
@@ -572,34 +544,26 @@ const executeReattach = async (
       }
 
       if (
-        !(operationError instanceof ReattachCancelledError) &&
-        !(operationError instanceof ReattachError)
+        !(error instanceof ReattachCancelledError) &&
+        !(error instanceof ReattachError)
       ) {
         throw new ReattachError(
           'Retargeting failed while uploading content. The workspaces were reverted to their previous environment. Please try again.',
           'error',
-          operationError
+          error
         );
       }
     }
-    throw operationError;
+    throw error;
   }
 
   return reattachedWorkspaceResults;
 };
 
-const handleConnectionsAndWorkflows = async (
-  context: vscode.ExtensionContext,
-  primaryWorkspaceUri: string,
+const prepareConnectionsAndWorkflows = async (
+  primaryWorkspaceResult: ReattachWorkspaceResult,
   reattachedWorkspaceResults: ReattachWorkspaceResult[]
-): Promise<ReattachConnectionSummary> => {
-  const primaryWorkspaceResult = reattachedWorkspaceResults.find(
-    result => result.workspace.workspaceUri === primaryWorkspaceUri
-  );
-  if (!primaryWorkspaceResult) {
-    throw new Error('The primary workspace result was missing.');
-  }
-
+) => {
   const workspacesNeedingConnections: CopilotStudioWorkspace[] = [];
   let boundConnectionCount = 0;
   let enabledWorkflowCount = 0;
@@ -627,13 +591,10 @@ const handleConnectionsAndWorkflows = async (
   }
 
   logAIPromptIssues(primaryWorkspaceResult.response.aiPromptResponse);
-  if (workspacesNeedingConnections.length > 0) {
-    await promptManageConnectionsForWorkspaces(context, workspacesNeedingConnections);
-  }
   return {
     boundConnectionCount,
     enabledWorkflowCount,
-    promptedForConnections: workspacesNeedingConnections.length > 0,
+    workspacesNeedingConnections,
   };
 };
 
@@ -661,7 +622,7 @@ const buildSuccessMessage = (
           componentCollectionCount === 1 ? '' : 's'
         } ${operationVerb} successfully.`
       : `${workspaceKind} ${workspaceDisplayName} ${operationVerb} successfully.`;
-  if (!connectionSummary.promptedForConnections) {
+  if (connectionSummary.workspacesNeedingConnections.length === 0) {
     if (connectionSummary.boundConnectionCount > 0) {
       successMessage += ' Connections were bound to existing cloud connections.';
     }
@@ -674,14 +635,13 @@ const buildSuccessMessage = (
   return successMessage;
 };
 
-const runReattachFlow = async (
+const performReattachFlow = async (
   context: vscode.ExtensionContext,
-  workspace: CopilotStudioWorkspace
-): Promise<string> => {
-  const isAttached = hasConnectionFileInWorkspace(workspace.workspaceUri);
-
-  // Await account/environment selection through a promise-based picker.
-  const pickedEnvironment = await pickTargetEnvironment(isAttached);
+  workspace: CopilotStudioWorkspace,
+  isAttached: boolean,
+  pickedEnvironment: ReattachEnvironmentPickItem,
+  selectedAccount: Partial<AccountInfo> | undefined
+) => {
   const targetEnvironmentName = pickedEnvironment.label || 'the selected environment';
 
   // Validate referenced workspaces.
@@ -702,7 +662,6 @@ const runReattachFlow = async (
     workspace.syncInfo?.environmentId &&
     pickedEnvironment.environment.environmentId === workspace.syncInfo.environmentId
   ) {
-    const selectedAccount = pickedEnvironment.sourceAccount ?? getPreferredTreeAccount();
     const remoteCheckResponse = await lspClient.sendRequest<ReattachAgentResponse>(
       LspMethods.REATTACH_AGENT,
       {
@@ -732,12 +691,17 @@ const runReattachFlow = async (
         );
       }
 
-      await withSyncCommandBusy(workspace.workspaceUri, async () => {
-        const virtualKnowledgeProvider = await registerVirtualKnowledgeProvider(context, workspace);
-        const synchronizer = getOrAddSynchronizer(workspace);
-        await synchronizer.pull(virtualKnowledgeProvider, { suppressErrorNotification: true });
+      const virtualKnowledgeProvider = await registerVirtualKnowledgeProvider(context, workspace);
+      const synchronizer = getOrAddSynchronizer(workspace);
+      await synchronizer.pull(virtualKnowledgeProvider, {
+        suppressErrorNotification: true,
+        suppressSuccessNotification: true,
+        account: selectedAccount,
       });
-      return 'Retarget agent completed by refreshing the agent from its current environment.';
+      return {
+        message: 'Retarget agent completed by refreshing the agent from its current environment.',
+        workspacesNeedingConnections: [],
+      };
     }
     // The connected remote agent no longer exists, so continue with reattach.
   }
@@ -746,29 +710,30 @@ const runReattachFlow = async (
   await validateDiagnostics(plan, isAttached);
   const reattachedWorkspaceResults = await executeReattach(
     context,
-    workspace,
     plan,
-    pickedEnvironment,
-    isAttached
+    pickedEnvironment.environment,
+    targetEnvironmentName,
+    selectedAccount
   );
-  const connectionSummary = await handleConnectionsAndWorkflows(
-    context,
-    workspace.workspaceUri,
-    reattachedWorkspaceResults
-  );
-
   const primaryWorkspaceResult = reattachedWorkspaceResults.find(
-    result => result.workspace.workspaceUri === workspace.workspaceUri
+    workspaceResult => workspaceResult.workspace.workspaceUri === workspace.workspaceUri
   );
   if (!primaryWorkspaceResult) {
     throw new Error('The primary workspace result was missing.');
   }
-
-  return buildSuccessMessage(
+  const connectionSummary = await prepareConnectionsAndWorkflows(
     primaryWorkspaceResult,
-    reattachedWorkspaceResults,
-    connectionSummary
+    reattachedWorkspaceResults
   );
+
+  return {
+    message: buildSuccessMessage(
+      primaryWorkspaceResult,
+      reattachedWorkspaceResults,
+      connectionSummary
+    ),
+    workspacesNeedingConnections: connectionSummary.workspacesNeedingConnections,
+  };
 };
 
 const logCommandOutcome = async (outcome: ReattachOutcome): Promise<void> => {
@@ -826,6 +791,7 @@ export const executeReattachAgentCommand = async (
     message: 'Reattach agent initiated',
   });
 
+  let workspacesNeedingConnections: CopilotStudioWorkspace[] | undefined = [];
   try {
     const activeSyncUri = getActiveSyncUri();
     if (activeSyncUri !== undefined) {
@@ -836,14 +802,50 @@ export const executeReattachAgentCommand = async (
     }
 
     const workspace = await selectReattachWorkspace(treeItem);
-    const successMessage = await runReattachFlow(context, workspace);
-    await logCommandOutcome({ kind: 'success', message: successMessage });
+    const isAttached = hasConnectionFileInWorkspace(workspace.workspaceUri);
+    const pickedEnvironment = await pickTargetEnvironment(isAttached);
+    const selectedAccount = pickedEnvironment.sourceAccount ?? getPreferredTreeAccount();
+    const connectionWorkspaces = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: isAttached ? 'Retargeting Agent...' : 'Reattaching Agent...',
+        cancellable: false,
+      },
+      () =>
+        withSyncCommandBusy(workspace.workspaceUri, async () => {
+          let outcome: ReattachOutcome;
+          let result: Awaited<ReturnType<typeof performReattachFlow>> | undefined;
+          try {
+            result = await performReattachFlow(
+              context,
+              workspace,
+              isAttached,
+              pickedEnvironment,
+              selectedAccount
+            );
+            outcome = { kind: 'success', message: result.message };
+          } catch (error) {
+            outcome = error instanceof ReattachCancelledError
+              ? { kind: 'cancelled', message: error.message }
+              : { kind: 'failed', error };
+          }
+
+          await logCommandOutcome(outcome);
+          return result?.workspacesNeedingConnections;
+        })
+    );
+    workspacesNeedingConnections = connectionWorkspaces;
   } catch (error) {
     await logCommandOutcome(
       error instanceof ReattachCancelledError
         ? { kind: 'cancelled', message: error.message }
         : { kind: 'failed', error }
     );
+    return;
+  }
+
+  if (workspacesNeedingConnections) {
+    await promptManageConnectionsForWorkspaces(context, workspacesNeedingConnections);
   }
 };
 

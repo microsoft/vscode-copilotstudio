@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { Uri } from 'vscode';
-import { getDuplicateDisplayNames, buildAgentIdentityTooltip, refreshSyncInfoFromConnection, tryRepairAccountInfo, tryRepairAgentManagementEndpoint, chooseAccountForWorkspace, CopilotStudioWorkspace } from '../../sync/localWorkspaces';
+import { getDuplicateDisplayNames, buildAgentIdentityTooltip, persistWorkspaceAccountBinding, refreshSyncInfoFromConnection, tryRepairAccountInfo, tryRepairAgentManagementEndpoint, chooseAccountForWorkspace, CopilotStudioWorkspace } from '../../sync/localWorkspaces';
 import { AgentSyncInfo } from '../../types';
 import { StoredAccountSummary } from '../../clients/account';
 import logger from '../../services/logger';
@@ -113,6 +113,39 @@ test('refreshes request fields from the current connection', () => {
 		solutionVersions: PAC_CONNECTION_FILE.SolutionVersions.SolutionVersions,
 		copilotStudioSolutionVersion: PAC_CONNECTION_FILE.SolutionVersions.CopilotStudioSolutionVersion,
 	});
+});
+
+test('persists a selected Refresh account without changing unrelated connection fields', () => {
+	const agentFolder = createWorkspaceFolder(connectionWithAccount({
+		AccountId: 'previous-account',
+		AccountEmail: 'previous@contoso.com',
+		TenantId: 'previous-tenant',
+	}));
+	const syncInfo = makeSyncInfo({
+		accountId: 'previous-account',
+		accountEmail: 'previous@contoso.com',
+		tenantId: 'previous-tenant',
+	});
+
+	persistWorkspaceAccountBinding(syncInfo, Uri.file(agentFolder).toString(), {
+		accountId: 'selected-account',
+		accountEmail: 'selected@contoso.com',
+		tenantId: 'selected-tenant',
+		clusterCategory: 2,
+	});
+
+	assert.deepStrictEqual(syncInfo.accountInfo, {
+		accountId: 'selected-account',
+		accountEmail: 'selected@contoso.com',
+		tenantId: 'selected-tenant',
+		clusterCategory: 2,
+	});
+	const persisted = readConnectionFile(agentFolder);
+	assert.strictEqual(persisted.AccountInfo.AccountId, 'selected-account');
+	assert.strictEqual(persisted.AccountInfo.AccountEmail, 'selected@contoso.com');
+	assert.strictEqual(persisted.AccountInfo.TenantId, 'selected-tenant');
+	assert.strictEqual(persisted.AccountInfo.clusterCategory, 2);
+	assert.deepStrictEqual(persisted.UnknownFutureKey, PAC_CONNECTION_FILE.UnknownFutureKey);
 });
 
 describe('tryRepairAccountInfo', () => {

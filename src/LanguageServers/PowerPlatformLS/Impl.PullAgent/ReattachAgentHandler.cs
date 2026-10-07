@@ -86,6 +86,32 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
                 var isRetarget = isSyncInfoAvailable && request.AllowRetarget;
 
+                if (request.CheckRemoteAgentOnly)
+                {
+                    var existingSyncInfo = await _workspaceSynchronizer.GetSyncInfoAsync(workspaceFolder);
+                    var remoteAgentExists = false;
+                    if (existingSyncInfo.AgentId is Guid agentId && agentId != Guid.Empty)
+                    {
+                        try
+                        {
+                            await _dataverseClient.GetAgentInfoAsync(agentId, cancellationToken);
+                            remoteAgentExists = true;
+                        }
+                        catch (DataverseRequestException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+                        {
+                            // A deleted connected agent is an expected result of the existence check.
+                        }
+                    }
+
+                    return new ReattachAgentResponse()
+                    {
+                        Code = 200,
+                        Message = string.Empty,
+                        AgentSyncInfo = defaultSyncInfo,
+                        RemoteAgentExists = remoteAgentExists,
+                    };
+                }
+
                 string thisSchema = string.Empty;
                 string agentDisplayName = "ReattachAgent";
                 var isComponentCollectionWorkspace = false;
@@ -117,32 +143,6 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 if (!classification.Allows(SyncOperation.Reattach))
                 {
                     return CreateErrorResponse(400, AuthoringSupportGate.DescribeBlocked(classification, SyncOperation.Reattach), defaultSyncInfo);
-                }
-
-                if (request.CheckRemoteAgentOnly)
-                {
-                    var existingSyncInfo = await _workspaceSynchronizer.GetSyncInfoAsync(workspaceFolder);
-                    var remoteAgentExists = false;
-                    if (existingSyncInfo.AgentId is Guid agentId && agentId != Guid.Empty)
-                    {
-                        try
-                        {
-                            await _dataverseClient.GetAgentInfoAsync(agentId, cancellationToken);
-                            remoteAgentExists = true;
-                        }
-                        catch (DataverseRequestException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
-                        {
-                            // A deleted connected agent is an expected result of the existence check.
-                        }
-                    }
-
-                    return new ReattachAgentResponse()
-                    {
-                        Code = 200,
-                        Message = string.Empty,
-                        AgentSyncInfo = defaultSyncInfo,
-                        RemoteAgentExists = remoteAgentExists,
-                    };
                 }
 
                 var schemaCloudId = isComponentCollectionWorkspace

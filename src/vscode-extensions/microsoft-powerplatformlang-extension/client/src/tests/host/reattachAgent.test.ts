@@ -127,8 +127,11 @@ type FlowHarnessOptions = {
 	activeSyncUri?: string;
 	currentEnvironmentId?: string;
 	targetEnvironmentId?: string;
+	accounts?: AccountInfo[];
+	workspaceAccount?: AccountInfo;
 	configureQuickPick?: (quickPick: FakeQuickPick) => void;
 	switchAccount?: () => Promise<void>;
+	listEnvironments?: (account: AccountInfo) => Promise<EnvironmentInfo[]>;
 	withSyncCommandBusy?: <T>(workspaceUri: string, action: () => Promise<T>) => Promise<T>;
 	sendRequest?: (
 		method: string,
@@ -136,17 +139,27 @@ type FlowHarnessOptions = {
 	) => Promise<unknown>;
 	pushNewWorkspace?: () => Promise<void>;
 	pull?: (options: PullOptions) => Promise<void>;
+	autoBindAgentConnections?: () => Promise<{
+		needsNewCount: number;
+		boundCount: number;
+		enabledWorkflowCount: number;
+		disabledWorkflowNames: string[];
+	}>;
+	promptManageConnectionsForWorkspaces?: () => Promise<void>;
 	showWarningMessage?: (
 		message: string,
 		optionsOrItem: vscode.MessageOptions | string,
 		...items: string[]
 	) => Thenable<string | undefined>;
+	onLog?: (level: LogRecord['level'], message: unknown) => void;
 };
 
 const installFlowHarness = (options: FlowHarnessOptions = {}) => {
 	const restores: Restore[] = [];
 	const logs: LogRecord[] = [];
 	const requests: Array<{ method: string; request: Record<string, unknown> }> = [];
+	const progressOptions: vscode.ProgressOptions[] = [];
+	const events: string[] = [];
 	const targetEnvironmentId = options.targetEnvironmentId ?? 'target-environment';
 	const currentEnvironmentId = options.currentEnvironmentId ?? 'current-environment';
 	const account: AccountInfo = {
@@ -154,6 +167,8 @@ const installFlowHarness = (options: FlowHarnessOptions = {}) => {
 		accountEmail: 'developer@example.com',
 		tenantId: 'tenant-id',
 	};
+	const accounts = options.accounts ?? [account];
+	const workspaceAccount = options.workspaceAccount ?? account;
 	const environment = {
 		environmentId: targetEnvironmentId,
 		displayName: 'Target Environment',
@@ -168,7 +183,7 @@ const installFlowHarness = (options: FlowHarnessOptions = {}) => {
 			? ({
 					agentId: 'existing-agent-id',
 					environmentId: currentEnvironmentId,
-					accountInfo: account,
+					accountInfo: workspaceAccount,
 				} as CopilotStudioWorkspace['syncInfo'])
 			: undefined,
 	};
@@ -189,7 +204,10 @@ const installFlowHarness = (options: FlowHarnessOptions = {}) => {
 	addStub(
 		vscode.window,
 		'withProgress',
-		async (_options: vscode.ProgressOptions, task: () => Promise<unknown>) => await task()
+		async (progress: vscode.ProgressOptions, task: () => Promise<unknown>) => {
+			progressOptions.push(progress);
+			return await task();
+		}
 	);
 	addStub(
 		vscode.window,
@@ -205,16 +223,31 @@ const installFlowHarness = (options: FlowHarnessOptions = {}) => {
 			return typeof optionsOrItem === 'string' ? optionsOrItem : items[0];
 		}
 	);
-	addStub(accountModule, 'listStoredAccounts', async () => [account]);
+	addStub(accountModule, 'listStoredAccounts', async () => accounts);
 	addStub(accountModule, 'switchAccount', options.switchAccount ?? (async () => undefined));
 	addStub(accountModule, 'getPreferredTreeAccount', () => account);
 	addStub(accountModule, 'clearAuthAccountState', () => undefined);
-	addStub(bapClientModule, 'listEnvironmentsAsync', async () => [environment]);
-	addStub(accountEnvPickerModule, 'buildEnvironmentPickItems', () => [
+	addStub(
+		bapClientModule,
+		'listEnvironmentsAsync',
+		async (
+			_clusterCategory: unknown,
+			_filter: unknown,
+			accountId: string | null,
+			accountEmail: string
+		) => await (
+			options.listEnvironments?.({
+				accountId: accountId ?? undefined,
+				accountEmail,
+				tenantId: '',
+			}) ?? Promise.resolve([environment])
+		)
+	);
+	addStub(accountEnvPickerModule, 'buildEnvironmentPickItems', (_environments: EnvironmentInfo[], sourceAccount: AccountInfo) => [
 		{
 			label: 'Target Environment',
 			environment,
-			sourceAccount: account,
+			sourceAccount,
 		},
 	]);
 	addStub(localWorkspacesModule, 'hasConnectionFileInWorkspace', () => options.attached ?? false);
@@ -271,22 +304,33 @@ const installFlowHarness = (options: FlowHarnessOptions = {}) => {
 		count: 0,
 		files: 0,
 	}));
-	addStub(connectionManagerModule, 'autoBindAgentConnections', async () => ({
-		needsNewCount: 0,
-		boundCount: 0,
-		enabledWorkflowCount: 0,
-		disabledWorkflowNames: [],
-	}));
+	addStub(
+		connectionManagerModule,
+		'autoBindAgentConnections',
+		options.autoBindAgentConnections ?? (async () => ({
+			needsNewCount: 0,
+			boundCount: 0,
+			enabledWorkflowCount: 0,
+			disabledWorkflowNames: [],
+		}))
+	);
 	addStub(
 		connectionManagerModule,
 		'promptManageConnectionsForWorkspaces',
-		async () => undefined
+		async () => {
+			events.push('prompt-connections');
+			await (options.promptManageConnectionsForWorkspaces?.() ?? Promise.resolve());
+		}
 	);
 	addStub(
 		logger,
 		'logInfo',
 		(event: unknown, message: unknown, data: unknown) => {
 			logs.push({ level: 'info', event, message, data });
+			options.onLog?.('info', message);
+			if (typeof message === 'string') {
+				events.push('terminal-success');
+			}
 		}
 	);
 	addStub(
@@ -294,6 +338,7 @@ const installFlowHarness = (options: FlowHarnessOptions = {}) => {
 		'logWarning',
 		(event: unknown, message: unknown, data: unknown) => {
 			logs.push({ level: 'warning', event, message, data });
+			options.onLog?.('warning', message);
 		}
 	);
 	addStub(
@@ -301,6 +346,7 @@ const installFlowHarness = (options: FlowHarnessOptions = {}) => {
 		'logError',
 		(event: unknown, message: unknown, data: unknown) => {
 			logs.push({ level: 'error', event, message, data });
+			options.onLog?.('error', message);
 		}
 	);
 
@@ -309,6 +355,8 @@ const installFlowHarness = (options: FlowHarnessOptions = {}) => {
 		quickPick,
 		logs,
 		requests,
+		progressOptions,
+		events,
 		context: { subscriptions: [] } as unknown as vscode.ExtensionContext,
 		restore: () => {
 			for (const restore of restores.reverse()) {
@@ -349,6 +397,11 @@ describe('executeReattachAgentCommand', () => {
 			assert.strictEqual(harness.quickPick.showCount, 2);
 			assert.strictEqual(harness.quickPick.disposed, true);
 			assert.strictEqual(harness.requests.length, 1);
+			assert.deepStrictEqual(harness.progressOptions, [{
+				location: vscode.ProgressLocation.Notification,
+				title: 'Reattaching Agent...',
+				cancellable: false,
+			}]);
 			assert.strictEqual(harness.logs.filter(log => log.level === 'error').length, 0);
 			assert.strictEqual(harness.logs.filter(log => log.level === 'warning').length, 0);
 			assert.strictEqual(
@@ -379,6 +432,48 @@ describe('executeReattachAgentCommand', () => {
 				message: 'Reattach agent canceled before an environment was selected.',
 			});
 		} finally {
+			harness.restore();
+		}
+	});
+
+	test('surfaces the account-transition timeout when selecting an account', async () => {
+		const originalSetTimeout = globalThis.setTimeout;
+		const originalClearTimeout = globalThis.clearTimeout;
+		const harness = installFlowHarness({
+			accounts: [
+				{
+					accountId: 'account-a',
+					accountEmail: 'a@example.com',
+					tenantId: 'tenant-a',
+				},
+				{
+					accountId: 'account-b',
+					accountEmail: 'b@example.com',
+					tenantId: 'tenant-b',
+				},
+			],
+			listEnvironments: async () => await new Promise<EnvironmentInfo[]>(() => undefined),
+		});
+		globalThis.setTimeout = ((callback: (...args: unknown[]) => void) => {
+			queueMicrotask(callback);
+			return 1 as unknown as NodeJS.Timeout;
+		}) as typeof globalThis.setTimeout;
+		globalThis.clearTimeout = (() => undefined) as typeof globalThis.clearTimeout;
+
+		try {
+			await executeReattachAgentCommand(harness.context, { workspace: harness.workspace });
+
+			assert.strictEqual(harness.requests.length, 0);
+			assert.strictEqual(harness.logs.filter(log => log.level === 'warning').length, 0);
+			const errorLogs = harness.logs.filter(log => log.level === 'error');
+			assert.strictEqual(errorLogs.length, 1);
+			assert.strictEqual(
+				errorLogs[0].message,
+				'Account and environment selection did not complete within 2 minutes. Please try again.'
+			);
+		} finally {
+			globalThis.setTimeout = originalSetTimeout;
+			globalThis.clearTimeout = originalClearTimeout;
 			harness.restore();
 		}
 	});
@@ -525,26 +620,62 @@ describe('executeReattachAgentCommand', () => {
 
 	test('pulls with nested error notifications suppressed when Refresh is selected', async () => {
 		let receivedPullOptions: PullOptions | undefined;
+		let lockActive = false;
+		const selectedAccount: AccountInfo = {
+			accountId: 'selected-account-id',
+			accountEmail: 'selected@example.com',
+			tenantId: 'selected-tenant-id',
+		};
 		const harness = installFlowHarness({
 			attached: true,
 			currentEnvironmentId: 'same-environment',
 			targetEnvironmentId: 'same-environment',
-			sendRequest: async () => ({
-				code: 200,
-				message: '',
-				remoteAgentExists: true,
-			}),
+			accounts: [selectedAccount],
+			workspaceAccount: {
+				accountId: 'previous-account-id',
+				accountEmail: 'previous@example.com',
+				tenantId: 'previous-tenant-id',
+			},
+			sendRequest: async () => {
+				assert.strictEqual(lockActive, true, 'the remote existence check must be guarded');
+				return {
+					code: 200,
+					message: '',
+					remoteAgentExists: true,
+				};
+			},
 			pull: async pullOptions => {
+				assert.strictEqual(lockActive, true, 'Refresh Pull must use the same guard');
 				receivedPullOptions = pullOptions;
+			},
+			withSyncCommandBusy: async (_workspaceUri, action) => {
+				lockActive = true;
+				try {
+					return await action();
+				} finally {
+					lockActive = false;
+				}
 			},
 		});
 
 		try {
 			await executeReattachAgentCommand(harness.context, { workspace: harness.workspace });
 
-			assert.deepStrictEqual(receivedPullOptions, { suppressErrorNotification: true });
+			assert.deepStrictEqual(receivedPullOptions, {
+				suppressErrorNotification: true,
+				suppressSuccessNotification: true,
+				account: {
+					...selectedAccount,
+					tenantId: '',
+				},
+			});
 			assert.strictEqual(harness.requests.length, 1);
 			assert.strictEqual(harness.requests[0].request.checkRemoteAgentOnly, true);
+			assert.deepStrictEqual(harness.progressOptions, [{
+				location: vscode.ProgressLocation.Notification,
+				title: 'Retargeting Agent...',
+				cancellable: false,
+			}]);
 			assert.strictEqual(harness.logs.filter(log => log.level === 'error').length, 0);
 			assert.strictEqual(harness.logs.filter(log => log.level === 'warning').length, 0);
 			const successLogs = harness.logs.filter(
@@ -562,13 +693,74 @@ describe('executeReattachAgentCommand', () => {
 
 	test('rolls back a retarget upload failure and reports one terminal error', async () => {
 		const uploadError = new Error('Upload failed');
+		let lockActive = false;
+		let terminalErrorObservedLock = false;
 		const harness = installFlowHarness({
 			attached: true,
 			currentEnvironmentId: 'old-environment',
 			targetEnvironmentId: 'new-environment',
 			sendRequest: async (_method, request) => {
 				if (request.pushSucceeded !== undefined) {
+					assert.strictEqual(lockActive, true, 'rollback must finish while the sync guard is active');
 					return {};
+				}
+				return {
+					code: 200,
+					message: '',
+					agentSyncInfo: {
+						agentId: 'retargeted-agent-id',
+						environmentId: 'new-environment',
+					},
+					requiresLocalPush: true,
+				};
+			},
+			pushNewWorkspace: async () => {
+				throw uploadError;
+			},
+			withSyncCommandBusy: async (_workspaceUri, action) => {
+				lockActive = true;
+				try {
+					return await action();
+				} finally {
+					lockActive = false;
+				}
+			},
+			onLog: level => {
+				if (level === 'error') {
+					terminalErrorObservedLock = lockActive;
+				}
+			},
+		});
+
+		try {
+			await executeReattachAgentCommand(harness.context, { workspace: harness.workspace });
+
+			assert.strictEqual(harness.requests.length, 2);
+			assert.strictEqual(harness.requests[1].request.pushSucceeded, false);
+			assert.strictEqual(harness.logs.filter(log => log.level === 'warning').length, 0);
+			const errorLogs = harness.logs.filter(log => log.level === 'error');
+			assert.strictEqual(errorLogs.length, 1);
+			assert.strictEqual(terminalErrorObservedLock, true);
+			assert.strictEqual(
+				errorLogs[0].message,
+				'Retargeting failed while uploading content. The workspaces were reverted to their previous environment. Please try again.'
+			);
+			assert.deepStrictEqual(errorLogs[0].data, { error: uploadError });
+		} finally {
+			harness.restore();
+		}
+	});
+
+	test('reports rollback failure when upload fails before the retarget result returns', async () => {
+		const uploadError = new Error('Upload failed');
+		const rollbackError = new Error('Rollback failed');
+		const harness = installFlowHarness({
+			attached: true,
+			currentEnvironmentId: 'old-environment',
+			targetEnvironmentId: 'new-environment',
+			sendRequest: async (_method, request) => {
+				if (request.pushSucceeded === false) {
+					throw rollbackError;
 				}
 				return {
 					code: 200,
@@ -589,12 +781,64 @@ describe('executeReattachAgentCommand', () => {
 			await executeReattachAgentCommand(harness.context, { workspace: harness.workspace });
 
 			assert.strictEqual(harness.requests.length, 2);
-			assert.strictEqual(harness.requests[1].request.pushSucceeded, false);
-			assert.strictEqual(harness.logs.filter(log => log.level === 'warning').length, 0);
 			const errorLogs = harness.logs.filter(log => log.level === 'error');
 			assert.strictEqual(errorLogs.length, 1);
-			assert.strictEqual(errorLogs[0].message, 'Error reattaching agent');
-			assert.deepStrictEqual(errorLogs[0].data, { error: uploadError });
+			assert.strictEqual(
+				errorLogs[0].message,
+				'Retarget failed and rollback to the previous environment failed'
+			);
+			const reportedError = (errorLogs[0].data as { error: Error }).error;
+			assert.match(reportedError.message, /Failed to finalize 1 of 1 retarget operation/);
+			assert.match(reportedError.message, /Rollback failed/);
+		} finally {
+			harness.restore();
+		}
+	});
+
+	test('keeps automatic connection setup under the sync guard and prompts afterward', async () => {
+		let lockActive = false;
+		let automaticSetupObservedLock = false;
+		let terminalSuccessObservedLock = false;
+		let promptObservedReleasedLock = false;
+		const harness = installFlowHarness({
+			withSyncCommandBusy: async (_workspaceUri, action) => {
+				lockActive = true;
+				try {
+					return await action();
+				} finally {
+					lockActive = false;
+				}
+			},
+			autoBindAgentConnections: async () => {
+				automaticSetupObservedLock = lockActive;
+				return {
+					needsNewCount: 1,
+					boundCount: 0,
+					enabledWorkflowCount: 0,
+					disabledWorkflowNames: [],
+				};
+			},
+			promptManageConnectionsForWorkspaces: async () => {
+				promptObservedReleasedLock = !lockActive;
+			},
+			onLog: (level, message) => {
+				if (level === 'info' && typeof message === 'string') {
+					terminalSuccessObservedLock = lockActive;
+				}
+			},
+		});
+
+		try {
+			await executeReattachAgentCommand(harness.context, { workspace: harness.workspace });
+
+			assert.strictEqual(automaticSetupObservedLock, true);
+			assert.strictEqual(terminalSuccessObservedLock, true);
+			assert.strictEqual(promptObservedReleasedLock, true);
+			assert.deepStrictEqual(harness.events, [
+				'terminal-success',
+				'prompt-connections',
+			]);
+			assert.strictEqual(harness.logs.filter(log => log.level === 'error').length, 0);
 		} finally {
 			harness.restore();
 		}
@@ -621,7 +865,15 @@ describe('executeReattachAgentCommand', () => {
 		try {
 			await executeReattachAgentCommand(harness.context, { workspace: harness.workspace });
 
-			assert.deepStrictEqual(receivedPullOptions, { suppressErrorNotification: true });
+			assert.deepStrictEqual(receivedPullOptions, {
+				suppressErrorNotification: true,
+				suppressSuccessNotification: true,
+				account: {
+					accountId: 'account-id',
+					accountEmail: 'developer@example.com',
+					tenantId: '',
+				},
+			});
 			assert.strictEqual(harness.requests.length, 1);
 			assert.strictEqual(harness.requests[0].request.checkRemoteAgentOnly, true);
 			assert.strictEqual(

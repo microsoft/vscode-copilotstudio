@@ -284,10 +284,18 @@ export async function pushNewWorkspace(context: ExtensionContext, ws: CopilotStu
   const maxAttempts = 4;
   for (let attempt = 1; ; attempt++) {
     if (!isComponentCollectionWorkspace) {
-      await synchronizer.pull(virtualKnowledgeProvider);
+      await synchronizer.pull(virtualKnowledgeProvider, {
+        suppressErrorNotification: true,
+        suppressSuccessNotification: true,
+      });
     }
     try {
-      await synchronizer.push({ suppressErrorNotification: true, suppressDisabledWorkflowWarnings: true, draftConnectionReferenceWorkflows });
+      await synchronizer.push({
+        suppressErrorNotification: true,
+        suppressSuccessNotification: true,
+        suppressDisabledWorkflowWarnings: true,
+        draftConnectionReferenceWorkflows,
+      });
       break;
     } catch (error) {
       const isTransient = (error as Error).message?.includes('Improper response, not implemented');
@@ -298,7 +306,10 @@ export async function pushNewWorkspace(context: ExtensionContext, ws: CopilotStu
     }
   }
 
-  await synchronizer.pull(virtualKnowledgeProvider);
+  await synchronizer.pull(virtualKnowledgeProvider, {
+    suppressErrorNotification: true,
+    suppressSuccessNotification: true,
+  });
 }
 
 async function setupChangeTracking(ws: CopilotStudioWorkspace, context: ExtensionContext): Promise<WorkspaceScm> {

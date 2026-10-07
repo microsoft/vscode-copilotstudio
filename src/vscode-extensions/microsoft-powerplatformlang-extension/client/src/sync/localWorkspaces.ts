@@ -207,6 +207,38 @@ const updateConnectionFileIfUnchanged = (
   }
 };
 
+export const persistWorkspaceAccountBinding = (
+  syncInfo: AgentSyncInfo,
+  workspaceUri: string,
+  accountInfo: AccountInfo
+): void => {
+  const connection = readConnectionFile(workspaceUri);
+  if (!connection) {
+    throw new Error('Could not save the selected account because .mcs::conn.json is missing or invalid.');
+  }
+
+  const persisted = updateConnectionFileIfUnchanged(workspaceUri, connection.contents, connectionData => {
+    const persistedAccountInfo = connectionData.AccountInfo;
+    if (!persistedAccountInfo || typeof persistedAccountInfo !== 'object' || Array.isArray(persistedAccountInfo)) {
+      return false;
+    }
+
+    const accountData = persistedAccountInfo as Record<string, unknown>;
+    accountData.AccountId = accountInfo.accountId;
+    accountData.AccountEmail = accountInfo.accountEmail ?? null;
+    accountData.TenantId = accountInfo.tenantId;
+    if (accountInfo.clusterCategory !== undefined) {
+      accountData.clusterCategory = accountInfo.clusterCategory;
+    }
+    return true;
+  });
+  if (persisted !== 'updated') {
+    throw new Error('Could not save the selected account because .mcs::conn.json changed during Refresh.');
+  }
+
+  syncInfo.accountInfo = { ...accountInfo };
+};
+
 export const getAllWorkspaces = (): CopilotStudioWorkspace[] => workspaceCache;
 
 export const getDuplicateDisplayNames = (workspaces: CopilotStudioWorkspace[] = workspaceCache): Set<string> => {
