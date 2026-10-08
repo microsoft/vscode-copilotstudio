@@ -132,7 +132,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 {
                     if (changeSet.Bot != null)
                     {
-                        CodeSerializer.SerializeWithoutKind(sw, changeSet.Bot.WithOnlySettingsYamlProperties());
+                        CodeSerializer.SerializeWithoutKind(sw, changeSet.Bot.WithOnlyAuthoredSettingsProperties());
                     }
 
                 }

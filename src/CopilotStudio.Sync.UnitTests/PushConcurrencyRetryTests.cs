@@ -89,6 +89,76 @@ public class PushConcurrencyRetryTests
         Assert.Equal("token-3", await fileAccessor.ReadStringAsync(new AgentFilePath(".mcs/changetoken.txt"), CancellationToken.None));
     }
 
+    private static BotEntity BuildBot(Guid agentId, string displayName, long version, DateTime? publishedOn = null) =>
+        new BotEntity.Builder
+        {
+            SchemaName = new BotEntitySchemaName(AgentSchema),
+            CdsBotId = agentId,
+            DisplayName = displayName,
+            Version = version,
+            PublishedOn = publishedOn,
+        }.Build();
+
+    private static async Task<(WorkspaceSynchronizer Synchronizer, Mock<IIslandControlPlaneService> Island, DirectoryPath Workspace)> SetupSettingsPushAsync(BotEntity cachedBot, BotEntity remoteBot)
+    {
+        var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath($"c:/test/push-settings-{Guid.NewGuid():N}/");
+        var fileAccessor = fileAccessorFactory.Create(workspace);
+
+        WorkspaceSynchronizer.WriteCloudCache(fileAccessor, new BotDefinition().WithEntity(cachedBot));
+        await fileAccessor.WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "token-1", CancellationToken.None);
+
+        mockIsland
+            .SetupSequence(x => x.SaveChangesAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<PvaComponentChangeSet>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(MakeConcurrencyException())
+            .ReturnsAsync(new PvaComponentChangeSet(null, remoteBot, "token-3"));
+
+        mockIsland
+            .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PvaComponentChangeSet(null, remoteBot, "token-2"));
+
+        return (synchronizer, mockIsland, workspace);
+    }
+
+    private static Task PushRenamedAgentAsync(WorkspaceSynchronizer synchronizer, DirectoryPath workspace, Guid agentId) =>
+        synchronizer.PushLocalChangesAsync(
+            workspace,
+            ComponentWriterDefensiveTests.CreateMockOperationContext(),
+            new BotDefinition().WithEntity(BuildBot(agentId, "Renamed locally", version: 1)),
+            new Mock<ISyncDataverseClient>().Object,
+            new AgentSyncInfo { AgentId = agentId },
+            cloudFlowMetadata: null,
+            aiPrompts: ImmutableArray<AIPromptMetadata>.Empty,
+            CancellationToken.None);
+
+    [Fact]
+    public async Task PushLocalChanges_WhenTheCloudOnlyPublished_RefreshesCacheAndRetries()
+    {
+        var agentId = Guid.NewGuid();
+        var published = BuildBot(agentId, "Agent", version: 2, publishedOn: new DateTime(2026, 10, 8, 11, 0, 0, DateTimeKind.Utc));
+
+        var (synchronizer, island, workspace) = await SetupSettingsPushAsync(BuildBot(agentId, "Agent", version: 1), published);
+
+        await PushRenamedAgentAsync(synchronizer, workspace, agentId);
+
+        island.Verify(
+            x => x.SaveChangesAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<PvaComponentChangeSet>(), It.IsAny<CancellationToken>()),
+            Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task PushLocalChanges_WhenTheCloudEditedSettings_RefusesToOverwrite()
+    {
+        var agentId = Guid.NewGuid();
+        var edited = BuildBot(agentId, "Renamed in the cloud", version: 2);
+
+        var (synchronizer, _, workspace) = await SetupSettingsPushAsync(BuildBot(agentId, "Agent", version: 1), edited);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => PushRenamedAgentAsync(synchronizer, workspace, agentId));
+
+        Assert.Contains("Get the latest changes", exception.Message);
+    }
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(false, true)]

@@ -96,7 +96,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Handlers
                 string? componentBody = null;
                 if (request.SchemaName.Equals("entity", StringComparison.OrdinalIgnoreCase) && originalDefinition is BotDefinition bd && bd.Entity is not null)
                 {
-                    CodeSerializer.SerializeWithoutKind(sw, bd.Entity.WithOnlySettingsYamlProperties());
+                    CodeSerializer.SerializeWithoutKind(sw, bd.Entity.WithOnlyAuthoredSettingsProperties());
                 }
                 else if (request.SchemaName.Equals("collection", StringComparison.OrdinalIgnoreCase) && originalDefinition is BotComponentCollectionDefinition cc && cc.ComponentCollection is not null)
                 {
