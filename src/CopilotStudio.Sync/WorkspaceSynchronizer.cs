@@ -669,7 +669,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             // The 3-way merge operates on settings YAML only (WithOnlySettingsYamlProperties
             // strips IconBase64 and other metadata from original/remote). Restore non-settings
             // properties — including IconBase64 — from the remote bot.
-            bot = remoteBot.ApplySettingsYamlProperties(bot);
+            bot = remoteBot.ApplySettingsYamlProperties(bot).WithPublishStateFrom(remoteBot);
             updatedChangeSetBuilder.Bot = bot;
             updatedChangeSet = updatedChangeSetBuilder.Build();
         }
@@ -1606,7 +1606,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private static bool HasConflictingComponentChanges(PvaComponentChangeSet localChanges, PvaComponentChangeSet remoteChanges, DefinitionBase cloudSnapshot)
     {
-        if (HasConflictingBotEntityChange(localChanges, remoteChanges))
+        if (HasConflictingBotEntityChange(localChanges, remoteChanges, cloudSnapshot))
         {
             return true;
         }
@@ -1629,9 +1629,27 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return localSchemaNames.Overlaps(remoteSchemaNames) || localComponentIds.Overlaps(remoteComponentIds);
     }
 
-    private static bool HasConflictingBotEntityChange(PvaComponentChangeSet localChanges, PvaComponentChangeSet remoteChanges)
+    private static bool HasConflictingBotEntityChange(PvaComponentChangeSet localChanges, PvaComponentChangeSet remoteChanges, DefinitionBase cloudSnapshot)
     {
-        return localChanges.Bot != null && remoteChanges.Bot != null && localChanges.Bot.Version != remoteChanges.Bot.Version;
+        if (localChanges.Bot == null || remoteChanges.Bot == null)
+        {
+            return false;
+        }
+
+        if ((cloudSnapshot as BotDefinition)?.Entity is not { } baseline)
+        {
+            return localChanges.Bot.Version != remoteChanges.Bot.Version;
+        }
+
+        return !AuthoredSettingsMatch(baseline, remoteChanges.Bot) || baseline.IconBase64 != remoteChanges.Bot.IconBase64;
+    }
+
+    private static bool AuthoredSettingsMatch(BotEntity left, BotEntity right)
+    {
+        var leftComparison = left.WithOnlyAuthoredSettingsProperties();
+        var rightComparison = right.WithOnlyAuthoredSettingsProperties();
+
+        return leftComparison.Equals(rightComparison, NodeComparison.Structural) || SettingsProjectionsMatch(leftComparison, rightComparison);
     }
 
     private static (HashSet<string> SchemaNames, HashSet<string> ComponentIds) GetChangedComponentIdentities(PvaComponentChangeSet changeSet)
@@ -4657,7 +4675,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         using (var sw = new StreamWriter(file, new UTF8Encoding(false)))
         using (var yamlContext = YamlSerializationContext.UseStandardSerializationContextIfNotDefined(throwOnInvalidYaml: false))
         {
-            YamlSerializer.SerializeWithoutKind(sw, entity.WithOnlySettingsYamlProperties());
+            YamlSerializer.SerializeWithoutKind(sw, entity.WithOnlyAuthoredSettingsProperties());
         }
 
         // CliAgentSyncSupport / Node Q2 (TDD D29): emit the forward-looking workspace
@@ -5418,7 +5436,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
     }
 
-    private static BotEntity? RoundTripSettingsProjection(string settingsYaml) => CodeSerializer.Deserialize<BotEntity>(settingsYaml)?.WithOnlySettingsYamlProperties();
+    private static BotEntity? RoundTripSettingsProjection(string settingsYaml) => CodeSerializer.Deserialize<BotEntity>(settingsYaml)?.WithOnlyAuthoredSettingsProperties();
 
     internal BotEntity MergeBotEntitySettings(BotEntity? originalEntity, BotEntity localBot, BotEntity remoteBot, out string? conflictedSettingsYaml)
     {
@@ -5496,7 +5514,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         string projected;
         try
         {
-            projected = SerializeSettingsYaml(entity.WithOnlySettingsYamlProperties());
+            projected = SerializeSettingsYaml(entity.WithOnlyAuthoredSettingsProperties());
         }
         catch (Exception exception) when (IsProjectionSerializationFailure(exception))
         {
@@ -5557,7 +5575,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             && cloudSnapshot is BotDefinition botDefinition
             && botDefinition.Entity is not null)
         {
-            CodeSerializer.SerializeWithoutKind(writer, botDefinition.Entity.WithOnlySettingsYamlProperties());
+            CodeSerializer.SerializeWithoutKind(writer, botDefinition.Entity.WithOnlyAuthoredSettingsProperties());
         }
         else if (schemaName.Equals("collection", StringComparison.OrdinalIgnoreCase)
             && cloudSnapshot is BotComponentCollectionDefinition collectionDefinition
@@ -5766,13 +5784,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             parentBotId = botEntity.CdsBotId;
             if (cloudSnapshotEntity != null)
             {
-                var leftComparison = cloudSnapshotEntity.WithOnlySettingsYamlProperties();
-                var rightComparison = botEntity.WithOnlySettingsYamlProperties();
-
                 // only generate changes if the content in Settings.mcs.yml has changed
                 // ignore syntax differences
-                if (!leftComparison.Equals(rightComparison, NodeComparison.Structural)
-                    && !SettingsProjectionsMatch(leftComparison, rightComparison))
+                if (!AuthoredSettingsMatch(cloudSnapshotEntity, botEntity))
                 {
                     var change = CreateSettingsChange(botEntity);
 

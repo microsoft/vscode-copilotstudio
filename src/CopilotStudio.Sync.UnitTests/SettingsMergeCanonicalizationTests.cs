@@ -6,6 +6,7 @@ using Microsoft.Agents.Platform.Content;
 using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Moq;
+using System.Collections.Immutable;
 using System.Text.Json;
 using Xunit;
 using static Microsoft.CopilotStudio.Sync.Dataverse.SyncDataverseClient;
@@ -58,11 +59,53 @@ public class SettingsMergeCanonicalizationTests
     }
 
     [Fact]
-    public async Task Pull_WhenAuthoredFileMeetsPublishedCloud_BringsDownPublishedOn()
+    public async Task Pull_WhenAuthoredFileMeetsPublishedCloud_KeepsThePublishStampOutOfTheAuthoredFile()
     {
         var (accessor, _) = await InitThenPullAsync(AuthoredSettings);
 
-        Assert.Contains($"publishedOn: {PublishedOn}", ReadFile(accessor, SettingsPath), StringComparison.Ordinal);
+        Assert.DoesNotContain("publishedOn", ReadFile(accessor, SettingsPath), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Pull_WhenAuthoredFileMeetsPublishedCloud_KeepsThePublishStampInTheCloudCache()
+    {
+        var (accessor, _) = await InitThenPullAsync(AuthoredSettings);
+
+        var cachedEntity = ((BotDefinition)WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!).Entity!;
+        Assert.Equal(PublishedOn, cachedEntity.PublishedOn?.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffffff'Z'"));
+    }
+
+    [Fact]
+    public async Task RemoteChanges_WhenTheCloudOnlyPublished_ReportsNothingToPull()
+    {
+        var agent = await CloneThenPublishAsync(AuthoredSettings);
+
+        var (_, changes) = await agent.Synchronizer.GetRemoteChangesAsync(
+            agent.Workspace,
+            ComponentWriterDefensiveTests.CreateMockOperationContext(),
+            CreateMockDataverse().Object,
+            agent.SyncInfo,
+            CancellationToken.None);
+
+        Assert.Empty(changes);
+    }
+
+    [Fact]
+    public async Task LocalChanges_WhenTheCloudOnlyPublished_ReportsNothingToPush()
+    {
+        var agent = await CloneThenPublishAsync(AuthoredSettings);
+
+        Assert.Empty(await LocalChangesAsync(agent));
+    }
+
+    [Fact]
+    public async Task LocalChanges_WhenTheCloudPublishedAndTheModelWasEdited_ReportsOnlyTheAuthoredEdit()
+    {
+        var edited = AuthoredSettings.Replace("series: Sonnet46", "series: GPT56Reasoning", StringComparison.Ordinal);
+
+        var agent = await CloneThenPublishAsync(edited);
+
+        Assert.Equal("entity", Assert.Single(await LocalChangesAsync(agent)).SchemaName);
     }
 
     [Fact]
@@ -100,7 +143,6 @@ public class SettingsMergeCanonicalizationTests
         var onDisk = ReadFile(accessor, SettingsPath);
         Assert.Contains("series: GPT56Reasoning", onDisk, StringComparison.Ordinal);
         Assert.Contains(Instruction, onDisk, StringComparison.Ordinal);
-        Assert.Contains($"publishedOn: {PublishedOn}", onDisk, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -113,7 +155,9 @@ public class SettingsMergeCanonicalizationTests
         Assert.Contains("locally edited instruction", ReadFile(accessor, SettingsPath), StringComparison.Ordinal);
     }
 
-    private static async Task<(InMemoryFileAccessor accessor, DirectoryPath workspace)> InitThenPullAsync(string authoredSettings)
+    private sealed record PublishedAgent(WorkspaceSynchronizer Synchronizer, InMemoryFileAccessor Accessor, DirectoryPath Workspace, AgentSyncInfo SyncInfo);
+
+    private static async Task<PublishedAgent> CloneThenPublishAsync(string authoredSettings)
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/settings-merge-{Guid.NewGuid():N}/");
@@ -132,16 +176,32 @@ public class SettingsMergeCanonicalizationTests
         WriteFile(accessor, SettingsPath, authoredSettings);
 
         SetupIsland(mockIsland, CreateEntity(Instruction, PublishedOn, version: 3635930), "token-2");
-        var localDefinition = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None);
-        await synchronizer.PullExistingChangesAsync(
-            workspace,
+
+        return new PublishedAgent(synchronizer, accessor, workspace, syncInfo);
+    }
+
+    private static async Task<ImmutableArray<Change>> LocalChangesAsync(PublishedAgent agent)
+    {
+        var definition = await agent.Synchronizer.ReadWorkspaceDefinitionAsync(agent.Workspace, CancellationToken.None);
+        var (_, changes) = await agent.Synchronizer.GetLocalChangesAsync(agent.Workspace, definition, CancellationToken.None);
+
+        return changes;
+    }
+
+    private static async Task<(InMemoryFileAccessor accessor, DirectoryPath workspace)> InitThenPullAsync(string authoredSettings)
+    {
+        var agent = await CloneThenPublishAsync(authoredSettings);
+        var localDefinition = await agent.Synchronizer.ReadWorkspaceDefinitionAsync(agent.Workspace, CancellationToken.None);
+
+        await agent.Synchronizer.PullExistingChangesAsync(
+            agent.Workspace,
             ComponentWriterDefensiveTests.CreateMockOperationContext(),
             localDefinition,
             CreateMockDataverse().Object,
-            syncInfo,
+            agent.SyncInfo,
             CancellationToken.None);
 
-        return (accessor, workspace);
+        return (agent.Accessor, agent.Workspace);
     }
 
     private static string? InstructionOf(BotEntity entity)
@@ -152,7 +212,7 @@ public class SettingsMergeCanonicalizationTests
         using var writer = new StringWriter();
         using (YamlSerializationContext.UseStandardSerializationContextIfNotDefined(throwOnInvalidYaml: false))
         {
-            YamlSerializer.SerializeWithoutKind(writer, entity.WithOnlySettingsYamlProperties());
+            YamlSerializer.SerializeWithoutKind(writer, entity.WithOnlyAuthoredSettingsProperties());
         }
 
         return writer.ToString();

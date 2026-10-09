@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
+import * as fs from 'fs';
 import { ServerOptions, TransportKind, LanguageClient, LanguageClientOptions, State, LogMessageNotification, Trace } from "vscode-languageclient/node";
 import { TELEMETRY_CONNECTION_STRING, TelemetryEventsKeys } from '../constants';
 import { AccountInfo, AgentSyncInfo, EnvironmentInfo, RemoteApiRequest } from '../types';
@@ -28,6 +29,83 @@ function isBuiltInLspMethod(method: string): boolean {
     || method.startsWith('exit')
     || method.startsWith('workspace/didChange')
     || method.startsWith('workspace/didRename');
+}
+
+const MINIMUM_SUPPORTED_MACOS_VERSION = '27.0.0';
+
+/**
+ * Detects the macOS "Bad CPU type in executable" spawn failure (errno 86 / EBADARCH)
+ * that occurs when the bundled language server binary targets a different CPU
+ * architecture than the host and no translation layer (Rosetta 2) is available.
+ */
+function isArchitectureSpawnError(error: unknown): boolean {
+  if (!error) {
+    return false;
+  }
+  const { errno, code, message } = error as { errno?: number; code?: string; message?: string };
+  if (errno === -86 || errno === 86) {
+    return true;
+  }
+  const text = `${code ?? ''} ${message ?? ''}`;
+  return /error -86\b/i.test(text) || /EBADARCH/i.test(text) || /Bad CPU type/i.test(text);
+}
+
+/**
+ * Reads the macOS product version (e.g. "26.6.2") via `sw_vers -productVersion`.
+ * Returns undefined when not on macOS or when the version cannot be determined.
+ */
+function getMacOsProductVersion(): string | undefined {
+  if (process.platform !== 'darwin') {
+    return undefined;
+  }
+  try {
+    const result = spawnSync('sw_vers', ['-productVersion'], { encoding: 'utf8' });
+    if (result.status === 0 && typeof result.stdout === 'string') {
+      const version = result.stdout.trim();
+      return version.length > 0 ? version : undefined;
+    }
+  } catch {
+    // Ignore – treated as an unknown version.
+  }
+  return undefined;
+}
+
+/**
+ * Compares dotted numeric versions. Returns true when `version` is strictly lower
+ * than `target` (e.g. "26.6.2" is lower than "27.0.0").
+ */
+function isVersionLowerThan(version: string, target: string): boolean {
+  const toParts = (value: string) => value.split('.').map((part) => parseInt(part, 10) || 0);
+  const a = toParts(version);
+  const b = toParts(target);
+  const length = Math.max(a.length, b.length);
+  for (let i = 0; i < length; i++) {
+    const left = a[i] ?? 0;
+    const right = b[i] ?? 0;
+    if (left !== right) {
+      return left < right;
+    }
+  }
+  return false;
+}
+
+/**
+ * When the language server fails to start with a CPU-architecture mismatch on
+ * macOS, warns users whose macOS version is lower than
+ * {@link MINIMUM_SUPPORTED_MACOS_VERSION}.
+ */
+function warnIfIncompatibleMacOsVersion(error: unknown): void {
+  if (process.platform !== 'darwin' || !isArchitectureSpawnError(error)) {
+    return;
+  }
+  const version = getMacOsProductVersion();
+  if (version && isVersionLowerThan(version, MINIMUM_SUPPORTED_MACOS_VERSION)) {
+    void vscode.window.showWarningMessage(
+      `Copilot Studio Language Server failed to start. Your macOS version (${version}) is lower than ${MINIMUM_SUPPORTED_MACOS_VERSION}. ` +
+      `Update the Copilot Studio extension to the latest version; if the problem persists, ensure Rosetta 2 is installed ` +
+      `(run "softwareupdate --install-rosetta --agree-to-license" in Terminal) and reload the window.`
+    );
+  }
 }
 
 class LspClientService {
@@ -68,8 +146,19 @@ class LspClientService {
     currentOutputChannel = outputChannel;
     currentSessionId = sessionId;
 
-    const cwd = path.join(context.extensionPath, 'lspOut');
-    const lspHostPath = path.join(cwd, "LanguageServerHost");
+    const lspOutDir = path.join(context.extensionPath, 'lspOut');
+    // macOS VSIXes ship both architecture binaries in arch subfolders
+    // (osx-x64 / osx-arm64) so the extension can select the one matching the
+    // host architecture (Apple Silicon vs Intel/Rosetta). Windows and Linux
+    // ship a single binary at the lspOut root, so fall back to that path.
+    const macArchDir = process.arch === 'arm64' ? 'osx-arm64' : 'osx-x64';
+    const macArchHostPath = path.join(lspOutDir, macArchDir, 'LanguageServerHost');
+    const flatHostPath = path.join(lspOutDir, 'LanguageServerHost');
+    const lspHostPath =
+      process.platform === 'darwin' && fs.existsSync(macArchHostPath)
+        ? macArchHostPath
+        : flatHostPath;
+    const cwd = path.dirname(lspHostPath);
   
     // On Linux, ensure the LanguageServerHost is executable
     if (process.platform === 'linux' || process.platform === 'darwin') {
@@ -278,6 +367,7 @@ class LspClientService {
       context.subscriptions.push(this._client);
     } catch (error) {
       logger.logError(TelemetryEventsKeys.LanguageServerError, 'Copilot Studio Language Server failed to start', { error });
+      warnIfIncompatibleMacOsVersion(error);
       throw error;
     }
   }
