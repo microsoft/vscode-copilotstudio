@@ -1,0 +1,197 @@
+{
+  "properties": {
+    "connectionReferences": {},
+    "definition": {
+      "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+      "contentVersion": "1.0.0.0",
+      "parameters": {
+        "$authentication": {
+          "defaultValue": {},
+          "type": "SecureObject"
+        },
+        "$connections": {
+          "defaultValue": {},
+          "type": "Object"
+        }
+      },
+      "triggers": {
+        "manual": {
+          "type": "Request",
+          "kind": "Skills",
+          "inputs": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "input": {
+                  "title": "input",
+                  "type": "string",
+                  "description": "Text supplied by the caller.",
+                  "x-ms-content-hint": "TEXT",
+                  "x-ms-dynamically-added": true
+                }
+              }
+            }
+          },
+          "metadata": {
+            "associatedData": {
+              "graph": {
+                "name": "{{name}}",
+                "nodes": [
+                  {
+                    "id": "{{startNodeId}}",
+                    "name": "When an agent calls the flow",
+                    "type": "start",
+                    "version": 1,
+                    "position": {
+                      "x": 250,
+                      "y": 0
+                    },
+                    "data": {
+                      "config": {
+                        "triggerType": "connector",
+                        "connector": {
+                          "apiName": "Skills",
+                          "operationName": "When_an_agent_calls_the_flow",
+                          "inputs": {
+                            "schema": {
+                              "type": "object",
+                              "properties": {
+                                "input": {
+                                  "title": "input",
+                                  "type": "string",
+                                  "description": "Text supplied by the caller.",
+                                  "x-ms-content-hint": "TEXT",
+                                  "x-ms-dynamically-added": true
+                                }
+                              }
+                            }
+                          },
+                          "displayName": "When an agent calls the flow",
+                          "kind": "Skills"
+                        }
+                      },
+                      "outcomes": [
+                        {
+                          "id": "default",
+                          "label": "Default",
+                          "outcomeSchema": {
+                            "type": "object",
+                            "properties": {},
+                            "required": []
+                          }
+                        }
+                      ]
+                    },
+                    "measured": {
+                      "width": 261,
+                      "height": 66
+                    }
+                  },
+                  {
+                    "id": "{{responseNodeId}}",
+                    "name": "Respond to the agent",
+                    "type": "builtinFunction",
+                    "version": 1,
+                    "position": {
+                      "x": 600,
+                      "y": 0
+                    },
+                    "data": {
+                      "config": {
+                        "operationId": "response",
+                        "operationName": "response",
+                        "displayName": "Respond to the agent",
+                        "category": "request",
+                        "categoryDisplayName": "Request",
+                        "iconUri": "",
+                        "brandColor": "",
+                        "parameters": {
+                          "schema": {
+                            "type": "object",
+                            "properties": {
+                              "output": {
+                                "title": "output",
+                                "type": "string",
+                                "description": "Text returned to the caller.",
+                                "x-ms-content-hint": "TEXT",
+                                "x-ms-dynamically-added": true
+                              }
+                            },
+                            "additionalProperties": {}
+                          }
+                        },
+                        "description": "Respond to the calling agent with typed outputs.",
+                        "kind": "Skills"
+                      },
+                      "outcomes": [
+                        {
+                          "id": "default",
+                          "label": "Default",
+                          "outcomeSchema": {
+                            "type": "object",
+                            "description": "Function output"
+                          }
+                        }
+                      ]
+                    },
+                    "measured": {
+                      "width": 240,
+                      "height": 66
+                    }
+                  }
+                ],
+                "edges": [
+                  {
+                    "id": "e_{{startNodeId}}__{{responseNodeId}}",
+                    "source": "{{startNodeId}}",
+                    "target": "{{responseNodeId}}"
+                  }
+                ],
+                "connectionReferences": {}
+              },
+              "nodeActionMapping": {
+                "{{responseNodeId}}": [
+                  "Respond_to_the_agent"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "actions": {
+        "Respond_to_the_agent": {
+          "type": "Response",
+          "kind": "Skills",
+          "inputs": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "output": {
+                  "title": "output",
+                  "type": "string",
+                  "description": "Text returned to the caller.",
+                  "x-ms-content-hint": "TEXT",
+                  "x-ms-dynamically-added": true
+                }
+              },
+              "additionalProperties": {}
+            },
+            "statusCode": 200
+          },
+          "metadata": {
+            "description": "Respond to the agent",
+            "nodeId": "{{responseNodeId}}"
+          }
+        }
+      },
+      "outputs": {},
+      "metadata": {
+        "telemetryMetadata": {
+          "creationSource": "WorkflowDesigner",
+          "modifiedSources": "WorkflowDesigner"
+        }
+      }
+    }
+  },
+  "schemaVersion": "1.0.0.0"
+}

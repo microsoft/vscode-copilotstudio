@@ -739,7 +739,7 @@
                 };
             });
 
-            var response = await client.InsertWorkflowAsync(Guid.NewGuid(), workflow, CancellationToken.None);
+            var response = await client.InsertWorkflowAsync(workflow, CancellationToken.None);
 
             Assert.Equal(string.Empty, response.ErrorMessage);
             Assert.Equal(2, postBodies.Count);
@@ -885,7 +885,7 @@
         }
 
         [Fact]
-        public async Task UpdateWorkflowAsync_WithNullAgentIdAndWorkflowNotInCloud_DoesNotInsertOrThrow()
+        public async Task UpdateWorkflowAsync_WhenTheExistenceCheckFails_ReportsTheFailureWithoutWriting()
         {
             var workflow = new WorkflowMetadata { WorkflowId = Guid.NewGuid(), Name = "Skipped" };
             int callIndex = 0;
@@ -896,9 +896,10 @@
                 throw new HttpRequestException();
             });
 
-            await client.UpdateWorkflowAsync(null, workflow, CancellationToken.None);
+            var response = await client.UpdateWorkflowAsync(null, workflow, CancellationToken.None);
 
             Assert.Equal(1, callIndex);
+            Assert.NotEmpty(response.ErrorMessage);
         }
 
         [Fact]
@@ -928,22 +929,13 @@
         public async Task InsertWorkflowAsyncWithNullWorkflow()
         {
             var client = CreateClientFromHttpClient(new HttpClient());
-            await Assert.ThrowsAsync<ArgumentNullException>(() => client.InsertWorkflowAsync(Guid.NewGuid(), null, CancellationToken.None));
-        }
-
-        [Fact]
-        public async Task InsertWorkflowAsyncWithEmptyAgent()
-        {
-            var client = CreateClientFromHttpClient(new HttpClient());
-            var workflow = new WorkflowMetadata { WorkflowId = Guid.NewGuid() };
-            await Assert.ThrowsAsync<ArgumentNullException>(() => client.InsertWorkflowAsync(Guid.Empty, workflow, CancellationToken.None));
+            await Assert.ThrowsAsync<ArgumentNullException>(() => client.InsertWorkflowAsync(null, CancellationToken.None));
         }
 
         [Fact]
         public async Task InsertWorkflowAsyncWithValidWorkflow()
         {
             var workflowId = Guid.NewGuid();
-            var agentId = Guid.NewGuid();
             var botComponentId = Guid.NewGuid();
             int callIndex = 0;
 
@@ -967,7 +959,7 @@
                 });
             });
 
-            await client.InsertWorkflowAsync(agentId, workflow, CancellationToken.None);
+            await client.InsertWorkflowAsync(workflow, CancellationToken.None);
             Assert.Equal(2, callIndex);
         }
 

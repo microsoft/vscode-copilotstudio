@@ -2482,6 +2482,35 @@ beginDialog:
         }
 
         [Fact]
+        public async Task GetWorkflowsAsyncWritesTheFolderChangeDetectionLooksIn()
+        {
+            using var tempWorkspace = new TempDirectory();
+            var workspaceFolder = new DirectoryPath(tempWorkspace.Path.Replace("\\", "/"));
+            var workflowId = Guid.NewGuid();
+            var filesystem = new InMemoryFileWriter();
+            var fileAccessor = ((Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem).Create(workspaceFolder);
+
+            var mockDataverse = new MockDataverseClient();
+            mockDataverse.SetWorkflowsForAgent(new[]
+            {
+                new WorkflowMetadata { WorkflowId = workflowId, Name = "Daily:Report", ClientData = "{}", Category = 5, Type = 1 }
+            });
+
+            var synchronizer = new WorkspaceSynchronizer(
+                new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
+                (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem,
+                Mock.Of<IIslandControlPlaneService>(),
+                Mock.Of<ISyncProgress>(),
+                new Microsoft.CopilotStudio.McsCore.LspComponentPathResolver());
+
+            await synchronizer.GetWorkflowsAsync(workspaceFolder, mockDataverse, new AgentSyncInfo { AgentId = Guid.NewGuid() }, fileAccessor, CancellationToken.None);
+
+            var expected = $"{Microsoft.CopilotStudio.Sync.WorkflowWorkspace.RelativeFolderFor("Daily:Report", workflowId)}/workflow.json";
+
+            Assert.True(fileAccessor.Exists(new Microsoft.CopilotStudio.McsCore.AgentFilePath(expected)));
+        }
+
+        [Fact]
         public async Task GetWorkflowsAsyncRemoteEmptyClearsWorkspaceAndCache()
         {
             using var tempWorkspace = new TempDirectory();
