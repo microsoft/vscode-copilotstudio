@@ -345,7 +345,7 @@ public class WorkflowActivationPlannerTests
     {
         await Assert.ThrowsAsync<ArgumentNullException>(() => WorkflowActivationPlanner.DraftUnboundActivationsAsync(null!, ClientReturning(), CancellationToken.None));
         await Assert.ThrowsAsync<ArgumentNullException>(() => WorkflowActivationPlanner.DraftUnboundActivationsAsync([], (ISyncDataverseClient)null!, CancellationToken.None));
-        await Assert.ThrowsAsync<ArgumentNullException>(() => WorkflowActivationPlanner.DraftUnboundActivationsAsync([], (IStandaloneWorkflowDataverseClient)null!, CancellationToken.None));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => WorkflowActivationPlanner.DraftStandaloneUnboundActivationsAsync([], null!, CancellationToken.None));
     }
 
     [Fact]
@@ -360,7 +360,15 @@ public class WorkflowActivationPlannerTests
             .ReturnsAsync([Reference("new_weather", string.Empty)]);
 
         Assert.Single(await WorkflowActivationPlanner.DraftUnboundActivationsAsync([throughSync], ClientReturning(Reference("new_weather", string.Empty)), CancellationToken.None));
-        Assert.Single(await WorkflowActivationPlanner.DraftUnboundActivationsAsync([throughStandalone], standalone.Object, CancellationToken.None));
+        Assert.Single(await WorkflowActivationPlanner.DraftStandaloneUnboundActivationsAsync([throughStandalone], standalone.Object, CancellationToken.None));
         Assert.Equal(throughSync.StateCode, throughStandalone.StateCode);
+    }
+
+    [Fact]
+    public async Task DraftUnboundActivationsAsync_AcceptsAConcreteClientWithoutACast()
+    {
+        var client = new SyncDataverseClient(Mock.Of<Microsoft.Agents.Platform.Content.Abstractions.IDataverseHttpClientAccessor>());
+
+        Assert.Empty(await WorkflowActivationPlanner.DraftUnboundActivationsAsync([Workflow(1)], client, CancellationToken.None));
     }
 }

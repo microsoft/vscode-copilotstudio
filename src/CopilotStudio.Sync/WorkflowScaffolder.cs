@@ -87,10 +87,10 @@ public static class WorkflowScaffolder
         using var reader = new StreamReader(stream, Encoding.UTF8);
 
         return reader.ReadToEnd()
-            .Replace("{{name}}", JsonEscape(name))
             .Replace("{{startNodeId}}", $"start-{Guid.NewGuid()}")
-            .Replace("{{responseNodeId}}", $"builtinFunction-{Guid.NewGuid()}");
+            .Replace("{{responseNodeId}}", $"builtinFunction-{Guid.NewGuid()}")
+            .Replace("{{name}}", JsonEscape(name));
     }
 
-    private static string JsonEscape(string value) => JsonSerializer.Serialize(value).Trim('"');
+    private static string JsonEscape(string value) => JsonEncodedText.Encode(value).ToString();
 }

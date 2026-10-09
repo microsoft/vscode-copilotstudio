@@ -672,6 +672,32 @@ public class StandaloneWorkflowFileTests : IDisposable
         Assert.DoesNotContain("{{", definition, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("{{startNodeId}}")]
+    [InlineData("{{responseNodeId}}")]
+    [InlineData("\"Leading")]
+    [InlineData("Trailing\"")]
+    [InlineData("\"Quoted\"")]
+    public void Scaffold_PreservesNamesThatContainTemplateTokensOrQuotes(string name)
+    {
+        WorkflowScaffolder.Scaffold(_root, name, Guid.NewGuid());
+
+        var definition = File.ReadAllText(WorkflowWorkspace.FindAll(_root).Single().DefinitionPath);
+        using var document = JsonDocument.Parse(definition);
+        var graph = document.RootElement
+            .GetProperty("properties")
+            .GetProperty("definition")
+            .GetProperty("triggers")
+            .GetProperty("manual")
+            .GetProperty("metadata")
+            .GetProperty("associatedData")
+            .GetProperty("graph");
+
+        Assert.Equal(name, graph.GetProperty("name").GetString());
+        Assert.StartsWith("start-", graph.GetProperty("nodes")[0].GetProperty("id").GetString(), StringComparison.Ordinal);
+        Assert.StartsWith("builtinFunction-", graph.GetProperty("nodes")[1].GetProperty("id").GetString(), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Scaffold_CreatesAGenericAgentCallWithInputAndOutput()
     {

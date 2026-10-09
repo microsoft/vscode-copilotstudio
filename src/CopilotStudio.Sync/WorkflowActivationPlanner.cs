@@ -39,7 +39,7 @@ public static class WorkflowActivationPlanner
     /// <param name="dataverseClient">Reads which references carry a connection.</param>
     /// <param name="cancellationToken">Cancels the lookup.</param>
     /// <returns>The workflows that were downgraded to drafts.</returns>
-    public static Task<IReadOnlyList<SyncDataverseClient.WorkflowMetadata>> DraftUnboundActivationsAsync(IReadOnlyList<SyncDataverseClient.WorkflowMetadata> workflows, IStandaloneWorkflowDataverseClient dataverseClient, CancellationToken cancellationToken) =>
+    public static Task<IReadOnlyList<SyncDataverseClient.WorkflowMetadata>> DraftStandaloneUnboundActivationsAsync(IReadOnlyList<SyncDataverseClient.WorkflowMetadata> workflows, IStandaloneWorkflowDataverseClient dataverseClient, CancellationToken cancellationToken) =>
         DraftUnboundActivationsAsync(workflows, ReadReferences(dataverseClient), cancellationToken);
 
     private static async Task<IReadOnlyList<SyncDataverseClient.WorkflowMetadata>> DraftUnboundActivationsAsync(IReadOnlyList<SyncDataverseClient.WorkflowMetadata> workflows, ReferenceReader readReferences, CancellationToken cancellationToken)
