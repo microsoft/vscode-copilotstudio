@@ -236,6 +236,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
 
         var shouldActivate = workflowMetadata.StateCode != 0;
         var errorMessage = string.Empty;
+        var activated = false;
 
         try
         {
@@ -256,14 +257,11 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
             if (shouldActivate)
             {
                 await ActivateWorkflowAsync(workflowMetadata.WorkflowId, cancellationToken).ConfigureAwait(false);
-                workflowMetadata.StateCode = 1;
-                workflowMetadata.StatusCode = 2;
+                activated = true;
             }
-            else
-            {
-                workflowMetadata.StateCode = 0;
-                workflowMetadata.StatusCode = 1;
-            }
+
+            workflowMetadata.StateCode = activated ? 1 : 0;
+            workflowMetadata.StatusCode = activated ? 2 : 1;
         }
         catch (OperationCanceledException)
         {
@@ -278,7 +276,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         {
             WorkflowId = workflowMetadata.WorkflowId,
             WorkflowName = workflowMetadata.Name ?? workflowMetadata.WorkflowId.ToString(),
-            IsDisabled = !(workflowMetadata.StateCode == 1 && workflowMetadata.StatusCode == 2),
+            IsDisabled = !activated,
             ErrorMessage = errorMessage
         };
     }
@@ -530,8 +528,14 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
     public virtual async Task<WorkflowMetadata?> GetWorkflowAsync(Guid workflowId, CancellationToken cancellationToken)
     {
         var response = await GetWorkflowPageAsync($"&$filter={Uri.EscapeDataString($"workflowid eq {workflowId}")}", cancellationToken).ConfigureAwait(false);
+        var workflow = response?.Value?.FirstOrDefault();
 
-        return response?.Value?.FirstOrDefault();
+        if (workflow is not null)
+        {
+            workflow.ConnectionReferences = WorkflowDefinitionFile.ConnectionReferenceNames(workflow.ClientData).ToList();
+        }
+
+        return workflow;
     }
 
     public virtual async Task<WorkflowSummary[]> ListWorkflowsAsync(string? nameFilter, int? maximumCount, CancellationToken cancellationToken)

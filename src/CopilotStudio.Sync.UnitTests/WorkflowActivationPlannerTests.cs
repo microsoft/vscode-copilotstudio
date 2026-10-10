@@ -280,7 +280,7 @@ public class WorkflowActivationPlannerTests
     }
 
     [Fact]
-    public async Task TryStartAsync_WhenTheEnvironmentRefuses_ReportsWhyAndLeavesADraft()
+    public async Task TryStartAsync_WhenTheEnvironmentRefuses_ReportsWhyWithoutEstablishingADraft()
     {
         var workflow = Workflow(1, "new_weather");
         var client = new Mock<IStandaloneWorkflowDataverseClient>();
@@ -292,8 +292,22 @@ public class WorkflowActivationPlannerTests
 
         Assert.True(outcome.Refused);
         Assert.Contains("ConnectionAuthorizationFailed", outcome.Failure);
-        Assert.Equal(0, workflow.StateCode);
-        Assert.Equal(1, workflow.StatusCode);
+        Assert.Equal(1, workflow.StateCode);
+        Assert.Equal(2, workflow.StatusCode);
+    }
+
+    [Fact]
+    public async Task TryStartAsync_WhenAnAlreadyRunningWorkflowIsRefused_KeepsItRunning()
+    {
+        var workflow = Workflow(1, "new_weather");
+        var client = new Mock<IStandaloneWorkflowDataverseClient>();
+
+        client.Setup(c => c.SetWorkflowStateAsync(It.IsAny<Guid>(), true, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new DataverseRequestException(System.Net.HttpStatusCode.Forbidden, "Forbidden"));
+
+        Assert.True((await WorkflowActivationPlanner.TryStartAsync(workflow, client.Object, CancellationToken.None)).Refused);
+        Assert.Equal(1, workflow.StateCode);
+        Assert.Equal(2, workflow.StatusCode);
     }
 
     [Fact]

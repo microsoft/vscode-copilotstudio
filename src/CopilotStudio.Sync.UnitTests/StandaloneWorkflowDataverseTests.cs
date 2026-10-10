@@ -5,6 +5,7 @@ using Microsoft.CopilotStudio.Sync.Dataverse;
 using Moq;
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using Xunit;
 using static Microsoft.CopilotStudio.Sync.Dataverse.SyncDataverseClient;
 
@@ -161,8 +162,50 @@ public class StandaloneWorkflowDataverseTests
         var response = await client.InsertWorkflowAsync(workflow, CancellationToken.None);
 
         Assert.NotEmpty(response.ErrorMessage);
+        Assert.True(response.IsDisabled);
         Assert.Equal(1, workflow.StateCode);
         Assert.Equal(2, workflow.StatusCode);
+    }
+
+    [Fact]
+    public async Task InsertWorkflowAsync_WhenActivationIsRejected_DoesNotReportARunningWorkflow()
+    {
+        var (client, _) = Create(request => request.Method == HttpMethod.Post
+            ? Json("{}")
+            : new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("ConnectionAuthorizationFailed") });
+
+        var workflow = new WorkflowMetadata { WorkflowId = Guid.NewGuid(), Name = "Running", ClientData = "{}", StateCode = 1, StatusCode = 2 };
+
+        var response = await client.InsertWorkflowAsync(workflow, CancellationToken.None);
+
+        Assert.NotEmpty(response.ErrorMessage);
+        Assert.True(response.IsDisabled);
+    }
+
+    [Fact]
+    public async Task InsertWorkflowAsync_WhenActivationSucceeds_ReportsARunningWorkflow()
+    {
+        var (client, _) = Create(_ => Json("{}"));
+        var workflow = new WorkflowMetadata { WorkflowId = Guid.NewGuid(), Name = "Running", ClientData = "{}", StateCode = 1, StatusCode = 2 };
+
+        var response = await client.InsertWorkflowAsync(workflow, CancellationToken.None);
+
+        Assert.Empty(response.ErrorMessage);
+        Assert.False(response.IsDisabled);
+        Assert.Equal(1, workflow.StateCode);
+        Assert.Equal(2, workflow.StatusCode);
+    }
+
+    [Fact]
+    public async Task InsertWorkflowAsync_WhenTheCallerAsksForADraft_ReportsADisabledWorkflow()
+    {
+        var (client, _) = Create(_ => Json("{}"));
+        var workflow = new WorkflowMetadata { WorkflowId = Guid.NewGuid(), Name = "Draft", ClientData = "{}", StateCode = 0, StatusCode = 1 };
+
+        var response = await client.InsertWorkflowAsync(workflow, CancellationToken.None);
+
+        Assert.Empty(response.ErrorMessage);
+        Assert.True(response.IsDisabled);
     }
 
     [Fact]
@@ -197,6 +240,45 @@ public class StandaloneWorkflowDataverseTests
         Assert.Equal(workflowId, workflow!.WorkflowId);
         Assert.Equal("Flow", workflow.Name);
         Assert.Contains($"workflowid eq {workflowId}", Uri.UnescapeDataString(handler.Exchanges[0].Url), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task GetWorkflowAsync_DerivesTheConnectionReferencesTheDefinitionDeclares()
+    {
+        var workflowId = Guid.NewGuid();
+        var clientData = JsonSerializer.Serialize("""{"properties":{"connectionReferences":{"shared_teams":{"api":{"name":"shared_teams"},"connection":{"connectionReferenceLogicalName":"new_teams"}}}}}""");
+        var (client, _) = Create(_ => Json($"{{\"value\":[{{\"workflowid\":\"{workflowId}\",\"name\":\"Flow\",\"clientdata\":{clientData}}}]}}"));
+
+        var workflow = await client.GetWorkflowAsync(workflowId, CancellationToken.None);
+
+        Assert.Equal(["new_teams"], workflow!.ConnectionReferences);
+    }
+
+    [Fact]
+    public async Task GetWorkflowAsync_WhenTheDefinitionDeclaresNothing_LeavesTheReferencesEmpty()
+    {
+        var workflowId = Guid.NewGuid();
+        var (client, _) = Create(_ => Json($"{{\"value\":[{{\"workflowid\":\"{workflowId}\",\"name\":\"Flow\",\"clientdata\":\"{{}}\"}}]}}"));
+
+        Assert.Empty((await client.GetWorkflowAsync(workflowId, CancellationToken.None))!.ConnectionReferences);
+    }
+
+    [Fact]
+    public async Task GetWorkflowAsync_FeedsThePlannerEnoughToDraftAnUnboundWorkflow()
+    {
+        var workflowId = Guid.NewGuid();
+        var clientData = JsonSerializer.Serialize("""{"properties":{"connectionReferences":{"shared_teams":{"api":{"name":"shared_teams"},"connection":{"connectionReferenceLogicalName":"new_teams"}}}}}""");
+        var (client, _) = Create(_ => Json($"{{\"value\":[{{\"workflowid\":\"{workflowId}\",\"name\":\"Flow\",\"clientdata\":{clientData},\"statecode\":1,\"statuscode\":2}}]}}"));
+
+        var workflow = await client.GetWorkflowAsync(workflowId, CancellationToken.None);
+
+        var unbound = new Mock<IStandaloneWorkflowDataverseClient>();
+        unbound
+            .Setup(c => c.GetConnectionReferencesByLogicalNamesAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new ConnectionReferenceInfo { ConnectionReferenceLogicalName = "new_teams", ConnectorId = "shared_teams", ConnectionId = string.Empty }]);
+
+        Assert.Single(await WorkflowActivationPlanner.DraftStandaloneUnboundActivationsAsync([workflow!], unbound.Object, CancellationToken.None));
+        Assert.Equal(0, workflow!.StateCode);
     }
 
     [Fact]

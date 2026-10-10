@@ -171,15 +171,7 @@ public static class WorkflowActivationPlanner
         }
         catch (DataverseRequestException failure)
         {
-            var outcome = Classify(failure);
-
-            if (outcome.Refused)
-            {
-                workflow.StateCode = 0;
-                workflow.StatusCode = 1;
-            }
-
-            return outcome;
+            return Classify(failure);
         }
 
         workflow.StateCode = 1;

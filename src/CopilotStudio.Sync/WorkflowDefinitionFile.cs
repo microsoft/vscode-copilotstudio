@@ -156,29 +156,27 @@ public static class WorkflowDefinitionFile
         return DropEnvironmentBoundConnections(root) ? root!.ToJsonString(IndentedJson) : clientData!;
     }
 
-    private static bool DropEnvironmentBoundConnections(JsonNode? node)
+    private static bool DropEnvironmentBoundConnections(JsonNode? root)
     {
-        var dropped = false;
+        var properties = Child(root, "properties");
+        var dropped = DropDeclaredConnections(Child(properties, ConnectionReferencesProperty));
 
-        if (node is JsonObject element)
+        if (Child(Child(properties, "definition"), "triggers") is JsonObject triggers)
         {
-            foreach (var child in element.ToList())
+            foreach (var trigger in triggers.ToList())
             {
-                dropped |= string.Equals(child.Key, ConnectionReferencesProperty, StringComparison.Ordinal)
-                    ? DropDeclaredConnections(child.Value)
-                    : DropEnvironmentBoundConnections(child.Value);
-            }
-        }
-        else if (node is JsonArray items)
-        {
-            foreach (var item in items.ToList())
-            {
-                dropped |= DropEnvironmentBoundConnections(item);
+                dropped |= DropDeclaredConnections(DesignerDeclarations(trigger.Value));
             }
         }
 
         return dropped;
     }
+
+    private static JsonNode? DesignerDeclarations(JsonNode? trigger) =>
+        Child(Child(Child(Child(trigger, "metadata"), "associatedData"), "graph"), ConnectionReferencesProperty);
+
+    private static JsonNode? Child(JsonNode? node, string propertyName) =>
+        node is JsonObject map && map.TryGetPropertyValue(propertyName, out var value) ? value : null;
 
     private static bool DropDeclaredConnections(JsonNode? declarations)
     {

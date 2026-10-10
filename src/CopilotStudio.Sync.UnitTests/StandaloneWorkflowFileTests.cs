@@ -88,6 +88,28 @@ public class StandaloneWorkflowFileTests : IDisposable
     }
 
     [Fact]
+    public void PortableDefinition_LeavesAnActionPayloadCarryingItsOwnConnectionReferencesProperty()
+    {
+        const string definition = """
+        {"properties":{"definition":{"actions":{"Compose":{"inputs":{"connectionReferences":{
+          "shared_teams":{"connection":{"connectionReferenceLogicalName":"business-data"},"connectionName":"must-preserve"}}}}}}}}
+        """;
+
+        Assert.Equal(definition, WorkflowDefinitionFile.PortableDefinition(definition));
+    }
+
+    [Fact]
+    public void PortableDefinition_LeavesAConnectionReferencesPayloadInsideAnActionArray()
+    {
+        const string definition = """
+        {"properties":{"definition":{"actions":{"Compose":{"inputs":{"items":[{"connectionReferences":{
+          "shared_teams":{"connection":{"connectionReferenceLogicalName":"business-data"},"connectionName":"must-preserve"}}}]}}}}}}
+        """;
+
+        Assert.Equal(definition, WorkflowDefinitionFile.PortableDefinition(definition));
+    }
+
+    [Fact]
     public void PortableDefinition_StillDropsTheBindingOfANestedDeclaration()
     {
         const string definition = """
