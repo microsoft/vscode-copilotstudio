@@ -34,7 +34,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     private const string HiddenRoot = ".mcs";
 
     // Folder where workflows are stored.
-    private const string WorkflowFolder = "workflows";
+    private const string WorkflowFolder = WorkflowWorkspace.WorkflowsFolderName;
 
     // Maximum allowed size for a workflow upload 125 MB (workflow.json + metadata.yml).
     private const long MaxWorkflowUploadSizeBytes = 125L * 1024 * 1024;
@@ -6556,7 +6556,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var workflowName = GetComponentFolderName(workflowFolder);
-                var workflowId = ExtractWorkflowIdFromFileName(workflowName);
+                var workflowId = WorkflowWorkspace.WorkflowIdOf(workflowName);
 
                 if (workflowId == null)
                 {
@@ -6585,12 +6585,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
                 _ = GetFlowDefinition(metadata);
 
-                var hasConnectionReferences = HasConnectionReferences(metadata);
+                var hasConnectionReferences = WorkflowActivationPlanner.HasConnectionReferences(metadata);
 
                 if (activationMode != WorkflowActivationMode.ActivateWhenConnectionsBound
                     && !(activationMode == WorkflowActivationMode.DraftWhenConnectionReferencesExist && hasConnectionReferences)
                     && cachedWorkflowClientData.TryGetValue(workflowId.Value, out var cachedClientData)
-                    && string.Equals(cachedClientData, NormalizeWorkflowClientData(clientDataJson), StringComparison.Ordinal)
+                    && string.Equals(cachedClientData, WorkflowDefinitionFile.Format(clientDataJson), StringComparison.Ordinal)
                     && cachedWorkflowMetadata.TryGetValue(workflowId.Value, out var cachedMetadata)
                     && McsYamlComparer.DocumentsMatch(cachedMetadata, NormalizeWorkflowMetadata(metadata)))
                 {
@@ -6614,7 +6614,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }
             else if (activationMode == WorkflowActivationMode.DraftWhenConnectionsUnbound)
             {
-                downgradedWorkflows = await DraftUnboundWorkflowActivationsAsync(workflowsToUpload, dataverseClient, cancellationToken).ConfigureAwait(false);
+                downgradedWorkflows = await WorkflowActivationPlanner.DraftUnboundActivationsAsync(workflowsToUpload, dataverseClient, cancellationToken).ConfigureAwait(false);
             }
 
             if (workflowsToUpload.Count > 0)
@@ -6672,7 +6672,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var downgraded = new List<WorkflowMetadata>();
         foreach (var workflow in workflows)
         {
-            if (!HasConnectionReferences(workflow))
+            if (!WorkflowActivationPlanner.HasConnectionReferences(workflow))
             {
                 continue;
             }
@@ -6689,94 +6689,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return downgraded;
     }
 
-    private static bool HasConnectionReferences(WorkflowMetadata workflow)
-        => workflow.ConnectionReferences.Any(n => !string.IsNullOrWhiteSpace(n));
-
     private static async Task ApplyConnectionAwareWorkflowStateAsync(
         List<WorkflowMetadata> workflows,
         ISyncDataverseClient dataverseClient,
         CancellationToken cancellationToken)
-    {
-        var logicalNames = workflows
-            .SelectMany(w => w.ConnectionReferences)
-            .Where(n => !string.IsNullOrWhiteSpace(n))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        var boundLogicalNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (logicalNames.Count > 0)
-        {
-            var references = await dataverseClient.GetConnectionReferencesByLogicalNamesAsync(logicalNames, cancellationToken).ConfigureAwait(false);
-            foreach (var reference in references)
-            {
-                if (!string.IsNullOrWhiteSpace(reference.ConnectionId))
-                {
-                    boundLogicalNames.Add(reference.ConnectionReferenceLogicalName);
-                }
-            }
-        }
-
-        foreach (var workflow in workflows)
-        {
-            var allConnectionsBound = workflow.ConnectionReferences.All(boundLogicalNames.Contains);
-            if (allConnectionsBound)
-            {
-                workflow.StateCode = 1;
-                workflow.StatusCode = 2;
-            }
-            else
-            {
-                workflow.StateCode = 0;
-                workflow.StatusCode = 1;
-            }
-        }
-    }
-
-    private static async Task<IReadOnlyList<WorkflowMetadata>> DraftUnboundWorkflowActivationsAsync(
-        List<WorkflowMetadata> workflows,
-        ISyncDataverseClient dataverseClient,
-        CancellationToken cancellationToken)
-    {
-        var activating = workflows
-            .Where(w => w.StateCode == 1 && HasConnectionReferences(w))
-            .ToList();
-        if (activating.Count == 0)
-        {
-            return Array.Empty<WorkflowMetadata>();
-        }
-
-        var logicalNames = activating
-            .SelectMany(w => w.ConnectionReferences)
-            .Where(n => !string.IsNullOrWhiteSpace(n))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        var boundLogicalNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var references = await dataverseClient.GetConnectionReferencesByLogicalNamesAsync(logicalNames, cancellationToken).ConfigureAwait(false);
-        foreach (var reference in references)
-        {
-            if (!string.IsNullOrWhiteSpace(reference.ConnectionId))
-            {
-                boundLogicalNames.Add(reference.ConnectionReferenceLogicalName);
-            }
-        }
-
-        var downgraded = new List<WorkflowMetadata>();
-        foreach (var workflow in activating)
-        {
-            var allConnectionsBound = workflow.ConnectionReferences
-                .Where(n => !string.IsNullOrWhiteSpace(n))
-                .All(boundLogicalNames.Contains);
-            if (!allConnectionsBound)
-            {
-                workflow.StateCode = 0;
-                workflow.StatusCode = 1;
-                downgraded.Add(workflow);
-            }
-        }
-
-        return downgraded;
-    }
+        => await WorkflowActivationPlanner.ActivateWhenBoundAsync(workflows, dataverseClient, cancellationToken).ConfigureAwait(false);
 
     private void WriteWorkflowDraftStateToDisk(DirectoryPath workspaceFolder, IReadOnlyList<WorkflowMetadata> downgradedWorkflows, IReadOnlyDictionary<Guid, string> metadataRelativePaths)
     {
@@ -6988,7 +6905,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
             foreach (var folder in EnumerateComponentFolders(fileAccessor, WorkflowFolder))
             {
-                var workflowId = ExtractWorkflowIdFromFileName(GetComponentFolderName(folder));
+                var workflowId = WorkflowWorkspace.WorkflowIdOf(GetComponentFolderName(folder));
                 if (workflowId.HasValue)
                 {
                     existingFolders[workflowId.Value] = folder;
@@ -7014,8 +6931,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
                 var (definition, _) = GetFlowDefinition(workflow);
                 cloudFlowDefinitions.Add(definition);
-                var folderName = $"{new string(((workflow.Name ?? string.Empty)).Where(c => !Path.GetInvalidFileNameChars().Contains(c) && !char.IsWhiteSpace(c)).ToArray()).TrimEnd('.', ' ')}-{workflow.WorkflowId}";
-                var folderPath = $"{WorkflowFolder}/{folderName}";
+                var folderPath = WorkflowWorkspace.RelativeFolderFor(workflow.Name, workflow.WorkflowId);
 
                 if (existingFolders.TryGetValue(workflow.WorkflowId, out var existingFolderPath))
                 {
@@ -7032,9 +6948,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
                 if (!string.IsNullOrWhiteSpace(workflow.ClientData))
                 {
-                    var workflowFolder = Path.Combine(WorkflowFolder, folderName).Replace("\\", "/");
-                    var workflowJson = new AgentFilePath($"{workflowFolder}/workflow.json");
-                    var workflowJsonTmp = new AgentFilePath($"{workflowFolder}/workflow.json.tmp");
+                    var workflowJson = new AgentFilePath($"{folderPath}/workflow.json");
+                    var workflowJsonTmp = new AgentFilePath($"{folderPath}/workflow.json.tmp");
                     workflow.JsonFileName = workflowJson.ToString();
 
                     // ns2.0 BCL's IsNullOrWhiteSpace lacks NotNullWhen; ! is compile-time only.
@@ -7043,8 +6958,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
                     await WriteFileIfChangedAsync(fileAccessor, workflowJson, workflowJsonTmp, jsonString, cancellationToken).ConfigureAwait(false);
 
-                    var workflowMetadata = new AgentFilePath($"{workflowFolder}/metadata.yml");
-                    var workflowMetadataTmp = new AgentFilePath($"{workflowFolder}/metadata.yml.tmp");
+                    var workflowMetadata = new AgentFilePath($"{folderPath}/metadata.yml");
+                    var workflowMetadataTmp = new AgentFilePath($"{folderPath}/metadata.yml.tmp");
                     var metadataString = McsYamlObjectMapper.Serialize(workflow);
 
                     await WriteFileIfChangedAsync(fileAccessor, workflowMetadata, workflowMetadataTmp, metadataString, cancellationToken).ConfigureAwait(false);
@@ -8455,11 +8370,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private static (AgentFilePath, AgentFilePath) GetWorkflowPath(string? workflowName, Guid workflowId)
     {
-        var folderName = $"{new string(((workflowName ?? string.Empty)).Where(c => !Path.GetInvalidFileNameChars().Contains(c) && !char.IsWhiteSpace(c)).ToArray()).TrimEnd('.', ' ')}-{workflowId}";
-        var workflowFolder = Path.Combine(WorkflowFolder, folderName).Replace("\\", "/");
-        var workflowJson = new AgentFilePath($"{workflowFolder}/workflow.json");
-        var workflowMetadata = new AgentFilePath($"{workflowFolder}/metadata.yml");
-        return (workflowJson, workflowMetadata);
+        var relativeFolder = WorkflowWorkspace.RelativeFolderFor(workflowName, workflowId);
+
+        return (new AgentFilePath($"{relativeFolder}/{WorkflowWorkspace.DefinitionFileName}"), new AgentFilePath($"{relativeFolder}/{WorkflowWorkspace.MetadataFileName}"));
     }
 
     private async Task<ImmutableArray<ConnectionReference>> GetConnectionReferenceFromLogicalNamesAsync(IEnumerable<string> logicalNames, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
@@ -8606,24 +8519,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
     }
 
-    private static string NormalizeWorkflowClientData(string? clientData)
-    {
-        if (string.IsNullOrWhiteSpace(clientData))
-        {
-            return string.Empty;
-        }
-
-        try
-        {
-            using var doc = JsonDocument.Parse(clientData!);
-            return JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = true });
-        }
-        catch (JsonException)
-        {
-            return clientData!;
-        }
-    }
-
     private static string GetWorkflowMetadata(CloudFlowDefinition? flow)
     {
         if (flow?.ExtensionData?.Properties.TryGetValue("metadata", out var value) == true && value is StringDataValue s && !string.IsNullOrEmpty(s.Value))
@@ -8726,61 +8621,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return properties;
     }
 
-    private static ImmutableArray<string> ExtractConnectionReferenceLogicalNames(JsonElement root)
-    {
-        if (!root.TryGetProperty("properties", out var propertiesElement))
-        {
-            return ImmutableArray<string>.Empty;
-        }
-
-        if (!propertiesElement.TryGetProperty("connectionReferences", out var connectionsElement))
-        {
-            return ImmutableArray<string>.Empty;
-        }
-
-        if (connectionsElement.ValueKind != JsonValueKind.Object)
-        {
-            return ImmutableArray<string>.Empty;
-        }
-
-        var builder = ImmutableArray.CreateBuilder<string>();
-
-        foreach (var connection in connectionsElement.EnumerateObject())
-        {
-            var value = connection.Value;
-
-            if (!value.TryGetProperty("connection", out var connectionObj))
-            {
-                continue;
-            }
-
-            if (!connectionObj.TryGetProperty("connectionReferenceLogicalName", out var logicalNameElement))
-            {
-                continue;
-            }
-
-            var logicalName = logicalNameElement.GetString();
-
-            if (!string.IsNullOrWhiteSpace(logicalName))
-            {
-                builder.Add(logicalName);
-            }
-        }
-
-        return builder.ToImmutable();
-    }
-
-    // Match any GUID at the end of the string
-    private static Guid? ExtractWorkflowIdFromFileName(string fileName)
-    {
-        var match = System.Text.RegularExpressions.Regex.Match(fileName, @"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$");
-        if (match.Success && Guid.TryParse(match.Value, out var workflowId))
-        {
-            return workflowId;
-        }
-
-        return null;
-    }
+    private static ImmutableArray<string> ExtractConnectionReferenceLogicalNames(JsonElement root) =>
+        WorkflowDefinitionFile.ConnectionReferences(root).Select(reference => reference.LogicalName).ToImmutableArray();
 
     private static RecordDataType? ExtractRecordDataType(JsonElement root, params string[] propertyPath)
     {

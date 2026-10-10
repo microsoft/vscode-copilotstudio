@@ -789,6 +789,19 @@
             });
         }
 
+        public virtual Task<WorkflowResponse> InsertWorkflowAsync(WorkflowMetadata? workflowMetadata, CancellationToken cancellationToken) =>
+            InsertWorkflowAsync(null, workflowMetadata, cancellationToken);
+
+        public virtual Task<WorkflowMetadata?> GetWorkflowAsync(Guid workflowId, CancellationToken cancellationToken) => Task.FromResult<WorkflowMetadata?>(null);
+
+        public virtual Task<SyncDataverseClient.WorkflowSummary[]> ListWorkflowsAsync(string? nameFilter, int? maximumCount, CancellationToken cancellationToken) =>
+            Task.FromResult(Array.Empty<SyncDataverseClient.WorkflowSummary>());
+
+        public virtual Task<bool> DeleteWorkflowAsync(Guid workflowId, CancellationToken cancellationToken) => Task.FromResult(false);
+
+        public virtual Task<WorkflowResponse> UpdateWorkflowDefinitionAsync(WorkflowMetadata? workflowMetadata, CancellationToken cancellationToken) =>
+            Task.FromResult(new WorkflowResponse { IsDisabled = false });
+
         public virtual Task<WorkflowResponse> UpdateWorkflowAsync(Guid? agentId, WorkflowMetadata? workflowMetadata, CancellationToken cancellationToken)
         {
             if (workflowMetadata != null)

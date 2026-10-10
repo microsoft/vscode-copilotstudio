@@ -93,6 +93,20 @@ public class WorkflowDraftPushTests : IDisposable
         return dataverse;
     }
 
+    private static Mock<ISyncDataverseClient> CreateFailingDataverse(string errorMessage)
+    {
+        var dataverse = new Mock<ISyncDataverseClient>();
+        dataverse
+            .Setup(c => c.UpdateWorkflowAsync(It.IsAny<Guid?>(), It.IsAny<WorkflowMetadata>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new WorkflowResponse { ErrorMessage = errorMessage });
+
+        dataverse
+            .Setup(c => c.GetConnectionReferencesByLogicalNamesAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<ConnectionReferenceInfo>());
+
+        return dataverse;
+    }
+
     [Theory]
     [InlineData("name: Notify: customer\n", WorkspaceDiagnosticKind.InvalidFile, 1, 13)]
     [InlineData("name: one\nname: two\n", WorkspaceDiagnosticKind.InvalidFile, 2, 1)]
@@ -605,13 +619,7 @@ public class WorkflowDraftPushTests : IDisposable
 
         File.WriteAllText(Path.Combine(_workflowFolder, "workflow.json"), WorkflowJsonWithReference().Replace("shared_x", "shared_z"));
 
-        var failing = new Mock<ISyncDataverseClient>();
-        failing
-            .Setup(c => c.GetConnectionReferencesByLogicalNamesAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<ConnectionReferenceInfo>());
-        failing
-            .Setup(c => c.UpdateWorkflowAsync(It.IsAny<Guid?>(), It.IsAny<WorkflowMetadata>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new WorkflowResponse { ErrorMessage = "failed" });
+        var failing = CreateFailingDataverse("failed");
 
         var (_, afterFail) = await synchronizer.UpsertWorkflowForAgentAsync(_workspace, failing.Object, Guid.NewGuid(), CancellationToken.None, WorkflowActivationMode.DraftWhenConnectionsUnbound);
 
@@ -622,6 +630,31 @@ public class WorkflowDraftPushTests : IDisposable
         var captured = new WorkflowMetadata?[1];
         await synchronizer.UpsertWorkflowForAgentAsync(_workspace, CreateDataverse(captured).Object, Guid.NewGuid(), CancellationToken.None);
         Assert.NotNull(captured[0]);
+    }
+
+    [Fact]
+    public async Task PushWithoutAnAgent_WhenTheUploadFails_DoesNotCacheTheLocalWorkflowAsCloudState()
+    {
+        var synchronizer = CreateSynchronizer();
+        WriteWorkflowFiles(WorkflowJsonWithReference());
+
+        var (responses, metadata) = await synchronizer.UpsertWorkflowForAgentAsync(_workspace, CreateFailingDataverse("refused").Object, agentId: null, CancellationToken.None, WorkflowActivationMode.DraftWhenConnectionsUnbound);
+
+        Assert.Equal("refused", Assert.Single(responses).ErrorMessage);
+        Assert.Empty(metadata.Workflows);
+    }
+
+    [Fact]
+    public async Task PushWithoutAnAgent_WhenTheUploadSucceeds_SendsTheWorkflowAndCachesIt()
+    {
+        var synchronizer = CreateSynchronizer();
+        WriteWorkflowFiles(WorkflowJsonWithReference());
+        var captured = new WorkflowMetadata?[1];
+
+        var (_, metadata) = await synchronizer.UpsertWorkflowForAgentAsync(_workspace, CreateDataverse(captured).Object, agentId: null, CancellationToken.None, WorkflowActivationMode.DraftWhenConnectionsUnbound);
+
+        Assert.Equal(_workflowId, captured[0]!.WorkflowId);
+        Assert.Equal(_workflowId, Assert.Single(metadata.Workflows).WorkflowId.Value);
     }
 
     [Fact]

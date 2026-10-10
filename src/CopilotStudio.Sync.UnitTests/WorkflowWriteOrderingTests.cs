@@ -56,7 +56,7 @@ public class WorkflowWriteOrderingTests
             return new HttpResponseMessage(HttpStatusCode.NoContent);
         });
 
-        await CreateClient(handler).InsertWorkflowAsync(Guid.NewGuid(), workflow, CancellationToken.None);
+        await CreateClient(handler).InsertWorkflowAsync(workflow, CancellationToken.None);
 
         Assert.NotNull(postBody);
         Assert.Contains("\"clientdata\"", postBody!, StringComparison.Ordinal);
