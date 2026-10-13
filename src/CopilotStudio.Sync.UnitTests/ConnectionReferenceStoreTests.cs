@@ -197,14 +197,62 @@ public class ConnectionReferenceStoreTests
     }
 
     [Fact]
-    public void Flat_LeavesTheLayeredFolderAlone()
+    public void Flat_SuppressesTheLayeredFolder()
     {
         var workspace = NewWorkspace();
 
         WriteLayered(workspace, Reference("new_teams", "shared_teams"));
+
+        Assert.True(WriteFlat(workspace, Reference("new_teams", "shared_teams")));
+        Assert.Empty(LayeredFiles(workspace));
+    }
+
+    [Fact]
+    public void Flat_DoesNotLeaveAStaleLayeredValueWinningTheRead()
+    {
+        var workspace = NewWorkspace();
+
+        WriteLayered(workspace, Reference("new_teams", "shared_msnweather"));
         WriteFlat(workspace, Reference("new_teams", "shared_teams"));
 
-        Assert.Equal([LayeredPath("new_teams")], LayeredFiles(workspace));
+        var only = Assert.Single(ConnectionReferenceStore.Read(workspace, null, CancellationToken.None));
+
+        Assert.Equal(WorkflowDefinitionFile.ConnectorIdPrefix + "shared_teams", only.ConnectorId.Value);
+    }
+
+    [Fact]
+    public void Flat_DropsALayeredReferenceTheFlatLayoutNoLongerDeclares()
+    {
+        var workspace = NewWorkspace();
+
+        WriteLayered(workspace, Reference("new_teams", "shared_teams"), Reference("new_weather", "shared_msnweather"));
+
+        Assert.True(WriteFlat(workspace, Reference("new_teams", "shared_teams")));
+        Assert.Empty(LayeredFiles(workspace));
+        Assert.Equal(["new_teams"], ConnectionReferenceStore.Read(workspace, null, CancellationToken.None).Select(reference => reference.ConnectionReferenceLogicalName.Value));
+    }
+
+    [Fact]
+    public void Flat_WhenNothingIsLayered_ReportsNoChange()
+    {
+        var workspace = NewWorkspace();
+
+        WriteFlat(workspace, Reference("new_teams", "shared_teams"));
+
+        Assert.False(WriteFlat(workspace, Reference("new_teams", "shared_teams")));
+    }
+
+    [Fact]
+    public void Flat_WithNoReference_RemovesBothLayouts()
+    {
+        var workspace = NewWorkspace();
+
+        WriteLayered(workspace, Reference("new_teams", "shared_teams"));
+
+        Assert.True(WriteFlat(workspace));
+        Assert.Empty(LayeredFiles(workspace));
+        Assert.False(workspace.Exists(new AgentFilePath(ConnectionReferenceStore.FlatFileName)));
+        Assert.Empty(ConnectionReferenceStore.Read(workspace, null, CancellationToken.None));
     }
 
     [Fact]
@@ -316,6 +364,16 @@ public class ConnectionReferenceStoreTests
         WriteLayered(workspace, Reference("new_teams", "shared_teams"));
 
         Assert.False(ConnectionReferenceStore.Migrate(workspace, ConnectionReferenceLayout.Layered, null, CancellationToken.None));
+    }
+
+    [Fact]
+    public void Migrate_ToFlat_WhenTheLayoutAlreadyMatches_ReportsNoChange()
+    {
+        var workspace = NewWorkspace();
+
+        WriteFlat(workspace, Reference("new_teams", "shared_teams"));
+
+        Assert.False(ConnectionReferenceStore.Migrate(workspace, ConnectionReferenceLayout.Flat, null, CancellationToken.None));
     }
 
     [Fact]

@@ -29,7 +29,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         protected override async Task<string> ExecuteStandaloneAsync(SyncAgentRequest request, IFileAccessor fileAccessor, CancellationToken cancellationToken)
         {
             var local = await StandaloneSynchronizer.ReadLocalAsync(fileAccessor, cancellationToken).ConfigureAwait(false);
-            var pulled = await StandaloneSynchronizer.PullAsync(local.WorkflowId, fileAccessor, cancellationToken).ConfigureAwait(false);
+            var pulled = await StandaloneSynchronizer.PullAsync(local.WorkflowId, fileAccessor, cancellationToken, new CopilotStudio.Sync.StandaloneWorkflowDownloadOptions { OverwriteLocalChanges = true }).ConfigureAwait(false);
 
             return pulled.Deleted ? $"Workflow '{local.Name}' no longer exists in this environment and was removed from the workspace." : string.Empty;
         }

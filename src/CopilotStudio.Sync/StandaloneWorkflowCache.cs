@@ -106,14 +106,29 @@ public static class StandaloneWorkflowCache
             throw new ArgumentNullException(nameof(workflow));
         }
 
-        if (Read(fileAccessor, workflow.WorkflowId) is not { } cached)
+        return Differs(fileAccessor, workflow, Read(fileAccessor, workflow.WorkflowId));
+    }
+
+    /// <summary>Whether a workflow on disk differs from a copy the service returned.</summary>
+    /// <param name="fileAccessor">The workspace holding the workflow.</param>
+    /// <param name="workflow">The workflow on disk.</param>
+    /// <param name="reference">The copy to compare against, or <see langword="null"/> when there is none.</param>
+    /// <returns><see langword="true"/> when the workspace carries content the reference does not.</returns>
+    public static bool Differs(IFileAccessor fileAccessor, WorkflowFile workflow, SyncDataverseClient.WorkflowMetadata? reference)
+    {
+        if (workflow is null)
+        {
+            throw new ArgumentNullException(nameof(workflow));
+        }
+
+        if (reference is null)
         {
             return true;
         }
 
         var local = ConnectionReferenceStore.ReadTextOrNull(fileAccessor, workflow.DefinitionPath);
 
-        if (!string.Equals(WorkflowDefinitionFile.Canonicalize(local), WorkflowDefinitionFile.Canonicalize(cached.ClientData), StringComparison.Ordinal))
+        if (!string.Equals(WorkflowDefinitionFile.Canonicalize(local), WorkflowDefinitionFile.Canonicalize(reference.ClientData), StringComparison.Ordinal))
         {
             return true;
         }
@@ -121,9 +136,9 @@ public static class StandaloneWorkflowCache
         var declared = ReadMetadataOrNull(fileAccessor, workflow.MetadataPath);
 
         return declared is null
-            || !string.Equals(declared.Name, cached.Name, StringComparison.Ordinal)
-            || !string.Equals(declared.Description, cached.Description, StringComparison.Ordinal)
-            || declared.StateCode != cached.StateCode;
+            || !string.Equals(declared.Name, reference.Name, StringComparison.Ordinal)
+            || !string.Equals(declared.Description, reference.Description, StringComparison.Ordinal)
+            || declared.StateCode != reference.StateCode;
     }
 
     private static bool Store(IFileAccessor fileAccessor, Guid workflowId, CloudFlowDefinition? flow)

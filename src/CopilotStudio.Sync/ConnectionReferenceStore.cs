@@ -82,7 +82,7 @@ public static class ConnectionReferenceStore
         return Deduplicate(declared);
     }
 
-    /// <summary>Writes a workspace's connection references in one layout and removes the other.</summary>
+    /// <summary>Writes a workspace's connection references in one layout and removes whatever the other layout left behind.</summary>
     /// <param name="fileAccessor">The workspace to write.</param>
     /// <param name="connectionReferences">The references to declare, or null for none.</param>
     /// <param name="layout">The layout to write.</param>
@@ -105,7 +105,7 @@ public static class ConnectionReferenceStore
 
         return layout == ConnectionReferenceLayout.Layered
             ? WriteLayered(fileAccessor, unique, reportWarning, cancellationToken)
-            : WriteFlat(fileAccessor, unique);
+            : WriteFlat(fileAccessor, unique, cancellationToken);
     }
 
     /// <summary>Rewrites whatever a workspace declares into the requested layout and removes the other.</summary>
@@ -114,12 +114,8 @@ public static class ConnectionReferenceStore
     /// <param name="reportWarning">Receives a message for each file that could not be converted.</param>
     /// <param name="cancellationToken">Cancels the conversion.</param>
     /// <returns><see langword="true"/> when anything on disk changed.</returns>
-    public static bool Migrate(IFileAccessor fileAccessor, ConnectionReferenceLayout layout, Action<string>? reportWarning, CancellationToken cancellationToken)
-    {
-        var changed = Write(fileAccessor, Read(fileAccessor, reportWarning, cancellationToken), layout, reportWarning, cancellationToken);
-
-        return (layout == ConnectionReferenceLayout.Flat && RemoveLayered(fileAccessor, cancellationToken)) || changed;
-    }
+    public static bool Migrate(IFileAccessor fileAccessor, ConnectionReferenceLayout layout, Action<string>? reportWarning, CancellationToken cancellationToken) =>
+        Write(fileAccessor, Read(fileAccessor, reportWarning, cancellationToken), layout, reportWarning, cancellationToken);
 
     internal static string Serialize(IReadOnlyList<ConnectionReference> connectionReferences)
     {
@@ -158,10 +154,14 @@ public static class ConnectionReferenceStore
         return RemoveFlat(fileAccessor) || changed;
     }
 
-    private static bool WriteFlat(IFileAccessor fileAccessor, IReadOnlyList<ConnectionReference> unique) =>
-        unique.Count == 0
+    private static bool WriteFlat(IFileAccessor fileAccessor, IReadOnlyList<ConnectionReference> unique, CancellationToken cancellationToken)
+    {
+        var changed = unique.Count == 0
             ? RemoveFlat(fileAccessor)
             : WriteIfChanged(fileAccessor, FlatPath, Serialize(unique), FlatEncoding);
+
+        return RemoveLayered(fileAccessor, cancellationToken) || changed;
+    }
 
     private static bool RemoveFlat(IFileAccessor fileAccessor)
     {

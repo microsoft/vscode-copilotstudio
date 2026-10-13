@@ -30,6 +30,12 @@ public enum StandaloneWorkflowFailure
 
     /// <summary>The directory a clone would write to already holds another workflow or an agent.</summary>
     ProjectFolderOccupied = 7,
+
+    /// <summary>The project a clone would write over holds a workflow edit the service has not seen.</summary>
+    ProjectHoldsUnpushedChanges = 8,
+
+    /// <summary>The workspace a download would write over holds a workflow edit the service has not seen.</summary>
+    WorkspaceHoldsUnpushedChanges = 9,
 }
 
 /// <summary>A standalone workflow could not be read or written.</summary>
@@ -116,6 +122,18 @@ public sealed class StandaloneWorkflowException : Exception
         new(StandaloneWorkflowFailure.ProjectFolderOccupied, $"The folder '{projectFolder}' already holds another project. Clone this workflow somewhere else.")
         {
             Subject = projectFolder,
+        };
+
+    internal static StandaloneWorkflowException ProjectHoldsUnpushedChanges(string projectFolder) =>
+        new(StandaloneWorkflowFailure.ProjectHoldsUnpushedChanges, $"The folder '{projectFolder}' already holds this workflow with changes the environment has not seen. Push or discard them, or clone this workflow somewhere else.")
+        {
+            Subject = projectFolder,
+        };
+
+    internal static StandaloneWorkflowException WorkspaceHoldsUnpushedChanges(string folderName) =>
+        new(StandaloneWorkflowFailure.WorkspaceHoldsUnpushedChanges, $"'{folderName}' holds changes the environment has not seen, and downloading would replace them. Push or discard them first, or ask for them to be overwritten.")
+        {
+            Subject = folderName,
         };
 
     internal static StandaloneWorkflowException PushFailed(string workflowName, string? environmentId, string reason) =>

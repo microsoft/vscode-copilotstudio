@@ -97,6 +97,57 @@ public class StandaloneWorkflowChangeTrackingTests : IDisposable
         Assert.Empty(changes);
     }
 
+    private const string BoundDefinition = """
+    {"properties":{"connectionReferences":{"shared_teams":{"api":{"name":"shared_teams"},"connection":{"connectionReferenceLogicalName":"new_teams","connectionName":"shared-teams-abc123"}}}}}
+    """;
+
+    [Fact]
+    public async Task StandaloneWorkspace_WhenOnlyTheEnvironmentBindingDiffers_ReportsNoChange()
+    {
+        WriteCache(BoundDefinition);
+        WriteLocal(WorkflowDefinitionFile.Read(BoundDefinition).Portable);
+
+        var (_, changes) = await GetLocalChangesAsync();
+
+        Assert.Empty(changes);
+    }
+
+    [Fact]
+    public async Task StandaloneWorkspace_ChangeTrackingAndTheCacheAgreeAboutPortableDefinitions()
+    {
+        WriteCache(BoundDefinition);
+        WriteLocal(WorkflowDefinitionFile.Read(BoundDefinition).Portable);
+
+        var (_, changes) = await GetLocalChangesAsync();
+        var workflow = WorkflowWorkspace.FindAll(Accessor()).Single();
+
+        Assert.Equal(StandaloneWorkflowCache.HasLocalChange(Accessor(), workflow), changes.Length > 0);
+    }
+
+    [Fact]
+    public async Task StandaloneWorkspace_WhenThePortableDefinitionWasEdited_StillReportsAChange()
+    {
+        WriteCache(BoundDefinition);
+        WriteLocal(WorkflowDefinitionFile.Read(BoundDefinition).Portable.Replace("shared_teams", "shared_office365", StringComparison.Ordinal));
+
+        var (_, changes) = await GetLocalChangesAsync();
+        var workflow = WorkflowWorkspace.FindAll(Accessor()).Single();
+
+        Assert.NotEmpty(changes);
+        Assert.True(StandaloneWorkflowCache.HasLocalChange(Accessor(), workflow));
+    }
+
+    [Fact]
+    public async Task RemoteChanges_WhenOnlyTheEnvironmentBindingMoved_ReportsNoChange()
+    {
+        WriteCache(WorkflowDefinitionFile.Read(BoundDefinition).Portable);
+        WriteLocal(WorkflowDefinitionFile.Read(BoundDefinition).Portable);
+
+        var (_, changes) = await GetRemoteChangesAsync((_, _) => Task.FromResult<SyncDataverseClient.WorkflowMetadata?>(RemoteRow(BoundDefinition)));
+
+        Assert.Empty(changes);
+    }
+
     [Fact]
     public async Task StandaloneWorkspace_WhenTheDefinitionWasEditedLocally_ReportsAChange()
     {

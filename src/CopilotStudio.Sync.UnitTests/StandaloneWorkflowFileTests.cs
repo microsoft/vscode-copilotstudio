@@ -32,6 +32,14 @@ public class StandaloneWorkflowFileTests : IDisposable
         return folder;
     }
 
+    private void CacheWorkflow(string workspaceRoot, string name, Guid workflowId, string definition)
+    {
+        var metadata = WorkflowScaffolder.NewMetadata(name, workflowId, WorkflowWorkspace.RelativeFolderFor(name, workflowId));
+        metadata.ClientData = definition;
+
+        StandaloneWorkflowCache.Write(WorkflowWorkspace.OpenWorkspace(workspaceRoot), metadata);
+    }
+
     private string ConnectionsFolder => Path.Combine(_root, "infrastructure", "connections");
 
     private string ConnectionFile(string logicalName) => Path.Combine(ConnectionsFolder, logicalName + ConnectionReferenceStore.LayeredFileExtension);
@@ -337,13 +345,36 @@ public class StandaloneWorkflowFileTests : IDisposable
     }
 
     [Fact]
-    public void CanHostProject_WhenTheDirectoryAlreadyHoldsThisWorkflow_IsTrue()
+    public void CanHostProject_WhenTheDirectoryAlreadyHoldsThisWorkflowWithNothingUnpushed_IsTrue()
+    {
+        var workflowId = Guid.NewGuid();
+
+        WriteWorkflow("Flow", workflowId, "{}");
+        CacheWorkflow(_root, "Flow", workflowId, "{}");
+
+        Assert.True(WorkflowWorkspace.CanHostProject(_root, workflowId));
+    }
+
+    [Fact]
+    public void CanHostProject_WhenTheDirectoryHoldsThisWorkflowWithUnpushedChanges_IsFalse()
+    {
+        var workflowId = Guid.NewGuid();
+
+        WriteWorkflow("Flow", workflowId, "{}");
+        CacheWorkflow(_root, "Flow", workflowId, """{"properties":{"a":1}}""");
+
+        Assert.Equal(WorkflowProjectHost.UnpushedChanges, WorkflowWorkspace.InspectProject(_root, workflowId));
+        Assert.False(WorkflowWorkspace.CanHostProject(_root, workflowId));
+    }
+
+    [Fact]
+    public void CanHostProject_WhenTheDirectoryHoldsThisWorkflowWithNoCache_IsFalse()
     {
         var workflowId = Guid.NewGuid();
 
         WriteWorkflow("Flow", workflowId, "{}");
 
-        Assert.True(WorkflowWorkspace.CanHostProject(_root, workflowId));
+        Assert.Equal(WorkflowProjectHost.UnpushedChanges, WorkflowWorkspace.InspectProject(_root, workflowId));
     }
 
     [Fact]
@@ -405,8 +436,25 @@ public class StandaloneWorkflowFileTests : IDisposable
         Directory.CreateDirectory(folder);
         File.WriteAllText(Path.Combine(folder, WorkflowWorkspace.DefinitionFileName), "{}");
         File.WriteAllText(Path.Combine(folder, WorkflowWorkspace.MetadataFileName), WorkflowMetadataFile.Write(WorkflowScaffolder.NewMetadata("My Flow", workflowId, "x")));
+        CacheWorkflow(projectRoot, "My Flow", workflowId, "{}");
 
         Assert.Equal("MyFlow", WorkflowWorkspace.ResolveProjectFolder(_root, "My Flow", workflowId));
+    }
+
+    [Fact]
+    public void ResolveProjectFolder_WhenTheProjectHoldsThisWorkflowWithUnpushedChanges_Throws()
+    {
+        var workflowId = Guid.NewGuid();
+        var projectRoot = Path.Combine(_root, "MyFlow");
+        var folder = Path.Combine(projectRoot, WorkflowWorkspace.WorkflowsFolderName, WorkflowWorkspace.FolderNameFor("My Flow", workflowId));
+
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, WorkflowWorkspace.DefinitionFileName), "{}");
+        File.WriteAllText(Path.Combine(folder, WorkflowWorkspace.MetadataFileName), WorkflowMetadataFile.Write(WorkflowScaffolder.NewMetadata("My Flow", workflowId, "x")));
+
+        var failure = Assert.Throws<StandaloneWorkflowException>(() => WorkflowWorkspace.ResolveProjectFolder(_root, "My Flow", workflowId));
+
+        Assert.Equal(StandaloneWorkflowFailure.ProjectHoldsUnpushedChanges, failure.Failure);
     }
 
     [Fact]

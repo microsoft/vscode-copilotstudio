@@ -80,7 +80,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             var synchronizer = new PushTrackingSynchronizer();
             var standalone = new Mock<IStandaloneWorkflowSynchronizer>();
             standalone
-                .Setup(service => service.UpsertAsync(It.IsAny<Microsoft.CopilotStudio.McsCore.IFileAccessor>(), EnvironmentId, It.IsAny<CancellationToken>()))
+                .Setup(service => service.UpsertAsync(It.IsAny<Microsoft.CopilotStudio.McsCore.IFileAccessor>(), EnvironmentId, It.IsAny<CancellationToken>(), It.IsAny<StandaloneWorkflowUpsertOptions?>()))
                 .ReturnsAsync(new StandaloneWorkflowUpsert { Warning = "kept as a draft" });
 
             var handler = CreateHandler(
@@ -94,6 +94,33 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             Assert.Equal(200, response.Code);
             Assert.Equal("kept as a draft", response.Message);
             Assert.False(synchronizer.PushAttempted);
+        }
+
+        [Theory]
+        [InlineData(true, WorkflowActivationMode.DraftWhenConnectionReferencesExist)]
+        [InlineData(false, WorkflowActivationMode.DraftWhenConnectionsUnbound)]
+        public async Task SyncPush_StandaloneWorkflowWorkspace_PropagatesTheActivationMode(bool draftConnectionReferenceWorkflows, WorkflowActivationMode expected)
+        {
+            var (requestContext, request) = CreateSetup("Workspace/UnrecognizedTemplateWorkspace");
+            request.DraftConnectionReferenceWorkflows = draftConnectionReferenceWorkflows;
+            var standalone = new Mock<IStandaloneWorkflowSynchronizer>();
+            StandaloneWorkflowUpsertOptions? captured = null;
+            standalone
+                .Setup(service => service.UpsertAsync(It.IsAny<Microsoft.CopilotStudio.McsCore.IFileAccessor>(), EnvironmentId, It.IsAny<CancellationToken>(), It.IsAny<StandaloneWorkflowUpsertOptions?>()))
+                .Callback((Microsoft.CopilotStudio.McsCore.IFileAccessor _, string? _, CancellationToken _, StandaloneWorkflowUpsertOptions? options) => captured = options)
+                .ReturnsAsync(new StandaloneWorkflowUpsert());
+
+            var handler = CreateHandler(
+                new MockDataverseClient(),
+                new PushTrackingSynchronizer(),
+                standalone.Object,
+                CreateStandaloneWorkflowFactory(((Microsoft.PowerPlatformLS.Contracts.FileLayout.IMcsWorkspace)requestContext.Workspace).FolderPath));
+
+            var response = await handler.HandleRequestAsync(request, requestContext, CancellationToken.None);
+
+            Assert.Equal(200, response.Code);
+            Assert.Equal(expected, captured!.ActivationMode);
+            Assert.False(captured.AllowDestructiveReplace);
         }
 
         private static Microsoft.CopilotStudio.McsCore.InMemoryFileAccessorFactory CreateStandaloneWorkflowFactory(DirectoryPath workspaceFolder)

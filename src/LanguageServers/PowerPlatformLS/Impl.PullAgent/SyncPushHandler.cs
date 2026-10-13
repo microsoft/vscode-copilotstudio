@@ -22,7 +22,10 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         }
 
         protected override async Task<string> ExecuteStandaloneAsync(SyncAgentRequest request, IFileAccessor fileAccessor, CancellationToken cancellationToken) =>
-            (await StandaloneSynchronizer.UpsertAsync(fileAccessor, request.EnvironmentInfo.EnvironmentId, cancellationToken).ConfigureAwait(false)).Warning;
+            (await StandaloneSynchronizer.UpsertAsync(fileAccessor, request.EnvironmentInfo.EnvironmentId, cancellationToken, new CopilotStudio.Sync.StandaloneWorkflowUpsertOptions { ActivationMode = ActivationModeFor(request) }).ConfigureAwait(false)).Warning;
+
+        private static CopilotStudio.Sync.WorkflowActivationMode ActivationModeFor(SyncAgentRequest request) =>
+            request.DraftConnectionReferenceWorkflows ? CopilotStudio.Sync.WorkflowActivationMode.DraftWhenConnectionReferencesExist : CopilotStudio.Sync.WorkflowActivationMode.DraftWhenConnectionsUnbound;
 
         protected override async Task<(DefinitionBase Definition, ImmutableArray<WorkflowResponse> Workflows, ImmutableArray<SyncDataverseClient.AIPromptResponse> AIPrompts, string Warning)> ExecuteAsync(SyncAgentRequest request, IMcsWorkspace workspace, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CancellationToken cancellationToken)
         {
@@ -39,7 +42,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
             await ConnectionHelper.ProvisionConnectionsAsync(_synchronizer, workspace.FolderPath, workspace.Definition, dataverseClient, cancellationToken);
 
-            var activationMode = request.DraftConnectionReferenceWorkflows ? CopilotStudio.Sync.WorkflowActivationMode.DraftWhenConnectionReferencesExist : CopilotStudio.Sync.WorkflowActivationMode.DraftWhenConnectionsUnbound;
+            var activationMode = ActivationModeFor(request);
             var (workflowResponse, cloudFlowMetadata, aiPromptResponse, aiPromptMetadata) = operationContext is BotComponentCollectionAuthoringOperationContext
                 ? await UpsertComponentCollectionScopedAssetsAsync(workspace.FolderPath, dataverseClient, syncInfo.ComponentCollectionId, activationMode, cancellationToken)
                 : await ConnectionHelper.UpsertAgentScopedAssetsAsync(_synchronizer, workspace.FolderPath, workspace.Definition, dataverseClient, syncInfo.AgentId, activationMode, cancellationToken);

@@ -153,6 +153,12 @@ public static class WorkflowActivationPlanner
     public static string DescribeDraftedForConnections(string workflowName) =>
         $"Workflow '{workflowName}' was saved as a draft because one of its connection references has no connection you can use. Bind a connection, then enable it.";
 
+    /// <summary>Describes a workflow held back as a draft until its connection references are set up here.</summary>
+    /// <param name="workflowName">The workflow that was drafted.</param>
+    /// <returns>A message naming what to finish before enabling it.</returns>
+    public static string DescribeDraftedForConnectionSetup(string workflowName) =>
+        $"Workflow '{workflowName}' was saved as a draft because it binds connection references that have to be set up in this environment first. Set them up, then enable it.";
+
     /// <summary>Describes a state change the environment did not apply, or an empty string when it did.</summary>
     /// <param name="outcome">What the environment established.</param>
     /// <param name="workflowName">The workflow the change was requested for.</param>

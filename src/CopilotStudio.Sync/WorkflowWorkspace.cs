@@ -11,6 +11,19 @@ public sealed record WorkflowFolder(Guid WorkflowId, string FolderName, string F
 /// <summary>One workflow found beneath a workspace's workflows folder, addressed through a file accessor.</summary>
 public sealed record WorkflowFile(Guid WorkflowId, string FolderName, AgentFilePath DefinitionPath, AgentFilePath MetadataPath);
 
+/// <summary>What a directory offers a standalone workflow project that would be written into it.</summary>
+public enum WorkflowProjectHost
+{
+    /// <summary>The directory is absent, empty, or already holds this workflow with nothing unpushed.</summary>
+    Free = 0,
+
+    /// <summary>The directory holds an agent, another workflow, or content the clone did not write.</summary>
+    Occupied = 1,
+
+    /// <summary>The directory holds this workflow carrying an edit the service has not seen.</summary>
+    UnpushedChanges = 2,
+}
+
 /// <summary>Describes how workflows are laid out beneath a workspace root.</summary>
 public static class WorkflowWorkspace
 {
@@ -159,30 +172,42 @@ public static class WorkflowWorkspace
     public static bool HasProjectFile(IFileAccessor fileAccessor) => fileAccessor is not null && fileAccessor.Exists(ProjectFilePath);
 
     /// <summary>
-    /// Whether a directory is free to hold one workflow's standalone project. Content the clone did
-    /// not write stays untouched, and a directory already holding another workflow is refused because
-    /// every later operation on a standalone project requires the project to name exactly one workflow.
+    /// What a directory offers one workflow's standalone project. Content the clone did not write
+    /// stays untouched, a directory already holding another workflow is refused because every later
+    /// operation on a standalone project requires the project to name exactly one workflow, and a
+    /// project carrying an edit the service has not seen is refused because a clone overwrites it.
     /// </summary>
     /// <param name="projectRoot">The candidate project directory.</param>
     /// <param name="workflowId">The workflow the project would hold.</param>
-    /// <returns><see langword="true"/> when the directory is absent, empty, or already holds this workflow alone.</returns>
-    public static bool CanHostProject(string projectRoot, Guid workflowId)
+    /// <returns>What the directory offers.</returns>
+    public static WorkflowProjectHost InspectProject(string projectRoot, Guid workflowId)
     {
         if (string.IsNullOrWhiteSpace(projectRoot) || !Directory.Exists(projectRoot))
         {
-            return true;
+            return WorkflowProjectHost.Free;
         }
 
         if (!Directory.EnumerateFileSystemEntries(projectRoot).Any())
         {
-            return true;
+            return WorkflowProjectHost.Free;
         }
 
         var workspace = OpenWorkspace(projectRoot);
         var found = FindAll(workspace);
 
-        return !HasAgentProject(workspace) && found.Count == 1 && found[0].WorkflowId == workflowId;
+        if (HasAgentProject(workspace) || found.Count != 1 || found[0].WorkflowId != workflowId)
+        {
+            return WorkflowProjectHost.Occupied;
+        }
+
+        return StandaloneWorkflowCache.HasLocalChange(workspace, found[0]) ? WorkflowProjectHost.UnpushedChanges : WorkflowProjectHost.Free;
     }
+
+    /// <summary>Whether a directory is free to hold one workflow's standalone project.</summary>
+    /// <param name="projectRoot">The candidate project directory.</param>
+    /// <param name="workflowId">The workflow the project would hold.</param>
+    /// <returns><see langword="true"/> when the directory is absent, empty, or already holds this workflow with nothing unpushed.</returns>
+    public static bool CanHostProject(string projectRoot, Guid workflowId) => InspectProject(projectRoot, workflowId) == WorkflowProjectHost.Free;
 
     /// <summary>
     /// The folder one workflow's standalone project takes beneath a container root, widened to carry
@@ -206,16 +231,25 @@ public static class WorkflowWorkspace
             throw StandaloneWorkflowException.UnusableProjectName(name ?? workflowId.ToString());
         }
 
-        if (CanHostProject(Path.Combine(root, preferred), workflowId))
+        if (Offer(root, preferred, workflowId) is WorkflowProjectHost.Free)
         {
             return preferred;
         }
 
         var disambiguated = FolderNameFor(name, workflowId);
 
-        return CanHostProject(Path.Combine(root, disambiguated), workflowId)
+        return Offer(root, disambiguated, workflowId) is WorkflowProjectHost.Free
             ? disambiguated
             : throw StandaloneWorkflowException.ProjectFolderOccupied(disambiguated);
+    }
+
+    private static WorkflowProjectHost Offer(string root, string folderName, Guid workflowId)
+    {
+        var host = InspectProject(Path.Combine(root, folderName), workflowId);
+
+        return host is WorkflowProjectHost.UnpushedChanges
+            ? throw StandaloneWorkflowException.ProjectHoldsUnpushedChanges(folderName)
+            : host;
     }
 
     /// <summary>Writes the standalone workflow project declaration unless it is already current.</summary>

@@ -97,7 +97,15 @@ internal sealed class FakeStandaloneWorkflowClient : IStandaloneWorkflowDatavers
             return Task.FromResult(new WorkflowResponse { ErrorMessage = failure });
         }
 
-        _rows[workflowMetadata!.WorkflowId] = Normalize(workflowMetadata);
+        var stored = Normalize(workflowMetadata!);
+
+        if (workflowMetadata!.StateCode is null && _rows.TryGetValue(workflowMetadata.WorkflowId, out var previous))
+        {
+            stored.StateCode = previous.StateCode;
+            stored.StatusCode = previous.StatusCode;
+        }
+
+        _rows[workflowMetadata.WorkflowId] = stored;
 
         return Task.FromResult(new WorkflowResponse { WorkflowId = workflowMetadata.WorkflowId });
     }
@@ -297,7 +305,7 @@ public class StandaloneWorkflowSynchronizerTests
 
         Write(workspace, $"{first.Folder}/{WorkflowWorkspace.DefinitionFileName}", "{}");
 
-        Assert.True((await synchronizer.DownloadAsync(workflowId, workspace, "env", CancellationToken.None)).Changed);
+        Assert.True((await synchronizer.DownloadAsync(workflowId, workspace, "env", CancellationToken.None, new StandaloneWorkflowDownloadOptions { OverwriteLocalChanges = true })).Changed);
     }
 
     [Fact]
@@ -421,7 +429,7 @@ public class StandaloneWorkflowSynchronizerTests
 
         client.Seed(Row(workflowId, "Flow", "{}"));
 
-        var result = await new StandaloneWorkflowSynchronizer(client).UpsertAsync(WorkspaceWith(workflowId, "Flow", DefinitionWithReference), "env", CancellationToken.None);
+        var result = await new StandaloneWorkflowSynchronizer(client).UpsertAsync(WorkspaceWith(workflowId, "Flow", DefinitionWithReference), "env", CancellationToken.None, new StandaloneWorkflowUpsertOptions { AllowDestructiveReplace = true });
 
         Assert.True(result.Replaced);
         Assert.Contains("delete", client.Calls);
@@ -437,7 +445,7 @@ public class StandaloneWorkflowSynchronizerTests
         client.Seed(Row(workflowId, "Flow", "{}"));
 
         var failure = await Assert.ThrowsAsync<StandaloneWorkflowException>(
-            () => new StandaloneWorkflowSynchronizer(client).UpsertAsync(WorkspaceWith(workflowId, "Flow", DefinitionWithReference), "env", CancellationToken.None));
+            () => new StandaloneWorkflowSynchronizer(client).UpsertAsync(WorkspaceWith(workflowId, "Flow", DefinitionWithReference), "env", CancellationToken.None, new StandaloneWorkflowUpsertOptions { AllowDestructiveReplace = true }));
 
         Assert.Equal(StandaloneWorkflowFailure.ReplaceLostTheCloudCopy, failure.Failure);
     }

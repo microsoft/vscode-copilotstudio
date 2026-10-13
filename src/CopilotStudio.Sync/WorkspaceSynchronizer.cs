@@ -8256,7 +8256,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     {
         var local = await ReadWorkflowFoldersAsync(fileAccessor, WorkflowFolder, diagnostics: null, cancellationToken).ConfigureAwait(false);
 
-        return (new PvaComponentChangeSet(null, null, null), ComputeWorkflowChanges(ReadCachedWorkflows(fileAccessor), local, isLocal: true));
+        return (new PvaComponentChangeSet(null, null, null), ComputeWorkflowChanges(ReadCachedWorkflows(fileAccessor), local, isLocal: true, comparePortableDefinitions: true));
     }
 
     /// <summary>Lists standalone workflow changes for discard, reporting unparsable files instead of failing.</summary>
@@ -8266,7 +8266,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var diagnostics = new SyncDiagnosticsCollector();
         var local = await ReadWorkflowFoldersAsync(fileAccessor, WorkflowFolder, diagnostics, cancellationToken).ConfigureAwait(false);
 
-        return (ComputeWorkflowChanges(ReadCachedWorkflows(fileAccessor), local, isLocal: true), diagnostics.UnreadableFiles);
+        return (ComputeWorkflowChanges(ReadCachedWorkflows(fileAccessor), local, isLocal: true, comparePortableDefinitions: true), diagnostics.UnreadableFiles);
     }
 
     private static CloudFlowMetadata ReadCachedWorkflows(IFileAccessor fileAccessor) => new CloudFlowMetadata
@@ -8310,7 +8310,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             ConnectionReferences = ImmutableArray<ConnectionReference>.Empty
         };
 
-        return (new PvaComponentChangeSet(null, null, null), ComputeWorkflowChanges(cached, remote, isLocal: false));
+        return (new PvaComponentChangeSet(null, null, null), ComputeWorkflowChanges(cached, remote, isLocal: false, comparePortableDefinitions: true));
     }
 
     private static async Task<CloudFlowMetadata> ReadWorkflowFoldersAsync(IFileAccessor fileAccessor, string relativeRoot, SyncDiagnosticsCollector? diagnostics, CancellationToken cancellationToken)
@@ -8459,7 +8459,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         };
     }
 
-    private static ImmutableArray<Change> ComputeWorkflowChanges(CloudFlowMetadata original, CloudFlowMetadata current, bool isLocal)
+    private static ImmutableArray<Change> ComputeWorkflowChanges(CloudFlowMetadata original, CloudFlowMetadata current, bool isLocal, bool comparePortableDefinitions = false)
     {
         var changes = ImmutableArray.CreateBuilder<Change>();
         var originalMap = original.Workflows.ToDictionary(x => x.WorkflowId.Value);
@@ -8499,7 +8499,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             else
             {
                 var originalWorkflow = originalMap[workflowId];
-                var clientChanged = GetClientData(workflow) != GetClientData(originalWorkflow);
+                var clientChanged = CompareDefinition(workflow, comparePortableDefinitions) != CompareDefinition(originalWorkflow, comparePortableDefinitions);
                 var metadataChanged = !McsYamlComparer.DocumentsMatch(GetWorkflowMetadata(workflow), GetWorkflowMetadata(originalWorkflow));
 
                 if (clientChanged)
@@ -8550,6 +8550,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         return changes.ToImmutable();
     }
+
+    private static string CompareDefinition(CloudFlowDefinition? flow, bool portable) =>
+        portable ? WorkflowDefinitionFile.Canonicalize(GetRawClientData(flow)) : GetClientData(flow);
 
     private static (AgentFilePath, AgentFilePath) GetWorkflowPath(string? workflowName, Guid workflowId)
     {
