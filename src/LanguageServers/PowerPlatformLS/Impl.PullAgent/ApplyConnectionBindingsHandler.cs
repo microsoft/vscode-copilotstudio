@@ -57,7 +57,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             {
                 var workspace = (IMcsWorkspace)context.Workspace;
                 await ConnectionHelper.ApplyConnectionContext(_islandControlPlaneService, _dataverseTokenManager, _dataverseHttpClientAccessor, _dataverseClient, request, _synchronizer, workspace);
-                var classification = AgentClassifier.Classify(workspace.Definition, workspace.FolderPath.ToString());
+                var classification = WorkspaceClassifier.Classify(workspace.Definition, workspace.FolderPath.ToString());
 
                 if (!classification.Allows(SyncOperation.Push))
                 {

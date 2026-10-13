@@ -10,6 +10,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models.Lsp;
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
+    using System.Collections.Immutable;
     using System.Threading;
     using System.Threading.Tasks;
 
@@ -37,6 +38,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         protected readonly CopilotStudio.Sync.IWorkspaceSynchronizer _synchronizer;
         private readonly ISyncDataverseClient _dataverseClient;
         private readonly LspDataverseHttpClientAccessor _dataverseHttpClientAccessor;
+        private readonly CopilotStudio.Sync.IStandaloneWorkflowSynchronizer _standaloneSynchronizer;
+        private readonly IFileAccessorFactory _fileAccessorFactory;
 
         public GetRemoteFileHandler(
             CopilotStudio.Sync.IIslandControlPlaneService islandControlPlaneService,
@@ -45,6 +48,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             CopilotStudio.Sync.IOperationContextProvider operationContextProvider,
             ISyncDataverseClient dataverseClient,
             LspDataverseHttpClientAccessor dataverseHttpClientAccessor,
+            CopilotStudio.Sync.IStandaloneWorkflowSynchronizer standaloneSynchronizer,
+            IFileAccessorFactory fileAccessorFactory,
             ILspLogger logger)
         {
             _islandControlPlaneService = islandControlPlaneService;
@@ -54,6 +59,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _dataverseClient = dataverseClient ?? throw new ArgumentNullException(nameof(dataverseClient));
             _dataverseHttpClientAccessor = dataverseHttpClientAccessor ?? throw new ArgumentNullException(nameof(dataverseHttpClientAccessor));
+            _standaloneSynchronizer = standaloneSynchronizer ?? throw new ArgumentNullException(nameof(standaloneSynchronizer));
+            _fileAccessorFactory = fileAccessorFactory ?? throw new ArgumentNullException(nameof(fileAccessorFactory));
         }
 
         public bool MutatesSolutionState => false;
@@ -82,6 +89,37 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             return (trackedWorkspace.GetDocument(cachePath) as LspDocument<BotElement>)?.FileModel as DefinitionBase;
         }
 
+        internal static GetFileResponse? ResolveChange(ImmutableArray<Change> changes, string schemaName)
+        {
+            var change = changes.FirstOrDefault(m => m.SchemaName.Equals(schemaName, StringComparison.OrdinalIgnoreCase));
+
+            if (change == null)
+            {
+                return new GetFileResponse
+                {
+                    Code = 404,
+                    Message = string.Empty,
+                };
+            }
+
+            if (change.ChangeType == ChangeType.Delete)
+            {
+                return new GetFileResponse
+                {
+                    Code = 200,
+                    Content = string.Empty,
+                };
+            }
+
+            return schemaName.StartsWith(WorkflowLayout.SchemaNamePrefix, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(change.RemoteWorkflowContent)
+                ? new GetFileResponse
+                {
+                    Code = 200,
+                    Content = change.RemoteWorkflowContent,
+                }
+                : null;
+        }
+
         public async Task<GetFileResponse> HandleRequestAsync(GetFileRequest request, RequestContext context, CancellationToken cancellationToken)
         {
             try
@@ -89,41 +127,24 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 var workspace = (IMcsWorkspace)context.Workspace;
                 await ConnectionHelper.ApplyConnectionContext(_islandControlPlaneService, _dataverseTokenManager, _dataverseHttpClientAccessor, _dataverseClient, request, _synchronizer, workspace);
 
-                var syncInfo = await _synchronizer.GetSyncInfoAsync(workspace.FolderPath);
-                var operationContext = await _operationContextProvider.GetAsync(syncInfo);
-                var (changeSet, changes) = await _synchronizer.GetRemoteChangesAsync(workspace.FolderPath, operationContext, _dataverseClient, syncInfo, cancellationToken);
-                var change = changes.FirstOrDefault(m => m.SchemaName.Equals(request.SchemaName, StringComparison.OrdinalIgnoreCase));
-
-                if (change == null)
+                if (WorkspaceClassifier.DetectKind(_fileAccessorFactory.Create(workspace.FolderPath)) == WorkspaceKind.StandaloneWorkflow)
                 {
-                    return new GetFileResponse
-                    {
-                        Code = 404,
-                        Message = string.Empty,
-                    };
-                }
+                    var (_, workflowChanges) = await _synchronizer.GetStandaloneWorkflowRemoteChangesAsync(workspace.FolderPath, _standaloneSynchronizer.ReadMetadataAsync, cancellationToken);
 
-                if (change.ChangeType == ChangeType.Delete)
-                {
-                    return new GetFileResponse
+                    return ResolveChange(workflowChanges, request.SchemaName) ?? new GetFileResponse
                     {
                         Code = 200,
                         Content = string.Empty,
                     };
                 }
 
-                if (request.SchemaName.StartsWith("Mcs.Workflow."))
-                {
-                    var workflowChange = changes.FirstOrDefault(c => c.SchemaName.Equals(request.SchemaName, StringComparison.OrdinalIgnoreCase));
+                var syncInfo = await _synchronizer.GetSyncInfoAsync(workspace.FolderPath);
+                var operationContext = await _operationContextProvider.GetAsync(syncInfo);
+                var (changeSet, changes) = await _synchronizer.GetRemoteChangesAsync(workspace.FolderPath, operationContext, _dataverseClient, syncInfo, cancellationToken);
 
-                    if (workflowChange != null && !string.IsNullOrWhiteSpace(workflowChange.RemoteWorkflowContent))
-                    {
-                        return new GetFileResponse
-                        {
-                            Code = 200,
-                            Content = workflowChange.RemoteWorkflowContent
-                        };
-                    }
+                if (ResolveChange(changes, request.SchemaName) is { } resolved)
+                {
+                    return resolved;
                 }
 
                 using var sw = new StringWriter();

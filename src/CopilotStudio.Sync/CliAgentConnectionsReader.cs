@@ -72,38 +72,7 @@ internal static class CliAgentConnectionsReader
     /// active" signal that gates the overlay step — see file header for
     /// rationale.
     /// </summary>
-    public static bool IsLayeredShapeActive(IFileAccessor fileAccessor)
-    {
-        if (fileAccessor == null)
-        {
-            return false;
-        }
-
-        var prefix = CliAgentConnectionsWriter.InfrastructureConnectionsFolder + "/";
-
-        foreach (var existing in fileAccessor.ListFiles(
-                     CliAgentConnectionsWriter.InfrastructureConnectionsFolder,
-                     "*" + CliAgentConnectionsWriter.FileExtension))
-        {
-            var pathStr = existing.ToString();
-            if (!pathStr.StartsWith(prefix, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            var relativeLeaf = pathStr.Substring(prefix.Length);
-            if (relativeLeaf.IndexOf('/') >= 0 || relativeLeaf.IndexOf('\\') >= 0)
-            {
-                // Nested file (subdirectory) — D5 doesn't claim ownership
-                // here; doesn't count for the active signal.
-                continue;
-            }
-
-            return true;
-        }
-
-        return false;
-    }
+    public static bool IsLayeredShapeActive(IFileAccessor fileAccessor) => CliAgentConnectionsWriter.Enumerate(fileAccessor).Any();
 
     /// <summary>
     /// CliAgentSyncSupport / Node F: enumerate the connection-reference
@@ -123,50 +92,8 @@ internal static class CliAgentConnectionsReader
     /// </summary>
     /// <returns>Set of disk logical names (OrdinalIgnoreCase). Returns
     /// empty when the directory is missing.</returns>
-    public static HashSet<string> ListDiskLogicalNames(IFileAccessor fileAccessor)
-    {
-        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (fileAccessor == null)
-        {
-            return names;
-        }
-
-        var prefix = CliAgentConnectionsWriter.InfrastructureConnectionsFolder + "/";
-
-        foreach (var existing in fileAccessor.ListFiles(
-                     CliAgentConnectionsWriter.InfrastructureConnectionsFolder,
-                     "*" + CliAgentConnectionsWriter.FileExtension))
-        {
-            var pathStr = existing.ToString();
-            if (!pathStr.StartsWith(prefix, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            var relativeLeaf = pathStr.Substring(prefix.Length);
-            if (relativeLeaf.IndexOf('/') >= 0 || relativeLeaf.IndexOf('\\') >= 0)
-            {
-                continue;
-            }
-
-            if (!relativeLeaf.EndsWith(CliAgentConnectionsWriter.FileExtension, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            var leaf = relativeLeaf.Substring(
-                0, relativeLeaf.Length - CliAgentConnectionsWriter.FileExtension.Length);
-
-            if (string.IsNullOrEmpty(leaf))
-            {
-                continue;
-            }
-
-            names.Add(leaf);
-        }
-
-        return names;
-    }
+    public static HashSet<string> ListDiskLogicalNames(IFileAccessor fileAccessor) =>
+        new HashSet<string>(CliAgentConnectionsWriter.Enumerate(fileAccessor).Select(file => file.LogicalName), StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Overlay on-disk connection-reference fields onto the cloud-cache
@@ -208,38 +135,15 @@ internal static class CliAgentConnectionsReader
             cloudByName[name!] = cr!;
         }
 
-        var prefix = CliAgentConnectionsWriter.InfrastructureConnectionsFolder + "/";
-
         var diskOverlays = new Dictionary<string, ConnectionReference>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var existing in fileAccessor.ListFiles(
-                     CliAgentConnectionsWriter.InfrastructureConnectionsFolder,
-                     "*" + CliAgentConnectionsWriter.FileExtension))
+        foreach (var file in CliAgentConnectionsWriter.Enumerate(fileAccessor))
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            var existing = file.Path;
             var pathStr = existing.ToString();
-            if (!pathStr.StartsWith(prefix, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            var relativeLeaf = pathStr.Substring(prefix.Length);
-            if (relativeLeaf.IndexOf('/') >= 0 || relativeLeaf.IndexOf('\\') >= 0)
-            {
-                // Strict-parent filter (matches writer scope).
-                continue;
-            }
-
-            // Filename leaf without the extension. We compare against the
-            // body's logical name in Ordinal (matches D5's leaf-comparison
-            // semantics for stale-prune correctness on Linux).
-            if (!relativeLeaf.EndsWith(CliAgentConnectionsWriter.FileExtension, StringComparison.Ordinal))
-            {
-                continue;
-            }
-            var leafNameWithoutExt = relativeLeaf.Substring(
-                0, relativeLeaf.Length - CliAgentConnectionsWriter.FileExtension.Length);
+            var leafNameWithoutExt = file.LogicalName;
 
             string yaml;
             try

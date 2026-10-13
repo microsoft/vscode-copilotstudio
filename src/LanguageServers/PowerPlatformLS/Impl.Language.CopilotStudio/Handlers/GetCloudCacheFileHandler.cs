@@ -47,9 +47,9 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Handlers
                 var originalDefinition = (context.Workspace.GetDocument(path) as McsLspDocument)?.FileModel as DefinitionBase;
                 var contextDefinition = (context.Workspace as McsWorkspace)?.Definition;
 
-                if (request.SchemaName.StartsWith("Mcs.Workflow."))
+                if (request.SchemaName.StartsWith(WorkflowLayout.SchemaNamePrefix))
                 {
-                    var workflowId = request.SchemaName.Substring("Mcs.Workflow.".Length);
+                    var workflowId = request.SchemaName.Substring(WorkflowLayout.SchemaNamePrefix.Length);
                     var isMetadata = workflowId.EndsWith(".metadata", StringComparison.OrdinalIgnoreCase);
                     if (isMetadata)
                     {

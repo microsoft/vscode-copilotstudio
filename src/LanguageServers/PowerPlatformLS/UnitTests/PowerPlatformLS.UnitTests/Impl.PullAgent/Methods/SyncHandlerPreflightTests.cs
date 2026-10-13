@@ -253,8 +253,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             {
                 var httpAccessor = new LspDataverseHttpClientAccessor(Mock.Of<ISyncAuthProvider>());
                 SyncHandler handler = push
-                    ? new SyncPushHandler(_island.Object, _synchronizer.Object, new TestTokenManager(), _dataverse.Object, httpAccessor, _operationProvider.Object, _logger.Object)
-                    : new SyncPullHandler(_island.Object, _synchronizer.Object, new TestTokenManager(), _dataverse.Object, httpAccessor, _operationProvider.Object, _world.GetRequiredService<IClientWorkspaceFileProvider>(), _logger.Object);
+                    ? new SyncPushHandler(_island.Object, _synchronizer.Object, new TestTokenManager(), _dataverse.Object, httpAccessor, _operationProvider.Object, Mock.Of<Microsoft.CopilotStudio.Sync.IStandaloneWorkflowSynchronizer>(), new Microsoft.CopilotStudio.McsCore.FileAccessorFactory(), _logger.Object)
+                    : new SyncPullHandler(_island.Object, _synchronizer.Object, new TestTokenManager(), _dataverse.Object, httpAccessor, _operationProvider.Object, Mock.Of<Microsoft.CopilotStudio.Sync.IStandaloneWorkflowSynchronizer>(), new Microsoft.CopilotStudio.McsCore.FileAccessorFactory(), _world.GetRequiredService<IClientWorkspaceFileProvider>(), _logger.Object);
 
                 var document = _world.GetDocument(File("settings.mcs.yml"))!;
                 return handler.HandleRequestAsync(_request, _world.GetRequestContext(document, 0), CancellationToken.None);

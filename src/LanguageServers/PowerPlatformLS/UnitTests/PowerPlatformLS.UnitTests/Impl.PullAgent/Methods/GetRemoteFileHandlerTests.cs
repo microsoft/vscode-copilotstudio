@@ -2,10 +2,12 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
 {
     using Microsoft.Agents.ObjectModel;
     using Microsoft.CopilotStudio.McsCore;
+    using Microsoft.CopilotStudio.Sync;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models;
     using Microsoft.PowerPlatformLS.Impl.PullAgent;
     using Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio;
     using System;
+    using System.Collections.Immutable;
     using System.IO;
     using System.Linq;
     using Xunit;
@@ -20,6 +22,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
 
         private static readonly Guid SkillId = new("11111111-1111-1111-1111-111111111111");
         private static readonly Guid AssetId = new("22222222-2222-2222-2222-222222222222");
+        private static readonly Guid WorkflowId = new("33333333-3333-3333-3333-333333333333");
 
         private const string CloudCacheJson = $$"""
         {
@@ -119,6 +122,68 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
                 Assert.Equal(bytesBefore, File.ReadAllBytes(cachePath));
                 Assert.Contains(image.Components, component => component.SchemaNameString == addedAsset.SchemaNameString);
             });
+        }
+
+        [Fact]
+        public void ResolveChange_WhenTheSchemaNameIsAbsent_ReportsNotFound()
+        {
+            var response = GetRemoteFileHandler.ResolveChange(ImmutableArray<Change>.Empty, "Mcs.Workflow." + WorkflowId);
+
+            Assert.NotNull(response);
+            Assert.Equal(404, response!.Code);
+        }
+
+        [Fact]
+        public void ResolveChange_WhenTheWorkflowWasDeletedRemotely_ReturnsEmptyContent()
+        {
+            var schemaName = "Mcs.Workflow." + WorkflowId;
+            var changes = ImmutableArray.Create(new Change { SchemaName = schemaName, ChangeType = ChangeType.Delete, RemoteWorkflowContent = "ignored" });
+
+            var response = GetRemoteFileHandler.ResolveChange(changes, schemaName);
+
+            Assert.NotNull(response);
+            Assert.Equal(200, response!.Code);
+            Assert.Equal(string.Empty, response.Content);
+        }
+
+        [Fact]
+        public void ResolveChange_ForAWorkflow_ReturnsTheRemoteContent()
+        {
+            var schemaName = "Mcs.Workflow." + WorkflowId + ".metadata";
+            var changes = ImmutableArray.Create(new Change { SchemaName = schemaName, ChangeType = ChangeType.Update, RemoteWorkflowContent = "name: Flow\n" });
+
+            var response = GetRemoteFileHandler.ResolveChange(changes, schemaName);
+
+            Assert.NotNull(response);
+            Assert.Equal(200, response!.Code);
+            Assert.Equal("name: Flow\n", response.Content);
+        }
+
+        [Fact]
+        public void ResolveChange_MatchesTheSchemaNameCaseInsensitively()
+        {
+            var changes = ImmutableArray.Create(new Change { SchemaName = "Mcs.Workflow." + WorkflowId, ChangeType = ChangeType.Update, RemoteWorkflowContent = "{}" });
+
+            var response = GetRemoteFileHandler.ResolveChange(changes, "mcs.workflow." + WorkflowId.ToString().ToUpperInvariant());
+
+            Assert.NotNull(response);
+            Assert.Equal("{}", response!.Content);
+        }
+
+        [Fact]
+        public void ResolveChange_ForAComponent_FallsThroughToSerialization()
+        {
+            var changes = ImmutableArray.Create(new Change { SchemaName = SkillSchema, ChangeType = ChangeType.Update });
+
+            Assert.Null(GetRemoteFileHandler.ResolveChange(changes, SkillSchema));
+        }
+
+        [Fact]
+        public void ResolveChange_ForAComponentCarryingWorkflowContent_StillFallsThroughToSerialization()
+        {
+            var changes = ImmutableArray.Create(new Change { SchemaName = SkillSchema, ChangeType = ChangeType.Update, RemoteWorkflowContent = "{}" });
+
+            Assert.Null(GetRemoteFileHandler.ResolveChange(changes, SkillSchema));
         }
 
         private static DefinitionBase ReadCachedDefinition(McsWorkspace workspace)

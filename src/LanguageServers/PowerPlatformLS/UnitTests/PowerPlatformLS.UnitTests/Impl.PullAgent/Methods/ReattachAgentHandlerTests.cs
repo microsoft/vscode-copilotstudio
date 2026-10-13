@@ -1,4 +1,4 @@
-﻿namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
+namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
 {
     using Microsoft.Agents.ObjectModel;
     using Microsoft.Agents.Platform.Content;
@@ -1025,6 +1025,18 @@
         public Task<(PvaComponentChangeSet, ImmutableArray<Change>)> GetLocalChangesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, DefinitionBase workspaceDefinition, CancellationToken cancellationToken)
         {
             return Task.FromResult((new PvaComponentChangeSet(Enumerable.Empty<BotComponentChange>(), null, "token"), ImmutableArray<Change>.Empty));
+        }
+
+        public Task<(PvaComponentChangeSet, ImmutableArray<Change>)> GetStandaloneWorkflowRemoteChangesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, Func<Guid, CancellationToken, Task<Microsoft.CopilotStudio.Sync.Dataverse.SyncDataverseClient.WorkflowMetadata?>> readWorkflow, CancellationToken cancellationToken)
+        {
+            return Task.FromResult((new PvaComponentChangeSet(Enumerable.Empty<BotComponentChange>(), null, "token"), ImmutableArray<Change>.Empty));
+        }
+
+        public DiscardResult DiscardStandaloneWorkflowChanges(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, IReadOnlyCollection<Change> changes) => new();
+
+        public Task<(ImmutableArray<Change> Changes, ImmutableArray<Change> UnreadableChanges)> GetStandaloneWorkflowChangesForDiscardAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, CancellationToken cancellationToken)
+        {
+            return Task.FromResult((ImmutableArray<Change>.Empty, ImmutableArray<Change>.Empty));
         }
 
         public DiscardResult DiscardLocalChanges(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, IReadOnlyCollection<Change> changes)

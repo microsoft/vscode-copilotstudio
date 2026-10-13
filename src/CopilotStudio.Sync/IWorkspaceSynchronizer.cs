@@ -7,7 +7,6 @@ using static Microsoft.CopilotStudio.Sync.Dataverse.SyncDataverseClient;
 using Microsoft.Agents.ObjectModel;
 using Microsoft.Agents.Platform.Content;
 using System.Collections.Immutable;
-using System.Threading;
 
 using Microsoft.CopilotStudio.McsCore;
 namespace Microsoft.CopilotStudio.Sync;
@@ -62,6 +61,25 @@ public interface IWorkspaceSynchronizer
     /// <param name="cancellationToken">Used to cancel the request</param>
     Task<(PvaComponentChangeSet, ImmutableArray<Change>)> GetLocalChangesAsync(DirectoryPath workspaceFolder, DefinitionBase workspaceDefinition, ISyncDataverseClient dataverseClient,
         AgentSyncInfo syncInfo, CancellationToken cancellationToken);
+
+    /// <summary>Gets the remote changes for a workspace that holds workflows and no agent.</summary>
+    /// <param name="workspaceFolder">The location of the root of the workspace.</param>
+    /// <param name="readWorkflow">Reads one workflow from the service, returning <see langword="null"/> when it holds none.</param>
+    /// <param name="cancellationToken">Used to cancel the request.</param>
+    /// <returns>The changes a pull would apply.</returns>
+    Task<(PvaComponentChangeSet, ImmutableArray<Change>)> GetStandaloneWorkflowRemoteChangesAsync(DirectoryPath workspaceFolder, Func<Guid, CancellationToken, Task<SyncDataverseClient.WorkflowMetadata?>> readWorkflow, CancellationToken cancellationToken);
+
+    /// <summary>Restores workflow files from the cached copy the service last returned.</summary>
+    /// <param name="workspaceFolder">The location of the workspace.</param>
+    /// <param name="changes">The local changes to discard.</param>
+    /// <returns>The discard result, including any changes that could not be restored.</returns>
+    DiscardResult DiscardStandaloneWorkflowChanges(DirectoryPath workspaceFolder, IReadOnlyCollection<Change> changes);
+
+    /// <summary>Lists standalone workflow changes for discard, reporting unparsable files instead of failing.</summary>
+    /// <param name="workspaceFolder">The location of the workspace.</param>
+    /// <param name="cancellationToken">Used to cancel the request.</param>
+    /// <returns>The detected changes and the changes that restore every unparsable file.</returns>
+    Task<(ImmutableArray<Change> Changes, ImmutableArray<Change> UnreadableChanges)> GetStandaloneWorkflowChangesForDiscardAsync(DirectoryPath workspaceFolder, CancellationToken cancellationToken);
 
     /// <summary>
     /// Restores the supplied local changes from the last-pulled cloud cache.

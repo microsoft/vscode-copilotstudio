@@ -255,6 +255,15 @@ export async function refreshWorkspaces(workspaces: CopilotStudioWorkspace[], co
   // Update context key for Agent Changes view visibility
   const hasAgentWorkspace = workspaces.length > 0;
   void commands.executeCommand('setContext', 'mcs.hasAgentWorkspace', hasAgentWorkspace);
+  void commands.executeCommand('setContext', 'mcs.hasStandaloneWorkflowWorkspace', workspaces.some(workspace => workspace.type === WorkspaceType.StandaloneWorkflow));
+}
+
+/**
+ * Whether a workspace may be pulled before it is pushed. A workspace being bound to an environment
+ * that does not hold its content yet has nothing to pull, so the push has to create it first.
+ */
+export function pullsBeforePush(type: WorkspaceType): boolean {
+  return type !== WorkspaceType.ComponentCollection && type !== WorkspaceType.StandaloneWorkflow;
 }
 
 export async function pushNewWorkspace(context: ExtensionContext, ws: CopilotStudioWorkspace, draftConnectionReferenceWorkflows = false) {
@@ -276,14 +285,15 @@ export async function pushNewWorkspace(context: ExtensionContext, ws: CopilotStu
   await refreshWorkspaces(updatedCache, context);
 
   const workspace = updatedCache.find(w =>  Uri.parse(w.workspaceUri).toString() === Uri.parse(ws.workspaceUri).toString());
-  const synchronizer = getOrAddSynchronizer(workspace ?? ws);
-  const virtualKnowledgeProvider = await registerVirtualKnowledgeProvider(context, workspace ?? ws);
+  const resolvedWorkspace = workspace ?? ws;
+  const synchronizer = getOrAddSynchronizer(resolvedWorkspace);
+  const virtualKnowledgeProvider = await registerVirtualKnowledgeProvider(context, resolvedWorkspace);
 
-  const isComponentCollectionWorkspace = (workspace ?? ws).type === WorkspaceType.ComponentCollection;
+  const pullsFirst = pullsBeforePush(resolvedWorkspace.type);
 
   const maxAttempts = 4;
   for (let attempt = 1; ; attempt++) {
-    if (!isComponentCollectionWorkspace) {
+    if (pullsFirst) {
       await synchronizer.pull(virtualKnowledgeProvider, {
         suppressErrorNotification: true,
         suppressSuccessNotification: true,

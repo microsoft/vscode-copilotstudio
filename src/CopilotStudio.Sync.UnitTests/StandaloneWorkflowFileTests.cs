@@ -1,5 +1,6 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 
+using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using System.Text.Json;
 using Xunit;
@@ -30,6 +31,18 @@ public class StandaloneWorkflowFileTests : IDisposable
 
         return folder;
     }
+
+    private string ConnectionsFolder => Path.Combine(_root, "infrastructure", "connections");
+
+    private string ConnectionFile(string logicalName) => Path.Combine(ConnectionsFolder, logicalName + ConnectionReferenceStore.LayeredFileExtension);
+
+    private string[] ConnectionFiles() =>
+        Directory.Exists(ConnectionsFolder)
+            ? Directory.GetFiles(ConnectionsFolder, "*" + ConnectionReferenceStore.LayeredFileExtension).OrderBy(path => path, StringComparer.Ordinal).ToArray()
+            : Array.Empty<string>();
+
+    private string DeclarationSnapshot() =>
+        string.Join("\n", ConnectionFiles().Select(path => Path.GetFileName(path) + "\n" + File.ReadAllText(path)));
 
     private const string DefinitionWithReferences = """
     {
@@ -127,25 +140,23 @@ public class StandaloneWorkflowFileTests : IDisposable
     public void WriteConnectionReferenceDeclaration_WhenADefinitionIsEmpty_LeavesTheDeclarationAlone()
     {
         WriteWorkflow("Flow", Guid.NewGuid(), DefinitionWithReferences);
-        var path = Path.Combine(_root, WorkflowDefinitionFile.ConnectionReferencesFileName);
 
         WorkflowDefinitionFile.WriteConnectionReferenceDeclaration(_root);
-        var declared = File.ReadAllText(path);
+        var declared = DeclarationSnapshot();
 
         WriteWorkflow("Blank", Guid.NewGuid(), string.Empty);
 
         Assert.False(WorkflowDefinitionFile.WriteConnectionReferenceDeclaration(_root));
-        Assert.Equal(declared, File.ReadAllText(path), StringComparer.Ordinal);
+        Assert.Equal(declared, DeclarationSnapshot(), StringComparer.Ordinal);
     }
 
     [Fact]
     public void WriteConnectionReferenceDeclaration_WhenAWorkflowIsMissingItsMetadata_LeavesTheDeclarationAlone()
     {
         WriteWorkflow("Flow", Guid.NewGuid(), DefinitionWithReferences);
-        var path = Path.Combine(_root, WorkflowDefinitionFile.ConnectionReferencesFileName);
 
         WorkflowDefinitionFile.WriteConnectionReferenceDeclaration(_root);
-        var declared = File.ReadAllText(path);
+        var declared = DeclarationSnapshot();
 
         foreach (var folder in WorkflowWorkspace.FindAll(_root))
         {
@@ -153,7 +164,7 @@ public class StandaloneWorkflowFileTests : IDisposable
         }
 
         Assert.False(WorkflowDefinitionFile.WriteConnectionReferenceDeclaration(_root));
-        Assert.Equal(declared, File.ReadAllText(path), StringComparer.Ordinal);
+        Assert.Equal(declared, DeclarationSnapshot(), StringComparer.Ordinal);
     }
 
     [Fact]
@@ -195,13 +206,12 @@ public class StandaloneWorkflowFileTests : IDisposable
         WriteWorkflow("Teams", Guid.NewGuid(), DefinitionWithReferences);
         WorkflowDefinitionFile.WriteConnectionReferenceDeclaration(_root);
 
-        var path = Path.Combine(_root, WorkflowDefinitionFile.ConnectionReferencesFileName);
-        var before = File.ReadAllText(path);
+        var before = DeclarationSnapshot();
 
         WriteWorkflow("Malformed", Guid.NewGuid(), "{\"properties\":{\"connectionReferences\":[]}}");
 
         Assert.False(WorkflowDefinitionFile.WriteConnectionReferenceDeclaration(_root));
-        Assert.Equal(before, File.ReadAllText(path));
+        Assert.Equal(before, DeclarationSnapshot());
     }
 
     [Fact]
@@ -221,7 +231,6 @@ public class StandaloneWorkflowFileTests : IDisposable
     public void WriteConnectionReferenceDeclaration_WhenTheOnlyDefinitionCannotBeRead_DoesNotDeleteTheDeclaration()
     {
         WriteWorkflow("Flow", Guid.NewGuid(), DefinitionWithReferences);
-        var path = Path.Combine(_root, WorkflowDefinitionFile.ConnectionReferencesFileName);
 
         WorkflowDefinitionFile.WriteConnectionReferenceDeclaration(_root);
 
@@ -231,7 +240,7 @@ public class StandaloneWorkflowFileTests : IDisposable
         }
 
         Assert.False(WorkflowDefinitionFile.WriteConnectionReferenceDeclaration(_root));
-        Assert.True(File.Exists(path));
+        Assert.True(File.Exists(ConnectionFile("new_sharedteams_aa643948")));
     }
 
     [Fact]
@@ -297,6 +306,186 @@ public class StandaloneWorkflowFileTests : IDisposable
 
         Assert.False(WorkflowWorkspace.IsStandaloneWorkspace(_root));
     }
+
+    [Fact]
+    public void CanHostProject_WhenTheDirectoryIsAbsent_IsTrue() =>
+        Assert.True(WorkflowWorkspace.CanHostProject(Path.Combine(_root, "Missing"), Guid.NewGuid()));
+
+    [Fact]
+    public void CanHostProject_WhenTheDirectoryIsEmpty_IsTrue()
+    {
+        Directory.CreateDirectory(_root);
+
+        Assert.True(WorkflowWorkspace.CanHostProject(_root, Guid.NewGuid()));
+    }
+
+    [Fact]
+    public void CanHostProject_WhenTheDirectoryHoldsUnrelatedContent_IsFalse()
+    {
+        Directory.CreateDirectory(_root);
+        File.WriteAllText(Path.Combine(_root, "notes.txt"), "mine");
+
+        Assert.False(WorkflowWorkspace.CanHostProject(_root, Guid.NewGuid()));
+    }
+
+    [Fact]
+    public void CanHostProject_WhenTheDirectoryHoldsAnUnrelatedSubfolder_IsFalse()
+    {
+        Directory.CreateDirectory(Path.Combine(_root, "src"));
+
+        Assert.False(WorkflowWorkspace.CanHostProject(_root, Guid.NewGuid()));
+    }
+
+    [Fact]
+    public void CanHostProject_WhenTheDirectoryAlreadyHoldsThisWorkflow_IsTrue()
+    {
+        var workflowId = Guid.NewGuid();
+
+        WriteWorkflow("Flow", workflowId, "{}");
+
+        Assert.True(WorkflowWorkspace.CanHostProject(_root, workflowId));
+    }
+
+    [Fact]
+    public void CanHostProject_WhenTheDirectoryHoldsThisWorkflowAndAnother_IsFalse()
+    {
+        var workflowId = Guid.NewGuid();
+
+        WriteWorkflow("Flow", workflowId, "{}");
+        WriteWorkflow("Other", Guid.NewGuid(), "{}");
+
+        Assert.False(WorkflowWorkspace.CanHostProject(_root, workflowId));
+    }
+
+    [Fact]
+    public void CanHostProject_WhenTheDirectoryHoldsAnotherWorkflow_IsFalse()
+    {
+        WriteWorkflow("Flow", Guid.NewGuid(), "{}");
+
+        Assert.False(WorkflowWorkspace.CanHostProject(_root, Guid.NewGuid()));
+    }
+
+    [Fact]
+    public void CanHostProject_WhenAnAgentProjectHoldsTheDirectory_IsFalse()
+    {
+        Directory.CreateDirectory(_root);
+        File.WriteAllText(Path.Combine(_root, "settings.mcs.yml"), "displayName: Agent");
+
+        Assert.False(WorkflowWorkspace.CanHostProject(_root, Guid.NewGuid()));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void CanHostProject_WithoutADirectory_IsTrue(string projectRoot) =>
+        Assert.True(WorkflowWorkspace.CanHostProject(projectRoot, Guid.NewGuid()));
+
+    [Fact]
+    public void ResolveProjectFolder_WhenNothingOccupiesTheName_TakesIt() =>
+        Assert.Equal("MyFlow", WorkflowWorkspace.ResolveProjectFolder(_root, "My Flow", Guid.NewGuid()));
+
+    [Fact]
+    public void ResolveProjectFolder_WhenUnrelatedContentOccupiesTheName_CarriesTheIdentifier()
+    {
+        var workflowId = Guid.NewGuid();
+
+        Directory.CreateDirectory(Path.Combine(_root, "MyFlow"));
+        File.WriteAllText(Path.Combine(_root, "MyFlow", "notes.txt"), "mine");
+
+        Assert.Equal($"MyFlow-{workflowId}", WorkflowWorkspace.ResolveProjectFolder(_root, "My Flow", workflowId));
+    }
+
+    [Fact]
+    public void ResolveProjectFolder_WhenTheProjectAlreadyHoldsThisWorkflow_ReusesIt()
+    {
+        var workflowId = Guid.NewGuid();
+        var projectRoot = Path.Combine(_root, "MyFlow");
+        var folder = Path.Combine(projectRoot, WorkflowWorkspace.WorkflowsFolderName, WorkflowWorkspace.FolderNameFor("My Flow", workflowId));
+
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, WorkflowWorkspace.DefinitionFileName), "{}");
+        File.WriteAllText(Path.Combine(folder, WorkflowWorkspace.MetadataFileName), WorkflowMetadataFile.Write(WorkflowScaffolder.NewMetadata("My Flow", workflowId, "x")));
+
+        Assert.Equal("MyFlow", WorkflowWorkspace.ResolveProjectFolder(_root, "My Flow", workflowId));
+    }
+
+    [Fact]
+    public void ResolveProjectFolder_WhenNoCandidateIsFree_Throws()
+    {
+        var workflowId = Guid.NewGuid();
+
+        foreach (var occupied in new[] { "MyFlow", $"MyFlow-{workflowId}" })
+        {
+            Directory.CreateDirectory(Path.Combine(_root, occupied));
+            File.WriteAllText(Path.Combine(_root, occupied, "notes.txt"), "mine");
+        }
+
+        var failure = Assert.Throws<StandaloneWorkflowException>(() => WorkflowWorkspace.ResolveProjectFolder(_root, "My Flow", workflowId));
+
+        Assert.Equal(StandaloneWorkflowFailure.ProjectFolderOccupied, failure.Failure);
+    }
+
+    [Fact]
+    public void ResolveProjectFolder_RejectsANameNoFolderCanCarry() =>
+        Assert.Throws<StandaloneWorkflowException>(() => WorkflowWorkspace.ResolveProjectFolder(_root, "///", Guid.NewGuid()));
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void ResolveProjectFolder_RequiresARoot(string root) =>
+        Assert.Throws<ArgumentException>(() => WorkflowWorkspace.ResolveProjectFolder(root, "My Flow", Guid.NewGuid()));
+
+    [Fact]
+    public void ScaffoldProject_WritesTheWorkflowBeneathItsOwnProject()
+    {
+        var workflowId = Guid.NewGuid();
+
+        var project = WorkflowScaffolder.ScaffoldProject(_root, "My Flow", workflowId);
+
+        Assert.Equal("MyFlow", project.ProjectFolder);
+        Assert.Equal(Path.Combine(_root, "MyFlow"), project.ProjectRoot);
+        Assert.Equal($"MyFlow/workflows/MyFlow-{workflowId}", project.FolderName);
+        Assert.True(File.Exists(Path.Combine(_root, Path.Combine(project.FolderName.Split('/')), WorkflowWorkspace.DefinitionFileName)));
+    }
+
+    [Fact]
+    public void ScaffoldProject_DeclaresTheProjectBeneathTheProjectRoot()
+    {
+        var project = WorkflowScaffolder.ScaffoldProject(_root, "My Flow", Guid.NewGuid());
+
+        Assert.True(File.Exists(Path.Combine(project.ProjectRoot, WorkflowWorkspace.ProjectFileName)));
+        Assert.False(File.Exists(Path.Combine(_root, WorkflowWorkspace.ProjectFileName)));
+        Assert.Contains($"MyFlow/{WorkflowWorkspace.ProjectFileName}", project.WrittenFiles);
+    }
+
+    [Fact]
+    public void ScaffoldProject_TwiceIntoOneRoot_KeepsEachProjectHoldingOneWorkflow()
+    {
+        var first = WorkflowScaffolder.ScaffoldProject(_root, "My Flow", Guid.NewGuid());
+        var second = WorkflowScaffolder.ScaffoldProject(_root, "My Flow", Guid.NewGuid());
+
+        Assert.NotEqual(first.ProjectFolder, second.ProjectFolder);
+        Assert.Single(WorkflowWorkspace.FindAll(first.ProjectRoot));
+        Assert.Single(WorkflowWorkspace.FindAll(second.ProjectRoot));
+    }
+
+    [Fact]
+    public void ScaffoldProject_ReportsEveryWrittenPathRelativeToTheRoot()
+    {
+        var project = WorkflowScaffolder.ScaffoldProject(_root, "My Flow", Guid.NewGuid());
+
+        Assert.All(project.WrittenFiles, path => Assert.True(File.Exists(Path.Combine(_root, Path.Combine(path.Split('/'))))));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void ScaffoldProject_RequiresARoot(string root) =>
+        Assert.Throws<ArgumentException>(() => WorkflowScaffolder.ScaffoldProject(root, "My Flow", Guid.NewGuid()));
+
+    [Fact]
+    public void ScaffoldProject_RequiresAName() =>
+        Assert.Throws<ArgumentException>(() => WorkflowScaffolder.ScaffoldProject(_root, "  ", Guid.NewGuid()));
 
     [Fact]
     public void Format_IndentsTheDefinition() => Assert.Contains("\n", WorkflowDefinitionFile.Format("{\"a\":{\"b\":1}}"), StringComparison.Ordinal);
@@ -481,9 +670,8 @@ public class StandaloneWorkflowFileTests : IDisposable
 
         WorkflowDefinitionFile.WriteConnectionReferenceDeclaration(_root);
 
-        var written = File.ReadAllText(Path.Combine(_root, WorkflowDefinitionFile.ConnectionReferencesFileName));
-
-        Assert.Equal(1, written.Split("new_teams").Length - 1);
+        Assert.Single(ConnectionFiles());
+        Assert.Equal(1, File.ReadAllText(ConnectionFile("new_teams")).Split("new_teams").Length - 1);
     }
 
     [Fact]
@@ -494,11 +682,9 @@ public class StandaloneWorkflowFileTests : IDisposable
 
         Assert.True(WorkflowDefinitionFile.WriteConnectionReferenceDeclaration(_root));
 
-        var written = File.ReadAllText(Path.Combine(_root, WorkflowDefinitionFile.ConnectionReferencesFileName));
-
-        Assert.Contains("new_sharedteams_aa643948", written, StringComparison.Ordinal);
-        Assert.Contains("new_sharedmsnweather_2a0bcba7", written, StringComparison.Ordinal);
-        Assert.Contains("new_sql_1b2c3d", written, StringComparison.Ordinal);
+        Assert.True(File.Exists(ConnectionFile("new_sharedteams_aa643948")));
+        Assert.True(File.Exists(ConnectionFile("new_sharedmsnweather_2a0bcba7")));
+        Assert.True(File.Exists(ConnectionFile("new_sql_1b2c3d")));
     }
 
     [Fact]
@@ -509,10 +695,7 @@ public class StandaloneWorkflowFileTests : IDisposable
 
         WorkflowDefinitionFile.WriteConnectionReferenceDeclaration(_root);
 
-        var path = Path.Combine(_root, WorkflowDefinitionFile.ConnectionReferencesFileName);
-
-        Assert.True(File.Exists(path));
-        Assert.Contains("new_sharedteams_aa643948", File.ReadAllText(path), StringComparison.Ordinal);
+        Assert.True(File.Exists(ConnectionFile("new_sharedteams_aa643948")));
     }
 
     [Fact]
@@ -520,10 +703,11 @@ public class StandaloneWorkflowFileTests : IDisposable
     {
         WriteWorkflow("Flow", Guid.NewGuid(), DefinitionWithReferences);
         File.WriteAllText(Path.Combine(_root, "settings.mcs.yml"), "displayName: Agent");
-        File.WriteAllText(Path.Combine(_root, WorkflowDefinitionFile.ConnectionReferencesFileName), "owned by the agent");
+        Directory.CreateDirectory(ConnectionsFolder);
+        File.WriteAllText(ConnectionFile("new_sharedteams_aa643948"), "owned by the agent");
 
         Assert.Throws<ArgumentException>(() => WorkflowDefinitionFile.WriteConnectionReferenceDeclaration(_root));
-        Assert.Equal("owned by the agent", File.ReadAllText(Path.Combine(_root, WorkflowDefinitionFile.ConnectionReferencesFileName)));
+        Assert.Equal("owned by the agent", File.ReadAllText(ConnectionFile("new_sharedteams_aa643948")));
     }
 
     [Theory]
@@ -556,7 +740,7 @@ public class StandaloneWorkflowFileTests : IDisposable
 
         Assert.True(WorkflowDefinitionFile.WriteConnectionReferenceDeclaration(_root));
 
-        var written = File.ReadAllText(Path.Combine(_root, WorkflowDefinitionFile.ConnectionReferencesFileName));
+        var written = File.ReadAllText(ConnectionFile("new_sharedteams_aa643948"));
 
         Assert.Contains("new_sharedteams_aa643948", written, StringComparison.Ordinal);
         Assert.Contains(WorkflowDefinitionFile.ConnectorIdPrefix + "shared_teams", written, StringComparison.Ordinal);
@@ -578,7 +762,7 @@ public class StandaloneWorkflowFileTests : IDisposable
 
         WorkflowDefinitionFile.WriteConnectionReferenceDeclaration(_root);
 
-        Assert.DoesNotContain("connectionId", File.ReadAllText(Path.Combine(_root, WorkflowDefinitionFile.ConnectionReferencesFileName)), StringComparison.Ordinal);
+        Assert.DoesNotContain("connectionId", DeclarationSnapshot(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -587,13 +771,12 @@ public class StandaloneWorkflowFileTests : IDisposable
         WriteWorkflow("Flow", Guid.NewGuid(), DefinitionWithReferences);
         WorkflowDefinitionFile.WriteConnectionReferenceDeclaration(_root);
 
-        var path = Path.Combine(_root, WorkflowDefinitionFile.ConnectionReferencesFileName);
-        var before = File.ReadAllText(path);
+        var before = DeclarationSnapshot();
 
         var broken = WriteWorkflow("Broken", Guid.NewGuid(), "{ not json");
 
         Assert.False(WorkflowDefinitionFile.WriteConnectionReferenceDeclaration(_root));
-        Assert.Equal(before, File.ReadAllText(path));
+        Assert.Equal(before, DeclarationSnapshot());
         Assert.True(Directory.Exists(broken));
     }
 
@@ -606,7 +789,7 @@ public class StandaloneWorkflowFileTests : IDisposable
         File.WriteAllText(Path.Combine(folder, WorkflowWorkspace.DefinitionFileName), "{}");
 
         Assert.True(WorkflowDefinitionFile.WriteConnectionReferenceDeclaration(_root));
-        Assert.False(File.Exists(Path.Combine(_root, WorkflowDefinitionFile.ConnectionReferencesFileName)));
+        Assert.Empty(ConnectionFiles());
     }
 
     [Fact]
@@ -640,7 +823,8 @@ public class StandaloneWorkflowFileTests : IDisposable
     [Fact]
     public void MetadataFile_RoundTripsEveryProperty()
     {
-        var original = WorkflowScaffolder.NewMetadata("Round Trip", Guid.NewGuid(), "workflows/RoundTrip");
+        var workflowId = Guid.NewGuid();
+        var original = WorkflowScaffolder.NewMetadata("Round Trip", workflowId, WorkflowWorkspace.RelativeFolderFor("Round Trip", workflowId));
         original.Description = "described";
 
         var restored = WorkflowMetadataFile.ReadStrict(WorkflowMetadataFile.Write(original));
@@ -654,6 +838,18 @@ public class StandaloneWorkflowFileTests : IDisposable
         Assert.Equal(original.JsonFileName, restored.JsonFileName);
         Assert.Equal(original.PrimaryEntity, restored.PrimaryEntity);
         Assert.Equal(original.IsCustomizable!.ManagedPropertyLogicalName, restored.IsCustomizable!.ManagedPropertyLogicalName);
+    }
+
+    [Fact]
+    public void MetadataFile_Write_NamesTheDefinitionByWhereTheWorkspaceKeepsIt()
+    {
+        var workflowId = Guid.NewGuid();
+        var metadata = new SyncDataverseClient.WorkflowMetadata { WorkflowId = workflowId, Name = "NB Workflow1", JsonFileName = null };
+
+        var restored = WorkflowMetadataFile.ReadStrict(WorkflowMetadataFile.Write(metadata));
+
+        Assert.Equal($"{WorkflowWorkspace.RelativeFolderFor("NB Workflow1", workflowId)}/{WorkflowWorkspace.DefinitionFileName}", restored!.JsonFileName);
+        Assert.Null(metadata.JsonFileName);
     }
 
     [Fact]
@@ -674,13 +870,14 @@ public class StandaloneWorkflowFileTests : IDisposable
         var written = WorkflowScaffolder.Scaffold(_root, "Scaffolded Flow", workflowId);
 
         Assert.Equal(
-            [$"workflows/ScaffoldedFlow-{workflowId}/workflow.json", $"workflows/ScaffoldedFlow-{workflowId}/metadata.yml"],
+            [$"workflows/ScaffoldedFlow-{workflowId}/workflow.json", $"workflows/ScaffoldedFlow-{workflowId}/metadata.yml", "agent.sync.yaml", "workflow.sync.yaml"],
             written);
 
         var found = Assert.Single(WorkflowWorkspace.FindAll(_root));
 
         Assert.Equal(workflowId, found.WorkflowId);
         Assert.Equal(workflowId, WorkflowMetadataFile.ReadStrict(File.ReadAllText(found.MetadataPath))!.WorkflowId);
+        Assert.Equal(AgentClassifier.BuildWorkspaceLayoutMarker(), File.ReadAllText(Path.Combine(_root, "agent.sync.yaml")));
     }
 
     [Fact]

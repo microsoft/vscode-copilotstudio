@@ -24,6 +24,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         protected readonly CopilotStudio.Sync.IWorkspaceSynchronizer _synchronizer;
         private readonly ISyncDataverseClient _dataverseClient;
         private readonly LspDataverseHttpClientAccessor _dataverseHttpClientAccessor;
+        private readonly IStandaloneWorkflowSynchronizer _standaloneSynchronizer;
+        private readonly IFileAccessorFactory _fileAccessorFactory;
 
         public GetRemoteChangeHandler(
             CopilotStudio.Sync.IIslandControlPlaneService islandControlPlaneService,
@@ -32,6 +34,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             CopilotStudio.Sync.IOperationContextProvider operationContextProvider,
             ISyncDataverseClient dataverseClient,
             LspDataverseHttpClientAccessor dataverseHttpClientAccessor,
+            IStandaloneWorkflowSynchronizer standaloneSynchronizer,
+            IFileAccessorFactory fileAccessorFactory,
             ILspLogger logger)
         {
             _islandControlPlaneService = islandControlPlaneService;
@@ -41,6 +45,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _dataverseClient = dataverseClient ?? throw new ArgumentNullException(nameof(dataverseClient));
             _dataverseHttpClientAccessor = dataverseHttpClientAccessor ?? throw new ArgumentNullException(nameof(dataverseHttpClientAccessor));
+            _standaloneSynchronizer = standaloneSynchronizer ?? throw new ArgumentNullException(nameof(standaloneSynchronizer));
+            _fileAccessorFactory = fileAccessorFactory ?? throw new ArgumentNullException(nameof(fileAccessorFactory));
         }
 
         public bool MutatesSolutionState => false;
@@ -51,6 +57,18 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             {
                 var workspace = (IMcsWorkspace)context.Workspace;
                 await ConnectionHelper.ApplyConnectionContext(_islandControlPlaneService, _dataverseTokenManager, _dataverseHttpClientAccessor, _dataverseClient, request, _synchronizer, workspace);
+
+                if (WorkspaceClassifier.DetectKind(_fileAccessorFactory.Create(workspace.FolderPath)) == WorkspaceKind.StandaloneWorkflow)
+                {
+                    var (_, workflowChanges) = await _synchronizer.GetStandaloneWorkflowRemoteChangesAsync(workspace.FolderPath, _standaloneSynchronizer.ReadMetadataAsync, cancellationToken);
+
+                    return new SyncAgentResponse
+                    {
+                        Code = 200,
+                        Message = string.Empty,
+                        LocalChanges = workflowChanges
+                    };
+                }
 
                 var syncInfo = await _synchronizer.GetSyncInfoAsync(workspace.FolderPath);
                 var operationContext = await _operationContextProvider.GetAsync(syncInfo);

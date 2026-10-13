@@ -282,6 +282,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
                 _handler = new SyncPullHandler(
                     _island.Object, _synchronizer.Object, new TestTokenManager(), _dataverse.Object,
                     new LspDataverseHttpClientAccessor(Mock.Of<ISyncAuthProvider>()), _operationProvider.Object,
+                    Mock.Of<IStandaloneWorkflowSynchronizer>(), new Microsoft.CopilotStudio.McsCore.FileAccessorFactory(),
                     World.GetRequiredService<IClientWorkspaceFileProvider>(), _logger.Object);
             }
 

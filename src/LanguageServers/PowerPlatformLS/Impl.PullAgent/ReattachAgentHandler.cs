@@ -116,6 +116,11 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 string agentDisplayName = "ReattachAgent";
                 var isComponentCollectionWorkspace = false;
 
+                if (WorkflowWorkspace.IsStandaloneWorkspace(workspaceFolder.ToString()))
+                {
+                    return await BindWorkflowWorkspaceAsync(request, workspaceFolder, isRetarget);
+                }
+
                 if (workspace.Definition is BotComponentCollectionDefinition collection)
                 {
                     thisSchema = collection.GetRootSchemaName();
@@ -139,7 +144,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     return CreateErrorResponse(400, $"Invalid schema name '{thisSchema}'.", defaultSyncInfo);
                 }
 
-                var classification = AgentClassifier.Classify(workspace.Definition, workspaceFolder.ToString());
+                var classification = WorkspaceClassifier.Classify(workspace.Definition, workspaceFolder.ToString());
                 if (!classification.Allows(SyncOperation.Reattach))
                 {
                     return CreateErrorResponse(400, AuthoringSupportGate.DescribeBlocked(classification, SyncOperation.Reattach), defaultSyncInfo);
@@ -248,6 +253,39 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             {
                 var (code, message) = LspExceptionHandler.Handle(ex, _logger, cancellationToken);
                 return CreateErrorResponse(code, message, defaultSyncInfo);
+            }
+        }
+
+        private async Task<ReattachAgentResponse> BindWorkflowWorkspaceAsync(ReattachAgentRequest request, DirectoryPath workspaceFolder, bool isRetarget)
+        {
+            var syncInfo = request.BuildSyncInfo(null);
+            RemoteBindingSnapshot? bindingSnapshot = null;
+
+            try
+            {
+                if (isRetarget)
+                {
+                    bindingSnapshot = _retargetService.ResetRemoteBindingState(workspaceFolder);
+                    _retargetService.PersistRetargetBackup(workspaceFolder, bindingSnapshot);
+                }
+
+                WorkflowWorkspace.EnsureProjectFile(WorkflowWorkspace.OpenWorkspace(workspaceFolder.ToString()));
+                await _workspaceSynchronizer.SaveSyncInfoAsync(workspaceFolder, syncInfo);
+
+                return new ReattachAgentResponse
+                {
+                    Code = 200,
+                    Message = string.Empty,
+                    AgentSyncInfo = syncInfo,
+                    IsNewAgent = false,
+                    RequiresLocalPush = true,
+                };
+            }
+            catch when (bindingSnapshot != null)
+            {
+                _retargetService.RestoreRemoteBindingState(workspaceFolder, bindingSnapshot!);
+                _retargetService.ClearRetargetBackup(workspaceFolder);
+                throw;
             }
         }
 

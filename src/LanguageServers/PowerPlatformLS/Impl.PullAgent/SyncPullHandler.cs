@@ -3,6 +3,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.Agents.ObjectModel;
     using Microsoft.Agents.Platform.Content;
     using Microsoft.CommonLanguageServerProtocol.Framework;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.CopilotStudio.Sync.Dataverse;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
@@ -19,10 +20,18 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     {
         private readonly IClientWorkspaceFileProvider _fileProvider;
 
-        public SyncPullHandler(CopilotStudio.Sync.IIslandControlPlaneService islandControlPlaneService, CopilotStudio.Sync.IWorkspaceSynchronizer workspaceSynchronizer, ITokenManager dataverseTokenManager, ISyncDataverseClient dataverseClient, LspDataverseHttpClientAccessor dataverseHttpClientAccessor, CopilotStudio.Sync.IOperationContextProvider operationContextProvider, IClientWorkspaceFileProvider fileProvider, ILspLogger logger)
-            : base(islandControlPlaneService, workspaceSynchronizer, dataverseTokenManager, dataverseClient, dataverseHttpClientAccessor, operationContextProvider, logger)
+        public SyncPullHandler(CopilotStudio.Sync.IIslandControlPlaneService islandControlPlaneService, CopilotStudio.Sync.IWorkspaceSynchronizer workspaceSynchronizer, ITokenManager dataverseTokenManager, ISyncDataverseClient dataverseClient, LspDataverseHttpClientAccessor dataverseHttpClientAccessor, CopilotStudio.Sync.IOperationContextProvider operationContextProvider, IStandaloneWorkflowSynchronizer standaloneSynchronizer, IFileAccessorFactory fileAccessorFactory, IClientWorkspaceFileProvider fileProvider, ILspLogger logger)
+            : base(islandControlPlaneService, workspaceSynchronizer, dataverseTokenManager, dataverseClient, dataverseHttpClientAccessor, operationContextProvider, standaloneSynchronizer, fileAccessorFactory, logger)
         {
             _fileProvider = fileProvider;
+        }
+
+        protected override async Task<string> ExecuteStandaloneAsync(SyncAgentRequest request, IFileAccessor fileAccessor, CancellationToken cancellationToken)
+        {
+            var local = await StandaloneSynchronizer.ReadLocalAsync(fileAccessor, cancellationToken).ConfigureAwait(false);
+            var pulled = await StandaloneSynchronizer.PullAsync(local.WorkflowId, fileAccessor, cancellationToken).ConfigureAwait(false);
+
+            return pulled.Deleted ? $"Workflow '{local.Name}' no longer exists in this environment and was removed from the workspace." : string.Empty;
         }
 
         protected override bool BlocksOnUnreadableDocuments => true;

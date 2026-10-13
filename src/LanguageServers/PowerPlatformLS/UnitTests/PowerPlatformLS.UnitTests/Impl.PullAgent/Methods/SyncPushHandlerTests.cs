@@ -73,6 +73,38 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             Assert.Equal(WorkflowActivationMode.DraftWhenConnectionsUnbound, synchronizer.CapturedActivationMode);
         }
 
+        [Fact]
+        public async Task SyncPush_StandaloneWorkflowWorkspace_ReportsTheWarningTheUpsertRaised()
+        {
+            var (requestContext, request) = CreateSetup("Workspace/UnrecognizedTemplateWorkspace");
+            var synchronizer = new PushTrackingSynchronizer();
+            var standalone = new Mock<IStandaloneWorkflowSynchronizer>();
+            standalone
+                .Setup(service => service.UpsertAsync(It.IsAny<Microsoft.CopilotStudio.McsCore.IFileAccessor>(), EnvironmentId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new StandaloneWorkflowUpsert { Warning = "kept as a draft" });
+
+            var handler = CreateHandler(
+                new MockDataverseClient(),
+                synchronizer,
+                standalone.Object,
+                CreateStandaloneWorkflowFactory(((Microsoft.PowerPlatformLS.Contracts.FileLayout.IMcsWorkspace)requestContext.Workspace).FolderPath));
+
+            var response = await handler.HandleRequestAsync(request, requestContext, CancellationToken.None);
+
+            Assert.Equal(200, response.Code);
+            Assert.Equal("kept as a draft", response.Message);
+            Assert.False(synchronizer.PushAttempted);
+        }
+
+        private static Microsoft.CopilotStudio.McsCore.InMemoryFileAccessorFactory CreateStandaloneWorkflowFactory(DirectoryPath workspaceFolder)
+        {
+            var factory = new Microsoft.CopilotStudio.McsCore.InMemoryFileAccessorFactory();
+            using var stream = factory.Create(workspaceFolder).OpenWrite(new Microsoft.CopilotStudio.McsCore.AgentFilePath(WorkflowWorkspace.ProjectFileName));
+            using var writer = new StreamWriter(stream);
+            writer.Write("workflowProjectVersion: 1\n");
+            return factory;
+        }
+
         private (RequestContext, SyncAgentRequest) CreateSetup(string workspaceRelativePath)
         {
             var workspacePath = Path.GetFullPath(Path.Combine(TestDataPath, workspaceRelativePath));
@@ -107,7 +139,14 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             return (requestContext, request);
         }
 
-        private static SyncPushHandler CreateHandler(ISyncDataverseClient dataverseClient, IWorkspaceSynchronizer synchronizer)
+        private static SyncPushHandler CreateHandler(ISyncDataverseClient dataverseClient, IWorkspaceSynchronizer synchronizer) =>
+            CreateHandler(dataverseClient, synchronizer, Mock.Of<IStandaloneWorkflowSynchronizer>(), new Microsoft.CopilotStudio.McsCore.FileAccessorFactory());
+
+        private static SyncPushHandler CreateHandler(
+            ISyncDataverseClient dataverseClient,
+            IWorkspaceSynchronizer synchronizer,
+            IStandaloneWorkflowSynchronizer standaloneSynchronizer,
+            Microsoft.CopilotStudio.McsCore.IFileAccessorFactory fileAccessorFactory)
         {
             var mockAuthProvider = new Mock<ISyncAuthProvider>();
             mockAuthProvider.Setup(a => a.AcquireTokenAsync(It.IsAny<Uri>(), It.IsAny<CancellationToken>())).ReturnsAsync("mock-token");
@@ -120,6 +159,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
                 dataverseClient,
                 accessor,
                 CreateOperationProvider(),
+                standaloneSynchronizer,
+                fileAccessorFactory,
                 new Mock<Microsoft.CommonLanguageServerProtocol.Framework.ILspLogger>().Object);
         }
 

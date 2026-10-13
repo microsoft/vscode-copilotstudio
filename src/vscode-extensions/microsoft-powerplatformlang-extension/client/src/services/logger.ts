@@ -35,6 +35,8 @@ export enum PiiRedactionType {
   AccountIdentifier = 'ACCOUNT IDENTIFIER',
   AgentName = 'AGENT NAME',
   EmailAddress = 'EMAIL ADDRESS',
+  EnvironmentId = 'ENVIRONMENT ID',
+  EnvironmentName = 'ENVIRONMENT NAME',
   FileUri = 'FILE URI',
   Url = 'URL',
   AiBuilderPromptDetails = 'AI BUILDER PROMPT DETAILS',
@@ -82,6 +84,14 @@ function fileExtensionLabel(filePath: string): string {
  */
 export function formatFileName(filePath: string): string {
   return formatPii(filePath, fileExtensionLabel(filePath));
+}
+
+/**
+ * Wraps a Dataverse environment identifier so telemetry shows only a redaction
+ * marker, while the output channel still shows the identifier for diagnostics.
+ */
+export function formatEnvironmentId(environmentId: string): string {
+  return formatPii(environmentId, PiiRedactionType.EnvironmentId);
 }
 
 function collectMatches(
@@ -135,7 +145,11 @@ function collectFileMatches(
   return matches;
 }
 
-export function sanitizeErrorDetails(errorMessage: string, agentNames: readonly string[] = []): string {
+export function sanitizeErrorDetails(
+  errorMessage: string,
+  names: readonly string[] = [],
+  nameType: PiiRedactionType | string = PiiRedactionType.AgentName,
+): string {
   const matches: PiiMatch[] = [
     // Full URL (scheme://host/path...). Matched first and whole so a tenant or
     // Dataverse endpoint is redacted as a URL rather than being partially
@@ -188,16 +202,16 @@ export function sanitizeErrorDetails(errorMessage: string, agentNames: readonly 
     ),
   ];
 
-  for (const agentName of agentNames.filter(name => name.length > 0)) {
-    const escapedAgentName = agentName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const agentNamePattern = new RegExp(
-      `(?<![\\p{L}\\p{N}])${escapedAgentName}(?![\\p{L}\\p{N}])`,
+  for (const name of names.filter(candidate => candidate.length > 0)) {
+    const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const namePattern = new RegExp(
+      `(?<![\\p{L}\\p{N}])${escapedName}(?![\\p{L}\\p{N}])`,
       'giu',
     );
     matches.push(...collectMatches(
       errorMessage,
-      agentNamePattern,
-      PiiRedactionType.AgentName,
+      namePattern,
+      nameType,
       2,
     ));
   }

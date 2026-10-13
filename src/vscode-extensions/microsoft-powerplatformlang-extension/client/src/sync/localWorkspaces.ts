@@ -20,6 +20,7 @@ export enum WorkspaceType {
   Unknown = -1,
   Agent = 0,
   ComponentCollection = 1,
+  StandaloneWorkflow = 2,
 }
 
 export interface CopilotStudioWorkspace {
@@ -32,7 +33,20 @@ export interface CopilotStudioWorkspace {
   schemaName?: string
 }
 
-export const getWorkspaceKindLabel = (workspace: CopilotStudioWorkspace): string => workspace.type === WorkspaceType.ComponentCollection ? 'component collection' : 'agent';
+export const getWorkspaceKindLabel = (workspace: CopilotStudioWorkspace): string => {
+  switch (workspace.type) {
+    case WorkspaceType.ComponentCollection: return 'component collection';
+    case WorkspaceType.StandaloneWorkflow: return 'workflow';
+    default: return 'agent';
+  }
+};
+
+/** The workspace kind label capitalized for use at the start of a sentence. */
+export const getWorkspaceKindTitle = (workspace: CopilotStudioWorkspace): string => {
+  const label = getWorkspaceKindLabel(workspace);
+
+  return label.charAt(0).toUpperCase() + label.slice(1);
+};
 
 interface ListWorkspacesResponse {
   workspaceUris: string[];
@@ -955,6 +969,8 @@ function getWorkspaceIcon(workspaceType: WorkspaceType, iconFilePath?: string): 
       return getIcon();
     case WorkspaceType.ComponentCollection:
       return new ThemeIcon("package");
+    case WorkspaceType.StandaloneWorkflow:
+      return new ThemeIcon("symbol-event");
     default:
       return new ThemeIcon("folder");
   }

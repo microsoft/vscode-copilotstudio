@@ -2,6 +2,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 {
     using Microsoft.Agents.ObjectModel;
     using Microsoft.CommonLanguageServerProtocol.Framework;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Contracts.Internal;
@@ -25,11 +26,13 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     internal class DiscardLocalChangesHandler : IRequestHandler<DiscardLocalChangesRequest, DiscardLocalChangesResponse, RequestContext>
     {
         private readonly IWorkspaceSynchronizer _workspaceSynchronizer;
+        private readonly IFileAccessorFactory _fileAccessorFactory;
         private readonly ILspLogger _logger;
 
-        public DiscardLocalChangesHandler(IWorkspaceSynchronizer workspaceSynchronizer, ILspLogger logger)
+        public DiscardLocalChangesHandler(IWorkspaceSynchronizer workspaceSynchronizer, IFileAccessorFactory fileAccessorFactory, ILspLogger logger)
         {
             _workspaceSynchronizer = workspaceSynchronizer ?? throw new ArgumentNullException(nameof(workspaceSynchronizer));
+            _fileAccessorFactory = fileAccessorFactory ?? throw new ArgumentNullException(nameof(fileAccessorFactory));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
@@ -43,6 +46,12 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             try
             {
                 var workspace = (IMcsWorkspace)context.Workspace;
+
+                if (WorkspaceClassifier.DetectKind(_fileAccessorFactory.Create(workspace.FolderPath)) == WorkspaceKind.StandaloneWorkflow)
+                {
+                    return await DiscardStandaloneWorkflowAsync(workspace, cancellationToken).ConfigureAwait(false);
+                }
+
                 var (definition, unreadableChanges) = await _workspaceSynchronizer
                     .ReadWorkspaceDefinitionForDiscardAsync(workspace.FolderPath, cancellationToken)
                     .ConfigureAwait(false);
@@ -94,6 +103,32 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     Message = message,
                 };
             }
+        }
+
+        private async Task<DiscardLocalChangesResponse> DiscardStandaloneWorkflowAsync(IMcsWorkspace workspace, CancellationToken cancellationToken)
+        {
+            var (detectedChanges, unreadableChanges) = await _workspaceSynchronizer
+                .GetStandaloneWorkflowChangesForDiscardAsync(workspace.FolderPath, cancellationToken)
+                .ConfigureAwait(false);
+            var localChanges = detectedChanges
+                .AddRange(unreadableChanges)
+                .DistinctBy(change => (change.SchemaName.ToUpperInvariant(), change.Uri.ToUpperInvariant()))
+                .ToImmutableArray();
+            var result = _workspaceSynchronizer.DiscardStandaloneWorkflowChanges(workspace.FolderPath, localChanges);
+            var (remainingChanges, remainingUnreadable) = await _workspaceSynchronizer
+                .GetStandaloneWorkflowChangesForDiscardAsync(workspace.FolderPath, cancellationToken)
+                .ConfigureAwait(false);
+
+            return new DiscardLocalChangesResponse
+            {
+                Code = 200,
+                Message = string.Empty,
+                Result = result,
+                LocalChanges = remainingChanges
+                    .AddRange(remainingUnreadable)
+                    .DistinctBy(change => (change.SchemaName.ToUpperInvariant(), change.Uri.ToUpperInvariant()))
+                    .ToImmutableArray(),
+            };
         }
 
         private static DefinitionBase OverlayCompiledComponentCollections(

@@ -13,7 +13,7 @@ import { switchAccount, switchToAccount, isSignedIn, getPreferredAccountId, getP
 import { DefaultCoreServicesClusterCategory, LspMethods, TelemetryEventsKeys } from '../constants';
 import { lspClient, buildLspRequestPayload } from '../services/lspClient';
 import logger, { formatPii, PiiRedactionType } from '../services/logger';
-import { writePostOpenInstruction } from '../startup/postOpen';
+import { openClonedWorkspace } from '../startup/postOpen';
 import { isCliLayeredWorkspace } from '../sync/syncUtils';
 import { getActiveAgentAccount } from '../sync/localWorkspaces';
 import { EnvironmentPickItem, toEnvironmentPickItem } from '../services/accountEnvPicker';
@@ -512,8 +512,8 @@ export async function cloneAgentToLocalFolder(agent: IdentifyAgentResponse | und
         environmentId: environmentInfo.environmentId,
       });
 
-      // After cloning the agent, setup a PostOpen instruction to open the agent file in the current window.
       const workspaceUri = Uri.file(rootFolder);
+      let entryFile: Uri | undefined;
       if (cloneResp?.agentFolderName) {
         const agentRootUri = Uri.joinPath(workspaceUri, cloneResp.agentFolderName);
         // CLI-layered agents (agent.sync.yaml marker, D22/D29) center on settings.mcs.yml and have no
@@ -521,24 +521,13 @@ export async function cloneAgentToLocalFolder(agent: IdentifyAgentResponse | und
         // on-disk marker (the TS CloneAgentResponse does not carry AuthoringShape, D26) so the cloned
         // agent's entry file actually opens instead of falling through to skipNoAgentFile.
         const entryFileName = isCliLayeredWorkspace(agentRootUri.fsPath) ? 'settings.mcs.yml' : 'agent.mcs.yml';
-        try {
-          const candidateAgentFile = Uri.joinPath(agentRootUri, entryFileName);
-          await workspace.fs.stat(candidateAgentFile);
-          await writePostOpenInstruction(context, workspaceUri, candidateAgentFile);
-        } catch {
-          logger.logInfo(TelemetryEventsKeys.PostOpenInstruction, undefined, {
-            message: 'Post-open instruction skipped: entry file not found',
-            agentId: agentInfo.agentId,
-            environmentId: environmentInfo.environmentId
-          });
-        }
+        entryFile = Uri.joinPath(agentRootUri, entryFileName);
       }
 
-      // Dispose the telemetry reporter to ensure all events are flushed before VS Code reloads the window.
-      await logger.dispose();
-      // Brief delay to allow the telemetry to complete before the window reload kills the extension host.
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      await commands.executeCommand('vscode.openFolder', workspaceUri, { forceReuseWindow: true });
+      await openClonedWorkspace(context, workspaceUri, entryFile, {
+        agentId: agentInfo.agentId,
+        environmentId: environmentInfo.environmentId,
+      });
     });
   } catch (error) {
     throw error;
