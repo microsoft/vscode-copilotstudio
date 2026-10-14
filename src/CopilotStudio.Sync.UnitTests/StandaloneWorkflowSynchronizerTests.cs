@@ -25,6 +25,8 @@ internal sealed class FakeStandaloneWorkflowClient : IStandaloneWorkflowDatavers
 
     public string? StartFailure { get; set; }
 
+    public string? StopFailure { get; set; }
+
     public string? RestoreFailure { get; set; }
 
     public Func<SyncDataverseClient.WorkflowMetadata, SyncDataverseClient.WorkflowMetadata>? NormalizeOnWrite { get; set; }
@@ -117,6 +119,11 @@ internal sealed class FakeStandaloneWorkflowClient : IStandaloneWorkflowDatavers
         if (activate && StartFailure is { } refusal)
         {
             throw new DataverseRequestException(System.Net.HttpStatusCode.BadRequest, refusal);
+        }
+
+        if (!activate && StopFailure is { } stopRefusal)
+        {
+            throw new DataverseRequestException(System.Net.HttpStatusCode.BadRequest, stopRefusal);
         }
 
         if (_rows.TryGetValue(workflowId, out var row))

@@ -71,6 +71,7 @@ const selectWorkflow = async (treeItem?: unknown): Promise<WorkflowSelection | u
 export const registerCloneStandaloneWorkflowCommand = (context: vscode.ExtensionContext) => {
   const command = vscode.commands.registerCommand('microsoft-copilot-studio.cloneStandaloneWorkflow', async (treeItem?: unknown) => {
     let workflowName: string | undefined;
+    let sourceEnvironmentId: string | undefined;
 
     try {
       const selection = await selectWorkflow(treeItem);
@@ -82,6 +83,7 @@ export const registerCloneStandaloneWorkflowCommand = (context: vscode.Extension
       const { environment, account, workflow } = selection;
 
       workflowName = workflow.name;
+      sourceEnvironmentId = environment.environmentId;
 
       const folder = await pickFolder();
 
@@ -97,16 +99,17 @@ export const registerCloneStandaloneWorkflowCommand = (context: vscode.Extension
 
       logger.logInfo(TelemetryEventsKeys.CloneAgentSuccess, undefined, { environmentId });
 
-      const { projectRoot, entryFile } = resolveStandaloneWorkflowProject(folder, response);
+      const { workspaceRoot, entryFile } = resolveStandaloneWorkflowProject(folder, response);
 
-      await openClonedWorkspace(context, projectRoot, entryFile, { environmentId, workflowId: workflow.workflowId });
+      await openClonedWorkspace(context, workspaceRoot, entryFile, { environmentId, workflowId: workflow.workflowId });
     } catch (error) {
       reportStandaloneWorkflowFailure(
         TelemetryEventsKeys.CloneAgentError,
         'Error cloning cloud flow',
         error,
         'The cloud flow could not be cloned.',
-        workflowName);
+        workflowName,
+        sourceEnvironmentId);
     }
   });
 

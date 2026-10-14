@@ -32,6 +32,7 @@ export interface SyncRequest extends RemoteApiRequest {
   // Workspace URI: get from vscode.WorkspaceFolder;
   workspaceUri: string;
   draftConnectionReferenceWorkflows?: boolean;
+  overwriteLocalChanges?: boolean;
 }
 
 export interface SyncResponse extends RemoteApiResponse {

@@ -63,28 +63,35 @@ const succeed = <TResponse extends ResponseBase>(response: TResponse | undefined
 
 /**
  * Reports a standalone workflow failure once, showing the reason to the user while redacting
- * the workflow name the server echoed back from telemetry.
+ * the workflow name and environment identifier the server echoed back from telemetry.
  */
 export const reportStandaloneWorkflowFailure = (
   event: TelemetryEventType,
   summary: string,
   error: unknown,
   fallbackReason: string,
-  workflowName?: string): void => {
+  workflowName?: string,
+  environmentId?: string): void => {
   const reason = error instanceof Error && error.message ? error.message : fallbackReason;
 
   logger.logError(event, summary, {
-    error: sanitizeErrorDetails(reason, workflowName ? [workflowName] : [], PiiRedactionType.WorkflowNames),
+    error: sanitizeErrorDetails(
+      reason,
+      workflowName ? [workflowName] : [],
+      PiiRedactionType.WorkflowNames,
+      environmentId ? [{ values: [environmentId], type: PiiRedactionType.EnvironmentId }] : []),
   });
 };
 
 /**
- * Resolves the project root to open and the definition file to reveal after a create or clone.
+ * Resolves the workspace to open and the definition file to reveal after a create or clone.
+ * The chosen container is opened, as agent cloning does, so a workspace already open survives
+ * and the new project is discovered beneath it.
  */
 export const resolveStandaloneWorkflowProject = (
   root: Uri,
-  response: { projectFolder?: string; folderName?: string }): { projectRoot: Uri; entryFile?: Uri } => ({
-  projectRoot: response.projectFolder ? Uri.joinPath(root, ...response.projectFolder.split('/')) : root,
+  response: { projectFolder?: string; folderName?: string }): { workspaceRoot: Uri; entryFile?: Uri } => ({
+  workspaceRoot: root,
   entryFile: response.folderName ? Uri.joinPath(root, ...response.folderName.split('/'), WORKFLOW_DEFINITION_FILE_NAME) : undefined,
 });
 

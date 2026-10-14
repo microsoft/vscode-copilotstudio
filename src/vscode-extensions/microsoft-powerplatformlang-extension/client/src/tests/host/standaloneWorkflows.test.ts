@@ -117,11 +117,11 @@ describe('standaloneWorkflows', () => {
         assert.strictEqual(response.projectFolder, 'MyFlow');
     });
 
-    test('the project root to open is the new project, not the container', () => {
+    test('the container is opened, not the new project, so an existing workspace survives', () => {
         const root = vscode.Uri.file('C:/ws');
         const resolved = resolveStandaloneWorkflowProject(root, { projectFolder: 'MyFlow', folderName: 'MyFlow/workflows/MyFlow-wf-1' });
 
-        assert.strictEqual(resolved.projectRoot.fsPath, vscode.Uri.joinPath(root, 'MyFlow').fsPath);
+        assert.strictEqual(resolved.workspaceRoot.fsPath, root.fsPath);
         assert.strictEqual(resolved.entryFile!.fsPath, vscode.Uri.joinPath(root, 'MyFlow', 'workflows', 'MyFlow-wf-1', 'workflow.json').fsPath);
     });
 
@@ -129,7 +129,7 @@ describe('standaloneWorkflows', () => {
         const root = vscode.Uri.file('C:/ws');
         const resolved = resolveStandaloneWorkflowProject(root, { folderName: 'workflows/MyFlow-wf-1' });
 
-        assert.strictEqual(resolved.projectRoot.fsPath, root.fsPath);
+        assert.strictEqual(resolved.workspaceRoot.fsPath, root.fsPath);
         assert.strictEqual(resolved.entryFile!.fsPath, vscode.Uri.joinPath(root, 'workflows', 'MyFlow-wf-1', 'workflow.json').fsPath);
     });
 
@@ -137,7 +137,17 @@ describe('standaloneWorkflows', () => {
         const resolved = resolveStandaloneWorkflowProject(vscode.Uri.file('C:/ws'), { projectFolder: 'MyFlow' });
 
         assert.strictEqual(resolved.entryFile, undefined);
-        assert.strictEqual(resolved.projectRoot.fsPath, vscode.Uri.joinPath(vscode.Uri.file('C:/ws'), 'MyFlow').fsPath);
+        assert.strictEqual(resolved.workspaceRoot.fsPath, vscode.Uri.file('C:/ws').fsPath);
+    });
+
+    test('the entry file stays beneath the container for a deeply nested project', () => {
+        const root = vscode.Uri.file('C:/ws');
+        const resolved = resolveStandaloneWorkflowProject(root, { folderName: 'My Flow-wf-1/workflows/My Flow-wf-1' });
+
+        assert.strictEqual(resolved.workspaceRoot.fsPath, root.fsPath);
+        assert.strictEqual(
+            resolved.entryFile!.fsPath,
+            vscode.Uri.joinPath(root, 'My Flow-wf-1', 'workflows', 'My Flow-wf-1', 'workflow.json').fsPath);
     });
 
     test('delete reports what the server removed', async () => {
@@ -280,6 +290,75 @@ describe('reportStandaloneWorkflowFailure', () => {
         assert.strictEqual(
             telemetryOf(reported[0]).telemetryProperties.errorMessage,
             'Sign-in was cancelled.');
+    });
+
+    test('redacts the project folder the server derived from the workflow name', () => {
+        reportStandaloneWorkflowFailure(
+            TelemetryEventsKeys.CloneAgentError,
+            'Error cloning cloud flow',
+            new Error("The folder 'MyFlow-7f1c2a' already holds another project."),
+            'The cloud flow could not be cloned.',
+            'My Flow');
+
+        const telemetry = telemetryOf(reported[0]).telemetryProperties.errorMessage;
+
+        assert.ok(!telemetry.includes('MyFlow'));
+        assert.ok(telemetry.includes('[REDACTED WORKFLOW NAMES]'));
+    });
+
+    test('redacts the environment identifier a failure echoed back', () => {
+        reportStandaloneWorkflowFailure(
+            TelemetryEventsKeys.CloneAgentError,
+            'Error cloning cloud flow',
+            new Error('No workflow with id 4a1ee82e-53b2-4648-9be2-686ec900199d exists in d3e21992-3138-ec9e-855f-94ae510c3a1e.'),
+            'The cloud flow could not be cloned.',
+            'My Flow',
+            'd3e21992-3138-ec9e-855f-94ae510c3a1e');
+
+        const prepared = telemetryOf(reported[0]);
+
+        assert.ok(!prepared.telemetryProperties.errorMessage.includes('d3e21992-3138-ec9e-855f-94ae510c3a1e'));
+        assert.ok(prepared.telemetryProperties.errorMessage.includes('[REDACTED ENVIRONMENT ID]'));
+        assert.ok(prepared.displayMessage?.includes('d3e21992-3138-ec9e-855f-94ae510c3a1e'));
+    });
+
+    test('leaves the environment identifier alone when the caller knows none', () => {
+        reportStandaloneWorkflowFailure(
+            TelemetryEventsKeys.CloneAgentError,
+            'Error creating workflow',
+            new Error('The workflow could not be written.'),
+            'The workflow could not be created.',
+            'My Flow');
+
+        assert.strictEqual(
+            telemetryOf(reported[0]).telemetryProperties.errorMessage,
+            'The workflow could not be written.');
+    });
+
+    test('redacts a name whose separators the server replaced', () => {
+        reportStandaloneWorkflowFailure(
+            TelemetryEventsKeys.CloneAgentError,
+            'Error cloning cloud flow',
+            new Error("'My-Flow' and 'My_Flow' and 'My Flow' all name the same workflow."),
+            'The cloud flow could not be cloned.',
+            'My Flow');
+
+        const telemetry = telemetryOf(reported[0]).telemetryProperties.errorMessage;
+
+        assert.strictEqual(telemetry.split('[REDACTED WORKFLOW NAMES]').length - 1, 3);
+    });
+
+    test('does not redact an unrelated name that merely shares a prefix', () => {
+        reportStandaloneWorkflowFailure(
+            TelemetryEventsKeys.CloneAgentError,
+            'Error cloning cloud flow',
+            new Error('MyFlowchart was not affected.'),
+            'The cloud flow could not be cloned.',
+            'My Flow');
+
+        assert.strictEqual(
+            telemetryOf(reported[0]).telemetryProperties.errorMessage,
+            'MyFlowchart was not affected.');
     });
 });
 

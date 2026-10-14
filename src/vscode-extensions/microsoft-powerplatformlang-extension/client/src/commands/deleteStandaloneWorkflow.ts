@@ -35,7 +35,8 @@ export const registerDeleteStandaloneWorkflowCommand = (context: vscode.Extensio
         'Error deleting cloud flow',
         error,
         'The cloud flow could not be deleted.',
-        workflow.name);
+        workflow.name,
+        environment.environmentId);
     }
   });
 

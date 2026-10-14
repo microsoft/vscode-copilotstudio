@@ -235,8 +235,56 @@ public class StandaloneWorkflowCacheTests
     }
 
     [Fact]
-    public void HasLocalChange_AfterTheDefinitionIsEdited_IsTrue()
+    public void HasLocalChange_AfterAMetadataFieldOutsideNameStateAndDescriptionIsEdited_IsTrue()
     {
+        var workflowId = Guid.NewGuid();
+        var workspace = NewWorkspace();
+        var folder = WorkflowWorkspace.RelativeFolderFor("Flow", workflowId);
+        var cached = Row(workflowId, "Flow", Definition);
+        var edited = Row(workflowId, "Flow", Definition);
+
+        edited.Scope = 4;
+
+        Write(workspace, $"{folder}/workflow.json", Definition);
+        Write(workspace, $"{folder}/metadata.yml", WorkflowMetadataFile.Write(edited));
+        StandaloneWorkflowCache.Write(workspace, cached);
+
+        Assert.True(StandaloneWorkflowCache.HasLocalChange(workspace, WorkflowWorkspace.FindAll(workspace).Single()));
+    }
+
+    [Fact]
+    public void HasLocalChange_AfterTheIntroducedVersionIsEdited_IsTrue()
+    {
+        var workflowId = Guid.NewGuid();
+        var workspace = NewWorkspace();
+        var folder = WorkflowWorkspace.RelativeFolderFor("Flow", workflowId);
+        var edited = Row(workflowId, "Flow", Definition);
+
+        edited.IntroducedVersion = "2.0.0.0";
+
+        Write(workspace, $"{folder}/workflow.json", Definition);
+        Write(workspace, $"{folder}/metadata.yml", WorkflowMetadataFile.Write(edited));
+        StandaloneWorkflowCache.Write(workspace, Row(workflowId, "Flow", Definition));
+
+        Assert.True(StandaloneWorkflowCache.HasLocalChange(workspace, WorkflowWorkspace.FindAll(workspace).Single()));
+    }
+
+    [Fact]
+    public void HasLocalChange_WhenOnlyTheDefinitionFormattingDiffers_IsFalse()
+    {
+        var workflowId = Guid.NewGuid();
+        var workspace = NewWorkspace();
+        var folder = WorkflowWorkspace.RelativeFolderFor("Flow", workflowId);
+
+        Write(workspace, $"{folder}/workflow.json", WorkflowDefinitionFile.Format(Definition));
+        Write(workspace, $"{folder}/metadata.yml", WorkflowMetadataFile.Write(Row(workflowId, "Flow", Definition)));
+        StandaloneWorkflowCache.Write(workspace, Row(workflowId, "Flow", Definition));
+
+        Assert.False(StandaloneWorkflowCache.HasLocalChange(workspace, WorkflowWorkspace.FindAll(workspace).Single()));
+    }
+
+    [Fact]
+    public void HasLocalChange_AfterTheDefinitionIsEdited_IsTrue()    {
         var workflowId = Guid.NewGuid();
         var workspace = NewWorkspace();
         var folder = WorkflowWorkspace.RelativeFolderFor("Flow", workflowId);

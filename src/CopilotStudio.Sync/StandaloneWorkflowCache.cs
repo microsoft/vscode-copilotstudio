@@ -3,6 +3,7 @@
 using System.Collections.Immutable;
 using Microsoft.Agents.ObjectModel;
 using Microsoft.CopilotStudio.McsCore;
+using Microsoft.CopilotStudio.McsCore.Yaml;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 
 namespace Microsoft.CopilotStudio.Sync;
@@ -106,7 +107,7 @@ public static class StandaloneWorkflowCache
             throw new ArgumentNullException(nameof(workflow));
         }
 
-        return Differs(fileAccessor, workflow, Read(fileAccessor, workflow.WorkflowId));
+        return Find(Flows(fileAccessor), workflow.WorkflowId) is not { } cached || Differs(fileAccessor, workflow, cached);
     }
 
     /// <summary>Whether a workflow on disk differs from a copy the service returned.</summary>
@@ -126,19 +127,30 @@ public static class StandaloneWorkflowCache
             return true;
         }
 
+        var (flow, _) = WorkspaceSynchronizer.GetFlowDefinition(reference);
+
+        return Differs(fileAccessor, workflow, flow);
+    }
+
+    private static bool Differs(IFileAccessor fileAccessor, WorkflowFile workflow, CloudFlowDefinition reference)
+    {
         var local = ConnectionReferenceStore.ReadTextOrNull(fileAccessor, workflow.DefinitionPath);
 
-        if (!string.Equals(WorkflowDefinitionFile.Canonicalize(local), WorkflowDefinitionFile.Canonicalize(reference.ClientData), StringComparison.Ordinal))
+        if (!string.Equals(WorkflowDefinitionFile.Canonicalize(local), WorkflowDefinitionFile.Canonicalize(WorkspaceSynchronizer.GetRawClientData(reference)), StringComparison.Ordinal))
         {
             return true;
         }
 
-        var declared = ReadMetadataOrNull(fileAccessor, workflow.MetadataPath);
+        if (ReadMetadataOrNull(fileAccessor, workflow.MetadataPath) is not { } declared)
+        {
+            return true;
+        }
 
-        return declared is null
-            || !string.Equals(declared.Name, reference.Name, StringComparison.Ordinal)
-            || !string.Equals(declared.Description, reference.Description, StringComparison.Ordinal)
-            || declared.StateCode != reference.StateCode;
+        declared.ClientData = local;
+
+        var (flow, _) = WorkspaceSynchronizer.GetFlowDefinition(declared);
+
+        return !McsYamlComparer.DocumentsMatch(WorkspaceSynchronizer.GetWorkflowMetadata(flow), WorkspaceSynchronizer.GetWorkflowMetadata(reference));
     }
 
     private static bool Store(IFileAccessor fileAccessor, Guid workflowId, CloudFlowDefinition? flow)

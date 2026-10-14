@@ -145,10 +145,43 @@ function collectFileMatches(
   return matches;
 }
 
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Builds the pattern that redacts one known name, tolerating the separators a
+ * transformed form drops or replaces. "My Flow" therefore also matches the folder
+ * name "MyFlow-<id>" a server failure echoes back, and "My-Flow" or "My_Flow".
+ */
+function nameVariantPattern(name: string): RegExp {
+  const tokens = name.match(/[\p{L}\p{N}]+/gu) ?? [];
+  const body = tokens.length > 0
+    ? tokens.map(escapeRegExp).join('[^\\p{L}\\p{N}]*')
+    : escapeRegExp(name);
+
+  return new RegExp(`(?<![\\p{L}\\p{N}])${body}(?![\\p{L}\\p{N}])`, 'giu');
+}
+
+/**
+ * A set of known values to redact under one telemetry label.
+ */
+export interface PiiNameGroup {
+  values: readonly string[];
+  type: PiiRedactionType | string;
+}
+
+function collectNameMatches(value: string, group: PiiNameGroup): PiiMatch[] {
+  const matches: PiiMatch[] = [];
+  for (const name of group.values.filter(candidate => candidate.length > 0)) {
+    matches.push(...collectMatches(value, nameVariantPattern(name), group.type, 2));
+  }
+  return matches;
+}
+
 export function sanitizeErrorDetails(
   errorMessage: string,
   names: readonly string[] = [],
   nameType: PiiRedactionType | string = PiiRedactionType.AgentName,
+  additionalNames: readonly PiiNameGroup[] = [],
 ): string {
   const matches: PiiMatch[] = [
     // Full URL (scheme://host/path...). Matched first and whole so a tenant or
@@ -202,18 +235,8 @@ export function sanitizeErrorDetails(
     ),
   ];
 
-  for (const name of names.filter(candidate => candidate.length > 0)) {
-    const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const namePattern = new RegExp(
-      `(?<![\\p{L}\\p{N}])${escapedName}(?![\\p{L}\\p{N}])`,
-      'giu',
-    );
-    matches.push(...collectMatches(
-      errorMessage,
-      namePattern,
-      nameType,
-      2,
-    ));
+  for (const group of [{ values: names, type: nameType }, ...additionalNames]) {
+    matches.push(...collectNameMatches(errorMessage, group));
   }
 
   matches.sort((left, right) =>

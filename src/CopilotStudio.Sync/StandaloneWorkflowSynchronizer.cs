@@ -88,6 +88,12 @@ public sealed record StandaloneWorkflowUpsert
     /// <summary>Whether the local workflow asked to run, even if it had to land as a draft.</summary>
     public bool ActivationRequested { get; init; }
 
+    /// <summary>
+    /// Whether <see cref="Warning"/> reports only that the workflow landed as a draft because its
+    /// connections are not ready, which a later activation pass resolves by starting it.
+    /// </summary>
+    public bool DraftedForConnections { get; init; }
+
     /// <summary>What the push could not finish, or an empty string when it finished entirely.</summary>
     public string Warning { get; init; } = string.Empty;
 }
@@ -424,6 +430,7 @@ public sealed class StandaloneWorkflowSynchronizer : IStandaloneWorkflowSynchron
         }
 
         var warning = draftedForConnections ? WorkflowActivationPlanner.DescribeDraftedForConnections(metadata.Name ?? metadata.WorkflowId.ToString()) : string.Empty;
+        var warnsOnlyAboutDrafting = draftedForConnections;
         var workflowName = metadata.Name ?? metadata.WorkflowId.ToString();
 
         if (referencesBound && metadata.StateCode != 1)
@@ -439,6 +446,7 @@ public sealed class StandaloneWorkflowSynchronizer : IStandaloneWorkflowSynchron
             if (WorkflowActivationPlanner.DescribeUnapplied(started, workflowName, activate: true) is { Length: > 0 } startFailure)
             {
                 warning = startFailure;
+                warnsOnlyAboutDrafting = false;
             }
         }
         else if ((!activationRequested || deferredForSetup) && metadata.StateCode == 1)
@@ -453,6 +461,7 @@ public sealed class StandaloneWorkflowSynchronizer : IStandaloneWorkflowSynchron
             else if (WorkflowActivationPlanner.DescribeUnapplied(stopOutcome, workflowName, activate: false) is { Length: > 0 } stopFailure)
             {
                 warning = stopFailure;
+                warnsOnlyAboutDrafting = false;
             }
         }
 
@@ -461,6 +470,8 @@ public sealed class StandaloneWorkflowSynchronizer : IStandaloneWorkflowSynchron
             warning = deferredForSetup
                 ? WorkflowActivationPlanner.DescribeDraftedForConnectionSetup(workflowName)
                 : WorkflowActivationPlanner.DescribeDraftedForConnections(workflowName);
+
+            warnsOnlyAboutDrafting = true;
         }
 
         await RefreshCacheAsync(workspace, metadata.WorkflowId, wrote, existing, cancellationToken).ConfigureAwait(false);
@@ -472,6 +483,7 @@ public sealed class StandaloneWorkflowSynchronizer : IStandaloneWorkflowSynchron
             Replaced = replaced,
             CreatedConnectionReferences = declared,
             ActivationRequested = activationRequested,
+            DraftedForConnections = warnsOnlyAboutDrafting && warning.Length > 0,
             Warning = warning,
         };
     }

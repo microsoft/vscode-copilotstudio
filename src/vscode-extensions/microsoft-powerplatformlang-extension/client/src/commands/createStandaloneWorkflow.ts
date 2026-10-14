@@ -37,9 +37,9 @@ export const registerCreateStandaloneWorkflowCommand = (context: vscode.Extensio
       }
 
       const response = await createStandaloneWorkflow(name, folder.fsPath);
-      const { projectRoot, entryFile } = resolveStandaloneWorkflowProject(folder, response);
+      const { workspaceRoot, entryFile } = resolveStandaloneWorkflowProject(folder, response);
 
-      await openClonedWorkspace(context, projectRoot, entryFile, { workflowId: response.workflowId });
+      await openClonedWorkspace(context, workspaceRoot, entryFile, { workflowId: response.workflowId });
     } catch (error) {
       reportStandaloneWorkflowFailure(
         TelemetryEventsKeys.CloneAgentError,

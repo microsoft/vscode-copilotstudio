@@ -5,6 +5,7 @@ import {
 	getActiveSyncUri,
 	getOrAddSynchronizer,
 	getSyncStateFor,
+	holdsUnpushedLocalChanges,
 	logSyncConflicts,
 	logWorkflowIssues,
 	onAnySyncStateChanged,
@@ -15,6 +16,7 @@ import {
 } from '../../sync/workspaceSynchronizer';
 import { resolveWorkspaceArg } from '../../commands/syncWorkspace';
 import logger, { formatFileName, formatPii, prepareLogData, sanitizeErrorDetails } from '../../services/logger';
+import { LspRequestError, LSP_UNPUSHED_LOCAL_CHANGES } from '../../services/lspClient';
 import type { WorkflowResponse } from '../../types';
 
 import { ThemeIcon } from 'vscode';
@@ -29,6 +31,28 @@ function createMockWorkspace(agentName: string): CopilotStudioWorkspace {
 		type: WorkspaceType.Agent,
 	};
 }
+
+describe('workspaceSynchronizer: unpushed local workflow changes', () => {
+	test('recognises the refusal the server returns for unpushed local edits', () => {
+		const refusal = new LspRequestError(LSP_UNPUSHED_LOCAL_CHANGES, "'My Flow-1' holds changes the environment has not seen.");
+
+		assert.strictEqual(holdsUnpushedLocalChanges(refusal), true);
+		assert.strictEqual(refusal.code, 409);
+		assert.ok(refusal instanceof Error);
+		assert.strictEqual(refusal.message, "'My Flow-1' holds changes the environment has not seen.");
+	});
+
+	test('does not treat another server failure as a local-change refusal', () => {
+		assert.strictEqual(holdsUnpushedLocalChanges(new LspRequestError(400, 'Bad request')), false);
+		assert.strictEqual(holdsUnpushedLocalChanges(new LspRequestError(500, 'Server error')), false);
+	});
+
+	test('does not treat a plain error or a non-error as a local-change refusal', () => {
+		assert.strictEqual(holdsUnpushedLocalChanges(new Error('boom')), false);
+		assert.strictEqual(holdsUnpushedLocalChanges('409'), false);
+		assert.strictEqual(holdsUnpushedLocalChanges(undefined), false);
+	});
+});
 
 describe('workspaceSynchronizer: sync success telemetry', () => {
 

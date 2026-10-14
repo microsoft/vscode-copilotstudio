@@ -98,8 +98,20 @@ public class StandaloneWorkflowChangeTrackingTests : IDisposable
     }
 
     private const string BoundDefinition = """
-    {"properties":{"connectionReferences":{"shared_teams":{"api":{"name":"shared_teams"},"connection":{"connectionReferenceLogicalName":"new_teams","connectionName":"shared-teams-abc123"}}}}}
+    {"properties":{"connectionReferences":{"shared_teams":{"api":{"name":"shared_teams"},"connection":{"connectionReferenceLogicalName":"new_teams"},"connectionName":"shared-teams-abc123"}}}}
     """;
+
+    [Fact]
+    public void TheBoundFixtureCarriesABindingThePortableFormDrops()
+    {
+        var forms = WorkflowDefinitionFile.Read(BoundDefinition);
+
+        Assert.Contains("shared-teams-abc123", BoundDefinition, StringComparison.Ordinal);
+        Assert.DoesNotContain("shared-teams-abc123", forms.Portable, StringComparison.Ordinal);
+        Assert.Equal(
+            WorkflowDefinitionFile.Canonicalize(BoundDefinition),
+            WorkflowDefinitionFile.Canonicalize(forms.Portable));
+    }
 
     [Fact]
     public async Task StandaloneWorkspace_WhenOnlyTheEnvironmentBindingDiffers_ReportsNoChange()
@@ -122,6 +134,44 @@ public class StandaloneWorkflowChangeTrackingTests : IDisposable
         var workflow = WorkflowWorkspace.FindAll(Accessor()).Single();
 
         Assert.Equal(StandaloneWorkflowCache.HasLocalChange(Accessor(), workflow), changes.Length > 0);
+    }
+
+    [Fact]
+    public async Task AFreshlyDownloadedBoundWorkflow_HoldsNoLocalChange()
+    {
+        Directory.Delete(_workflowFolder, recursive: true);
+
+        var client = new FakeStandaloneWorkflowClient();
+
+        client.Seed(RemoteRow(BoundDefinition));
+
+        await new StandaloneWorkflowSynchronizer(client).DownloadAsync(_workflowId, Accessor(), "env", CancellationToken.None);
+
+        var workflow = WorkflowWorkspace.FindAll(Accessor()).Single();
+        var (_, changes) = await GetLocalChangesAsync();
+
+        Assert.False(StandaloneWorkflowCache.HasLocalChange(Accessor(), workflow));
+        Assert.Empty(changes);
+    }
+
+    [Fact]
+    public async Task ADownloadedWorkflowEditedAfterwards_HoldsALocalChange()
+    {
+        Directory.Delete(_workflowFolder, recursive: true);
+
+        var client = new FakeStandaloneWorkflowClient();
+
+        client.Seed(RemoteRow(BoundDefinition));
+
+        var downloaded = await new StandaloneWorkflowSynchronizer(client).DownloadAsync(_workflowId, Accessor(), "env", CancellationToken.None);
+
+        File.WriteAllText(Path.Combine(_root, downloaded.Folder.Replace('/', Path.DirectorySeparatorChar), "workflow.json"), Definition("Edited"));
+
+        var workflow = WorkflowWorkspace.FindAll(Accessor()).Single();
+        var (_, changes) = await GetLocalChangesAsync();
+
+        Assert.True(StandaloneWorkflowCache.HasLocalChange(Accessor(), workflow));
+        Assert.NotEmpty(changes);
     }
 
     [Fact]

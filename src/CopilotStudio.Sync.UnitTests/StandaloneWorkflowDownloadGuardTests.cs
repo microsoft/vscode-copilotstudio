@@ -186,6 +186,68 @@ public class StandaloneWorkflowDownloadGuardTests
     }
 
     [Fact]
+    public async Task ACacheLessWorkspaceWhoseMetadataTheServiceWouldReplace_IsRefused()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+        var workspace = NewWorkspace();
+        var folder = WorkflowWorkspace.RelativeFolderFor("My Flow", workflowId);
+        var scaffolded = WorkflowScaffolder.NewMetadata("My Flow", workflowId, folder);
+
+        scaffolded.StateCode = 0;
+        scaffolded.StatusCode = 1;
+
+        Write(workspace, $"{folder}/{WorkflowWorkspace.DefinitionFileName}", Definition);
+        Write(workspace, $"{folder}/{WorkflowWorkspace.MetadataFileName}", WorkflowMetadataFile.Write(scaffolded));
+        client.Seed(Row(workflowId));
+
+        var failure = await Assert.ThrowsAsync<StandaloneWorkflowException>(
+            () => new StandaloneWorkflowSynchronizer(client).DownloadAsync(workflowId, workspace, "env", CancellationToken.None));
+
+        Assert.Equal(StandaloneWorkflowFailure.WorkspaceHoldsUnpushedChanges, failure.Failure);
+        Assert.Equal(WorkflowMetadataFile.Write(scaffolded), Read(workspace, $"{folder}/{WorkflowWorkspace.MetadataFileName}"));
+    }
+
+    [Fact]
+    public async Task ACacheLessWorkspaceHoldingWhatTheServiceWouldWrite_IsNotRefused()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+        var workspace = NewWorkspace();
+        var folder = WorkflowWorkspace.RelativeFolderFor("My Flow", workflowId);
+
+        Write(workspace, $"{folder}/{WorkflowWorkspace.DefinitionFileName}", WorkflowDefinitionFile.Format(Definition));
+        Write(workspace, $"{folder}/{WorkflowWorkspace.MetadataFileName}", WorkflowMetadataFile.Write(Row(workflowId)));
+        client.Seed(Row(workflowId));
+
+        var download = await new StandaloneWorkflowSynchronizer(client).DownloadAsync(workflowId, workspace, "env", CancellationToken.None);
+
+        Assert.Equal(workflowId, download.Workflow.WorkflowId);
+    }
+
+    [Fact]
+    public async Task ACacheLessWorkspaceWhoseMetadataTheServiceWouldReplace_YieldsWhenAskedTo()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+        var workspace = NewWorkspace();
+        var folder = WorkflowWorkspace.RelativeFolderFor("My Flow", workflowId);
+        var scaffolded = WorkflowScaffolder.NewMetadata("My Flow", workflowId, folder);
+
+        scaffolded.StateCode = 0;
+        scaffolded.StatusCode = 1;
+
+        Write(workspace, $"{folder}/{WorkflowWorkspace.DefinitionFileName}", Definition);
+        Write(workspace, $"{folder}/{WorkflowWorkspace.MetadataFileName}", WorkflowMetadataFile.Write(scaffolded));
+        client.Seed(Row(workflowId));
+
+        var download = await new StandaloneWorkflowSynchronizer(client).DownloadAsync(workflowId, workspace, "env", CancellationToken.None, Overwriting);
+
+        Assert.Equal(workflowId, download.Workflow.WorkflowId);
+        Assert.Equal(WorkflowMetadataFile.Write(Row(workflowId)), Read(workspace, $"{folder}/{WorkflowWorkspace.MetadataFileName}"));
+    }
+
+    [Fact]
     public async Task APushedEditIsNoLongerTreatedAsUnpushed()
     {
         var workflowId = Guid.NewGuid();

@@ -41,6 +41,9 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 WorkspaceValidationException wve =>
                     NoLog(400, DescribeWorkspaceValidation(wve)),
 
+                StandaloneWorkflowException swe when HoldsUnpushedChanges(swe.Failure) =>
+                    NoLog(409, swe.Message),
+
                 InvalidOperationException ioe =>
                     NoLog(400, ioe.Message),
 
@@ -60,6 +63,13 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 _ => LogAsException(logger, ex),
             };
         }
+
+        /// <summary>
+        /// Whether a standalone workflow failure means the workspace holds an edit the environment
+        /// has not seen, which the client resolves by asking the user before replacing it.
+        /// </summary>
+        private static bool HoldsUnpushedChanges(StandaloneWorkflowFailure failure) =>
+            failure is StandaloneWorkflowFailure.WorkspaceHoldsUnpushedChanges or StandaloneWorkflowFailure.ProjectHoldsUnpushedChanges;
 
         /// <summary>
         /// Returns code/message without logging (exception was already logged by an instrumented layer).

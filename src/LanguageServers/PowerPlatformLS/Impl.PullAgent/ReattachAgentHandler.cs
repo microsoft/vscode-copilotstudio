@@ -29,6 +29,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         private readonly ISyncDataverseClient _dataverseClient;
         private readonly ISyncComponentCollectionDataverseClient _componentCollectionDataverseClient;
         private readonly LspDataverseHttpClientAccessor _dataverseHttpClientAccessor;
+        private readonly CopilotStudio.Sync.IStandaloneWorkflowSynchronizer _standaloneSynchronizer;
+        private readonly IFileAccessorFactory _fileAccessorFactory;
 
         public bool MutatesSolutionState => true;
 
@@ -40,6 +42,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             ISyncDataverseClient dataverseClient,
             ISyncComponentCollectionDataverseClient componentCollectionDataverseClient,
             LspDataverseHttpClientAccessor dataverseHttpClientAccessor,
+            CopilotStudio.Sync.IStandaloneWorkflowSynchronizer standaloneSynchronizer,
+            IFileAccessorFactory fileAccessorFactory,
             CopilotStudio.Sync.IOperationContextProvider operationContextProvider,
             ILspLogger logger)
         {
@@ -52,6 +56,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             _dataverseClient = dataverseClient ?? throw new ArgumentNullException(nameof(dataverseClient));
             _componentCollectionDataverseClient = componentCollectionDataverseClient ?? throw new ArgumentNullException(nameof(componentCollectionDataverseClient));
             _dataverseHttpClientAccessor = dataverseHttpClientAccessor ?? throw new ArgumentNullException(nameof(dataverseHttpClientAccessor));
+            _standaloneSynchronizer = standaloneSynchronizer ?? throw new ArgumentNullException(nameof(standaloneSynchronizer));
+            _fileAccessorFactory = fileAccessorFactory ?? throw new ArgumentNullException(nameof(fileAccessorFactory));
         }
 
         /// <summary>
@@ -88,27 +94,12 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
                 if (request.CheckRemoteAgentOnly)
                 {
-                    var existingSyncInfo = await _workspaceSynchronizer.GetSyncInfoAsync(workspaceFolder);
-                    var remoteAgentExists = false;
-                    if (existingSyncInfo.AgentId is Guid agentId && agentId != Guid.Empty)
-                    {
-                        try
-                        {
-                            await _dataverseClient.GetAgentInfoAsync(agentId, cancellationToken);
-                            remoteAgentExists = true;
-                        }
-                        catch (DataverseRequestException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
-                        {
-                            // A deleted connected agent is an expected result of the existence check.
-                        }
-                    }
-
                     return new ReattachAgentResponse()
                     {
                         Code = 200,
                         Message = string.Empty,
                         AgentSyncInfo = defaultSyncInfo,
-                        RemoteAgentExists = remoteAgentExists,
+                        RemoteAgentExists = await RemoteRecordExistsAsync(workspaceFolder, cancellationToken),
                     };
                 }
 
@@ -256,8 +247,50 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             }
         }
 
-        private async Task<ReattachAgentResponse> BindWorkflowWorkspaceAsync(ReattachAgentRequest request, DirectoryPath workspaceFolder, bool isRetarget)
+        private async Task<bool> RemoteRecordExistsAsync(DirectoryPath workspaceFolder, CancellationToken cancellationToken)
         {
+            var fileAccessor = _fileAccessorFactory.Create(workspaceFolder);
+
+            if (WorkflowWorkspace.IsStandaloneWorkspace(fileAccessor))
+            {
+                return await RemoteWorkflowExistsAsync(fileAccessor, cancellationToken);
+            }
+
+            var existingSyncInfo = await _workspaceSynchronizer.GetSyncInfoAsync(workspaceFolder);
+
+            return existingSyncInfo.AgentId is Guid agentId
+                && agentId != Guid.Empty
+                && await RemoteAgentExistsAsync(agentId, cancellationToken);
+        }
+
+        private async Task<bool> RemoteAgentExistsAsync(Guid agentId, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await _dataverseClient.GetAgentInfoAsync(agentId, cancellationToken);
+
+                return true;
+            }
+            catch (DataverseRequestException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+            {
+                return false;
+            }
+        }
+
+        private async Task<bool> RemoteWorkflowExistsAsync(IFileAccessor fileAccessor, CancellationToken cancellationToken)
+        {
+            foreach (var workflow in WorkflowWorkspace.FindAll(fileAccessor))
+            {
+                if (await _standaloneSynchronizer.ReadMetadataAsync(workflow.WorkflowId, cancellationToken) is not null)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private async Task<ReattachAgentResponse> BindWorkflowWorkspaceAsync(ReattachAgentRequest request, DirectoryPath workspaceFolder, bool isRetarget)        {
             var syncInfo = request.BuildSyncInfo(null);
             RemoteBindingSnapshot? bindingSnapshot = null;
 

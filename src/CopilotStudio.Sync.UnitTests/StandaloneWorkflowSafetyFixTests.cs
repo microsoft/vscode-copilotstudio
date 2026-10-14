@@ -211,6 +211,101 @@ public class StandaloneWorkflowSafetyFixTests : IDisposable
     }
 
     [Fact]
+    public async Task ARefusedStop_WarnsWithoutClaimingTheWorkflowOnlyLandedAsADraft()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient { StopFailure = """{"error":{"code":"0x80040217","message":"The workflow cannot be stopped."}}""" };
+
+        client.Seed(Row(workflowId, "Flow", """{"properties":{"a":1}}""", stateCode: 1));
+
+        var result = await new StandaloneWorkflowSynchronizer(client).UpsertAsync(
+            WorkspaceWith(workflowId, "Flow", """{"properties":{"a":1}}""", stateCode: 0),
+            "env",
+            CancellationToken.None);
+
+        Assert.NotEqual(string.Empty, result.Warning);
+        Assert.False(result.DraftedForConnections);
+    }
+
+    [Fact]
+    public async Task AWorkflowDraftedForUnboundConnections_SaysSoStructurally()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+
+        var result = await new StandaloneWorkflowSynchronizer(client).UpsertAsync(
+            WorkspaceWith(workflowId, "Flow", DefinitionWithReference, stateCode: 1),
+            "env",
+            CancellationToken.None);
+
+        Assert.NotEqual(string.Empty, result.Warning);
+        Assert.True(result.DraftedForConnections);
+    }
+
+    [Fact]
+    public async Task AWorkflowThatLandedRunning_ReportsNeitherAWarningNorDrafting()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+
+        var result = await new StandaloneWorkflowSynchronizer(client).UpsertAsync(
+            WorkspaceWith(workflowId, "Flow", """{"properties":{"a":1}}""", stateCode: 1),
+            "env",
+            CancellationToken.None);
+
+        Assert.Equal(string.Empty, result.Warning);
+        Assert.False(result.DraftedForConnections);
+    }
+
+    [Fact]
+    public void TheWorkspaceStoreTheseRenameTestsUse_IsCaseSensitive()
+    {
+        var workspace = NewWorkspace();
+
+        Write(workspace, "workflows/Flow/workflow.json", "{}");
+
+        Assert.True(workspace.Exists(new AgentFilePath("workflows/Flow/workflow.json")));
+        Assert.False(workspace.Exists(new AgentFilePath("workflows/flow/workflow.json")));
+    }
+
+    [Fact]
+    public async Task ACaseOnlyRename_OnCaseInsensitiveStorage_KeepsOneWorkflowReadableUnderEitherSpelling()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+        var workspace = new McsCore.InMemoryFileAccessorFactory().Create(new DirectoryPath("workspace"));
+
+        Assert.True(CaseInsensitive(workspace));
+
+        client.Seed(Row(workflowId, "Flow", """{"properties":{"a":1}}"""));
+
+        var synchronizer = new StandaloneWorkflowSynchronizer(client);
+
+        await synchronizer.DownloadAsync(workflowId, workspace, "env", CancellationToken.None);
+
+        var renamed = client.Stored(workflowId)!;
+        renamed.Name = "flow";
+        renamed.ClientData = """{"properties":{"a":2}}""";
+        client.Seed(renamed);
+
+        var download = await synchronizer.DownloadAsync(workflowId, workspace, "env", CancellationToken.None, new StandaloneWorkflowDownloadOptions { OverwriteLocalChanges = true });
+
+        Assert.Equal(WorkflowWorkspace.RelativeFolderFor("flow", workflowId), download.Folder);
+        Assert.Equal(workflowId, Assert.Single(WorkflowWorkspace.FindAll(workspace)).WorkflowId);
+        Assert.Contains("\"a\": 2", Read(workspace, $"{download.Folder}/{WorkflowWorkspace.DefinitionFileName}")!, StringComparison.Ordinal);
+        Assert.Equal(
+            Read(workspace, $"{download.Folder}/{WorkflowWorkspace.DefinitionFileName}"),
+            Read(workspace, $"{WorkflowWorkspace.RelativeFolderFor("Flow", workflowId)}/{WorkflowWorkspace.DefinitionFileName}"));
+    }
+
+    private static bool CaseInsensitive(IFileAccessor workspace)
+    {
+        Write(workspace, "probe/Case.txt", "{}");
+
+        return workspace.Exists(new AgentFilePath("probe/case.txt"));
+    }
+
+    [Fact]
     public async Task ACaseOnlyRename_LeavesOneFolderHoldingTheWorkflow()
     {
         var workflowId = Guid.NewGuid();

@@ -17,6 +17,20 @@ let currentOutputChannel: vscode.LogOutputChannel | null = null;
 let currentSessionId: string | null = null;
 
 /**
+ * A language server response whose status code was not 200, carrying that code so callers
+ * can tell an expected refusal from a failure without matching on message text.
+ */
+export class LspRequestError extends Error {
+  public constructor(public readonly code: number, message: string) {
+    super(message);
+    this.name = 'LspRequestError';
+  }
+}
+
+/** The status the server returns when a workspace holds an edit the environment has not seen. */
+export const LSP_UNPUSHED_LOCAL_CHANGES = 409;
+
+/**
  * Mirrors the .NET IsBuiltInLspMethod logic.
  * Built-in LSP methods are standard protocol methods that don't need custom logging.
  * Custom methods (powerplatformls/*, workspace/listWorkspaces, etc.) are logged.
@@ -280,7 +294,7 @@ class LspClientService {
             const result = await next(type, param, token);
             const durationMs = Date.now() - startTime;
             if (result && typeof result === 'object' && 'code' in result && (result as any).code !== 200) {
-              throw new Error((result as any).message ?? `Request failed with code ${(result as any).code}`);
+              throw new LspRequestError((result as any).code, (result as any).message ?? `Request failed with code ${(result as any).code}`);
             } else {
               if (isCustom) {
                 logger.logInfo(TelemetryEventsKeys.LanguageServerInfo, undefined, {
