@@ -8,7 +8,7 @@ import { knowledgeTreeDataProvider } from '../knowledgeFiles/knowledgeFileTree';
 import { LspMethods, TelemetryEventsKeys } from '../constants';
 import { lspClient, buildLspRequestPayload, LspRequestError, LSP_UNPUSHED_LOCAL_CHANGES } from '../services/lspClient';
 import { replaceLocalChanges } from './workspaceScm';
-import logger, { formatPii, PiiRedactionType } from '../services/logger';
+import logger, { formatPii, PiiRedactionType, stripPiiTags } from '../services/logger';
 
 let treeDataProvider: knowledgeTreeDataProvider | undefined;
 
@@ -385,7 +385,7 @@ async function confirmLocalChangeReplacement(reason: string): Promise<boolean> {
   const replace = 'Replace local changes';
 
   const choice = await vscode.window.showWarningMessage(
-    reason,
+    stripPiiTags(reason),
     { modal: true, detail: 'Getting the cloud copy discards these local changes. Apply them first to keep them.' },
     replace);
 

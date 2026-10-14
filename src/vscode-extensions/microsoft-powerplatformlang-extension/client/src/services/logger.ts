@@ -269,6 +269,8 @@ const stripPiiTags = (value: string): string =>
       encoded ? decodePiiValue(piiValue) : piiValue,
   );
 
+export { stripPiiTags };
+
 /**
  * Redacts PII from a telemetry value. Two-step process:
  * 1. Replaces explicit <pii type="TYPE">...</pii> tags with [REDACTED TYPE]

@@ -859,12 +859,36 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         return WorkflowReadColumns.Any(column => string.Equals(column, columnName, StringComparison.OrdinalIgnoreCase)) ? columnName : null;
     }
 
+    /// <summary>
+    /// Returns the URL to send to, refusing any that does not address the environment currently in
+    /// use. Every request carries a bearer token for that environment, and paging follows the
+    /// continuation the service returns, so a continuation naming another origin would hand the
+    /// token to it.
+    /// </summary>
+    /// <param name="requestUrl">The URL a request or a continuation named.</param>
+    /// <returns>The same URL, once it is known to address the environment in use.</returns>
+    private Uri RequireDataverseOrigin(string requestUrl)
+    {
+        if (!Uri.TryCreate(requestUrl, UriKind.Absolute, out var requested)
+            || !Uri.TryCreate(DataverseUrl, UriKind.Absolute, out var environment)
+            || !string.Equals(requested.Scheme, environment.Scheme, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(requested.Host, environment.Host, StringComparison.OrdinalIgnoreCase)
+            || requested.Port != environment.Port)
+        {
+            throw new DataverseRequestException(
+                System.Net.HttpStatusCode.BadGateway,
+                "The service asked for a page outside the environment being used. The request was not sent, because sending it would disclose this environment's access token.");
+        }
+
+        return requested;
+    }
+
     private async Task<T?> SendAsync<T>(HttpMethod httpMethod, string requestUrl, object? requestBody, bool expectReturn, CancellationToken cancellationToken)
     {
         // Auth is handled by the DataverseHttpClientAccessor's AuthenticatedHttpClientHandler.
         // The accessor owns HttpClient lifetime — callers must not dispose.
         var httpClient = _httpClientAccessor.CreateClient();
-        using var requestMessage = new HttpRequestMessage(httpMethod, requestUrl);
+        using var requestMessage = new HttpRequestMessage(httpMethod, RequireDataverseOrigin(requestUrl));
         requestMessage.Headers.Add("OData-MaxVersion", "4.0");
         requestMessage.Headers.Add("OData-Version", "4.0");
         requestMessage.Headers.UserAgent.ParseAdd(_userAgent);
@@ -1239,7 +1263,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
 
     private async Task DownloadKnowledgeFileCoreAsync(Func<CancellationToken, Task<Stream>> destinationFactory, bool disposeDestination, BotComponentId botComponentId, CancellationToken cancellationToken)
     {
-        var requestUri = new Uri(new Uri(DataverseUrl), $"/api/data/v9.2/botcomponents({botComponentId})/filedata/$value");
+        var requestUri = RequireDataverseOrigin(new Uri(new Uri(DataverseUrl), $"/api/data/v9.2/botcomponents({botComponentId})/filedata/$value").ToString());
 
         var httpClient = _httpClientAccessor.CreateClient();
 
@@ -1308,7 +1332,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
 
     public async Task UploadKnowledgeFileAsync(Stream content, Guid botComponentId, string fileName, CancellationToken cancellationToken = default)
     {
-        var requestUri = new Uri(new Uri(DataverseUrl), $"/api/data/v9.2/botcomponents({botComponentId})/filedata/");
+        var requestUri = RequireDataverseOrigin(new Uri(new Uri(DataverseUrl), $"/api/data/v9.2/botcomponents({botComponentId})/filedata/").ToString());
         var httpClient = _httpClientAccessor.CreateClient();
 
         using var request = new HttpRequestMessage(HttpMethodHelper.Patch, requestUri)
