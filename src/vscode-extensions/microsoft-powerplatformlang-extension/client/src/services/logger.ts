@@ -35,6 +35,8 @@ export enum PiiRedactionType {
   AccountIdentifier = 'ACCOUNT IDENTIFIER',
   AgentName = 'AGENT NAME',
   EmailAddress = 'EMAIL ADDRESS',
+  EnvironmentId = 'ENVIRONMENT ID',
+  EnvironmentName = 'ENVIRONMENT NAME',
   FileUri = 'FILE URI',
   Url = 'URL',
   AiBuilderPromptDetails = 'AI BUILDER PROMPT DETAILS',
@@ -82,6 +84,14 @@ function fileExtensionLabel(filePath: string): string {
  */
 export function formatFileName(filePath: string): string {
   return formatPii(filePath, fileExtensionLabel(filePath));
+}
+
+/**
+ * Wraps a Dataverse environment identifier so telemetry shows only a redaction
+ * marker, while the output channel still shows the identifier for diagnostics.
+ */
+export function formatEnvironmentId(environmentId: string): string {
+  return formatPii(environmentId, PiiRedactionType.EnvironmentId);
 }
 
 function collectMatches(
@@ -135,7 +145,44 @@ function collectFileMatches(
   return matches;
 }
 
-export function sanitizeErrorDetails(errorMessage: string, agentNames: readonly string[] = []): string {
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Builds the pattern that redacts one known name, tolerating the separators a
+ * transformed form drops or replaces. "My Flow" therefore also matches the folder
+ * name "MyFlow-<id>" a server failure echoes back, and "My-Flow" or "My_Flow".
+ */
+function nameVariantPattern(name: string): RegExp {
+  const tokens = name.match(/[\p{L}\p{N}]+/gu) ?? [];
+  const body = tokens.length > 0
+    ? tokens.map(escapeRegExp).join('[^\\p{L}\\p{N}]*')
+    : escapeRegExp(name);
+
+  return new RegExp(`(?<![\\p{L}\\p{N}])${body}(?![\\p{L}\\p{N}])`, 'giu');
+}
+
+/**
+ * A set of known values to redact under one telemetry label.
+ */
+export interface PiiNameGroup {
+  values: readonly string[];
+  type: PiiRedactionType | string;
+}
+
+function collectNameMatches(value: string, group: PiiNameGroup): PiiMatch[] {
+  const matches: PiiMatch[] = [];
+  for (const name of group.values.filter(candidate => candidate.length > 0)) {
+    matches.push(...collectMatches(value, nameVariantPattern(name), group.type, 2));
+  }
+  return matches;
+}
+
+export function sanitizeErrorDetails(
+  errorMessage: string,
+  names: readonly string[] = [],
+  nameType: PiiRedactionType | string = PiiRedactionType.AgentName,
+  additionalNames: readonly PiiNameGroup[] = [],
+): string {
   const matches: PiiMatch[] = [
     // Full URL (scheme://host/path...). Matched first and whole so a tenant or
     // Dataverse endpoint is redacted as a URL rather than being partially
@@ -188,18 +235,8 @@ export function sanitizeErrorDetails(errorMessage: string, agentNames: readonly 
     ),
   ];
 
-  for (const agentName of agentNames.filter(name => name.length > 0)) {
-    const escapedAgentName = agentName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const agentNamePattern = new RegExp(
-      `(?<![\\p{L}\\p{N}])${escapedAgentName}(?![\\p{L}\\p{N}])`,
-      'giu',
-    );
-    matches.push(...collectMatches(
-      errorMessage,
-      agentNamePattern,
-      PiiRedactionType.AgentName,
-      2,
-    ));
+  for (const group of [{ values: names, type: nameType }, ...additionalNames]) {
+    matches.push(...collectNameMatches(errorMessage, group));
   }
 
   matches.sort((left, right) =>
@@ -231,6 +268,8 @@ const stripPiiTags = (value: string): string =>
     (_match, _type: string | undefined, encoded: string | undefined, piiValue: string) =>
       encoded ? decodePiiValue(piiValue) : piiValue,
   );
+
+export { stripPiiTags };
 
 /**
  * Redacts PII from a telemetry value. Two-step process:

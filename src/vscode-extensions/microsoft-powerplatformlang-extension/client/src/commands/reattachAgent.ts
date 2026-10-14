@@ -13,6 +13,7 @@ import {
   CopilotStudioWorkspace,
   getAllWorkspaces,
   getWorkspaceKindLabel,
+  getWorkspaceKindTitle,
   hasConnectionFileInWorkspace,
   WorkspaceType,
 } from '../sync/localWorkspaces';
@@ -613,10 +614,7 @@ const buildSuccessMessage = (
   connectionSummary: ReattachConnectionSummary
 ): string => {
   const operationVerb = primaryWorkspaceResult.wasRetarget ? 'retargeted' : 'reattached';
-  const workspaceKind =
-    primaryWorkspaceResult.workspace.type === WorkspaceType.ComponentCollection
-      ? 'Component collection'
-      : 'Agent';
+  const workspaceKind = getWorkspaceKindTitle(primaryWorkspaceResult.workspace);
   const workspaceDisplayName = formatPii(
     primaryWorkspaceResult.workspace.displayName,
     PiiRedactionType.AgentName

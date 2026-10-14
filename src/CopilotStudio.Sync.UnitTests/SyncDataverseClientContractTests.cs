@@ -85,6 +85,27 @@ public class SyncDataverseClientContractTests
     }
 
     [Fact]
+    public void TheStandaloneClientSharesTheReusableContracts()
+    {
+        var contract = typeof(IStandaloneWorkflowDataverseClient).GetInterfaces();
+
+        Assert.Contains(typeof(IConnectionReferenceOperations), contract);
+        Assert.Contains(typeof(IWorkflowStateOperations), contract);
+    }
+
+    [Fact]
+    public void TheStandaloneClientRedeclaresNothingTheSharedContractsAlreadyCarry()
+    {
+        var shared = typeof(IConnectionReferenceOperations).GetMethods()
+            .Concat(typeof(IDataverseEnvironmentTarget).GetMethods())
+            .Concat(typeof(IWorkflowStateOperations).GetMethods())
+            .Select(method => method.Name)
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.Empty(typeof(IStandaloneWorkflowDataverseClient).GetMethods().Select(method => method.Name).Where(shared.Contains));
+    }
+
+    [Fact]
     public void AnImplementationOfTheShippedShapeStillSatisfiesTheInterface() =>
         Assert.IsAssignableFrom<ISyncDataverseClient>(new BaselineSyncDataverseClient());
 

@@ -28,6 +28,10 @@ export const LspMethods = {
   REMOVE_CONNECTION_REFERENCE: "powerplatformls/removeConnectionReference",
   LIST_CONNECTORS: "powerplatformls/listConnectors",
   CREATE_CONNECTION_REFERENCE: "powerplatformls/createConnectionReference",
+  LIST_STANDALONE_WORKFLOWS: "powerplatformls/listStandaloneWorkflows",
+  CLONE_STANDALONE_WORKFLOW: "powerplatformls/cloneStandaloneWorkflow",
+  CREATE_STANDALONE_WORKFLOW: "powerplatformls/createStandaloneWorkflow",
+  DELETE_STANDALONE_WORKFLOW: "powerplatformls/deleteStandaloneWorkflow",
 } as const;
 
 export enum CoreServicesClusterCategory {
@@ -100,6 +104,8 @@ export const TelemetryEventsKeys = {
   LoadEnvironmentSuccess: "LoadEnvironmentSuccess",
   LoadAgentsSuccess: "LoadAgentsSuccess",
   LoadAgentsError: "LoadAgentsError",
+  LoadStandaloneWorkflowsSuccess: "LoadStandaloneWorkflowsSuccess",
+  LoadStandaloneWorkflowsError: "LoadStandaloneWorkflowsError",
   WorkflowFocusNodeError: "WorkflowFocusNodeError",
   WorkflowEditEmbeddedJsonError: "WorkflowEditEmbeddedJsonError",
   WorkflowVisualizeClick: "WorkflowVisualizeClick",

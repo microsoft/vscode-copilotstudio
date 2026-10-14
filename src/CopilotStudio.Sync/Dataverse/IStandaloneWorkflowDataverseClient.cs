@@ -3,14 +3,8 @@
 namespace Microsoft.CopilotStudio.Sync.Dataverse;
 
 /// <summary>Reads and writes workflows that belong to no agent.</summary>
-public interface IStandaloneWorkflowDataverseClient
+public interface IStandaloneWorkflowDataverseClient : IConnectionReferenceOperations, IWorkflowStateOperations
 {
-    /// <summary>Sets the environment every later call targets.</summary>
-    /// <param name="dataverseUrl">The environment's Dataverse endpoint.</param>
-#pragma warning disable CA1054 // URI parameter is used as string prefix for request URL construction
-    void SetDataverseUrl(string dataverseUrl);
-#pragma warning restore CA1054
-
     /// <summary>Inserts a workflow the environment owns without an agent of its own.</summary>
     /// <param name="workflowMetadata">The workflow to write.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
@@ -41,23 +35,4 @@ public interface IStandaloneWorkflowDataverseClient
     /// <param name="cancellationToken">Cancels the write.</param>
     /// <returns>The outcome, carrying a message when the write failed.</returns>
     Task<WorkflowResponse> UpdateWorkflowDefinitionAsync(SyncDataverseClient.WorkflowMetadata? workflowMetadata, CancellationToken cancellationToken);
-
-    /// <summary>Starts or stops a workflow.</summary>
-    /// <param name="workflowId">The workflow whose state changes.</param>
-    /// <param name="activate">Whether the workflow should run.</param>
-    /// <param name="cancellationToken">Cancels the write.</param>
-    Task SetWorkflowStateAsync(Guid workflowId, bool activate, CancellationToken cancellationToken);
-
-    /// <summary>Creates a connection reference when the environment does not already hold one.</summary>
-    /// <param name="connectionReferenceLogicalName">The connection reference to create.</param>
-    /// <param name="connectorId">The connector the reference targets.</param>
-    /// <param name="cancellationToken">Cancels the write.</param>
-    /// <param name="customConnectorRowId">The custom connector row the reference targets, when it is not a first-party connector.</param>
-    Task EnsureConnectionReferenceExistsAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken, Guid? customConnectorRowId = null);
-
-    /// <summary>Reads connection references by logical name, skipping any the environment does not hold.</summary>
-    /// <param name="logicalNames">The connection references to read.</param>
-    /// <param name="cancellationToken">Cancels the request.</param>
-    /// <returns>The references the environment holds, with the connection each is bound to.</returns>
-    Task<SyncDataverseClient.ConnectionReferenceInfo[]> GetConnectionReferencesByLogicalNamesAsync(IEnumerable<string> logicalNames, CancellationToken cancellationToken);
 }

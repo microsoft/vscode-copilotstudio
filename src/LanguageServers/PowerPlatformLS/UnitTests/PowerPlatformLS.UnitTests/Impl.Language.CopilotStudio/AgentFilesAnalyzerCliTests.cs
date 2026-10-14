@@ -5,8 +5,10 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
     using Microsoft.Extensions.FileProviders;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Utilities;
+    using Microsoft.CopilotStudio.Sync;
     using Moq;
     using System;
+    using System.IO;
     using System.Linq;
     using Xunit;
 
@@ -38,6 +40,43 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
             var analyzer = new AgentFilesAnalyzer(FileProviderWith(), Mock.Of<ILspLogger>());
 
             Assert.False(analyzer.IsStrictAgentDirectory(new DirectoryPath("c:/agent")));
+        }
+
+        [Fact]
+        public void IsStrictAgentDirectory_ScaffoldedStandaloneWorkflowProject_ReturnsTrue()
+        {
+            var root = Path.Combine(Path.GetTempPath(), $"workflow-project-{Guid.NewGuid()}");
+
+            try
+            {
+                var project = WorkflowScaffolder.ScaffoldProject(root, "My Flow", Guid.NewGuid());
+                var analyzer = new AgentFilesAnalyzer(RealFileProvider(), Mock.Of<ILspLogger>());
+
+                Assert.True(analyzer.IsStrictAgentDirectory(new DirectoryPath(project.ProjectRoot.Replace('\\', '/'))));
+                Assert.False(analyzer.IsStrictAgentDirectory(new DirectoryPath(root.Replace('\\', '/'))));
+            }
+            finally
+            {
+                if (Directory.Exists(root))
+                {
+                    Directory.Delete(root, true);
+                }
+            }
+        }
+
+        private static IClientWorkspaceFileProvider RealFileProvider()
+        {
+            var mock = new Mock<IClientWorkspaceFileProvider>();
+            mock
+                .Setup(p => p.GetFileInfo(It.IsAny<FilePath>()))
+                .Returns((FilePath p) =>
+                {
+                    var info = new Mock<IFileInfo>();
+                    info.SetupGet(f => f.Exists).Returns(File.Exists(p.ToString()));
+                    return info.Object;
+                });
+
+            return mock.Object;
         }
 
         // File provider where only the given relative file names "exist" (Exists == true). The

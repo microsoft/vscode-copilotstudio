@@ -177,8 +177,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             var logger = new Mock<ILspLogger>(MockBehavior.Strict);
             var httpAccessor = new LspDataverseHttpClientAccessor(Mock.Of<ISyncAuthProvider>());
             SyncHandler handler = push
-                ? new SyncPushHandler(island.Object, sync.Object, new TestTokenManager(), dataverse.Object, httpAccessor, operationProvider.Object, logger.Object)
-                : new SyncPullHandler(island.Object, sync.Object, new TestTokenManager(), dataverse.Object, httpAccessor, operationProvider.Object, world.GetRequiredService<IClientWorkspaceFileProvider>(), logger.Object);
+                ? new SyncPushHandler(island.Object, sync.Object, new TestTokenManager(), dataverse.Object, httpAccessor, operationProvider.Object, Mock.Of<IStandaloneWorkflowSynchronizer>(), new Microsoft.CopilotStudio.McsCore.FileAccessorFactory(), logger.Object)
+                : new SyncPullHandler(island.Object, sync.Object, new TestTokenManager(), dataverse.Object, httpAccessor, operationProvider.Object, Mock.Of<IStandaloneWorkflowSynchronizer>(), new Microsoft.CopilotStudio.McsCore.FileAccessorFactory(), world.GetRequiredService<IClientWorkspaceFileProvider>(), logger.Object);
 
             var request = new SyncAgentRequest
             {

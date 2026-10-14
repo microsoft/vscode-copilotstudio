@@ -25,6 +25,28 @@ public class WorkflowActivationPlannerTests
     private static ConnectionReferenceInfo Reference(string logicalName, string connectionId) =>
         new() { ConnectionReferenceLogicalName = logicalName, ConnectorId = "shared_x", ConnectionId = connectionId };
 
+    [Theory]
+    [InlineData("ConnectionAuthorizationFailed")]
+    [InlineData("Connection 'new_x' cannot be used to activate this flow")]
+    [InlineData("either because this is not a valid connection or because")]
+    [InlineData("Cannot find connection with name 9b64584bfc5f")]
+    public void IsConnectionAuthorizationFailure_RecognizesEveryWayTheEnvironmentRefusesAConnection(string failure)
+    {
+        Assert.True(WorkflowActivationPlanner.IsConnectionAuthorizationFailure(failure));
+        Assert.True(WorkflowActivationPlanner.IsConnectionAuthorizationFailure(new InvalidOperationException(failure)));
+        Assert.True(WorkflowActivationPlanner.IsConnectionAuthorizationFailure(new InvalidOperationException("outer", new InvalidOperationException(failure))));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("The user does not have permission to publish this flow.")]
+    public void IsConnectionAuthorizationFailure_LeavesUnrelatedFailuresAlone(string? failure)
+    {
+        Assert.False(WorkflowActivationPlanner.IsConnectionAuthorizationFailure(failure));
+        Assert.False(WorkflowActivationPlanner.IsConnectionAuthorizationFailure(failure is null ? null : new InvalidOperationException(failure)));
+    }
+
     [Fact]
     public async Task DraftUnboundActivationsAsync_WhenAReferenceHasNoConnection_DraftsTheWorkflow()
     {
@@ -363,7 +385,7 @@ public class WorkflowActivationPlannerTests
     }
 
     [Fact]
-    public async Task DraftUnboundActivationsAsync_ReadsTheSameReferencesThroughEitherContract()
+    public async Task DraftStandaloneUnboundActivationsAsync_ReadsTheSameReferencesThroughEitherContract()
     {
         var throughSync = Workflow(1, "new_weather");
         var throughStandalone = Workflow(1, "new_weather");
@@ -379,10 +401,10 @@ public class WorkflowActivationPlannerTests
     }
 
     [Fact]
-    public async Task DraftUnboundActivationsAsync_AcceptsAConcreteClientWithoutACast()
+    public async Task DraftStandaloneUnboundActivationsAsync_AcceptsAConcreteClientWithoutACast()
     {
         var client = new SyncDataverseClient(Mock.Of<Microsoft.Agents.Platform.Content.Abstractions.IDataverseHttpClientAccessor>());
 
-        Assert.Empty(await WorkflowActivationPlanner.DraftUnboundActivationsAsync([Workflow(1)], client, CancellationToken.None));
+        Assert.Empty(await WorkflowActivationPlanner.DraftStandaloneUnboundActivationsAsync([Workflow(1)], client, CancellationToken.None));
     }
 }

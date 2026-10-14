@@ -6,9 +6,9 @@ import { uploadKnowledgeFiles } from '../knowledgeFiles/uploadKnowledgeFiles';
 import { virtualKnowledgeFileSystemProvider } from '../knowledgeFiles/virtualKnowledgeFile';
 import { knowledgeTreeDataProvider } from '../knowledgeFiles/knowledgeFileTree';
 import { LspMethods, TelemetryEventsKeys } from '../constants';
-import { lspClient, buildLspRequestPayload } from '../services/lspClient';
+import { lspClient, buildLspRequestPayload, LspRequestError, LSP_UNPUSHED_LOCAL_CHANGES } from '../services/lspClient';
 import { replaceLocalChanges } from './workspaceScm';
-import logger, { formatPii, PiiRedactionType } from '../services/logger';
+import logger, { formatPii, PiiRedactionType, stripPiiTags } from '../services/logger';
 
 let treeDataProvider: knowledgeTreeDataProvider | undefined;
 
@@ -232,7 +232,7 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
   };
 }
 
-export async function sync(workspace: CopilotStudioWorkspace, displayText: string, methodName: string, silent: boolean, suppressErrorNotification = false, suppressSuccessNotification = false, suppressDisabledWorkflowWarnings = false, draftConnectionReferenceWorkflows = false, retryOnUserNotMember = true, accountOverride?: Partial<AccountInfo>): Promise<SyncResponse> {
+export async function sync(workspace: CopilotStudioWorkspace, displayText: string, methodName: string, silent: boolean, suppressErrorNotification = false, suppressSuccessNotification = false, suppressDisabledWorkflowWarnings = false, draftConnectionReferenceWorkflows = false, retryOnUserNotMember = true, accountOverride?: Partial<AccountInfo>, overwriteLocalChanges = false): Promise<SyncResponse> {
   const { workspaceUri } = workspace;
   if (!workspace.syncInfo) {
     throw new Error(`${displayText} failed. Connection file .mcs::conn.json is missing, please clone again.`);
@@ -310,6 +310,7 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
     ...await buildLspRequestPayload(requestSyncInfo, undefined, undefined, true),
     workspaceUri,
     draftConnectionReferenceWorkflows,
+    overwriteLocalChanges,
   };
 
   try {
@@ -333,6 +334,15 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
     return result;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
+    if (!overwriteLocalChanges && holdsUnpushedLocalChanges(error)) {
+      if (await confirmLocalChangeReplacement(errorMessage)) {
+        return await sync(workspace, displayText, methodName, silent, suppressErrorNotification, suppressSuccessNotification, suppressDisabledWorkflowWarnings, draftConnectionReferenceWorkflows, retryOnUserNotMember, accountOverride, true);
+      }
+
+      logger.logWarning(TelemetryEventsKeys.SyncWorkspaceWarning, `${displayText} was cancelled to keep local changes.`);
+      throw error;
+    }
+
     if (retryOnUserNotMember && errorMessage.includes("UserNotMemberOfOrg")) {
       const accountIdentifier = `(${request.accountInfo.accountEmail ?? request.accountInfo.accountId})`;
       const permissionMessage = `Your current account does not have permission. Please sign in with the account ${formatPii(accountIdentifier, PiiRedactionType.AccountIdentifier)} to perform this operation.`;
@@ -362,8 +372,27 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
   }
 }
 
-export function logSyncConflicts(message: string | undefined): boolean {
-  if (!message) {
+/**
+ * Whether the server refused an operation because the workspace holds a workflow edit the
+ * environment has not seen.
+ */
+export function holdsUnpushedLocalChanges(error: unknown): boolean {
+  return error instanceof LspRequestError && error.code === LSP_UNPUSHED_LOCAL_CHANGES;
+}
+
+/** Asks whether the unpushed local workflow edits the server named may be replaced. */
+async function confirmLocalChangeReplacement(reason: string): Promise<boolean> {
+  const replace = 'Replace local changes';
+
+  const choice = await vscode.window.showWarningMessage(
+    stripPiiTags(reason),
+    { modal: true, detail: 'Getting the cloud copy discards these local changes. Apply them first to keep them.' },
+    replace);
+
+  return choice === replace;
+}
+
+export function logSyncConflicts(message: string | undefined): boolean {  if (!message) {
     return false;
   }
 

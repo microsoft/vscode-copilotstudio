@@ -1,10 +1,12 @@
 namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
 {
     using Microsoft.CopilotStudio.Sync;
+    using Microsoft.CopilotStudio.Sync.Dataverse;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Impl.PullAgent;
     using Microsoft.PowerPlatformLS.Impl.Core.Lsp;
     using Microsoft.PowerPlatformLS.UnitTests.TestUtilities;
+    using Moq;
     using System;
     using System.IO;
     using System.Linq;
@@ -12,6 +14,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
     using System.Net.Http;
     using System.Reflection;
     using System.Threading;
+    using System.Threading.Tasks;
     using Xunit;
 
     [Collection("LoggingTestsCollection")]
@@ -299,6 +302,114 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
             var errorLog = Assert.Single(_testLogger.Error);
             Assert.Contains("NullReferenceException", errorLog);
             Assert.Contains("oops", errorLog);
+        }
+
+        [Fact]
+        public void Handle_AProjectHoldingUnpushedChanges_TagsTheFolderTheServiceDerived()
+        {
+            var root = NewRoot();
+
+            try
+            {
+                WorkflowScaffolder.ScaffoldProject(root, "My Flow", Guid.NewGuid());
+
+                var workflowId = WorkflowWorkspace.FindAll(Path.Combine(root, "MyFlow")).Single().WorkflowId;
+                var failure = Assert.Throws<StandaloneWorkflowException>(() => WorkflowWorkspace.ResolveProjectFolder(root, "My Flow", workflowId));
+
+                var (code, message) = LspExceptionHandler.Handle(failure, _logger);
+
+                Assert.Equal(409, code);
+                Assert.Contains("<pii type=\"WORKFLOW NAMES\" encoded=\"true\">MyFlow</pii>", message, StringComparison.Ordinal);
+                Assert.Empty(_testLogger.Error);
+            }
+            finally
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+
+        [Fact]
+        public async Task Handle_AMissingSourceWorkflow_TagsTheEnvironmentButNotTheWorkflowIdentifier()
+        {
+            var workflowId = Guid.NewGuid();
+            var client = new Mock<IStandaloneWorkflowDataverseClient>();
+
+            client
+                .Setup(dataverse => dataverse.GetWorkflowAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync((SyncDataverseClient.WorkflowMetadata?)null);
+
+            var workspace = new Microsoft.CopilotStudio.McsCore.InMemoryFileAccessorFactory().Create(new Microsoft.CopilotStudio.McsCore.DirectoryPath("workspace"));
+
+            var failure = await Assert.ThrowsAsync<StandaloneWorkflowException>(
+                () => new StandaloneWorkflowSynchronizer(client.Object).DownloadAsync(workflowId, workspace, "env-contoso", CancellationToken.None));
+
+            var (_, message) = LspExceptionHandler.Handle(failure, _logger);
+
+            Assert.Contains("<pii type=\"ENVIRONMENT ID\" encoded=\"true\">env-contoso</pii>", message, StringComparison.Ordinal);
+            Assert.Contains(workflowId.ToString(), message, StringComparison.Ordinal);
+            Assert.DoesNotContain($"\">{workflowId}</pii>", message, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void Handle_AStandaloneWorkflowFailureCarryingNoDerivedNames_IsLeftAlone()
+        {
+            var failure = new StandaloneWorkflowException(StandaloneWorkflowFailure.PushFailed, "The service refused the workflow.");
+
+            var (code, message) = LspExceptionHandler.Handle(failure, _logger);
+
+            Assert.Equal(500, code);
+            Assert.Equal("The service refused the workflow.", message);
+        }
+
+        [Fact]
+        public async Task Handle_AnUnpushedChangeRefusal_TagsTheFolderBeforeAnyLoggingBoundarySeesIt()
+        {
+            var workflowId = Guid.NewGuid();
+            var folderName = $"PayrollApprovals-{workflowId}";
+            var workspace = new Microsoft.CopilotStudio.McsCore.InMemoryFileAccessorFactory().Create(new Microsoft.CopilotStudio.McsCore.DirectoryPath("workspace"));
+
+            WriteWorkspaceFile(workspace, $"workflows/{folderName}/workflow.json", "{\"properties\":{\"from\":\"local\"}}");
+            WriteWorkspaceFile(workspace, $"workflows/{folderName}/metadata.yml", $"workflowId: {workflowId}\nname: Payroll Approvals\nstateCode: 0\nstatusCode: 1\n");
+
+            var client = new Mock<IStandaloneWorkflowDataverseClient>();
+
+            client
+                .Setup(dataverse => dataverse.GetWorkflowAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new SyncDataverseClient.WorkflowMetadata
+                {
+                    WorkflowId = workflowId,
+                    Name = "Payroll Approvals",
+                    StateCode = 0,
+                    StatusCode = 1,
+                    ClientData = "{\"properties\":{\"from\":\"cloud\"}}",
+                });
+
+            var failure = await Assert.ThrowsAsync<StandaloneWorkflowException>(
+                () => new StandaloneWorkflowSynchronizer(client.Object).PullAsync(workflowId, workspace, CancellationToken.None));
+
+            var (code, message) = LspExceptionHandler.Handle(failure, _logger);
+
+            Assert.Equal(409, code);
+            Assert.Contains($"<pii type=\"WORKFLOW NAMES\" encoded=\"true\">{folderName}</pii>", message, StringComparison.Ordinal);
+            Assert.DoesNotContain($"'{folderName}'", message, StringComparison.Ordinal);
+            Assert.Empty(_testLogger.Error);
+        }
+
+        private static void WriteWorkspaceFile(Microsoft.CopilotStudio.McsCore.IFileAccessor workspace, string path, string content)
+        {
+            using var stream = workspace.OpenWrite(new Microsoft.CopilotStudio.McsCore.AgentFilePath(path));
+            using var writer = new StreamWriter(stream, new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+            writer.Write(content);
+        }
+
+        private static string NewRoot()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "mcs-lsp-pii-" + Guid.NewGuid().ToString("N"));
+
+            Directory.CreateDirectory(root);
+
+            return root;
         }
 
         private static void ResetLspLoggerState()

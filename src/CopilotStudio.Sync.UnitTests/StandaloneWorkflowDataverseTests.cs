@@ -55,6 +55,76 @@ public class StandaloneWorkflowDataverseTests
     }
 
     [Fact]
+    public async Task ListWorkflowsAsync_FollowsAContinuationInsideTheEnvironment()
+    {
+        var pages = new Queue<string>(new[]
+        {
+            $"{{\"value\":[{{\"workflowid\":\"{Guid.NewGuid()}\",\"name\":\"First\"}}],\"@odata.nextLink\":\"{DataverseUrl}/api/data/v9.2/workflows?$skiptoken=next\"}}",
+            $"{{\"value\":[{{\"workflowid\":\"{Guid.NewGuid()}\",\"name\":\"Second\"}}]}}",
+        });
+
+        var (client, handler) = Create(_ => Json(pages.Dequeue()));
+
+        var summaries = await client.ListWorkflowsAsync(null, null, CancellationToken.None);
+
+        Assert.Equal(2, summaries.Length);
+        Assert.Equal(2, handler.Exchanges.Count);
+    }
+
+    [Theory]
+    [InlineData("https://attacker.example.com/api/data/v9.2/workflows?$skiptoken=next")]
+    [InlineData("https://test.crm.dynamics.com.attacker.example.com/api/data/v9.2/workflows")]
+    [InlineData("http://test.crm.dynamics.com/api/data/v9.2/workflows")]
+    [InlineData("https://test.crm.dynamics.com:8443/api/data/v9.2/workflows")]
+    [InlineData("/api/data/v9.2/workflows?$skiptoken=next")]
+    public async Task ListWorkflowsAsync_RefusesAContinuationOutsideTheEnvironment(string nextLink)
+    {
+        var pages = new Queue<string>(new[]
+        {
+            $"{{\"value\":[{{\"workflowid\":\"{Guid.NewGuid()}\",\"name\":\"First\"}}],\"@odata.nextLink\":\"{nextLink}\"}}",
+            "{\"value\":[]}",
+        });
+
+        var (client, handler) = Create(_ => Json(pages.Dequeue()));
+
+        await Assert.ThrowsAsync<DataverseRequestException>(() => client.ListWorkflowsAsync(null, null, CancellationToken.None));
+
+        Assert.Single(handler.Exchanges);
+    }
+
+    [Fact]
+    public async Task ARefusedContinuation_NeverReachesTheOtherOrigin()
+    {
+        var pages = new Queue<string>(new[]
+        {
+            $"{{\"value\":[{{\"workflowid\":\"{Guid.NewGuid()}\",\"name\":\"First\"}}],\"@odata.nextLink\":\"https://attacker.example.com/steal\"}}",
+            "{\"value\":[]}",
+        });
+
+        var (client, handler) = Create(_ => Json(pages.Dequeue()));
+
+        await Assert.ThrowsAsync<DataverseRequestException>(() => client.ListWorkflowsAsync(null, null, CancellationToken.None));
+
+        Assert.DoesNotContain(handler.Exchanges, exchange => exchange.Url.Contains("attacker.example.com", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task AContinuationDifferingOnlyInHostCasing_IsStillFollowed()
+    {
+        var pages = new Queue<string>(new[]
+        {
+            $"{{\"value\":[{{\"workflowid\":\"{Guid.NewGuid()}\",\"name\":\"First\"}}],\"@odata.nextLink\":\"https://TEST.CRM.DYNAMICS.COM/api/data/v9.2/workflows?$skiptoken=next\"}}",
+            "{\"value\":[]}",
+        });
+
+        var (client, handler) = Create(_ => Json(pages.Dequeue()));
+
+        await client.ListWorkflowsAsync(null, null, CancellationToken.None);
+
+        Assert.Equal(2, handler.Exchanges.Count);
+    }
+
+    [Fact]
     public async Task InsertWorkflowAsync_CreatesTheWorkflow()
     {
         var workflowId = Guid.NewGuid();

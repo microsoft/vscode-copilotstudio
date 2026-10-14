@@ -3,6 +3,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.Agents.ObjectModel;
     using Microsoft.Agents.Platform.Content;
     using Microsoft.CommonLanguageServerProtocol.Framework;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.CopilotStudio.Sync.Dataverse;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
@@ -25,6 +26,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         protected readonly CopilotStudio.Sync.IWorkspaceSynchronizer _synchronizer;
         private readonly ISyncDataverseClient _dataverseClient;
         private readonly LspDataverseHttpClientAccessor _dataverseHttpClientAccessor;
+        private readonly IFileAccessorFactory _fileAccessorFactory;
 
         protected SyncHandler(
             CopilotStudio.Sync.IIslandControlPlaneService islandControlPlaneService,
@@ -33,6 +35,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             ISyncDataverseClient dataverseClient,
             LspDataverseHttpClientAccessor dataverseHttpClientAccessor,
             CopilotStudio.Sync.IOperationContextProvider operationContextProvider,
+            IStandaloneWorkflowSynchronizer standaloneSynchronizer,
+            IFileAccessorFactory fileAccessorFactory,
             ILspLogger logger)
         {
             _islandControlPlaneService = islandControlPlaneService;
@@ -42,9 +46,13 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _dataverseClient = dataverseClient ?? throw new ArgumentNullException(nameof(dataverseClient));
             _dataverseHttpClientAccessor = dataverseHttpClientAccessor ?? throw new ArgumentNullException(nameof(dataverseHttpClientAccessor));
+            StandaloneSynchronizer = standaloneSynchronizer ?? throw new ArgumentNullException(nameof(standaloneSynchronizer));
+            _fileAccessorFactory = fileAccessorFactory ?? throw new ArgumentNullException(nameof(fileAccessorFactory));
         }
 
         public bool MutatesSolutionState => true;
+
+        protected IStandaloneWorkflowSynchronizer StandaloneSynchronizer { get; }
 
         public async Task<SyncAgentResponse> HandleRequestAsync(SyncAgentRequest request, RequestContext context, CancellationToken cancellationToken)
         {
@@ -57,6 +65,13 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 }
 
                 await ConnectionHelper.ApplyConnectionContext(_islandControlPlaneService, _dataverseTokenManager, _dataverseHttpClientAccessor, _dataverseClient, request, _synchronizer, workspace);
+
+                var fileAccessor = _fileAccessorFactory.Create(workspace.FolderPath);
+
+                if (WorkspaceClassifier.DetectKind(fileAccessor) == WorkspaceKind.StandaloneWorkflow)
+                {
+                    return await ExecuteStandaloneAsync(request, workspace, fileAccessor, cancellationToken).ConfigureAwait(false);
+                }
 
                 var persistedSyncInfo = await _synchronizer.GetSyncInfoAsync(workspace.FolderPath);
                 var syncInfo = BuildEffectiveSyncInfo(persistedSyncInfo, request);
@@ -100,6 +115,26 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
         /// <summary>True for operations that must refuse a workspace whose files still report errors.</summary>
         protected virtual bool BlocksOnUnreadableDocuments => false;
+
+        private async Task<SyncAgentResponse> ExecuteStandaloneAsync(SyncAgentRequest request, IMcsWorkspace workspace, IFileAccessor fileAccessor, CancellationToken cancellationToken)
+        {
+            var warning = await ExecuteStandaloneAsync(request, fileAccessor, cancellationToken).ConfigureAwait(false);
+            var (_, localChanges) = await _synchronizer.GetLocalChangesAsync(workspace.FolderPath, workspace.Definition, cancellationToken);
+
+            return new SyncAgentResponse
+            {
+                Code = 200,
+                Message = warning,
+                LocalChanges = LocalChangeDisplay.ForWorkspace(workspace, localChanges),
+            };
+        }
+
+        /// <summary>Runs this operation against a workspace that holds workflows and no agent.</summary>
+        /// <param name="request">The sync request being served.</param>
+        /// <param name="fileAccessor">The workflow workspace.</param>
+        /// <param name="cancellationToken">Cancels the operation.</param>
+        /// <returns>A warning to report, or an empty string.</returns>
+        protected abstract Task<string> ExecuteStandaloneAsync(SyncAgentRequest request, IFileAccessor fileAccessor, CancellationToken cancellationToken);
 
         /// <summary>Throws when any tracked document is unreadable in a way that silently loses content, naming each offending file.</summary>
         internal static void ThrowIfWorkspaceUnreadable(IMcsWorkspace workspace)

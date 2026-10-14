@@ -457,6 +457,109 @@ public class ConnectionManagementTests
     }
 
     [Fact]
+    public async Task GetAgentConnectionViewsAsync_StandaloneWorkflowWorkspace_ReadsItsLayeredDeclarations()
+    {
+        var (synchronizer, factory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var accessor = (InMemoryFileAccessor)factory.Create(Workspace);
+        var workflowId = Guid.NewGuid();
+        var folder = WorkflowWorkspace.RelativeFolderFor("Notify", workflowId);
+
+        Write(
+            accessor,
+            $"{folder}/{WorkflowWorkspace.DefinitionFileName}",
+            """{"properties":{"connectionReferences":{"shared_office365":{"api":{"name":"shared_office365"},"connection":{"connectionReferenceLogicalName":"cree9_agent.shared_office365.layered"}}}}}""");
+        Write(
+            accessor,
+            $"{folder}/{WorkflowWorkspace.MetadataFileName}",
+            WorkflowMetadataFile.Write(new SyncDataverseClient.WorkflowMetadata { WorkflowId = workflowId, Name = "Notify", StateCode = 0, StatusCode = 1 }));
+
+        Assert.True(WorkflowDefinitionFile.WriteConnectionReferenceDeclaration(accessor));
+        Assert.False(accessor.Exists(new AgentFilePath("connectionreferences.mcs.yml")));
+
+        var dataverse = new Mock<ISyncDataverseClient>();
+        dataverse
+            .Setup(c => c.GetConnectionReferencesByLogicalNamesAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<SyncDataverseClient.ConnectionReferenceInfo>());
+
+        var views = await synchronizer.GetAgentConnectionViewsAsync(
+            Workspace,
+            new BotDefinition(),
+            dataverse.Object,
+            new Mock<IConnectionCatalogClient>().Object,
+            new PowerAppsContext { AccessToken = string.Empty, EnvironmentId = "env" },
+            CancellationToken.None);
+
+        var view = Assert.Single(views);
+        Assert.Equal("cree9_agent.shared_office365.layered", view.ConnectionReferenceLogicalName);
+        Assert.True(view.IsDeclared);
+    }
+
+    [Fact]
+    public async Task SetWorkflowActivationsAsync_StandaloneWorkflowWorkspace_UpdatesTheWorkflowCache()
+    {
+        var (synchronizer, factory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var accessor = (InMemoryFileAccessor)factory.Create(Workspace);
+        var workflowId = Guid.NewGuid();
+        var folder = WorkflowWorkspace.RelativeFolderFor("Notify", workflowId);
+
+        Write(accessor, $"{folder}/{WorkflowWorkspace.DefinitionFileName}", "{}");
+        Write(
+            accessor,
+            $"{folder}/{WorkflowWorkspace.MetadataFileName}",
+            WorkflowMetadataFile.Write(new SyncDataverseClient.WorkflowMetadata { WorkflowId = workflowId, Name = "Notify", StateCode = 0, StatusCode = 1 }));
+
+        StandaloneWorkflowCache.Write(accessor, new SyncDataverseClient.WorkflowMetadata { WorkflowId = workflowId, Name = "Notify", StateCode = 0, StatusCode = 1, ClientData = "{}" });
+
+        var dataverse = new Mock<ISyncDataverseClient>();
+        dataverse
+            .Setup(c => c.GetConnectionReferencesByLogicalNamesAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<SyncDataverseClient.ConnectionReferenceInfo>());
+
+        var result = await synchronizer.SetWorkflowActivationsAsync(
+            Workspace,
+            new[] { new WorkflowActivationRequest { WorkflowId = workflowId, Activate = true } },
+            dataverse.Object,
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, StandaloneWorkflowCache.Read(accessor, workflowId)!.StateCode);
+    }
+
+    [Fact]
+    public async Task SetWorkflowActivationsAsync_RefusedActivation_LeavesTheCloudCacheUntouched()
+    {
+        var (synchronizer, factory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var accessor = (InMemoryFileAccessor)factory.Create(Workspace);
+        var workflowId = Guid.NewGuid();
+        var folder = WorkflowWorkspace.RelativeFolderFor("Notify", workflowId);
+
+        Write(accessor, $"{folder}/{WorkflowWorkspace.DefinitionFileName}", "{}");
+        Write(
+            accessor,
+            $"{folder}/{WorkflowWorkspace.MetadataFileName}",
+            WorkflowMetadataFile.Write(new SyncDataverseClient.WorkflowMetadata { WorkflowId = workflowId, Name = "Notify", StateCode = 1, StatusCode = 2 }));
+
+        StandaloneWorkflowCache.Write(accessor, new SyncDataverseClient.WorkflowMetadata { WorkflowId = workflowId, Name = "Notify", StateCode = 1, StatusCode = 2, ClientData = "{}" });
+
+        var dataverse = new Mock<ISyncDataverseClient>();
+        dataverse
+            .Setup(c => c.GetConnectionReferencesByLogicalNamesAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<SyncDataverseClient.ConnectionReferenceInfo>());
+        dataverse
+            .Setup(c => c.SetWorkflowStateAsync(workflowId, true, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("Dataverse request failed (400): {\"error\":{\"code\":\"0x80060467\",\"message\":\"ConnectionAuthorizationFailed: connection cannot be used to activate this flow\"}}"));
+
+        var result = await synchronizer.SetWorkflowActivationsAsync(
+            Workspace,
+            new[] { new WorkflowActivationRequest { WorkflowId = workflowId, Activate = true } },
+            dataverse.Object,
+            CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(1, StandaloneWorkflowCache.Read(accessor, workflowId)!.StateCode);
+    }
+
+    [Fact]
     public async Task ApplyConnectionBindingsAsync_EnvironmentSpecificCustomConnector_ResolvesConnectorBeforeBind()
     {
         var (synchronizer, factory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();

@@ -3,20 +3,24 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Threading;
 using Microsoft.Agents.ObjectModel;
-using Microsoft.Agents.ObjectModel.Yaml;
+using Microsoft.CopilotStudio.McsCore;
 
 namespace Microsoft.CopilotStudio.Sync;
 
 /// <summary>A connection reference a workflow definition binds to, with the connector it targets.</summary>
 public sealed record WorkflowConnectionReference(string LogicalName, string ConnectorInternalId);
 
+/// <summary>The forms a workflow definition takes when a deploy reads it once.</summary>
+/// <param name="References">The connection references the definition binds.</param>
+/// <param name="Portable">The definition without the bindings that only mean something where it came from.</param>
+/// <param name="Canonical">The portable definition formatted so two environments compare by content.</param>
+public sealed record WorkflowDefinitionForms(IReadOnlyList<WorkflowConnectionReference> References, string Portable, string Canonical);
+
 /// <summary>Reads and writes the definition file and the connection references it implies.</summary>
 public static class WorkflowDefinitionFile
 {
-    /// <summary>The file a workspace declares its connection references in.</summary>
-    public const string ConnectionReferencesFileName = "connectionreferences.mcs.yml";
-
     /// <summary>The prefix a connector's resource id takes.</summary>
     public const string ConnectorIdPrefix = "/providers/Microsoft.PowerApps/apis/";
 
@@ -207,56 +211,86 @@ public static class WorkflowDefinitionFile
 
     private const string EnvironmentBoundConnectionProperty = "connectionName";
 
-    /// <summary>Writes the connection reference declaration every workflow in a workspace implies, deleting it when none remain.</summary>
+    /// <summary>Writes the layout marker and the connection reference declaration every workflow in a workspace implies.</summary>
     /// <param name="workspaceRoot">The workflow workspace root, which must not hold an agent project of its own.</param>
-    /// <returns><see langword="true"/> when the file changed.</returns>
-    public static bool WriteConnectionReferenceDeclaration(string workspaceRoot)
+    /// <returns><see langword="true"/> when anything on disk changed.</returns>
+    public static bool WriteConnectionReferenceDeclaration(string workspaceRoot) =>
+        string.IsNullOrWhiteSpace(workspaceRoot)
+            ? throw new ArgumentException("A workspace root is required.", nameof(workspaceRoot))
+            : WriteConnectionReferenceDeclaration(WorkflowWorkspace.OpenWorkspace(workspaceRoot));
+
+    /// <summary>Writes the layout marker and the connection reference declaration every workflow in a workspace implies.</summary>
+    /// <param name="fileAccessor">The workflow workspace, which must not hold an agent project of its own.</param>
+    /// <returns><see langword="true"/> when anything on disk changed.</returns>
+    public static bool WriteConnectionReferenceDeclaration(IFileAccessor fileAccessor)
     {
-        if (string.IsNullOrWhiteSpace(workspaceRoot))
+        if (fileAccessor is null)
         {
-            throw new ArgumentException("A workspace root is required.", nameof(workspaceRoot));
+            throw new ArgumentNullException(nameof(fileAccessor));
         }
 
-        if (WorkflowWorkspace.HasAgentProject(workspaceRoot))
+        if (WorkflowWorkspace.HasAgentProject(fileAccessor))
         {
-            throw new ArgumentException("An agent workspace declares its own connection references.", nameof(workspaceRoot));
+            throw new ArgumentException("An agent workspace declares its own connection references.", nameof(fileAccessor));
         }
 
-        var path = Path.Combine(workspaceRoot, ConnectionReferencesFileName);
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var declared = new List<WorkflowConnectionReference>();
-
-        if (WorkflowWorkspace.HasIncompleteWorkflow(workspaceRoot))
+        if (WorkflowWorkspace.HasIncompleteWorkflow(fileAccessor))
         {
             return false;
         }
 
-        foreach (var folder in WorkflowWorkspace.FindAll(workspaceRoot))
+        var folders = WorkflowWorkspace.FindAll(fileAccessor);
+
+        if (!TryCollectConnectionReferences(folders.Select(folder => ConnectionReferenceStore.ReadTextOrNull(fileAccessor, folder.DefinitionPath)), out var declared))
         {
-            if (!TryGetConnectionReferences(ReadDefinition(folder.DefinitionPath), out var references))
+            return false;
+        }
+
+        var markerChanged = folders.Count > 0 && WorkflowWorkspace.EnsureLayoutMarker(fileAccessor);
+        var projectChanged = folders.Count > 0 && WorkflowWorkspace.EnsureProjectFile(fileAccessor);
+
+        return ConnectionReferenceStore.Write(fileAccessor, declared.Select(Describe), ConnectionReferenceLayout.Layered, null, CancellationToken.None) || markerChanged || projectChanged;
+    }
+
+    /// <summary>Reads a definition into every form a deploy needs, parsing the text once.</summary>
+    /// <param name="clientData">The definition as it was stored.</param>
+    /// <returns>The forms the definition takes.</returns>
+    public static WorkflowDefinitionForms Read(string? clientData)
+    {
+        var portable = PortableDefinition(clientData);
+
+        return new WorkflowDefinitionForms(ConnectionReferences(portable), portable, Format(portable));
+    }
+
+    /// <summary>The form two environments compare a definition in.</summary>
+    /// <param name="clientData">The definition as it was stored.</param>
+    /// <returns>The definition as two environments compare it.</returns>
+    public static string Canonicalize(string? clientData) => Format(PortableDefinition(clientData));
+
+    private static bool TryCollectConnectionReferences(IEnumerable<string?> definitions, out IReadOnlyList<WorkflowConnectionReference> declared)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var found = new List<WorkflowConnectionReference>();
+
+        foreach (var definition in definitions)
+        {
+            if (!TryGetConnectionReferences(definition, out var references))
             {
+                declared = Array.Empty<WorkflowConnectionReference>();
+
                 return false;
             }
 
-            declared.AddRange(references.Where(reference => seen.Add(reference.LogicalName)));
+            found.AddRange(references.Where(reference => seen.Add(reference.LogicalName)));
         }
 
-        if (declared.Count > 0)
-        {
-            return WriteIfChanged(path, Serialize(declared));
-        }
-
-        if (!File.Exists(path))
-        {
-            return false;
-        }
-
-        File.Delete(path);
+        declared = found;
 
         return true;
     }
 
-    private static string? ReadDefinition(string definitionPath) => File.Exists(definitionPath) ? File.ReadAllText(definitionPath) : null;
+    private static ConnectionReference Describe(WorkflowConnectionReference reference) =>
+        new ConnectionReference(connectionReferenceLogicalName: reference.LogicalName, connectionId: string.Empty, connectorId: ConnectorIdPrefix + reference.ConnectorInternalId);
 
     /// <summary>Writes a file only when its content differs from what is already there.</summary>
     public static bool WriteIfChanged(string path, string content)
@@ -285,19 +319,4 @@ public static class WorkflowDefinitionFile
 
     private static string? ReadString(JsonElement element, string propertyName) =>
         element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
-
-    private static string Serialize(IReadOnlyList<WorkflowConnectionReference> declared)
-    {
-        using var writer = new StringWriter();
-
-        using (YamlSerializationContext.UseStandardSerializationContextIfNotDefined(throwOnInvalidYaml: false))
-        {
-            CodeSerializer.SerializeConnectionReferences(writer, declared.Select(reference => new ConnectionReference(
-                connectionReferenceLogicalName: reference.LogicalName,
-                connectionId: string.Empty,
-                connectorId: ConnectorIdPrefix + reference.ConnectorInternalId)).ToArray());
-        }
-
-        return writer.ToString();
-    }
 }

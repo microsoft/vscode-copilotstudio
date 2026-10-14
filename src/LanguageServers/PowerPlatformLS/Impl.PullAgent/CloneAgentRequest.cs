@@ -18,16 +18,7 @@
 
         public required Uri RootFolder { get; set; }
 
-        public AgentSyncInfo GetSyncInfo() => new AgentSyncInfo
-        {
-            AgentId = AgentInfo.AgentId,
-            DataverseEndpoint = new Uri(EnvironmentInfo.DataverseUrl),
-            EnvironmentId = EnvironmentInfo.EnvironmentId,
-            EnvironmentDisplayName = EnvironmentInfo.DisplayName,
-            SolutionVersions = SolutionVersions,
-            AccountInfo = AccountInfo,
-            AgentManagementEndpoint = new Uri(EnvironmentInfo.AgentManagementUrl),
-        };
+        public AgentSyncInfo GetSyncInfo() => BuildSyncInfo(AgentInfo.AgentId);
     }
 
 }

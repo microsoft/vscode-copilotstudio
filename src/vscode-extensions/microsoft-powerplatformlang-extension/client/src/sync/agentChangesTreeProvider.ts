@@ -167,7 +167,11 @@ class AgentChangesTreeDataProvider implements TreeDataProvider<AgentChangesTreeI
             : new ThemeIcon('debug-disconnect', new ThemeColor('list.warningForeground'));
         }
         item.tooltip = buildAgentIdentityTooltip(element.workspace, connected, connected ? undefined : describeDisconnection(element.workspace).message);
-        const baseContextValue = element.workspace.type === WorkspaceType.ComponentCollection ? 'componentCollection' : 'agent';
+        const baseContextValue = element.workspace.type === WorkspaceType.ComponentCollection
+          ? 'componentCollection'
+          : element.workspace.type === WorkspaceType.StandaloneWorkflow
+            ? 'standaloneWorkflow'
+            : 'agent';
         item.contextValue = badge.health === 'unresolved' ? `${baseContextValue}AccountUnresolved` : baseContextValue;
         if (badge.health === 'unresolved') {
           item.command = {

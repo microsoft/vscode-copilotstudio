@@ -37,6 +37,7 @@ public static class SyncServiceRegistrations
         services.AddSingleton(sp => new SyncDataverseClient(sp.GetRequiredService<IDataverseHttpClientAccessor>(), userAgent));
         services.AddSingleton<ISyncDataverseClient>(sp => sp.GetRequiredService<SyncDataverseClient>());
         services.AddSingleton<ISyncComponentCollectionDataverseClient>(sp => sp.GetRequiredService<SyncDataverseClient>());
+        services.AddSingleton<IStandaloneWorkflowDataverseClient>(sp => sp.GetRequiredService<SyncDataverseClient>());
         if (storageMode == SyncStorageMode.InMemory)
         {
             services.AddSingleton<IFileAccessorFactory>(_ => new InMemoryFileAccessorFactory(requireSession: true));
@@ -53,5 +54,6 @@ public static class SyncServiceRegistrations
         services.AddSingleton<IConnectionManagementService>(sp => sp.GetRequiredService<WorkspaceSynchronizer>());
         services.AddSingleton<IWorkflowActivationService>(sp => sp.GetRequiredService<WorkspaceSynchronizer>());
         services.AddSingleton<IWorkspaceRetargetService>(sp => sp.GetRequiredService<WorkspaceSynchronizer>());
+        services.AddSingleton<IStandaloneWorkflowSynchronizer, StandaloneWorkflowSynchronizer>();
     }
 }

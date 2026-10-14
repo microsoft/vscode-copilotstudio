@@ -1,7 +1,11 @@
 namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
 {
     using Microsoft.CommonLanguageServerProtocol.Framework;
+    using Microsoft.Agents.ObjectModel;
     using Microsoft.CopilotStudio.Sync;
+    using Microsoft.CopilotStudio.Sync.Dataverse;
+    using Microsoft.PowerPlatformLS.Contracts.Internal;
+    using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Impl.PullAgent;
     using Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio;
     using Microsoft.PowerPlatformLS.UnitTests.TestUtilities;
@@ -90,6 +94,69 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             Assert.NotNull(result.SyncInfo);
             Assert.Equal(expectedSyncInfo.AgentId, result.SyncInfo!.AgentId);
             Assert.Equal(expectedSyncInfo.EnvironmentId, result.SyncInfo.EnvironmentId);
+        }
+
+        [Theory]
+        [InlineData("c:/code/3wf/", "3wf")]
+        [InlineData("c:/code/3wf", "3wf")]
+        [InlineData("c:/code/My Flows/", "My Flows")]
+        public void AWorkspaceWithoutADefinitionNameFallsBackToItsFolderName(string folderPath, string expected) =>
+            Assert.Equal(expected, GetWorkspaceDetailsHandler.FolderNameOf(folderPath));
+
+        [Fact]
+        public async Task AStandaloneWorkflowWorkspaceIsReportedAsAWorkflowEvenThoughItCompilesToABotDefinition()
+        {
+            var parent = NewStandaloneWorkspaceParent();
+
+            try
+            {
+                var root = Path.Combine(parent, "S5D1WF1");
+                var world = new World(root);
+                var workspace = world.GetWorkspace();
+                workspace.BuildCompilationModel();
+
+                var synchronizer = new Mock<Microsoft.CopilotStudio.Sync.IWorkspaceSynchronizer>();
+                synchronizer.Setup(s => s.IsSyncInfoAvailable(It.IsAny<DirectoryPath>())).Returns(false);
+
+                var handler = new GetWorkspaceDetailsHandler(new FileAccessorFactory(), synchronizer.Object, Mock.Of<ILspLogger>());
+                var context = new RequestContext(world.GetRequiredService<ILanguageAbstraction>(), workspace, null, 0);
+                var request = new GetWorkspaceDetailsParams { WorkspaceUri = new Uri(root.Replace('\\', '/')) };
+
+                var result = await handler.HandleRequestAsync(request, context, CancellationToken.None);
+
+                Assert.IsAssignableFrom<BotDefinition>(workspace.Definition);
+                Assert.Equal(WorkspaceType.StandaloneWorkflow, result.Type);
+                Assert.Null(result.SchemaName);
+                Assert.Equal("S5D1WF1", result.DisplayName);
+            }
+            finally
+            {
+                Directory.Delete(parent, recursive: true);
+            }
+        }
+
+        private static string NewStandaloneWorkspaceParent()
+        {
+            var parent = Path.Combine(Path.GetTempPath(), "mcs-wf-" + Guid.NewGuid().ToString("N"));
+            var root = Path.Combine(parent, "S5D1WF1");
+            var workflowId = Guid.NewGuid();
+            var workflowFolder = Path.Combine(root, WorkflowWorkspace.WorkflowsFolderName, WorkflowWorkspace.FolderNameFor("S5D1WF1", workflowId));
+
+            Directory.CreateDirectory(workflowFolder);
+
+            var accessor = WorkflowWorkspace.OpenWorkspace(root);
+            WorkflowWorkspace.EnsureLayoutMarker(accessor);
+            WorkflowWorkspace.EnsureProjectFile(accessor);
+
+            File.WriteAllText(Path.Combine(workflowFolder, WorkflowWorkspace.DefinitionFileName), "{}");
+            File.WriteAllText(Path.Combine(workflowFolder, WorkflowWorkspace.MetadataFileName), WorkflowMetadataFile.Write(new SyncDataverseClient.WorkflowMetadata
+            {
+                WorkflowId = workflowId,
+                Name = "S5D1WF1",
+                ClientData = "{}",
+            }));
+
+            return parent;
         }
     }
 }

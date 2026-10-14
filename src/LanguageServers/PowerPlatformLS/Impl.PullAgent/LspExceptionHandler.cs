@@ -20,6 +20,10 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     {
         private const string WorkspaceContentPiiType = "WORKSPACE FILE DETAILS";
 
+        private const string WorkflowNamePiiType = "WORKFLOW NAMES";
+
+        private const string EnvironmentIdPiiType = "ENVIRONMENT ID";
+
         /// <summary>
         /// Classifies the exception, logs it at the appropriate severity, and returns
         /// a status code and user-facing message suitable for the LSP response.
@@ -41,6 +45,9 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 WorkspaceValidationException wve =>
                     NoLog(400, DescribeWorkspaceValidation(wve)),
 
+                StandaloneWorkflowException swe when HoldsUnpushedChanges(swe.Failure) =>
+                    NoLog(409, DescribeStandaloneWorkflow(swe)),
+
                 InvalidOperationException ioe =>
                     NoLog(400, ioe.Message),
 
@@ -57,9 +64,19 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 DataverseServiceUnavailableException dsue =>
                     LogAsException(logger, dsue, code: 503, message: "The Copilot Studio service is temporarily unavailable. Please try again in a moment."),
 
+                StandaloneWorkflowException swe =>
+                    LogAsException(logger, swe, message: DescribeStandaloneWorkflow(swe)),
+
                 _ => LogAsException(logger, ex),
             };
         }
+
+        /// <summary>
+        /// Whether a standalone workflow failure means the workspace holds an edit the environment
+        /// has not seen, which the client resolves by asking the user before replacing it.
+        /// </summary>
+        private static bool HoldsUnpushedChanges(StandaloneWorkflowFailure failure) =>
+            failure is StandaloneWorkflowFailure.WorkspaceHoldsUnpushedChanges or StandaloneWorkflowFailure.ProjectHoldsUnpushedChanges;
 
         /// <summary>
         /// Returns code/message without logging (exception was already logged by an instrumented layer).
@@ -89,8 +106,46 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     conflicts,
                     static diagnostic => diagnostic.ToString(ProtectUserContent));
 
+        /// <summary>
+        /// Standalone workflow failures name folders the service derived from a workflow's display
+        /// name, and the environment they happened in. Neither survives the client's own matching,
+        /// which only knows the display name, so they are tagged here: the detail stays visible in
+        /// the client UI while both telemetry scrubbers replace it with a redaction marker.
+        /// </summary>
+        private static string DescribeStandaloneWorkflow(StandaloneWorkflowException failure)
+        {
+            var message = ProtectValue(failure.Message, failure.Subject, SubjectPiiType(failure.Failure));
+
+            foreach (var folderName in failure.FolderNames)
+            {
+                message = ProtectValue(message, folderName, WorkflowNamePiiType);
+            }
+
+            return ProtectValue(message, failure.EnvironmentId, EnvironmentIdPiiType);
+        }
+
+        /// <summary>
+        /// Names what a failure's subject holds, so a workspace path is not reported as a workflow
+        /// name. A subject that is only an identifier the service assigned is left alone.
+        /// </summary>
+        private static string? SubjectPiiType(StandaloneWorkflowFailure failure) =>
+            failure switch
+            {
+                StandaloneWorkflowFailure.NotFound or StandaloneWorkflowFailure.MetadataUnreadable => WorkspaceContentPiiType,
+                StandaloneWorkflowFailure.SourceNotFound => null,
+                _ => WorkflowNamePiiType,
+            };
+
+        private static string ProtectValue(string message, string? value, string? piiType) =>
+            piiType is null || string.IsNullOrEmpty(value) || !message.Contains(value!, StringComparison.Ordinal)
+                ? message
+                : message.Replace(value!, Tag(value!, piiType));
+
         private static string ProtectUserContent(string value)
-            => $"<pii type=\"{WorkspaceContentPiiType}\" encoded=\"true\">{value.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;")}</pii>";
+            => Tag(value, WorkspaceContentPiiType);
+
+        private static string Tag(string value, string piiType)
+            => $"<pii type=\"{piiType}\" encoded=\"true\">{value.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;")}</pii>";
 
         /// <summary>
         /// Logs to exceptions table (full stack trace).

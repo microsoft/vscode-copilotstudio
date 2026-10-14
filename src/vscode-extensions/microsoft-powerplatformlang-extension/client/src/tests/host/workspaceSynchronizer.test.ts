@@ -5,6 +5,7 @@ import {
 	getActiveSyncUri,
 	getOrAddSynchronizer,
 	getSyncStateFor,
+	holdsUnpushedLocalChanges,
 	logSyncConflicts,
 	logWorkflowIssues,
 	onAnySyncStateChanged,
@@ -14,7 +15,8 @@ import {
 	withSyncCommandBusy,
 } from '../../sync/workspaceSynchronizer';
 import { resolveWorkspaceArg } from '../../commands/syncWorkspace';
-import logger, { formatFileName, formatPii, prepareLogData, sanitizeErrorDetails } from '../../services/logger';
+import logger, { formatFileName, formatPii, PiiRedactionType, prepareLogData, sanitizeErrorDetails, stripPiiTags } from '../../services/logger';
+import { LspRequestError, LSP_UNPUSHED_LOCAL_CHANGES } from '../../services/lspClient';
 import type { WorkflowResponse } from '../../types';
 
 import { ThemeIcon } from 'vscode';
@@ -29,6 +31,55 @@ function createMockWorkspace(agentName: string): CopilotStudioWorkspace {
 		type: WorkspaceType.Agent,
 	};
 }
+
+describe('workspaceSynchronizer: unpushed local workflow changes', () => {
+	test('recognises the refusal the server returns for unpushed local edits', () => {
+		const refusal = new LspRequestError(LSP_UNPUSHED_LOCAL_CHANGES, "'My Flow-1' holds changes the environment has not seen.");
+
+		assert.strictEqual(holdsUnpushedLocalChanges(refusal), true);
+		assert.strictEqual(refusal.code, 409);
+		assert.ok(refusal instanceof Error);
+		assert.strictEqual(refusal.message, "'My Flow-1' holds changes the environment has not seen.");
+	});
+
+	test('does not treat another server failure as a local-change refusal', () => {
+		assert.strictEqual(holdsUnpushedLocalChanges(new LspRequestError(400, 'Bad request')), false);
+		assert.strictEqual(holdsUnpushedLocalChanges(new LspRequestError(500, 'Server error')), false);
+	});
+
+	test('does not treat a plain error or a non-error as a local-change refusal', () => {
+		assert.strictEqual(holdsUnpushedLocalChanges(new Error('boom')), false);
+		assert.strictEqual(holdsUnpushedLocalChanges('409'), false);
+		assert.strictEqual(holdsUnpushedLocalChanges(undefined), false);
+	});
+
+	test('a server-tagged folder name reads plainly for the user but is redacted in telemetry', () => {
+		const tagged = `${formatPii('MyFlow-a1b2', PiiRedactionType.WorkflowNames)} holds changes the environment has not seen.`;
+
+		assert.strictEqual(stripPiiTags(tagged), 'MyFlow-a1b2 holds changes the environment has not seen.');
+		assert.strictEqual(
+			prepareLogData(undefined, { error: sanitizeErrorDetails(tagged, [], PiiRedactionType.WorkflowNames) }).telemetryProperties['error'],
+			'[REDACTED WORKFLOW NAMES] holds changes the environment has not seen.');
+	});
+
+	test('the LSP middleware boundary redacts a tagged refusal even though it knows no workflow names', () => {
+		const serverMessage = `${formatPii('PayrollApprovals-a1b2', PiiRedactionType.WorkflowNames)} holds changes the environment has not seen.`;
+		const refusal = new LspRequestError(LSP_UNPUSHED_LOCAL_CHANGES, serverMessage);
+
+		const logged = prepareLogData(undefined, { errorMessage: sanitizeErrorDetails(refusal.message) });
+
+		assert.strictEqual(logged.telemetryProperties['errorMessage'], '[REDACTED WORKFLOW NAMES] holds changes the environment has not seen.');
+		assert.strictEqual(stripPiiTags(refusal.message), 'PayrollApprovals-a1b2 holds changes the environment has not seen.');
+	});
+
+	test('an untagged folder the server derived from a punctuated name reaches telemetry', () => {
+		const refusal = new LspRequestError(LSP_UNPUSHED_LOCAL_CHANGES, "'PayrollApprovals-a1b2' holds changes the environment has not seen.");
+
+		assert.ok(prepareLogData(undefined, { errorMessage: sanitizeErrorDetails(refusal.message) })
+			.telemetryProperties['errorMessage']
+			.includes('PayrollApprovals-a1b2'));
+	});
+});
 
 describe('workspaceSynchronizer: sync success telemetry', () => {
 

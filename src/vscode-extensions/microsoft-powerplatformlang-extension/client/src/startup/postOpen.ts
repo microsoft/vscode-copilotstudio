@@ -28,6 +28,45 @@ export async function writePostOpenInstruction(
     await context.globalState.update(GLOBAL_STATE_KEY, instruction);
 }
 
+/** Queues the entry file of a freshly cloned folder to open after the window reloads. */
+export async function prepareClonedWorkspace(
+    context: vscode.ExtensionContext,
+    workspaceUri: vscode.Uri,
+    entryFile?: vscode.Uri,
+    telemetryProperties?: Record<string, unknown>): Promise<boolean> {
+
+    if (!entryFile) {
+        return false;
+    }
+
+    try {
+        await vscode.workspace.fs.stat(entryFile);
+        await writePostOpenInstruction(context, workspaceUri, entryFile);
+
+        return true;
+    } catch {
+        logger.logInfo(TelemetryEventsKeys.PostOpenInstruction, undefined, {
+            ...telemetryProperties,
+            message: 'Post-open instruction skipped: entry file not found',
+        });
+
+        return false;
+    }
+}
+
+/** Opens a freshly cloned folder as the workspace, queueing its entry file to open after the reload. */
+export async function openClonedWorkspace(
+    context: vscode.ExtensionContext,
+    workspaceUri: vscode.Uri,
+    entryFile?: vscode.Uri,
+    telemetryProperties?: Record<string, unknown>): Promise<void> {
+
+    await prepareClonedWorkspace(context, workspaceUri, entryFile, telemetryProperties);
+    await logger.dispose();
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    await vscode.commands.executeCommand('vscode.openFolder', workspaceUri, { forceReuseWindow: true });
+}
+
 /** Attempt to consume and act upon any pending post-open instruction. */
 export async function maybeOpenFileFromPostOpen(context: vscode.ExtensionContext): Promise<void> {
     const data = context.globalState.get<PostOpenInstruction>(GLOBAL_STATE_KEY);

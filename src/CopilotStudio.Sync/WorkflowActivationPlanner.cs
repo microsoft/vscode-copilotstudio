@@ -9,11 +9,35 @@ public static class WorkflowActivationPlanner
 {
     private const string ConnectionAuthorizationFailure = "ConnectionAuthorizationFailed";
 
+    private static readonly string[] ConnectionFailureMarkers =
+    {
+        ConnectionAuthorizationFailure,
+        "cannot be used to activate this flow",
+        "this is not a valid connection",
+        "Cannot find connection with name",
+    };
+
     /// <summary>Whether a service failure says a connection the workflow binds cannot be used.</summary>
     /// <param name="failure">The message the service reported.</param>
     /// <returns><see langword="true"/> when the environment refused the workflow over a connection.</returns>
     public static bool IsConnectionAuthorizationFailure(string? failure) =>
-        failure?.IndexOf(ConnectionAuthorizationFailure, StringComparison.OrdinalIgnoreCase) >= 0;
+        !string.IsNullOrEmpty(failure) && ConnectionFailureMarkers.Any(marker => failure!.IndexOf(marker, StringComparison.OrdinalIgnoreCase) >= 0);
+
+    /// <summary>Whether a failure, or anything it wraps, says a connection the workflow binds cannot be used.</summary>
+    /// <param name="failure">The failure the environment raised.</param>
+    /// <returns><see langword="true"/> when the environment refused the workflow over a connection.</returns>
+    public static bool IsConnectionAuthorizationFailure(Exception? failure)
+    {
+        for (var current = failure; current is not null; current = current.InnerException)
+        {
+            if (IsConnectionAuthorizationFailure(current.Message))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>Whether a workflow binds any connection reference.</summary>
     public static bool HasConnectionReferences(SyncDataverseClient.WorkflowMetadata workflow)
@@ -39,8 +63,18 @@ public static class WorkflowActivationPlanner
     /// <param name="dataverseClient">Reads which references carry a connection.</param>
     /// <param name="cancellationToken">Cancels the lookup.</param>
     /// <returns>The workflows that were downgraded to drafts.</returns>
-    public static Task<IReadOnlyList<SyncDataverseClient.WorkflowMetadata>> DraftStandaloneUnboundActivationsAsync(IReadOnlyList<SyncDataverseClient.WorkflowMetadata> workflows, IStandaloneWorkflowDataverseClient dataverseClient, CancellationToken cancellationToken) =>
+    public static Task<IReadOnlyList<SyncDataverseClient.WorkflowMetadata>> DraftStandaloneUnboundActivationsAsync(IReadOnlyList<SyncDataverseClient.WorkflowMetadata> workflows, IConnectionReferenceOperations dataverseClient, CancellationToken cancellationToken) =>
         DraftUnboundActivationsAsync(workflows, ReadReferences(dataverseClient), cancellationToken);
+
+    /// <summary>Drafts every workflow that wants to start but still has an unbound connection reference, from references already read.</summary>
+    /// <param name="workflows">The workflows about to be written.</param>
+    /// <param name="references">What the environment already reported for the references in play.</param>
+    /// <param name="cancellationToken">Cancels the lookup.</param>
+    /// <returns>The workflows that were downgraded to drafts.</returns>
+    public static Task<IReadOnlyList<SyncDataverseClient.WorkflowMetadata>> DraftUnboundActivationsAsync(IReadOnlyList<SyncDataverseClient.WorkflowMetadata> workflows, IReadOnlyCollection<SyncDataverseClient.ConnectionReferenceInfo> references, CancellationToken cancellationToken) =>
+        references is null
+            ? throw new ArgumentNullException(nameof(references))
+            : DraftUnboundActivationsAsync(workflows, (_, _) => Task.FromResult(references.ToArray()), cancellationToken);
 
     private static async Task<IReadOnlyList<SyncDataverseClient.WorkflowMetadata>> DraftUnboundActivationsAsync(IReadOnlyList<SyncDataverseClient.WorkflowMetadata> workflows, ReferenceReader readReferences, CancellationToken cancellationToken)
     {
@@ -64,8 +98,7 @@ public static class WorkflowActivationPlanner
         {
             if (!BindsOnlyBoundReferences(workflow, bound))
             {
-                workflow.StateCode = 0;
-                workflow.StatusCode = 1;
+                ApplyState(workflow, activated: false);
                 downgraded.Add(workflow);
             }
         }
@@ -88,11 +121,22 @@ public static class WorkflowActivationPlanner
 
         foreach (var workflow in workflows)
         {
-            var runnable = BindsOnlyBoundReferences(workflow, bound);
-
-            workflow.StateCode = runnable ? 1 : 0;
-            workflow.StatusCode = runnable ? 2 : 1;
+            ApplyState(workflow, BindsOnlyBoundReferences(workflow, bound));
         }
+    }
+
+    /// <summary>Records the state a confirmed change leaves a workflow in.</summary>
+    /// <param name="workflow">The workflow whose state is recorded.</param>
+    /// <param name="activated">Whether the workflow is running rather than sitting as a draft.</param>
+    public static void ApplyState(SyncDataverseClient.WorkflowMetadata workflow, bool activated)
+    {
+        if (workflow is null)
+        {
+            throw new ArgumentNullException(nameof(workflow));
+        }
+
+        workflow.StateCode = activated ? 1 : 0;
+        workflow.StatusCode = activated ? 2 : 1;
     }
 
     private delegate Task<SyncDataverseClient.ConnectionReferenceInfo[]> ReferenceReader(IEnumerable<string> logicalNames, CancellationToken cancellationToken);
@@ -100,8 +144,49 @@ public static class WorkflowActivationPlanner
     private static ReferenceReader ReadReferences(ISyncDataverseClient dataverseClient) =>
         dataverseClient is null ? throw new ArgumentNullException(nameof(dataverseClient)) : dataverseClient.GetConnectionReferencesByLogicalNamesAsync;
 
-    private static ReferenceReader ReadReferences(IStandaloneWorkflowDataverseClient dataverseClient) =>
+    private static ReferenceReader ReadReferences(IConnectionReferenceOperations dataverseClient) =>
         dataverseClient is null ? throw new ArgumentNullException(nameof(dataverseClient)) : dataverseClient.GetConnectionReferencesByLogicalNamesAsync;
+
+    /// <summary>Describes a workflow that was saved as a draft because a connection it binds is unusable.</summary>
+    /// <param name="workflowName">The workflow that was drafted.</param>
+    /// <returns>A message naming what to bind before enabling it.</returns>
+    public static string DescribeDraftedForConnections(string workflowName) =>
+        $"Workflow '{workflowName}' was saved as a draft because one of its connection references has no connection you can use. Bind a connection, then enable it.";
+
+    /// <summary>Describes a workflow held back as a draft until its connection references are set up here.</summary>
+    /// <param name="workflowName">The workflow that was drafted.</param>
+    /// <returns>A message naming what to finish before enabling it.</returns>
+    public static string DescribeDraftedForConnectionSetup(string workflowName) =>
+        $"Workflow '{workflowName}' was saved as a draft because it binds connection references that have to be set up in this environment first. Set them up, then enable it.";
+
+    /// <summary>Describes a state change the environment did not apply, or an empty string when it did.</summary>
+    /// <param name="outcome">What the environment established.</param>
+    /// <param name="workflowName">The workflow the change was requested for.</param>
+    /// <param name="activate">Whether the change asked the workflow to run.</param>
+    /// <returns>A message naming what the workflow is left doing, or an empty string.</returns>
+    public static string DescribeUnapplied(WorkflowStateOutcome outcome, string workflowName, bool activate)
+    {
+        if (outcome is null)
+        {
+            throw new ArgumentNullException(nameof(outcome));
+        }
+
+        if (outcome.Changed)
+        {
+            return string.Empty;
+        }
+
+        if (activate && IsConnectionAuthorizationFailure(outcome.Failure))
+        {
+            return DescribeDraftedForConnections(workflowName);
+        }
+
+        var requested = activate ? "enabled" : "turned off";
+
+        return outcome.IsUnknown
+            ? $"Workflow '{workflowName}' was saved, but the environment did not confirm whether it was {requested} ({outcome.Failure}). Check its state before relying on it."
+            : $"Workflow '{workflowName}' was saved, but the environment refused to have it {requested} ({outcome.Failure}).";
+    }
 
     private static async Task<HashSet<string>> BoundLogicalNamesAsync(IReadOnlyList<SyncDataverseClient.WorkflowMetadata> workflows, ReferenceReader readReferences, CancellationToken cancellationToken)
     {
@@ -129,7 +214,7 @@ public static class WorkflowActivationPlanner
     /// <param name="dataverseClient">Writes the state change.</param>
     /// <param name="cancellationToken">Cancels the state change.</param>
     /// <returns>What the environment established about the workflow's state.</returns>
-    public static async Task<WorkflowStateOutcome> TryStopAsync(Guid workflowId, IStandaloneWorkflowDataverseClient dataverseClient, CancellationToken cancellationToken)
+    public static async Task<WorkflowStateOutcome> TryStopAsync(Guid workflowId, IWorkflowStateOperations dataverseClient, CancellationToken cancellationToken)
     {
         if (dataverseClient is null)
         {
@@ -153,7 +238,7 @@ public static class WorkflowActivationPlanner
     /// <param name="dataverseClient">Writes the state change.</param>
     /// <param name="cancellationToken">Cancels the state change.</param>
     /// <returns>What the environment established about the workflow's state.</returns>
-    public static async Task<WorkflowStateOutcome> TryStartAsync(SyncDataverseClient.WorkflowMetadata workflow, IStandaloneWorkflowDataverseClient dataverseClient, CancellationToken cancellationToken)
+    public static async Task<WorkflowStateOutcome> TryStartAsync(SyncDataverseClient.WorkflowMetadata workflow, IWorkflowStateOperations dataverseClient, CancellationToken cancellationToken)
     {
         if (workflow is null)
         {

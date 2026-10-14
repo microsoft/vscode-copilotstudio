@@ -3,8 +3,8 @@ import { describe, test } from 'node:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { Uri } from 'vscode';
-import { captureWorkspaceConnectionSnapshot, getDuplicateDisplayNames, buildAgentIdentityTooltip, persistWorkspaceAccountBinding, refreshSyncInfoFromConnection, tryRepairAccountInfo, tryRepairAgentManagementEndpoint, chooseAccountForWorkspace, CopilotStudioWorkspace } from '../../sync/localWorkspaces';
+import { ThemeIcon, Uri } from 'vscode';
+import { captureWorkspaceConnectionSnapshot, getDuplicateDisplayNames, buildAgentIdentityTooltip, persistWorkspaceAccountBinding, refreshSyncInfoFromConnection, tryRepairAccountInfo, tryRepairAgentManagementEndpoint, chooseAccountForWorkspace, getWorkspaceKindLabel, getWorkspaceKindTitle, CopilotStudioWorkspace, WorkspaceType } from '../../sync/localWorkspaces';
 import { AgentSyncInfo } from '../../types';
 import { StoredAccountSummary } from '../../clients/account';
 import logger from '../../services/logger';
@@ -1000,5 +1000,30 @@ describe('buildAgentIdentityTooltip', () => {
 		assert.ok(value.includes('SchemaName: `—`'));
 		assert.ok(!value.includes('Tenant:'));
 		assert.ok(value.includes('Status: Not connected'));
+	});
+});
+
+describe('localWorkspaces: workspace kind labels', () => {
+	const workspaceOfType = (type: WorkspaceType): CopilotStudioWorkspace => ({
+		workspaceUri: 'file:///workspace',
+		displayName: 'Workspace',
+		description: '',
+		icon: new ThemeIcon('robot'),
+		type,
+	});
+
+	test('names an agent workspace', () => {
+		assert.strictEqual(getWorkspaceKindLabel(workspaceOfType(WorkspaceType.Agent)), 'agent');
+		assert.strictEqual(getWorkspaceKindTitle(workspaceOfType(WorkspaceType.Agent)), 'Agent');
+	});
+
+	test('names a component collection workspace', () => {
+		assert.strictEqual(getWorkspaceKindLabel(workspaceOfType(WorkspaceType.ComponentCollection)), 'component collection');
+		assert.strictEqual(getWorkspaceKindTitle(workspaceOfType(WorkspaceType.ComponentCollection)), 'Component collection');
+	});
+
+	test('names a standalone workflow workspace', () => {
+		assert.strictEqual(getWorkspaceKindLabel(workspaceOfType(WorkspaceType.StandaloneWorkflow)), 'workflow');
+		assert.strictEqual(getWorkspaceKindTitle(workspaceOfType(WorkspaceType.StandaloneWorkflow)), 'Workflow');
 	});
 });
