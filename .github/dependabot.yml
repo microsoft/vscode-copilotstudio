@@ -14,16 +14,30 @@ updates:
     reviewers:
       - 'microsoft/vscode-copilot-studio-approvers'
     groups:
+      # Microsoft.Agents.* (objectmodel) packages publish in lockstep at a
+      # single version, so group them into one dedicated PR, separate from the
+      # general dependency bumps. No update-types filter, so every stable
+      # update is caught — including date-based year-rollovers that look like
+      # a semver major (e.g. 2026.x -> 2027.x).
+      objectmodel:
+        patterns:
+          - "Microsoft.Agents.*"
       all-dependencies:
         patterns:
           - "*"
+        # Keep objectmodel out of the general group; it has its own group
+        # above. exclude-patterns is what reliably removes a dependency from a
+        # group — dependabot does not apply top-level `ignore` to group members
+        # (dependabot/dependabot-core#10122).
+        exclude-patterns:
+          - "Microsoft.Agents.*"
         # Filters which update types are rolled into the grouped PR.
         # Majors are release decisions for this consumer app, not
         # dependency updates — keep them out of the group.
         # Note: unlike the npm ecosystem below, there is no top-level
-        # `ignore` here, so a nuget major may still arrive as an
-        # individual PR. Add a matching `ignore` block if that
-        # becomes noisy.
+        # `ignore` for non-Agents packages, so a nuget major may still
+        # arrive as an individual PR. Add a matching `ignore` block if
+        # that becomes noisy.
         update-types:
           - "minor"
           - "patch"
