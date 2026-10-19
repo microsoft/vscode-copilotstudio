@@ -28,7 +28,8 @@
   "activationEvents": [
     "workspaceContains:**/agent.mcs.yml",
     "workspaceContains:**/settings.mcs.yml",
-    "workspaceContains:**/agent.sync.yaml"
+    "workspaceContains:**/agent.sync.yaml",
+    "workspaceContains:**/workflow.sync.yaml"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -190,6 +191,16 @@
           "group": "navigation"
         },
         {
+          "command": "microsoft-copilot-studio.cloneStandaloneWorkflow",
+          "when": "view == remote-agents && viewItem == workflowItem",
+          "group": "navigation"
+        },
+        {
+          "command": "microsoft-copilot-studio.deleteStandaloneWorkflow",
+          "when": "view == remote-agents && viewItem == workflowItem",
+          "group": "1_modify"
+        },
+        {
           "command": "microsoft-copilot-studio.selectAgentAccount",
           "when": "view == agent-changes && viewItem =~ /AccountUnresolved$/",
           "group": "inline@0"
@@ -211,12 +222,12 @@
         },
         {
           "command": "microsoft-copilot-studio.manageConnections",
-          "when": "view == agent-changes && viewItem =~ /^(agent|componentCollection)(AccountUnresolved)?$/",
+          "when": "view == agent-changes && viewItem =~ /^(agent|componentCollection|standaloneWorkflow)(AccountUnresolved)?$/",
           "group": "inline"
         },
         {
           "command": "microsoft-copilot-studio.reattachAgent",
-          "when": "view == agent-changes && viewItem =~ /^agent(AccountUnresolved)?$/",
+          "when": "view == agent-changes && viewItem =~ /^(agent|standaloneWorkflow)(AccountUnresolved)?$/",
           "group": "navigation"
         }
       ],
@@ -327,6 +338,21 @@
         "icon": "$(clone)"
       },
       {
+        "command": "microsoft-copilot-studio.cloneStandaloneWorkflow",
+        "title": "Copilot Studio: Clone workflow",
+        "icon": "$(clone)"
+      },
+      {
+        "command": "microsoft-copilot-studio.createStandaloneWorkflow",
+        "title": "Copilot Studio: Create workflow",
+        "icon": "$(add)"
+      },
+      {
+        "command": "microsoft-copilot-studio.deleteStandaloneWorkflow",
+        "title": "Copilot Studio: Delete workflow",
+        "icon": "$(trash)"
+      },
+      {
         "command": "microsoft-copilot-studio.sessionInfo",
         "title": "Copilot Studio: Show Session Info",
         "icon": "$(question)"
@@ -343,7 +369,7 @@
       },
       {
         "command": "microsoft-copilot-studio.reattachAgent",
-        "title": "Copilot Studio: Reattach Agent",
+        "title": "Copilot Studio: Reattach",
         "icon": "$(repo-push)"
       },
       {

@@ -19,6 +19,12 @@
 
         public IEnumerable<Diagnostic> ComputeDiagnostics(RequestContext requestContext, McsLspDocument document)
         {
+            var conflictDiagnostic = document.IsIcon ? null : MergeConflictDiagnostic.TryCreate(document.Text);
+            if (conflictDiagnostic != null)
+            {
+                return [conflictDiagnostic];
+            }
+
             var fileModel = document.FileModel;
 
             // Handle error cases:

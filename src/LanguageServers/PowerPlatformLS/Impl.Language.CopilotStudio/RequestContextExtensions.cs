@@ -1,4 +1,4 @@
-﻿namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Completion
+namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Completion
 {
     using Microsoft.Agents.ObjectModel;
     using Microsoft.Agents.ObjectModel.Syntax;
@@ -15,7 +15,11 @@
         {
             var workspace = (McsWorkspace)requestContext.Workspace;
             var doc = requestContext.Document.As<McsLspDocument>();
-            var rootElement = workspace.RequiredCompliationAnalyzer.GetDocumentRoot(doc);
+            if (!workspace.RequiredCompliationAnalyzer.TryGetDocumentRoot(doc, out var rootElement))
+            {
+                return null;
+            }
+
             var fileSyntax = rootElement.Syntax;
             if (fileSyntax == null)
             {

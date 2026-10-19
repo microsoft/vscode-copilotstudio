@@ -5,14 +5,18 @@ import {
 	getActiveSyncUri,
 	getOrAddSynchronizer,
 	getSyncStateFor,
+	holdsUnpushedLocalChanges,
+	logSyncConflicts,
 	logWorkflowIssues,
 	onAnySyncStateChanged,
 	removeSynchronizer,
+	sync,
 	SyncState,
 	withSyncCommandBusy,
 } from '../../sync/workspaceSynchronizer';
 import { resolveWorkspaceArg } from '../../commands/syncWorkspace';
-import logger, { formatFileName, prepareLogData, sanitizeErrorDetails } from '../../services/logger';
+import logger, { formatFileName, formatPii, PiiRedactionType, prepareLogData, sanitizeErrorDetails, stripPiiTags } from '../../services/logger';
+import { LspRequestError, LSP_UNPUSHED_LOCAL_CHANGES } from '../../services/lspClient';
 import type { WorkflowResponse } from '../../types';
 
 import { ThemeIcon } from 'vscode';
@@ -27,6 +31,55 @@ function createMockWorkspace(agentName: string): CopilotStudioWorkspace {
 		type: WorkspaceType.Agent,
 	};
 }
+
+describe('workspaceSynchronizer: unpushed local workflow changes', () => {
+	test('recognises the refusal the server returns for unpushed local edits', () => {
+		const refusal = new LspRequestError(LSP_UNPUSHED_LOCAL_CHANGES, "'My Flow-1' holds changes the environment has not seen.");
+
+		assert.strictEqual(holdsUnpushedLocalChanges(refusal), true);
+		assert.strictEqual(refusal.code, 409);
+		assert.ok(refusal instanceof Error);
+		assert.strictEqual(refusal.message, "'My Flow-1' holds changes the environment has not seen.");
+	});
+
+	test('does not treat another server failure as a local-change refusal', () => {
+		assert.strictEqual(holdsUnpushedLocalChanges(new LspRequestError(400, 'Bad request')), false);
+		assert.strictEqual(holdsUnpushedLocalChanges(new LspRequestError(500, 'Server error')), false);
+	});
+
+	test('does not treat a plain error or a non-error as a local-change refusal', () => {
+		assert.strictEqual(holdsUnpushedLocalChanges(new Error('boom')), false);
+		assert.strictEqual(holdsUnpushedLocalChanges('409'), false);
+		assert.strictEqual(holdsUnpushedLocalChanges(undefined), false);
+	});
+
+	test('a server-tagged folder name reads plainly for the user but is redacted in telemetry', () => {
+		const tagged = `${formatPii('MyFlow-a1b2', PiiRedactionType.WorkflowNames)} holds changes the environment has not seen.`;
+
+		assert.strictEqual(stripPiiTags(tagged), 'MyFlow-a1b2 holds changes the environment has not seen.');
+		assert.strictEqual(
+			prepareLogData(undefined, { error: sanitizeErrorDetails(tagged, [], PiiRedactionType.WorkflowNames) }).telemetryProperties['error'],
+			'[REDACTED WORKFLOW NAMES] holds changes the environment has not seen.');
+	});
+
+	test('the LSP middleware boundary redacts a tagged refusal even though it knows no workflow names', () => {
+		const serverMessage = `${formatPii('PayrollApprovals-a1b2', PiiRedactionType.WorkflowNames)} holds changes the environment has not seen.`;
+		const refusal = new LspRequestError(LSP_UNPUSHED_LOCAL_CHANGES, serverMessage);
+
+		const logged = prepareLogData(undefined, { errorMessage: sanitizeErrorDetails(refusal.message) });
+
+		assert.strictEqual(logged.telemetryProperties['errorMessage'], '[REDACTED WORKFLOW NAMES] holds changes the environment has not seen.');
+		assert.strictEqual(stripPiiTags(refusal.message), 'PayrollApprovals-a1b2 holds changes the environment has not seen.');
+	});
+
+	test('an untagged folder the server derived from a punctuated name reaches telemetry', () => {
+		const refusal = new LspRequestError(LSP_UNPUSHED_LOCAL_CHANGES, "'PayrollApprovals-a1b2' holds changes the environment has not seen.");
+
+		assert.ok(prepareLogData(undefined, { errorMessage: sanitizeErrorDetails(refusal.message) })
+			.telemetryProperties['errorMessage']
+			.includes('PayrollApprovals-a1b2'));
+	});
+});
 
 describe('workspaceSynchronizer: sync success telemetry', () => {
 
@@ -234,6 +287,29 @@ describe('workspaceSynchronizer: sync success telemetry', () => {
 		assert.strictEqual(prepared.telemetryProperties.message, 'Sync failed: [REDACTED]');
 		assert.strictEqual(prepared.telemetryProperties.error, '[REDACTED]');
 	});
+
+	test('does not re-wrap content a caller already tagged', () => {
+		const tagged = `Could not parse ${formatFileName('topics/Goodbye.mcs.yml')}`;
+
+		assert.strictEqual(sanitizeErrorDetails(tagged), tagged);
+	});
+
+	test('keeps a workspace validation error readable while redacting its file and detail', () => {
+		const errorMessage = [
+			'1 workspace file could not be read:',
+			`  ${formatPii('topics/Jane Doe Onboarding.mcs.yml', 'WORKSPACE FILE DETAILS')}(12,5): ${formatPii("Duplicate key 'customer-private-key'.", 'WORKSPACE FILE DETAILS')}`,
+		].join('\n');
+		const prepared = prepareLogData('Failed to execute Apply operation', {
+			sessionId: 'test-session',
+			errorMessage: sanitizeErrorDetails(errorMessage),
+		});
+
+		assert.ok(prepared.displayMessage?.includes("topics/Jane Doe Onboarding.mcs.yml(12,5): Duplicate key 'customer-private-key'."));
+		assert.strictEqual(
+			prepared.telemetryProperties.errorMessage,
+			'1 workspace file could not be read:\n  [REDACTED WORKSPACE FILE DETAILS](12,5): [REDACTED WORKSPACE FILE DETAILS]',
+		);
+	});
 });
 
 /**
@@ -345,8 +421,7 @@ describe('workspaceSynchronizer: SyncState enum', () => {
 
 describe('workspaceSynchronizer: logWorkflowIssues', () => {
 
-	function captureLogs(run: () => void): { warnings: string[]; errors: string[] } {
-		const warnings: string[] = [];
+	function captureLogs(run: () => void): { warnings: string[]; errors: string[] } {		const warnings: string[] = [];
 		const errors: string[] = [];
 		const originalWarn = logger.logWarning;
 		const originalError = logger.logError;
@@ -420,6 +495,36 @@ describe('workspaceSynchronizer: logWorkflowIssues', () => {
 		const byId = new Map(workflows.map(workflow => [workflow.workflowId, workflow]));
 		assert.strictEqual(byId.size, 2);
 	});
+
+	test('reports a pull that left merge conflicts as a warning', () => {
+		const message = 'Resolve them before pushing:\n  <pii type="WORKSPACE FILE DETAILS" encoded="true">topics/Jane Doe.mcs.yml</pii>(3,1)';
+
+		let reported = false;
+		const { warnings } = captureLogs(() => { reported = logSyncConflicts(message); });
+
+		assert.strictEqual(reported, true);
+		assert.strictEqual(warnings.length, 1, `expected one warning log, got ${JSON.stringify(warnings)}`);
+		assert.strictEqual(warnings[0], message);
+	});
+
+	test('does not warn when the pull reported no conflicts', () => {
+		let reported = true;
+		const emptyWarnings = captureLogs(() => { reported = logSyncConflicts(''); }).warnings;
+
+		assert.strictEqual(reported, false);
+		assert.strictEqual(emptyWarnings.length, 0);
+		assert.strictEqual(logSyncConflicts(undefined), false);
+	});
+
+	test('keeps conflicted file names out of telemetry while showing them to the user', () => {
+		const message = 'Resolve them before pushing:\n  <pii type="WORKSPACE FILE DETAILS" encoded="true">topics/Jane Doe.mcs.yml</pii>(3,1)';
+
+		const prepared = prepareLogData(message, { sessionId: 'test-session' });
+
+		assert.ok(prepared.displayMessage?.includes('topics/Jane Doe.mcs.yml'), prepared.displayMessage);
+		assert.ok(!prepared.telemetryProperties.message.includes('Jane Doe'), prepared.telemetryProperties.message);
+		assert.ok(prepared.telemetryProperties.message.includes('[REDACTED WORKSPACE FILE DETAILS]'), prepared.telemetryProperties.message);
+	});
 });
 
 describe('workspaceSynchronizer: workspace binding', () => {
@@ -429,6 +534,106 @@ describe('workspaceSynchronizer: workspace binding', () => {
 		...createMockWorkspace('Binding Agent'),
 		workspaceUri: bindingUri,
 		syncInfo: { accountInfo: { accountId, accountEmail: undefined, tenantId: '' } } as any,
+	});
+
+	const captureOverrideAccountInfo = async (
+		accountOverride: Parameters<typeof sync>[9]
+	): Promise<Record<string, unknown>> => {
+		const localWorkspaces = require('../../sync/localWorkspaces') as typeof import('../../sync/localWorkspaces');
+		const lspClient = require('../../services/lspClient') as typeof import('../../services/lspClient');
+		const originalRefreshSyncInfo = localWorkspaces.refreshSyncInfoFromConnection;
+		const originalRepairAccountInfo = localWorkspaces.repairAccountInfo;
+		const captureSnapshotDescriptor = Object.getOwnPropertyDescriptor(localWorkspaces, 'captureWorkspaceConnectionSnapshot');
+		const buildPayloadDescriptor = Object.getOwnPropertyDescriptor(lspClient, 'buildLspRequestPayload');
+		const persistedSyncInfo = {
+			accountInfo: {
+				accountId: 'persisted-account-id',
+				accountEmail: 'persisted@example.com',
+				tenantId: 'persisted-tenant-id',
+				clusterCategory: 2,
+			},
+			agentManagementEndpoint: 'https://api.example.com',
+			dataverseEndpoint: 'https://org.example.com',
+			environmentId: 'environment-id',
+		} as NonNullable<CopilotStudioWorkspace['syncInfo']>;
+		const workspace = {
+			...createMockWorkspace('Override Agent'),
+			syncInfo: persistedSyncInfo,
+		};
+		let capturedAccountInfo: Record<string, unknown> | undefined;
+
+		localWorkspaces.repairAccountInfo = async () => 'already-bound';
+		localWorkspaces.refreshSyncInfoFromConnection = () => persistedSyncInfo;
+		Object.defineProperty(localWorkspaces, 'captureWorkspaceConnectionSnapshot', {
+			value: () => 'connection-snapshot',
+			writable: true,
+			configurable: true,
+		});
+		Object.defineProperty(lspClient, 'buildLspRequestPayload', {
+			value: async (syncInfo: CopilotStudioWorkspace['syncInfo']) => {
+				capturedAccountInfo = syncInfo?.accountInfo as unknown as Record<string, unknown>;
+				throw new Error('captured override identity');
+			},
+			writable: true,
+			configurable: true,
+		});
+
+		try {
+			await assert.rejects(
+				() => sync(workspace, 'Refresh', 'test/sync', true, false, false, false, false, true, accountOverride),
+				/captured override identity/,
+			);
+			assert.ok(capturedAccountInfo);
+			return capturedAccountInfo;
+		} finally {
+			localWorkspaces.repairAccountInfo = originalRepairAccountInfo;
+			localWorkspaces.refreshSyncInfoFromConnection = originalRefreshSyncInfo;
+			if (captureSnapshotDescriptor) {
+				Object.defineProperty(localWorkspaces, 'captureWorkspaceConnectionSnapshot', captureSnapshotDescriptor);
+			}
+			if (buildPayloadDescriptor) {
+				Object.defineProperty(lspClient, 'buildLspRequestPayload', buildPayloadDescriptor);
+			}
+		}
+	};
+
+	test('does not retain a persisted account id or tenant for an email-only override', async () => {
+		const accountInfo = await captureOverrideAccountInfo({
+			accountEmail: 'selected@example.com',
+		});
+
+		assert.deepStrictEqual(accountInfo, {
+			accountId: undefined,
+			accountEmail: 'selected@example.com',
+			tenantId: '',
+			clusterCategory: 2,
+		});
+	});
+
+	test('does not retain a persisted email or tenant for an id-only override', async () => {
+		const accountInfo = await captureOverrideAccountInfo({
+			accountId: 'selected-account-id',
+		});
+
+		assert.deepStrictEqual(accountInfo, {
+			accountId: 'selected-account-id',
+			accountEmail: undefined,
+			tenantId: '',
+			clusterCategory: 2,
+		});
+	});
+
+	test('retains persisted identity for an override containing only account metadata', async () => {
+		const accountInfo = await captureOverrideAccountInfo({
+			clusterCategory: 3,
+		});
+
+		assert.deepStrictEqual(accountInfo, {
+			accountId: 'persisted-account-id',
+			accountEmail: 'persisted@example.com',
+			tenantId: 'persisted-tenant-id',
+			clusterCategory: 3,
+		});
 	});
 
 	test('adopts the latest workspace object instead of keeping the one it was created with', () => {
@@ -443,6 +648,26 @@ describe('workspaceSynchronizer: workspace binding', () => {
 		assert.strictEqual(reused.workspace, repaired);
 		assert.strictEqual(reused.workspace.syncInfo?.accountInfo.accountId, 'chosen.tenant');
 		removeSynchronizer(bindingUri);
+	});
+
+	test('retries account repair once when a concurrent startup repair changes the connection', async () => {
+		const localWorkspaces = require('../../sync/localWorkspaces') as typeof import('../../sync/localWorkspaces');
+		const originalRepairAccountInfo = localWorkspaces.repairAccountInfo;
+		let repairCalls = 0;
+		localWorkspaces.repairAccountInfo = async () => {
+			repairCalls++;
+			return repairCalls === 1 ? 'stale' : 'inaccessible';
+		};
+
+		try {
+			await assert.rejects(
+				() => sync(workspaceWithAccount(''), 'Preview', 'test/sync', true),
+				/Select an account with access, or add it if it is not listed/,
+			);
+			assert.strictEqual(repairCalls, 2);
+		} finally {
+			localWorkspaces.repairAccountInfo = originalRepairAccountInfo;
+		}
 	});
 
 	test('starts out reporting no failed operation', () => {

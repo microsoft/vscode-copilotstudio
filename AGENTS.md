@@ -298,7 +298,6 @@ Common Language Server Protocol Framework providing core abstractions:
 | `Impl.Language.PowerFx` | PowerFx: expression completions, signature help, diagnostics |
 | `Impl.Language.Yaml` | YAML: key/value completions, unique ID validation |
 | `Impl.PullAgent` | Dataverse sync: clone, pull, push, remote file fetch, change detection |
-| `Impl.YamlSourceTree` | YAML AST utilities for parsing and traversal |
 
 #### Shared C# Sync/Core Projects (`src/`)
 
@@ -385,7 +384,7 @@ agent-name/
 | `Directory.Build.props` | C# 12.0, nullable enable, implicit usings, docs generation |
 | `Directory.Build.targets` | Central package management, assembly signing, Nullable.Extended.Analyzer |
 | `src/Packages.props` | Centralized NuGet package versions |
-| `version.json` | Nerdbank.GitVersioning: version 1.9, release branches `release/*` |
+| `version.json` | Nerdbank.GitVersioning: version 1.10, release branches `release/*` |
 | `nuget.config` | NuGet package sources; currently lists nuget.org while some `Microsoft.Agents.*` dependencies still require internal restore access |
 | `tsconfig.json` | TypeScript strict mode, ES2022 target, Node16 modules |
 | `eslint.config.mjs` | Flat config: curly required, eqeqeq, no-throw-literal, semicolons |
@@ -428,3 +427,6 @@ The extension publishes LSP binaries for 6 platforms via `extension.proj`:
 ## Important Notes
 - Do not commit registry/feed URLs to npm config or lockfiles; committed npm lockfiles should stay independent of restore registry.
 - Expect external .NET restores/builds to fail until the internal `Microsoft.Agents.*` dependency is removed or restore access is configured.
+- `McsYamlReader` / `McsYamlWriter` (`src/CopilotStudio.McsCore/Yaml/`) parse and emit the YAML dialect these workspaces use, verified by differential tests against YamlDotNet. Anchors, aliases, tags, flow collections, block scalars and explicit keys are supported; multi-document streams, merge keys and non-text keys are rejected, and scalars are never type-coerced during parsing. Alias expansion is capped so a billion-laughs document fails fast.
+- `YamlDotNet` is a **test-only** dependency. `src/CopilotStudio.Sync.UnitTests/Yaml/` uses it as the reference implementation for differential tests; no shipping project may reference it.
+- Set `MCS_YAML_CORPUS_ROOT` to a folder of real agent workspaces to run the YAML corpus and byte-identity tests against real data.

@@ -3,12 +3,14 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     using Microsoft.Agents.ObjectModel;
     using Microsoft.Agents.Platform.Content;
     using Microsoft.CommonLanguageServerProtocol.Framework;
+    using Microsoft.CopilotStudio.McsCore;
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.CopilotStudio.Sync.Dataverse;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
+    using System.Collections.Generic;
     using System.Collections.Immutable;
     using System.Threading;
     using System.Threading.Tasks;
@@ -18,21 +20,32 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     {
         private readonly IClientWorkspaceFileProvider _fileProvider;
 
-        public SyncPullHandler(CopilotStudio.Sync.IIslandControlPlaneService islandControlPlaneService, CopilotStudio.Sync.IWorkspaceSynchronizer workspaceSynchronizer, ITokenManager dataverseTokenManager, ISyncDataverseClient dataverseClient, LspDataverseHttpClientAccessor dataverseHttpClientAccessor, CopilotStudio.Sync.IOperationContextProvider operationContextProvider, IClientWorkspaceFileProvider fileProvider, ILspLogger logger)
-            : base(islandControlPlaneService, workspaceSynchronizer, dataverseTokenManager, dataverseClient, dataverseHttpClientAccessor, operationContextProvider, logger)
+        public SyncPullHandler(CopilotStudio.Sync.IIslandControlPlaneService islandControlPlaneService, CopilotStudio.Sync.IWorkspaceSynchronizer workspaceSynchronizer, ITokenManager dataverseTokenManager, ISyncDataverseClient dataverseClient, LspDataverseHttpClientAccessor dataverseHttpClientAccessor, CopilotStudio.Sync.IOperationContextProvider operationContextProvider, IStandaloneWorkflowSynchronizer standaloneSynchronizer, IFileAccessorFactory fileAccessorFactory, IClientWorkspaceFileProvider fileProvider, ILspLogger logger)
+            : base(islandControlPlaneService, workspaceSynchronizer, dataverseTokenManager, dataverseClient, dataverseHttpClientAccessor, operationContextProvider, standaloneSynchronizer, fileAccessorFactory, logger)
         {
             _fileProvider = fileProvider;
         }
 
-        protected override async Task<(DefinitionBase, ImmutableArray<WorkflowResponse>, ImmutableArray<SyncDataverseClient.AIPromptResponse>)> ExecuteAsync(SyncAgentRequest request, IMcsWorkspace workspace, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CancellationToken cancellationToken)
+        protected override async Task<string> ExecuteStandaloneAsync(SyncAgentRequest request, IFileAccessor fileAccessor, CancellationToken cancellationToken)
         {
-            var updatedDefinition = await _synchronizer.PullExistingChangesAsync(workspace.FolderPath, operationContext, workspace.Definition, dataverseClient, syncInfo, cancellationToken).ConfigureAwait(false);
+            var local = await StandaloneSynchronizer.ReadLocalAsync(fileAccessor, cancellationToken).ConfigureAwait(false);
+            var pulled = await StandaloneSynchronizer.PullAsync(local.WorkflowId, fileAccessor, cancellationToken, new CopilotStudio.Sync.StandaloneWorkflowDownloadOptions { OverwriteLocalChanges = request.OverwriteLocalChanges }).ConfigureAwait(false);
+
+            return pulled.Deleted ? $"Workflow '{local.Name}' no longer exists in this environment and was removed from the workspace." : string.Empty;
+        }
+
+        protected override bool BlocksOnUnreadableDocuments => true;
+
+        protected override async Task<(DefinitionBase Definition, ImmutableArray<WorkflowResponse> Workflows, ImmutableArray<SyncDataverseClient.AIPromptResponse> AIPrompts, string Warning)> ExecuteAsync(SyncAgentRequest request, IMcsWorkspace workspace, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CancellationToken cancellationToken)
+        {
+            var conflicts = new List<CopilotStudio.Sync.WorkspaceDiagnostic>();
+            var updatedDefinition = await _synchronizer.PullExistingChangesAsync(workspace.FolderPath, operationContext, workspace.Definition, dataverseClient, syncInfo, cancellationToken, downloadAllKnowledgeFiles: false, conflicts).ConfigureAwait(false);
             if (workspace is Workspace trackedWorkspace)
             {
                 trackedWorkspace.RemoveMissingDocuments(_fileProvider);
             }
 
-            return (updatedDefinition, ImmutableArray<WorkflowResponse>.Empty, ImmutableArray<Microsoft.CopilotStudio.Sync.Dataverse.SyncDataverseClient.AIPromptResponse>.Empty);
+            return (updatedDefinition, ImmutableArray<WorkflowResponse>.Empty, ImmutableArray<Microsoft.CopilotStudio.Sync.Dataverse.SyncDataverseClient.AIPromptResponse>.Empty, LspExceptionHandler.DescribeConflicts(conflicts));
         }
     }
 }

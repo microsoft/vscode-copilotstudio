@@ -28,6 +28,5 @@
     <ProjectReference Include="LanguageServers\PowerPlatformLS\Impl.Language.PowerFx\Impl.Language.PowerFx.csproj" />
     <ProjectReference Include="LanguageServers\PowerPlatformLS\Impl.Language.Yaml\Impl.Language.Yaml.csproj" />
     <ProjectReference Include="LanguageServers\PowerPlatformLS\Impl.PullAgent\Impl.PullAgent.csproj" />
-    <ProjectReference Include="LanguageServers\PowerPlatformLS\Impl.YamlSourceTree\Impl.YamlSourceTree.csproj" />
   </ItemGroup>
 </Project>

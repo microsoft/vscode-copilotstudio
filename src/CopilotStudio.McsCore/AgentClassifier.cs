@@ -38,6 +38,17 @@ namespace Microsoft.CopilotStudio.McsCore
         /// </summary>
         public const string WorkspaceLayoutMarkerFileName = "agent.sync.yaml";
 
+        /// <summary>The root files whose presence means a directory holds an agent project of its own.</summary>
+        public static readonly string[] AgentProjectFileNames =
+        {
+            "settings.mcs.yml",
+            "settings.mcs.yaml",
+            "agent.mcs.yml",
+            "agent.mcs.yaml",
+            "collection.mcs.yml",
+            "collection.mcs.yaml",
+        };
+
         /// <summary>
         /// The current (highest known) <c>layoutVersion</c>. The CLI three-layer
         /// <c>.mcs.yml</c> layout is version 1. Bump ONLY on a layout/extension-breaking
@@ -45,6 +56,13 @@ namespace Microsoft.CopilotStudio.McsCore
         /// projection-rule/content tweaks that relocate no files.
         /// </summary>
         public const int CurrentLayoutVersion = 1;
+
+        /// <summary>The body a workspace layout marker file carries.</summary>
+        /// <returns>The marker text, including its header comment.</returns>
+        public static string BuildWorkspaceLayoutMarker() =>
+            "# Workspace layout marker (Sync overlay; generic YAML, never MCS-parsed).\n" +
+            "# Declares the on-disk layout version only; identity lives in settings.mcs.yml.\n" +
+            $"layoutVersion: {CurrentLayoutVersion}\n";
 
         /// <summary>
         /// Parses the <c>layoutVersion</c> integer out of an <c>agent.sync.yaml</c> marker

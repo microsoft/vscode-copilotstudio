@@ -47,9 +47,9 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Handlers
                 var originalDefinition = (context.Workspace.GetDocument(path) as McsLspDocument)?.FileModel as DefinitionBase;
                 var contextDefinition = (context.Workspace as McsWorkspace)?.Definition;
 
-                if (request.SchemaName.StartsWith("Mcs.Workflow."))
+                if (request.SchemaName.StartsWith(WorkflowLayout.SchemaNamePrefix))
                 {
-                    var workflowId = request.SchemaName.Substring("Mcs.Workflow.".Length);
+                    var workflowId = request.SchemaName.Substring(WorkflowLayout.SchemaNamePrefix.Length);
                     var isMetadata = workflowId.EndsWith(".metadata", StringComparison.OrdinalIgnoreCase);
                     if (isMetadata)
                     {
@@ -84,13 +84,19 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Handlers
                             Content = isMetadata ? s.Value : content
                         });
                     }
+
+                    return Task.FromResult(new GetFileResponse
+                    {
+                        Code = 200,
+                        Content = string.Empty
+                    });
                 }
 
                 using var sw = new StringWriter();
                 string? componentBody = null;
                 if (request.SchemaName.Equals("entity", StringComparison.OrdinalIgnoreCase) && originalDefinition is BotDefinition bd && bd.Entity is not null)
                 {
-                    CodeSerializer.SerializeWithoutKind(sw, bd.Entity.WithOnlySettingsYamlProperties());
+                    CodeSerializer.SerializeWithoutKind(sw, bd.Entity.WithOnlyAuthoredSettingsProperties());
                 }
                 else if (request.SchemaName.Equals("collection", StringComparison.OrdinalIgnoreCase) && originalDefinition is BotComponentCollectionDefinition cc && cc.ComponentCollection is not null)
                 {

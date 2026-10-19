@@ -76,9 +76,10 @@ public class CliAgentBotEntityReaderTests
         var accessor = new InMemoryFileAccessor(new DirectoryPath("c:/test/missing/"));
         var cloud = LoadEntityFromFixture("FoodLogger");
 
-        var ex = Assert.Throws<InvalidOperationException>(
+        var ex = Assert.Throws<WorkspaceValidationException>(
             () => CliAgentBotEntityReader.Overlay(accessor, cloud));
         Assert.Contains("settings.mcs.yml", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, Assert.Single(ex.Diagnostics).Line);
     }
 
     [Fact]
@@ -87,9 +88,10 @@ public class CliAgentBotEntityReaderTests
         var accessor = new InMemoryFileAccessor(new DirectoryPath("c:/test/malformed/"));
         await accessor.WriteAsync(SettingsPath, "{ this is : not [ valid yaml :\n  - nope", CancellationToken.None);
 
-        var ex = Assert.Throws<InvalidOperationException>(
+        var ex = Assert.Throws<WorkspaceValidationException>(
             () => CliAgentBotEntityReader.Overlay(accessor, LoadEntityFromFixture("FoodLogger")));
         Assert.Contains("settings.mcs.yml", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(WorkspaceDiagnosticKind.InvalidFile, Assert.Single(ex.Diagnostics).Kind);
     }
 
     [Fact]
@@ -98,9 +100,10 @@ public class CliAgentBotEntityReaderTests
         var accessor = new InMemoryFileAccessor(new DirectoryPath("c:/test/noschema/"));
         await accessor.WriteAsync(SettingsPath, "displayName: FoodLogger\nlanguage: 1033\n", CancellationToken.None);
 
-        var ex = Assert.Throws<InvalidOperationException>(
+        var ex = Assert.Throws<WorkspaceValidationException>(
             () => CliAgentBotEntityReader.Overlay(accessor, LoadEntityFromFixture("FoodLogger")));
         Assert.Contains("schemaName", ex.Message, StringComparison.Ordinal);
+        Assert.Equal("settings.mcs.yml", Assert.Single(ex.Diagnostics).FilePath);
     }
 
     [Fact]
@@ -111,9 +114,10 @@ public class CliAgentBotEntityReaderTests
         WriteSettings(accessor, LoadEntityFromFixture("FoodLogger"));
         var cloud = LoadEntityFromFixture("HRAgent");
 
-        var ex = Assert.Throws<InvalidOperationException>(
+        var ex = Assert.Throws<WorkspaceValidationException>(
             () => CliAgentBotEntityReader.Overlay(accessor, cloud));
         Assert.Contains("does not match", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("settings.mcs.yml", Assert.Single(ex.Diagnostics).FilePath);
     }
 
     // --- Helpers ------------------------------------------------------------

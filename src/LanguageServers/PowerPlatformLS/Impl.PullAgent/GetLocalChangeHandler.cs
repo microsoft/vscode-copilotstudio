@@ -38,7 +38,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 {
                     Code = 200,
                     Message = string.Empty,
-                    LocalChanges = localChanges
+                    LocalChanges = LocalChangeDisplay.ForWorkspace(workspace, localChanges)
                 };
             }
             catch (Exception ex)

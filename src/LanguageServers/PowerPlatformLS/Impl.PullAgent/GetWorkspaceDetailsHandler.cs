@@ -31,8 +31,10 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         {
             var ws = (IMcsWorkspace)requestContext.Workspace;
             var wsFolderPathValue = ws.FolderPath.ToString();
+            var isStandaloneWorkflow = WorkspaceClassifier.DetectKind(_fileAccessor.Create(ws.FolderPath)) == WorkspaceKind.StandaloneWorkflow;
             var (displayName, description, workspaceType) = ws.Definition switch
             {
+                _ when isStandaloneWorkflow => (null, null, WorkspaceType.StandaloneWorkflow),
                 BotDefinition bot => (bot.Entity?.DisplayName, null, WorkspaceType.Agent),
                 BotComponentCollectionDefinition cc=> (cc.ComponentCollection?.DisplayName, cc.ComponentCollection?.Description, WorkspaceType.ComponentCollection),
                 _ => (null, null, WorkspaceType.Unknown),
@@ -40,6 +42,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
             var schemaName = ws.Definition switch
             {
+                _ when isStandaloneWorkflow => null,
                 BotDefinition bot => bot.GetRootSchemaName(),
                 BotComponentCollectionDefinition cc => cc.GetRootSchemaName(),
                 _ => null,
@@ -81,7 +84,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             {
                 WorkspaceUri = new Uri(wsFolderPathValue),
                 IconFilePath = GetIconFilePath(ws),
-                DisplayName = displayName ?? wsFolderPathValue.Split('/').Last(),
+                DisplayName = displayName ?? FolderNameOf(wsFolderPathValue),
                 SchemaName = schemaName,
                 Description = description,
                 Type = workspaceType,
@@ -94,6 +97,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             var accessor = _fileAccessor.Create(ws.FolderPath);
             return accessor.Exists(new AgentFilePath("icon.png")) ? (ws.FolderPath.ToString() + "icon.png") : null;
         }
+
+        internal static string FolderNameOf(string workspaceFolderPath) => workspaceFolderPath.TrimEnd('/').Split('/').Last();
     }
 
     internal class GetWorkspaceDetailsParams : IHasWorkspace

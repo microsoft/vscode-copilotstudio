@@ -3,7 +3,6 @@
 
 using Microsoft.Agents.ObjectModel;
 using System.Collections.Frozen;
-using System.Linq;
 
 namespace Microsoft.CopilotStudio.McsCore;
 
@@ -22,6 +21,8 @@ internal static class LspProjection
     internal const string FileAttachmentInfix = ".file.";
     internal const string AgentsFolder = "agents/";
     internal const string BehaviorsFolder = "behaviors/";
+    internal const string HooksFolder = "hooks/";
+    internal const string ToolsFolder = "tools/";
 
     /// <summary>
     /// Conditional projection override for a rule.
@@ -113,6 +114,10 @@ internal static class LspProjection
 
     internal static readonly (string Folder, string Infix) DefaultDialogProjection = ("dialogs/", ".dialog.");
 
+    private static readonly string[] CliToolAlternateInfixes = { ".action." };
+
+    private static readonly string[] CliToolDotInfixBlocklist = { "tool" };
+
     /// <summary>
     /// All projection rules keyed by element type.
     /// </summary>
@@ -153,6 +158,23 @@ internal static class LspProjection
             {
                 typeof(AgentDialog),
                 new Rule(AgentInfix, AgentsFolder, false)
+            },
+
+            {
+                typeof(AgentSkillBase),
+                new Rule(".skill.", "skills/", true, new[] { "skill" })
+            },
+            {
+                typeof(AgentToolBase),
+                new Rule(".tool.", ToolsFolder, true, CliToolDotInfixBlocklist, AlternateInfixes: CliToolAlternateInfixes)
+            },
+            {
+                typeof(ConnectedAgentToolBase),
+                new Rule(".tool.connected-agent.", AgentsFolder, true, CliToolDotInfixBlocklist, AlternateInfixes: CliToolAlternateInfixes)
+            },
+            {
+                typeof(AgentHook),
+                new Rule(".tool.", HooksFolder, true, CliToolDotInfixBlocklist, AlternateInfixes: CliToolAlternateInfixes)
             },
 
             // GPT
@@ -259,10 +281,6 @@ internal static class LspProjection
             //},
         }.ToFrozenDictionary();
 
-    private static readonly string[] CliToolAlternateInfixes = { ".action." };
-
-    private static readonly string[] CliToolDotInfixBlocklist = { "tool" };
-
     /// <summary>
     /// CLI-agent (<see cref="AuthoringShape.CliCopilot"/>) projection overrides,
     /// consulted before the shared classic <see cref="Rules"/> when projecting a CLI
@@ -282,29 +300,21 @@ internal static class LspProjection
     /// </remarks>
     internal static readonly FrozenDictionary<Type, Rule> CliRules = new Dictionary<Type, Rule>
         {
-            // Behaviors (CLI inline skills) -> behaviors/
             {
-                typeof(InlineAgentSkill),
+                typeof(AgentSkillBase),
                 new Rule(".skill.", BehaviorsFolder, true, new[] { "skill" })
             },
-
-            // Tools -> capabilities/tools/
             {
-                typeof(ConnectorTool),
+                typeof(AgentToolBase),
                 new Rule(".tool.", "capabilities/tools/", true, CliToolDotInfixBlocklist, AlternateInfixes: CliToolAlternateInfixes)
             },
             {
-                typeof(WorkflowTool),
-                new Rule(".tool.", "capabilities/tools/", true, CliToolDotInfixBlocklist, AlternateInfixes: CliToolAlternateInfixes)
-            },
-            {
-                typeof(McpTool),
-                new Rule(".tool.", "capabilities/tools/", true, CliToolDotInfixBlocklist, AlternateInfixes: CliToolAlternateInfixes)
-            },
-            // D10: connected agents route to capabilities/tools/, NOT capabilities/agents/.
-            {
-                typeof(ConnectedAgentTool),
+                typeof(ConnectedAgentToolBase),
                 new Rule(".tool.connected-agent.", "capabilities/tools/", true, CliToolDotInfixBlocklist, AlternateInfixes: CliToolAlternateInfixes)
+            },
+            {
+                typeof(AgentHook),
+                new Rule(".tool.", HooksFolder, true, CliToolDotInfixBlocklist, AlternateInfixes: CliToolAlternateInfixes)
             },
 
             // Knowledge (shared type) -> capabilities/knowledge/ (D21). PreserveBotPrefixedFiles
@@ -858,21 +868,31 @@ internal static class LspProjection
     {
         // CLI agents consult the CLI-specific overrides first; any type not present
         // there falls back to the shared classic Rules. Classic and Unknown shapes
-        // never consult CliRules, so classic projection is byte-identical (TDD D20).
-        if (shape == AuthoringShape.CliCopilot
-            && TryGetRuleFromMap(CliRules, elementType, schemaName, path, out rule, context))
+        // never consult CliRules, so CLI folders never leak into classic (TDD D20).
+        if (shape == AuthoringShape.CliCopilot && TryGetRuleFromMap(CliRules, elementType, schemaName, path, out rule, context, out _))
         {
             return true;
         }
 
-        return TryGetRuleFromMap(Rules, elementType, schemaName, path, out rule, context);
+        if (!TryGetRuleFromMap(Rules, elementType, schemaName, path, out rule, context, out var matchedType))
+        {
+            return false;
+        }
+
+        if (typeof(DialogBase).IsAssignableFrom(elementType) && !typeof(DialogBase).IsAssignableFrom(matchedType))
+        {
+            rule = new Rule(DefaultDialogProjection.Infix, DefaultDialogProjection.Folder, rule.DotPassthrough);
+        }
+
+        return true;
     }
 
-    private static bool TryGetRuleFromMap(FrozenDictionary<Type, Rule> map, Type elementType, string? schemaName, string? path, out Rule rule, RuleContext? context)
+    private static bool TryGetRuleFromMap(FrozenDictionary<Type, Rule> map, Type elementType, string? schemaName, string? path, out Rule rule, RuleContext? context, out Type? matchedType)
     {
         if (map.TryGetValue(elementType, out var exactRule))
         {
             rule = ResolveRule(exactRule, path, schemaName, context);
+            matchedType = elementType;
             return true;
         }
 
@@ -893,6 +913,8 @@ internal static class LspProjection
                 }
             }
         }
+
+        matchedType = bestMatch;
 
         if (bestMatch != null)
         {
@@ -1282,6 +1304,9 @@ internal static class LspProjection
         AddToMap(map, "knowledge/", typeof(KnowledgeSource));                  // Knowledge - uses KnowledgeSource, not KnowledgeSourceConfiguration
         AddToMap(map, "knowledge/files/", typeof(FileAttachmentComponent));    // File attachments - uses FileAttachmentComponent
         AddToMap(map, "skills/", typeof(SkillDefinition));
+        AddToMap(map, "skills/", typeof(AgentSkillBase));
+        AddToMap(map, ToolsFolder, typeof(AgentToolBase));
+        AddToMap(map, AgentsFolder, typeof(ConnectedAgentToolBase));
 
         // CLI three-layer folders are disjoint from classic, so the combined
         // read-side map stays unambiguous. Connected agents -> capabilities/tools/
@@ -1292,6 +1317,7 @@ internal static class LspProjection
         AddToMap(map, "capabilities/tools/", typeof(WorkflowTool));
         AddToMap(map, "capabilities/tools/", typeof(McpTool));
         AddToMap(map, "capabilities/tools/", typeof(ConnectedAgentTool));
+        AddToMap(map, HooksFolder, typeof(AgentHook));
 
         // CLI shared types: knowledge + file attachments
         AddToMap(map, "capabilities/knowledge/", typeof(KnowledgeSource));

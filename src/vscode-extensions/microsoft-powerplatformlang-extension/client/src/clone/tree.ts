@@ -6,7 +6,8 @@ import { listAgentsAsync, listSharedAgentsAsync, clearWhoAmICache } from "../cli
 import { listEnvironmentsBySkuAsync, EnvironmentSku, getTokenScopeHostName, isAccountTokenUsable } from "../clients/bapClient";
 import { DefaultCoreServicesClusterCategory, TelemetryEventsKeys } from "../constants";
 import { addWorkspaceChangeSubscription, getActiveAgentAccount, getAllProjectAccounts } from "../sync/localWorkspaces";
-import logger, { formatPii, PiiRedactionType } from '../services/logger';
+import { listStandaloneWorkflows, StandaloneWorkflowView } from "../workflows/standaloneWorkflows";
+import logger, { formatEnvironmentId, formatPii, PiiRedactionType } from '../services/logger';
 
 // Types must be declared before the account/SKU nodes
 export enum TreeItemKind  {
@@ -19,6 +20,9 @@ export enum TreeItemKind  {
 	RetrySignIn = 8,
 	Account = 10,
 	AddAccount = 11,
+	AgentGroup = 12,
+	WorkflowGroup = 13,
+	Workflow = 14,
 }
 
 const TREE_ITEM_KIND_VALUES = new Set<number>(
@@ -56,6 +60,25 @@ export interface AgentTreeItem extends CopilotStudioTreeItem {
     sourceAccount?: AccountInfo;
 }
 
+export interface AgentGroupTreeItem extends CopilotStudioTreeItem {
+	kind: TreeItemKind.AgentGroup;
+	environment: EnvironmentInfo;
+	sourceAccount?: AccountInfo;
+}
+
+export interface WorkflowGroupTreeItem extends CopilotStudioTreeItem {
+	kind: TreeItemKind.WorkflowGroup;
+	environment: EnvironmentInfo;
+	sourceAccount?: AccountInfo;
+}
+
+export interface WorkflowTreeItem extends CopilotStudioTreeItem {
+	kind: TreeItemKind.Workflow;
+	environment: EnvironmentInfo;
+	workflow: StandaloneWorkflowView;
+	sourceAccount?: AccountInfo;
+}
+
 interface AccountProblemTreeItem extends CopilotStudioTreeItem {
 	kind: TreeItemKind.AccountProblem;
 	account: AccountInfo;
@@ -83,6 +106,9 @@ export type CopilotStudioTreeItemUnion =
 	| SkuSectionTreeItem
 	| EnvironmentTreeItem
 	| AgentTreeItem
+	| AgentGroupTreeItem
+	| WorkflowGroupTreeItem
+	| WorkflowTreeItem
 	| ErrorTreeItem;
 
 /**
@@ -428,6 +454,24 @@ export class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTree
 			item.iconPath = getIcon(agent.agent);
 			item.contextValue = 'agentItem';
 			return item;
+		} else if (element.kind === TreeItemKind.AgentGroup) {
+			const item = new TreeItem('Agents', TreeItemCollapsibleState.Expanded);
+			item.iconPath = new ThemeIcon('organization');
+			item.contextValue = 'agentGroup';
+			return item;
+		} else if (element.kind === TreeItemKind.WorkflowGroup) {
+			const item = new TreeItem('Workflows', TreeItemCollapsibleState.Collapsed);
+			item.iconPath = new ThemeIcon('symbol-event');
+			item.contextValue = 'workflowGroup';
+			return item;
+		} else if (element.kind === TreeItemKind.Workflow) {
+			const workflowItem = element as WorkflowTreeItem;
+			const item = new TreeItem(workflowItem.workflow.name, TreeItemCollapsibleState.None);
+			item.iconPath = new ThemeIcon('symbol-event');
+			item.description = workflowItem.workflow.isActivated ? 'Activated' : 'Draft';
+			item.tooltip = workflowItem.workflow.description;
+			item.contextValue = 'workflowItem';
+			return item;
 		} else if (element.kind === TreeItemKind.Error) {
 			const errorItem = element as ErrorTreeItem;
 			const item = new TreeItem(errorItem.message, TreeItemCollapsibleState.None);
@@ -494,6 +538,29 @@ export class AgentTreeDataProvider implements TreeDataProvider<CopilotStudioTree
 				}
 			} else if (element.kind === TreeItemKind.Environment) {
 				const envItem = element as EnvironmentTreeItem;
+				resolve([
+					{ kind: TreeItemKind.AgentGroup, environment: envItem.environment, sourceAccount: envItem.sourceAccount } as AgentGroupTreeItem,
+					{ kind: TreeItemKind.WorkflowGroup, environment: envItem.environment, sourceAccount: envItem.sourceAccount } as WorkflowGroupTreeItem
+				]);
+			} else if (element.kind === TreeItemKind.WorkflowGroup) {
+				const groupItem = element as WorkflowGroupTreeItem;
+				const envName = formatPii(groupItem.environment.displayName, PiiRedactionType.EnvironmentName);
+				const environmentId = formatEnvironmentId(groupItem.environment.environmentId);
+				const startTime = Date.now();
+				try {
+					const storeAccount = groupItem.sourceAccount ?? await this.resolveSelectedAccount();
+					const workflows = await listStandaloneWorkflows(groupItem.environment, storeAccount ?? {});
+					const durationMs = Date.now() - startTime;
+					logger.logInfo(TelemetryEventsKeys.LoadStandaloneWorkflowsSuccess, undefined, { message: `${envName}: Loaded ${workflows.length} workflow(s)`, environmentId, workflowCount: workflows.length, durationMs });
+					resolve(workflows.length === 0
+						? [{ kind: TreeItemKind.Error, message: 'No workflows', environment: groupItem.environment } as ErrorTreeItem]
+						: workflows.map(workflow => ({ kind: TreeItemKind.Workflow, environment: groupItem.environment, workflow, sourceAccount: storeAccount } as WorkflowTreeItem)));
+				} catch (error: any) {
+					logger.logError(TelemetryEventsKeys.LoadStandaloneWorkflowsError, `${envName}: Failed to load workflows`, { environmentId, durationMs: Date.now() - startTime, error });
+					resolve([{ kind: TreeItemKind.Error, message: 'Failed to load workflows', environment: groupItem.environment } as ErrorTreeItem]);
+				}
+			} else if (element.kind === TreeItemKind.AgentGroup) {
+				const envItem = element as AgentGroupTreeItem;
 				const sku = envItem.environment.environmentSku ?? 'Unknown';
 				const envName = envItem.environment.displayName;
 				const startTime = Date.now();

@@ -113,9 +113,9 @@ public class ComponentWriterDefensiveTests
         return new AuthoringOperationContext(principal, orgInfo, botRef, null, false);
     }
 
-    internal static (WorkspaceSynchronizer sync, InMemoryFileAccessorFactory factory, Mock<IIslandControlPlaneService> island) CreateSyncInfrastructure()
+    internal static (WorkspaceSynchronizer sync, InMemoryFileAccessorFactory factory, Mock<IIslandControlPlaneService> island) CreateSyncInfrastructure(ISyncProgress? progress = null)
     {
-        var progress = new TestSyncProgress(new List<string>());
+        progress ??= new TestSyncProgress(new List<string>());
         var fileParser = new SyncMcsFileParser(LspProjectorService.Instance);
         var fileAccessorFactory = new InMemoryFileAccessorFactory();
         var pathResolver = new LspComponentPathResolver();

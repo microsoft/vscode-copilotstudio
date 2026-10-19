@@ -12,6 +12,7 @@
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Validation;
     using System.Collections.Generic;
     using System.Diagnostics;
+    using System.Diagnostics.CodeAnalysis;
     using System.Linq;
 
     /// <summary>
@@ -36,6 +37,8 @@
             _root = root;
             _workspaceErrors = workspaceErrors;
         }
+
+        private const string UncompiledDocumentMessage = "Document was not compiled under the current Agent Definition.";
 
         public DefinitionBase RootDefinition => _root;
 
@@ -74,15 +77,7 @@
                 return [];
             }
 
-            BotElement? currentFileRootElement;
-            try
-            {
-                currentFileRootElement = GetDocumentRoot(document);
-            }
-            catch (InvalidOperationException)
-            {
-                currentFileRootElement = null;
-            }
+            TryGetDocumentRoot(document, out var currentFileRootElement);
 
             IEnumerable<Diagnostic> diagnostics;
             if (currentFileRootElement == null)
@@ -97,7 +92,7 @@
                     diagnostics = [
                         new Diagnostic
                         {
-                            Message = "Document was not compiled under the current Agent Definition.",
+                            Message = UncompiledDocumentMessage,
                             Severity = DiagnosticSeverity.Information,
                             Range = Range.Zero,
                         }
@@ -177,6 +172,36 @@
             }
 
             return new System.Uri(fileUri.Substring(0, fileUri.Length - relativePath.Length));
+        }
+
+        /// <summary>Resolves the document root, returning false when the file failed to parse and has no model.</summary>
+        public bool TryGetDocumentRoot(McsLspDocument document, [NotNullWhen(true)] out BotElement? root)
+        {
+            try
+            {
+                root = GetDocumentRoot(document);
+                return root != null;
+            }
+            catch (InvalidOperationException)
+            {
+                root = null;
+                return false;
+            }
+        }
+
+        public bool TryGetUncompiledDocumentFailure(McsLspDocument document, [NotNullWhen(true)] out Exception? failure)
+        {
+            if (document.FileModel is SourceFileElement || TryGetDocumentRoot(document, out _))
+            {
+                failure = null;
+                return false;
+            }
+
+            failure = _workspaceErrors.TryGetValue(document, out var errors)
+                ? errors.FirstOrDefault(error => error is not AgentFileMissingException)
+                : null;
+            failure ??= new InvalidOperationException(UncompiledDocumentMessage);
+            return true;
         }
 
         /// <summary>

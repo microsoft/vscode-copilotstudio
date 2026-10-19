@@ -3,6 +3,7 @@
     using Microsoft.Agents.ObjectModel;
     using Microsoft.Agents.ObjectModel.Yaml;
     using Microsoft.CopilotStudio.McsCore;
+    using Microsoft.CopilotStudio.McsCore.Yaml;
     using Microsoft.PowerPlatformLS.Contracts.Internal;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models.Lsp;
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
@@ -165,7 +166,12 @@
             BotElement? syntax = null;
             try
             {
-                syntax = CodeSerializer.Deserialize(Text, type, Uri);
+                syntax = McsYamlValidator.Deserialize(Text, type, Uri);
+            }
+            catch (McsYamlFormatException formatError)
+            {
+                ParsingInfo.Diagnostic = GetDiagnosticFromException(formatError);
+                return null;
             }
             catch (YamlReaderException omParsingError)
             {
@@ -199,6 +205,22 @@
                 Range = Range.Zero,
                 Severity = DiagnosticSeverity.Error,
                 Message = message
+            };
+        }
+
+        private static Diagnostic GetDiagnosticFromException(McsYamlFormatException formatError)
+        {
+            var lineIndex = Math.Max(0, formatError.Line - 1);
+            var characterIndex = Math.Max(0, formatError.Column - 1);
+            return new Diagnostic
+            {
+                Range = new Range
+                {
+                    Start = new Position { Line = lineIndex, Character = characterIndex },
+                    End = new Position { Line = lineIndex, Character = characterIndex },
+                },
+                Severity = DiagnosticSeverity.Error,
+                Message = formatError.Message
             };
         }
 

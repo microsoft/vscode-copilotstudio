@@ -350,7 +350,12 @@
         {
             // ! caller has built the model.
             var analyzer = workspace.CompilationAnalyzer!;
-            var rootElement = analyzer.GetDocumentRoot(doc);
+            if (!analyzer.TryGetDocumentRoot(doc, out var rootElement))
+            {
+                syntaxTokenAtCursor = null;
+                lastNonTriviaTokenAtCursor = null;
+                return false;
+            }
 
             var syntax = rootElement.Syntax;
 

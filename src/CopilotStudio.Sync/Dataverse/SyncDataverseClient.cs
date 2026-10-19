@@ -5,14 +5,16 @@
 using Microsoft.Agents.ObjectModel;
 using Microsoft.Agents.Platform.Content.Abstractions;
 using Microsoft.CopilotStudio.McsCore;
+using System.Collections.Concurrent;
+using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
-using YamlDotNet.Serialization;
+using Microsoft.CopilotStudio.McsCore.Yaml;
 
 namespace Microsoft.CopilotStudio.Sync.Dataverse;
 
-public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectionDataverseClient, IStreamingKnowledgeFileClient
+public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowDataverseClient, ISyncComponentCollectionDataverseClient, IStreamingKnowledgeFileClient
 {
     private readonly IDataverseHttpClientAccessor _httpClientAccessor;
     private readonly AsyncLocal<string> _dataverseUrl = new();
@@ -20,6 +22,36 @@ public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectio
         ?? throw new InvalidOperationException("Dataverse URL is not set. Call SetDataverseUrl before making API calls.");
 
     private const int BatchSize = 50;
+
+    private const string WorkflowPrimaryKeyColumn = "workflowid";
+
+    private static readonly HashSet<string> NonDataverseWorkflowColumns = new(StringComparer.OrdinalIgnoreCase) { "jsonfilename" };
+
+    private static readonly HashSet<string> RequiredWorkflowColumns = new(StringComparer.OrdinalIgnoreCase) { WorkflowPrimaryKeyColumn, "name", "clientdata" };
+
+    private static readonly (string Name, System.Reflection.PropertyInfo Property)[] WorkflowColumns = typeof(WorkflowMetadata)
+        .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+        .Select(property => (Property: property, Json: property.GetCustomAttribute<JsonPropertyNameAttribute>()))
+        .Where(entry => entry.Json is not null && entry.Property.GetCustomAttribute<JsonIgnoreAttribute>() is null && !NonDataverseWorkflowColumns.Contains(entry.Json!.Name))
+        .Select(entry => (entry.Json!.Name, entry.Property))
+        .ToArray();
+
+    private static readonly string[] WorkflowReadColumns = WorkflowColumns.Select(column => column.Name).ToArray();
+
+    private static readonly HashSet<string> WorkflowActivationStateColumns = new(StringComparer.OrdinalIgnoreCase) { "statecode", "statuscode" };
+
+    private const string CloudFlowFilter = "category eq 5 and type eq 1";
+
+    private static readonly string[] WorkflowSummaryColumns = { "workflowid", "name", "description", "statecode", "statuscode", "modifiedon" };
+
+    private static readonly (string Name, System.Reflection.PropertyInfo Property)[] WorkflowWritableColumns = WorkflowColumns
+        .Where(column => !string.Equals(column.Name, WorkflowPrimaryKeyColumn, StringComparison.OrdinalIgnoreCase))
+        .OrderBy(column => WorkflowActivationStateColumns.Contains(column.Name) ? 1 : 0)
+        .ToArray();
+
+    private static readonly Regex MissingPropertyRegex = new(@"Could not find a property named '(?<name>[^']+)'", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, byte>> _unsupportedWorkflowColumnsByEnvironment = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly JsonSerializerOptions JsonSerializerOptions = new(JsonSerializerDefaults.Web)
     {
@@ -154,17 +186,18 @@ public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectio
         try
         {
             var existsInCloud = await WorkflowExistsAsync(workflowMetadata.WorkflowId, cancellationToken).ConfigureAwait(false);
-            if (!existsInCloud && agentId.HasValue)
+            if (!existsInCloud)
             {
+                if (!agentId.HasValue)
+                {
+                    throw new InvalidOperationException($"Workflow {workflowMetadata.WorkflowId} is not in the environment and no agent owns it.");
+                }
+
                 return await InsertWorkflowAsync(agentId, workflowMetadata, cancellationToken).ConfigureAwait(false);
             }
 
-            if (existsInCloud)
-            {
-                var requestBody = CreateWorkflowRequestBody(workflowMetadata);
-                var updateUrl = $"{DataverseUrl}/api/data/v9.2/workflows({workflowMetadata.WorkflowId})";
-                await SendAsync<object>(HttpMethodHelper.Patch, updateUrl, requestBody, false, cancellationToken).ConfigureAwait(false);
-            }
+            var updateUrl = $"{DataverseUrl}/api/data/v9.2/workflows({workflowMetadata.WorkflowId})";
+            await SendWorkflowWriteAsync<object>(HttpMethodHelper.Patch, updateUrl, workflowMetadata, null, false, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -184,31 +217,39 @@ public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectio
         };
     }
 
-    public virtual async Task<WorkflowResponse> InsertWorkflowAsync(Guid? agentId, WorkflowMetadata? workflowMetadata, CancellationToken cancellationToken)
+    public virtual Task<WorkflowResponse> InsertWorkflowAsync(Guid? agentId, WorkflowMetadata? workflowMetadata, CancellationToken cancellationToken)
+    {
+        if (!agentId.HasValue || agentId == Guid.Empty)
+        {
+            throw new ArgumentNullException(nameof(agentId));
+        }
+
+        return InsertWorkflowAsync(workflowMetadata, cancellationToken);
+    }
+
+    public virtual async Task<WorkflowResponse> InsertWorkflowAsync(WorkflowMetadata? workflowMetadata, CancellationToken cancellationToken)
     {
         if (workflowMetadata is null)
         {
             throw new ArgumentNullException(nameof(workflowMetadata));
         }
 
-        if (!agentId.HasValue || agentId == Guid.Empty)
-        {
-            throw new ArgumentNullException(nameof(agentId));
-        }
-
+        var shouldActivate = workflowMetadata.StateCode != 0;
         var errorMessage = string.Empty;
+        var activated = false;
+
         try
         {
-            var shouldActivate = workflowMetadata.StateCode != 0;
-            workflowMetadata.StateCode = null;
-            workflowMetadata.StatusCode = null;
-            var requestBody = CreateWorkflowRequestBody(workflowMetadata);
-            requestBody["workflowid"] = workflowMetadata.WorkflowId;
-
-            var createResponse = await SendAsync<JsonElement>(
+            await SendWorkflowWriteAsync<JsonElement>(
                 HttpMethod.Post,
                 $"{DataverseUrl}/api/data/v9.2/workflows",
-                requestBody,
+                workflowMetadata,
+                body =>
+                {
+                    body["workflowid"] = workflowMetadata.WorkflowId;
+                    body.Remove("statecode");
+                    body.Remove("statuscode");
+                },
                 expectReturn: true,
                 cancellationToken
             ).ConfigureAwait(false);
@@ -216,14 +257,11 @@ public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectio
             if (shouldActivate)
             {
                 await ActivateWorkflowAsync(workflowMetadata.WorkflowId, cancellationToken).ConfigureAwait(false);
-                workflowMetadata.StateCode = 1;
-                workflowMetadata.StatusCode = 2;
+                activated = true;
             }
-            else
-            {
-                workflowMetadata.StateCode = 0;
-                workflowMetadata.StatusCode = 1;
-            }
+
+            workflowMetadata.StateCode = activated ? 1 : 0;
+            workflowMetadata.StatusCode = activated ? 2 : 1;
         }
         catch (OperationCanceledException)
         {
@@ -238,7 +276,7 @@ public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectio
         {
             WorkflowId = workflowMetadata.WorkflowId,
             WorkflowName = workflowMetadata.Name ?? workflowMetadata.WorkflowId.ToString(),
-            IsDisabled = !(workflowMetadata.StateCode == 1 && workflowMetadata.StatusCode == 2),
+            IsDisabled = !activated,
             ErrorMessage = errorMessage
         };
     }
@@ -480,42 +518,164 @@ public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectio
         {
             throw;
         }
-        catch (InvalidOperationException ex) when (ex.Message.Contains("(404)", StringComparison.Ordinal))
+        catch (DataverseRequestException exception) when (exception.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
             return false;
         }
         return true;
     }
 
-    private Dictionary<string, object?> CreateWorkflowRequestBody(WorkflowMetadata m) =>
-        new Dictionary<string, object?>(23)
+    public virtual async Task<WorkflowMetadata?> GetWorkflowAsync(Guid workflowId, CancellationToken cancellationToken)
+    {
+        var response = await GetWorkflowPageAsync($"&$filter={Uri.EscapeDataString($"workflowid eq {workflowId}")}", cancellationToken).ConfigureAwait(false);
+        var workflow = response?.Value?.FirstOrDefault();
+
+        if (workflow is not null)
         {
-            ["name"] = m.Name,
-            ["type"] = m.Type,
-            ["description"] = m.Description,
-            ["subprocess"] = m.Subprocess,
-            ["category"] = m.Category,
-            ["mode"] = m.Mode,
-            ["scope"] = m.Scope,
-            ["ondemand"] = m.OnDemand,
-            ["triggeroncreate"] = m.TriggerOnCreate,
-            ["triggerondelete"] = m.TriggerOnDelete,
-            ["asyncautodelete"] = m.AsyncAutodelete,
-            ["syncworkflowlogonfailure"] = m.SyncWorkflowLogOnFailure,
-            ["runas"] = m.RunAs,
-            ["istransacted"] = m.IsTransacted,
-            ["introducedversion"] = m.IntroducedVersion,
-            ["iscustomizable"] = m.IsCustomizable,
-            ["businessprocesstype"] = m.BusinessProcessType,
-            ["iscustomprocessingstepallowedforotherpublishers"] = m.IsCustomProcessingStepAllowedForOtherPublishers,
-            ["modernflowtype"] = m.ModernFlowType,
-            ["primaryentity"] = m.PrimaryEntity,
-            ["clientdata"] = m.ClientData,
-            ["statecode"] = m.StateCode,
-            ["statuscode"] = m.StatusCode,
+            workflow.ConnectionReferences = WorkflowDefinitionFile.ConnectionReferenceNames(workflow.ClientData).ToList();
         }
-        .Where(kv => kv.Value is not null)
-        .ToDictionary(kv => kv.Key, kv => kv.Value);
+
+        return workflow;
+    }
+
+    public virtual async Task<WorkflowSummary[]> ListWorkflowsAsync(string? nameFilter, int? maximumCount, CancellationToken cancellationToken)
+    {
+        if (maximumCount < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumCount), maximumCount, "A row cap cannot be negative.");
+        }
+
+        if (maximumCount == 0)
+        {
+            return Array.Empty<WorkflowSummary>();
+        }
+
+        var filter = string.IsNullOrWhiteSpace(nameFilter)
+            ? CloudFlowFilter
+            : $"{CloudFlowFilter} and contains(name,'{nameFilter!.Trim().Replace("'", "''")}')";
+
+        var requestUrl = $"{DataverseUrl}/api/data/v9.2/workflows?$select={string.Join(",", WorkflowSummaryColumns)}&$filter={Uri.EscapeDataString(filter)}";
+
+        if (maximumCount > 0)
+        {
+            requestUrl += $"&$top={maximumCount}";
+        }
+
+        var summaries = new List<WorkflowSummary>();
+        var nextUrl = requestUrl;
+
+        while (!string.IsNullOrEmpty(nextUrl))
+        {
+            var response = await SendAsync<ODataResponse<WorkflowSummary>>(HttpMethod.Get, nextUrl!, null, false, cancellationToken).ConfigureAwait(false);
+
+            if (response?.Value != null)
+            {
+                summaries.AddRange(response.Value);
+            }
+
+            if (maximumCount > 0 && summaries.Count >= maximumCount)
+            {
+                break;
+            }
+
+            nextUrl = response?.NextLink;
+        }
+
+        if (maximumCount > 0 && summaries.Count > maximumCount)
+        {
+            summaries.RemoveRange(maximumCount!.Value, summaries.Count - maximumCount.Value);
+        }
+
+        return summaries.ToArray();
+    }
+
+    public virtual async Task<bool> DeleteWorkflowAsync(Guid workflowId, CancellationToken cancellationToken)
+    {
+        var state = await GetWorkflowStateAsync(workflowId, cancellationToken).ConfigureAwait(false);
+
+        if (!state.Exists)
+        {
+            return false;
+        }
+
+        if (state.StateCode != 0)
+        {
+            await SetWorkflowStateAsync(workflowId, false, cancellationToken).ConfigureAwait(false);
+        }
+
+        await SendAsync<object>(HttpMethod.Delete, $"{DataverseUrl}/api/data/v9.2/workflows({workflowId})", null, false, cancellationToken).ConfigureAwait(false);
+
+        return true;
+    }
+
+    private async Task<(bool Exists, int? StateCode)> GetWorkflowStateAsync(Guid workflowId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await SendAsync<WorkflowSummary>(HttpMethod.Get, $"{DataverseUrl}/api/data/v9.2/workflows({workflowId})?$select=workflowid,statecode", null, false, cancellationToken).ConfigureAwait(false);
+
+            return (true, response?.StateCode);
+        }
+        catch (DataverseRequestException exception) when (exception.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return (false, null);
+        }
+    }
+
+    private Dictionary<string, object?> CreateWorkflowRequestBody(WorkflowMetadata m)
+    {
+        var unsupported = UnsupportedWorkflowColumns;
+        var body = new Dictionary<string, object?>(WorkflowWritableColumns.Length);
+
+        foreach (var (name, property) in WorkflowWritableColumns)
+        {
+            if (unsupported.ContainsKey(name))
+            {
+                continue;
+            }
+
+            var value = property.GetValue(m);
+            if (value is not null)
+            {
+                body[name] = value;
+            }
+        }
+
+        return body;
+    }
+
+    private async Task<T?> SendWorkflowWriteAsync<T>(
+        HttpMethod httpMethod,
+        string requestUrl,
+        WorkflowMetadata workflowMetadata,
+        Action<Dictionary<string, object?>>? configureBody,
+        bool expectReturn,
+        CancellationToken cancellationToken)
+    {
+        var droppedColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        while (true)
+        {
+            var requestBody = CreateWorkflowRequestBody(workflowMetadata);
+            configureBody?.Invoke(requestBody);
+
+            try
+            {
+                return await SendAsync<T>(httpMethod, requestUrl, requestBody, expectReturn, cancellationToken).ConfigureAwait(false);
+            }
+            catch (DataverseRequestException exception)
+            {
+                var unknownColumn = TryGetDroppableWorkflowColumn(exception);
+
+                if (unknownColumn == null || !requestBody.ContainsKey(unknownColumn) || !droppedColumns.Add(unknownColumn))
+                {
+                    throw;
+                }
+
+                UnsupportedWorkflowColumns.TryAdd(unknownColumn, 0);
+            }
+        }
+    }
 
     private async Task ActivateWorkflowAsync(Guid workflowId, CancellationToken cancellationToken)
     {
@@ -608,30 +768,119 @@ public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectio
 
         foreach (var batch in workflowIdToBotComponentMap.Keys.Chunk(BatchSize))
         {
-            string? nextWorkflowUrl = $"{DataverseUrl}/api/data/v9.2/workflows?" +
-                                      "$select=workflowid,name,description,type,subprocess,category,mode,scope,ondemand," +
-                                      "triggeroncreate,triggerondelete,asyncautodelete,syncworkflowlogonfailure,statecode,statuscode,runas," +
-                                      "istransacted,introducedversion,iscustomizable,businessprocesstype," +
-                                      "iscustomprocessingstepallowedforotherpublishers,modernflowtype,primaryentity," +
-                                      "createdon,modifiedon,clientdata";
-
             var workflowFilterQuery = string.Join(" or ", batch.Select(id => $"workflowid eq {id}"));
-            nextWorkflowUrl += $"&$filter={Uri.EscapeDataString(workflowFilterQuery)}";
+            var filterClause = $"&$filter={Uri.EscapeDataString(workflowFilterQuery)}";
 
-            while (!string.IsNullOrEmpty(nextWorkflowUrl))
+            var response = await GetWorkflowPageAsync(filterClause, cancellationToken).ConfigureAwait(false);
+
+            while (response != null)
             {
-                // ns2.0 BCL's IsNullOrEmpty lacks NotNullWhen annotation; ! is compile-time only.
-                var response = await SendAsync<ODataResponse<WorkflowMetadata>>(HttpMethod.Get, nextWorkflowUrl!, null, false, cancellationToken).ConfigureAwait(false);
-                if (response?.Value != null)
+                if (response.Value != null)
                 {
                     workflows.AddRange(response.Value);
                 }
 
-                nextWorkflowUrl = response?.NextLink;
+                var nextWorkflowUrl = response.NextLink;
+                if (string.IsNullOrEmpty(nextWorkflowUrl))
+                {
+                    break;
+                }
+
+                response = await SendAsync<ODataResponse<WorkflowMetadata>>(HttpMethod.Get, nextWorkflowUrl!, null, false, cancellationToken).ConfigureAwait(false);
             }
         }
 
         return workflows.ToArray();
+    }
+
+    private ConcurrentDictionary<string, byte> UnsupportedWorkflowColumns
+    {
+        get
+        {
+            return _unsupportedWorkflowColumnsByEnvironment.GetOrAdd(DataverseUrl, _ => new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase));
+        }
+    }
+
+    private string[] GetSupportedWorkflowReadColumns()
+    {
+        var unsupported = UnsupportedWorkflowColumns;
+        return WorkflowReadColumns.Where(column => !unsupported.ContainsKey(column)).ToArray();
+    }
+
+    private async Task<ODataResponse<WorkflowMetadata>?> GetWorkflowPageAsync(string filterClause, CancellationToken cancellationToken)
+    {
+        var droppedColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        while (true)
+        {
+            var selectedColumns = GetSupportedWorkflowReadColumns();
+            var requestUrl = $"{DataverseUrl}/api/data/v9.2/workflows?$select={string.Join(",", selectedColumns)}{filterClause}";
+
+            try
+            {
+                return await SendAsync<ODataResponse<WorkflowMetadata>>(HttpMethod.Get, requestUrl, null, false, cancellationToken).ConfigureAwait(false);
+            }
+            catch (DataverseRequestException exception)
+            {
+                var unknownColumn = TryGetDroppableWorkflowColumn(exception);
+
+                if (unknownColumn == null
+                    || !selectedColumns.Contains(unknownColumn, StringComparer.OrdinalIgnoreCase)
+                    || !droppedColumns.Add(unknownColumn))
+                {
+                    throw;
+                }
+
+                UnsupportedWorkflowColumns.TryAdd(unknownColumn, 0);
+            }
+        }
+    }
+
+    private static string? TryGetDroppableWorkflowColumn(DataverseRequestException exception)
+    {
+        if (exception.StatusCode != System.Net.HttpStatusCode.BadRequest)
+        {
+            return null;
+        }
+
+        var match = MissingPropertyRegex.Match(exception.ResponseBody ?? string.Empty);
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        var columnName = match.Groups["name"].Value;
+
+        if (RequiredWorkflowColumns.Contains(columnName))
+        {
+            return null;
+        }
+
+        return WorkflowReadColumns.Any(column => string.Equals(column, columnName, StringComparison.OrdinalIgnoreCase)) ? columnName : null;
+    }
+
+    /// <summary>
+    /// Returns the URL to send to, refusing any that does not address the environment currently in
+    /// use. Every request carries a bearer token for that environment, and paging follows the
+    /// continuation the service returns, so a continuation naming another origin would hand the
+    /// token to it.
+    /// </summary>
+    /// <param name="requestUrl">The URL a request or a continuation named.</param>
+    /// <returns>The same URL, once it is known to address the environment in use.</returns>
+    private Uri RequireDataverseOrigin(string requestUrl)
+    {
+        if (!Uri.TryCreate(requestUrl, UriKind.Absolute, out var requested)
+            || !Uri.TryCreate(DataverseUrl, UriKind.Absolute, out var environment)
+            || !string.Equals(requested.Scheme, environment.Scheme, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(requested.Host, environment.Host, StringComparison.OrdinalIgnoreCase)
+            || requested.Port != environment.Port)
+        {
+            throw new DataverseRequestException(
+                System.Net.HttpStatusCode.BadGateway,
+                "The service asked for a page outside the environment being used. The request was not sent, because sending it would disclose this environment's access token.");
+        }
+
+        return requested;
     }
 
     private async Task<T?> SendAsync<T>(HttpMethod httpMethod, string requestUrl, object? requestBody, bool expectReturn, CancellationToken cancellationToken)
@@ -639,7 +888,7 @@ public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectio
         // Auth is handled by the DataverseHttpClientAccessor's AuthenticatedHttpClientHandler.
         // The accessor owns HttpClient lifetime — callers must not dispose.
         var httpClient = _httpClientAccessor.CreateClient();
-        using var requestMessage = new HttpRequestMessage(httpMethod, requestUrl);
+        using var requestMessage = new HttpRequestMessage(httpMethod, RequireDataverseOrigin(requestUrl));
         requestMessage.Headers.Add("OData-MaxVersion", "4.0");
         requestMessage.Headers.Add("OData-Version", "4.0");
         requestMessage.Headers.UserAgent.ParseAdd(_userAgent);
@@ -915,20 +1164,7 @@ public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectio
             throw new ArgumentException("Connection logical name is required.", nameof(connectionLogicalName));
         }
 
-        var literal = connectionReferenceLogicalName.Replace("'", "''");
-        var filterExpr = $"connectionreferencelogicalname eq '{literal}'";
-        var baseUri = new Uri(new Uri(DataverseUrl), "/api/data/v9.2/connectionreferences");
-        var queryUri = new Uri($"{baseUri}?$select=connectionreferenceid&$top=1&$filter={Uri.EscapeDataString(filterExpr)}");
-
-        var queryResponse = await SendAsync<ConnectionReferenceQueryResponse>(HttpMethod.Get, queryUri.ToString(), null, false, cancellationToken).ConfigureAwait(false);
-
-        var existing = queryResponse?.Value;
-        if (existing == null || existing.Length == 0)
-        {
-            throw new InvalidOperationException($"Connection reference '{connectionReferenceLogicalName}' was not found in Dataverse.");
-        }
-
-        var connectionReferenceId = existing[0].ConnectionReferenceId;
+        var connectionReferenceId = await ResolveConnectionReferenceIdAsync(connectionReferenceLogicalName, cancellationToken).ConfigureAwait(false);
 
         var patchUri = new Uri(new Uri(DataverseUrl), $"/api/data/v9.2/connectionreferences({connectionReferenceId})");
 
@@ -943,6 +1179,71 @@ public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectio
         }
 
         await SendAsync<object>(HttpMethodHelper.Patch, patchUri.ToString(), body, false, cancellationToken).ConfigureAwait(false);
+    }
+
+    public virtual async Task<WorkflowResponse> UpdateWorkflowDefinitionAsync(WorkflowMetadata? workflowMetadata, CancellationToken cancellationToken)
+    {
+        if (workflowMetadata is null)
+        {
+            throw new ArgumentNullException(nameof(workflowMetadata));
+        }
+
+        if (workflowMetadata.ClientData is null)
+        {
+            throw new ArgumentException("A workflow definition is required, because writing none would clear the one the environment holds.", nameof(workflowMetadata));
+        }
+
+        var errorMessage = string.Empty;
+
+        try
+        {
+            var body = new Dictionary<string, object?>
+            {
+                ["clientdata"] = workflowMetadata.ClientData,
+                ["description"] = workflowMetadata.Description,
+            };
+
+            if (!string.IsNullOrWhiteSpace(workflowMetadata.Name))
+            {
+                body["name"] = workflowMetadata.Name;
+            }
+
+            await SendAsync<object>(HttpMethodHelper.Patch, $"{DataverseUrl}/api/data/v9.2/workflows({workflowMetadata.WorkflowId})", body, false, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            errorMessage = $"Failed to update workflow: {exception.Message}";
+        }
+
+        return new WorkflowResponse
+        {
+            WorkflowId = workflowMetadata.WorkflowId,
+            WorkflowName = workflowMetadata.Name ?? workflowMetadata.WorkflowId.ToString(),
+            IsDisabled = !(workflowMetadata.StateCode == 1 && workflowMetadata.StatusCode == 2),
+            ErrorMessage = errorMessage
+        };
+    }
+
+    private async Task<Guid> ResolveConnectionReferenceIdAsync(string connectionReferenceLogicalName, CancellationToken cancellationToken)
+    {
+        var filterExpr = $"connectionreferencelogicalname eq '{connectionReferenceLogicalName.Replace("'", "''")}'";
+        var baseUri = new Uri(new Uri(DataverseUrl), "/api/data/v9.2/connectionreferences");
+        var queryUri = new Uri($"{baseUri}?$select=connectionreferenceid&$top=1&$filter={Uri.EscapeDataString(filterExpr)}");
+
+        var queryResponse = await SendAsync<ConnectionReferenceQueryResponse>(HttpMethod.Get, queryUri.ToString(), null, false, cancellationToken).ConfigureAwait(false);
+
+        var existing = queryResponse?.Value;
+
+        if (existing == null || existing.Length == 0)
+        {
+            throw new InvalidOperationException($"Connection reference '{connectionReferenceLogicalName}' was not found in Dataverse.");
+        }
+
+        return existing[0].ConnectionReferenceId;
     }
 
     public async Task DownloadKnowledgeFileAsync(string knowledgeFileFolder, BotComponentId botComponentId, string fileName, CancellationToken cancellationToken = default)
@@ -962,7 +1263,7 @@ public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectio
 
     private async Task DownloadKnowledgeFileCoreAsync(Func<CancellationToken, Task<Stream>> destinationFactory, bool disposeDestination, BotComponentId botComponentId, CancellationToken cancellationToken)
     {
-        var requestUri = new Uri(new Uri(DataverseUrl), $"/api/data/v9.2/botcomponents({botComponentId})/filedata/$value");
+        var requestUri = RequireDataverseOrigin(new Uri(new Uri(DataverseUrl), $"/api/data/v9.2/botcomponents({botComponentId})/filedata/$value").ToString());
 
         var httpClient = _httpClientAccessor.CreateClient();
 
@@ -1031,7 +1332,7 @@ public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectio
 
     public async Task UploadKnowledgeFileAsync(Stream content, Guid botComponentId, string fileName, CancellationToken cancellationToken = default)
     {
-        var requestUri = new Uri(new Uri(DataverseUrl), $"/api/data/v9.2/botcomponents({botComponentId})/filedata/");
+        var requestUri = RequireDataverseOrigin(new Uri(new Uri(DataverseUrl), $"/api/data/v9.2/botcomponents({botComponentId})/filedata/").ToString());
         var httpClient = _httpClientAccessor.CreateClient();
 
         using var request = new HttpRequestMessage(HttpMethodHelper.Patch, requestUri)
@@ -1409,6 +1710,28 @@ public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectio
         public Guid AgentId { get; set; }
     }
 
+    /// <summary>A workflow row as it appears in a listing, without the definition.</summary>
+    public sealed class WorkflowSummary
+    {
+        [JsonPropertyName("workflowid")]
+        public Guid WorkflowId { get; set; }
+
+        [JsonPropertyName("name")]
+        public string? Name { get; set; }
+
+        [JsonPropertyName("description")]
+        public string? Description { get; set; }
+
+        [JsonPropertyName("statecode")]
+        public int? StateCode { get; set; }
+
+        [JsonPropertyName("statuscode")]
+        public int? StatusCode { get; set; }
+
+        [JsonPropertyName("modifiedon")]
+        public DateTimeOffset? ModifiedOn { get; set; }
+    }
+
     public class WorkflowMetadata
     {
         [JsonPropertyName("jsonfilename")]
@@ -1483,7 +1806,7 @@ public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectio
         [JsonPropertyName("primaryentity")]
         public string? PrimaryEntity { get; set; }
 
-        [YamlIgnore]
+        [McsYamlIgnore]
         [JsonPropertyName("clientdata")]
         public string? ClientData { get; set; }
 
@@ -1514,11 +1837,11 @@ public class SyncDataverseClient : ISyncDataverseClient, ISyncComponentCollectio
         [JsonPropertyName("templateid")]
         public Guid? TemplateId { get; set; }
 
-        [YamlIgnore]
+        [McsYamlIgnore]
         [JsonPropertyName("customconfiguration")]
         public string? CustomConfiguration { get; set; }
 
-        [YamlIgnore]
+        [McsYamlIgnore]
         [JsonIgnore]
         public bool IsUnreadableReferencePlaceholder { get; set; }
     }

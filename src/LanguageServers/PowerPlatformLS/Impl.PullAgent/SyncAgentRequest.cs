@@ -7,5 +7,7 @@
         public required Uri WorkspaceUri { get; set; }
 
         public bool DraftConnectionReferenceWorkflows { get; set; }
+
+        public bool OverwriteLocalChanges { get; set; }
     }
 }

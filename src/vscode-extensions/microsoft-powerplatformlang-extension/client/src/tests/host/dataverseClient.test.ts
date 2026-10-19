@@ -1,8 +1,9 @@
 import * as assert from 'node:assert';
 import { describe, test } from 'node:test';
+import { Uri } from 'vscode';
 
 // Import the module to test
-import { clearWhoAmICache, projectSharedAgents } from '../../clients/dataverseClient';
+import { clearWhoAmICache, projectSharedAgents, whoAmIAsync } from '../../clients/dataverseClient';
 
 describe('clearWhoAmICache', () => {
 	/**
@@ -18,6 +19,51 @@ describe('clearWhoAmICache', () => {
 		// Should be idempotent - safe to call multiple times
 		assert.doesNotThrow(() => clearWhoAmICache());
 		assert.doesNotThrow(() => clearWhoAmICache());
+	});
+
+	test('does not coalesce an interactive request with pending non-interactive validation', async () => {
+		const account = require('../../clients/account') as typeof import('../../clients/account');
+		const originalFetchAccessToken = account.FetchAccessToken;
+		let releaseNonInteractive: (() => void) | undefined;
+		let markNonInteractiveStarted: (() => void) | undefined;
+		const nonInteractiveStarted = new Promise<void>(resolve => { markNonInteractiveStarted = resolve; });
+		const nonInteractiveGate = new Promise<void>(resolve => { releaseNonInteractive = resolve; });
+		const interactionModes: boolean[] = [];
+
+		account.FetchAccessToken = async (...args: Parameters<typeof originalFetchAccessToken>) => {
+			const interactive = args[6] ?? false;
+			interactionModes.push(interactive);
+			if (!interactive) {
+				markNonInteractiveStarted?.();
+				await nonInteractiveGate;
+			}
+			return {
+				response: new Response(JSON.stringify({ UserId: interactive ? 'interactive-user' : 'background-user' }), { status: 200 }),
+				tokenInfo: {
+					accessToken: 'token',
+					accountId: 'account',
+					tenantId: 'tenant',
+				},
+			};
+		};
+
+		clearWhoAmICache();
+		try {
+			const endpoint = Uri.parse('https://contoso.crm.dynamics.com');
+			const background = whoAmIAsync(endpoint, null, 'account', undefined, false);
+			await nonInteractiveStarted;
+
+			const interactive = await whoAmIAsync(endpoint, null, 'account', undefined, true);
+			assert.strictEqual(interactive, 'interactive-user');
+			assert.deepStrictEqual(interactionModes, [false, true]);
+
+			releaseNonInteractive?.();
+			assert.strictEqual(await background, 'background-user');
+		} finally {
+			releaseNonInteractive?.();
+			account.FetchAccessToken = originalFetchAccessToken;
+			clearWhoAmICache();
+		}
 	});
 });
 

@@ -19,7 +19,6 @@
     <PackageReference Include="Microsoft.Extensions.Http" />
     <PackageReference Include="Microsoft.Identity.Client" />
     <PackageReference Include="Microsoft.Identity.Client.Extensions.Msal" />
-    <PackageReference Include="YamlDotNet" />
   </ItemGroup>
 
   <ItemGroup>

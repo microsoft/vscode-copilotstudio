@@ -57,6 +57,32 @@ public class RemoteBindingSnapshotTests
     }
 
     [Fact]
+    public async Task ResetThenRestore_RestoresAStandaloneWorkflowsCachedCopy()
+    {
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath("c:/test/standalone/");
+        var fileAccessor = fileAccessorFactory.Create(workspace);
+        var workflowId = Guid.NewGuid();
+
+        StandaloneWorkflowCache.Write(fileAccessor, new Dataverse.SyncDataverseClient.WorkflowMetadata { WorkflowId = workflowId, Name = "My Flow", StateCode = 1, StatusCode = 2, ClientData = "{\"properties\":{}}" });
+
+        Assert.NotNull(StandaloneWorkflowCache.Read(fileAccessor, workflowId));
+
+        var snapshot = synchronizer.ResetRemoteBindingState(workspace);
+
+        Assert.Null(StandaloneWorkflowCache.Read(fileAccessor, workflowId));
+
+        StandaloneWorkflowCache.Write(fileAccessor, new Dataverse.SyncDataverseClient.WorkflowMetadata { WorkflowId = Guid.NewGuid(), Name = "Other", StateCode = 0, StatusCode = 1, ClientData = "{}" });
+
+        synchronizer.RestoreRemoteBindingState(workspace, snapshot);
+
+        Assert.Equal("My Flow", StandaloneWorkflowCache.Read(fileAccessor, workflowId)!.Name);
+        Assert.Single(StandaloneWorkflowCache.Flows(fileAccessor));
+
+        await Task.CompletedTask;
+    }
+
+    [Fact]
     public async Task ResetThenRestore_LeavesPreviouslyAbsentFilesAbsent()
     {
         var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();

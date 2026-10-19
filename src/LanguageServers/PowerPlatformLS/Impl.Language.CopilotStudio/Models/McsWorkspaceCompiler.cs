@@ -171,7 +171,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models
             if (!hasAgentFile && documents.Any())
             {
                 var isCliAgent = authoringShape == AuthoringShape.CliCopilot;
-                if (!isCliAgent)
+                if (!isCliAgent && !HasUnreadableDocument(documents))
                 {
                     AddErrorForDocument(errors, documents.First().Value, new AgentFileMissingException(_clientInfo));
                 }
@@ -353,6 +353,9 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models
                 return (null, null);
             }
         }
+
+        private static bool HasUnreadableDocument(IReadOnlyDictionary<FilePath, LspDocument> documents)
+            => documents.Values.Any(document => document.As<McsLspDocument>() is { IsIcon: false, FileModel: null });
 
         private static void AddErrorForDocument(Dictionary<LspDocument, IEnumerable<Exception>> errors, LspDocument document, Exception error)
         {

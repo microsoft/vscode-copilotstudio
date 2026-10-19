@@ -1,8 +1,8 @@
 kind: UnknownElement
 beginDialog:
-	kind: OnError
-	id: main
-	actions:
-		kind: Question
-		  - id: LbWwpD
-		  alwaysPrompt: true
+  kind: OnError
+  id: main
+  actions:
+    - kind: Question
+      id: LbWwpD
+      alwaysPrompt: true

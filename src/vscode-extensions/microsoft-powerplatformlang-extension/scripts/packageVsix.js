@@ -19,8 +19,7 @@ const targets = {
     'linux-x64': 'linux-x64',
     'linux-arm64': 'linux-arm64',
     'darwin-x64': 'osx-x64',
-    // Keep this aligned with extension.proj: macOS packages currently use the x64 LSP binary for both VSIX targets.
-    'darwin-arm64': 'osx-x64',
+    'darwin-arm64': 'osx-arm64',
 };
 
 const rawArgs = process.argv.slice(2);
@@ -173,20 +172,33 @@ if (out) {
     vsceArgs.push('--out', out);
 }
 
+// macOS VSIXes ship BOTH architecture binaries in arch subfolders so the
+// extension can select the matching one at runtime (Apple Silicon vs Intel).
+// Windows and Linux ship a single binary published flat into lspOut.
+const isMacTarget = target === 'darwin-x64' || target === 'darwin-arm64';
+const publishJobs = isMacTarget
+    ? [
+          { rid: 'osx-x64', outDir: path.join(lspOut, 'osx-x64') },
+          { rid: 'osx-arm64', outDir: path.join(lspOut, 'osx-arm64') },
+      ]
+    : [{ rid: dotnetRuntime, outDir: lspOut }];
+
 cleanLspOut();
-run('dotnet', [
-    'publish',
-    languageServerProject,
-    '-c',
-    configuration,
-    '-r',
-    dotnetRuntime,
-    '--self-contained',
-    'true',
-    '-p:PublishSingleFile=true',
-    '-o',
-    lspOut,
-]);
+for (const job of publishJobs) {
+    run('dotnet', [
+        'publish',
+        languageServerProject,
+        '-c',
+        configuration,
+        '-r',
+        job.rid,
+        '--self-contained',
+        'true',
+        '-p:PublishSingleFile=true',
+        '-o',
+        job.outDir,
+    ]);
+}
 run('npm', ['run', 'check-types']);
 run('node', ['esbuild.js', '--production']);
 run('npx', vsceArgs);

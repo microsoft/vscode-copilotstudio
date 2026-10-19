@@ -54,6 +54,9 @@ export const EventDimensions = {
   /** Number of agents loaded. */
   agentCount: 'agentCount',
 
+  /** Number of standalone workflows loaded. */
+  workflowCount: 'workflowCount',
+
   /** LSP method name (e.g., powerplatformls::getWorkspaceDetails). Uses :: to avoid PII flagging. */
   lspMethod: 'lspMethod',
 } as const;

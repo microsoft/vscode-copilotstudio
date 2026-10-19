@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -30,7 +30,6 @@
     <ProjectReference Include="..\..\Impl.Language.CopilotStudio\Impl.Language.CopilotStudio.csproj" />
     <ProjectReference Include="..\..\Impl.Language.PowerFx\Impl.Language.PowerFx.csproj" />
     <ProjectReference Include="..\..\Impl.Language.Yaml\Impl.Language.Yaml.csproj" />
-    <ProjectReference Include="..\..\Impl.YamlSourceTree\Impl.YamlSourceTree.csproj" />
     <ProjectReference Include="..\..\LanguageServerHost\LanguageServerHost.csproj" />
     <ProjectReference Include="..\..\..\..\CopilotStudio.Sync\CopilotStudio.Sync.csproj" />
   </ItemGroup>

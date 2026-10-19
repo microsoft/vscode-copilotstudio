@@ -89,6 +89,7 @@ export async function whoAmIAsync(
   interactive: boolean = false
 ): Promise<string> {
   const cacheKey = `${accountId ?? ''}|${baseEndpoint.authority}`;
+  const pendingKey = `${cacheKey}|${interactive ? 'interactive' : 'non-interactive'}`;
 
   // Return cached result immediately
   const cached = whoAmICache.get(cacheKey);
@@ -102,7 +103,7 @@ export async function whoAmIAsync(
     throw new Error(`WhoAmI previously failed: ${failReason}`);
   }
 
-    return coalesceRequest(whoAmIPending, cacheKey, async () => {
+    return coalesceRequest(whoAmIPending, pendingKey, async () => {
 
     // Make the request and cache the promise
     const uri = baseEndpoint.with({ path: `api/data/v9.2/WhoAmI` });

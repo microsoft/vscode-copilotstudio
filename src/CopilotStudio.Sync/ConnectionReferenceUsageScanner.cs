@@ -1,17 +1,11 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 
-using System;
-using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.IO;
-using System.Linq;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Threading;
 using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync.Dataverse;
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
+using Microsoft.CopilotStudio.McsCore.Yaml;
 
 namespace Microsoft.CopilotStudio.Sync;
 
@@ -80,7 +74,7 @@ public sealed class ConnectionReferenceUsageScanner
         foreach (var file in allFiles)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var path = NormalizePath(file.ToString());
+            var path = file.ToString();
 
             if (!path.EndsWith(ComponentExtension, StringComparison.OrdinalIgnoreCase) && !path.EndsWith(ComponentExtensionLong, StringComparison.OrdinalIgnoreCase))
             {
@@ -109,16 +103,14 @@ public sealed class ConnectionReferenceUsageScanner
 
     private static void ScanWorkflows(IFileAccessor fileAccessor, IReadOnlyList<AgentFilePath> allFiles, Dictionary<string, List<ConnectionReferenceUsage>> usages, List<ScannedWorkflow> workflows, CancellationToken cancellationToken)
     {
-        var deserializer = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).IgnoreUnmatchedProperties().Build();
-
         foreach (var (path, content) in EnumerateMetadataFiles(fileAccessor, allFiles, WorkflowsFolder, cancellationToken))
         {
             SyncDataverseClient.WorkflowMetadata? metadata;
             try
             {
-                metadata = deserializer.Deserialize<SyncDataverseClient.WorkflowMetadata>(content);
+                metadata = McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(content);
             }
-            catch (YamlDotNet.Core.YamlException)
+            catch (McsYamlFormatException)
             {
                 continue;
             }
@@ -163,53 +155,12 @@ public sealed class ConnectionReferenceUsageScanner
         cancellationToken.ThrowIfCancellationRequested();
 
         var lastSlash = metadataPath.LastIndexOf('/');
-        var workflowJsonPath = lastSlash >= 0 ? metadataPath.Substring(0, lastSlash + 1) + "workflow.json" : "workflow.json";
+        var workflowJsonPath = lastSlash >= 0 ? metadataPath.Substring(0, lastSlash + 1) + WorkflowWorkspace.DefinitionFileName : WorkflowWorkspace.DefinitionFileName;
 
-        var json = ReadText(fileAccessor, new AgentFilePath(workflowJsonPath));
-        if (string.IsNullOrWhiteSpace(json))
-        {
-            return ImmutableArray<string>.Empty;
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(json!);
-            var root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object
-                || !root.TryGetProperty("properties", out var propertiesElement)
-                || propertiesElement.ValueKind != JsonValueKind.Object
-                || !propertiesElement.TryGetProperty("connectionReferences", out var connectionsElement)
-                || connectionsElement.ValueKind != JsonValueKind.Object)
-            {
-                return ImmutableArray<string>.Empty;
-            }
-
-            var builder = ImmutableArray.CreateBuilder<string>();
-            foreach (var connection in connectionsElement.EnumerateObject())
-            {
-                var value = connection.Value;
-                if (value.ValueKind == JsonValueKind.Object
-                    && value.TryGetProperty("connection", out var connectionObj)
-                    && connectionObj.ValueKind == JsonValueKind.Object
-                    && connectionObj.TryGetProperty("connectionReferenceLogicalName", out var logicalNameElement)
-                    && logicalNameElement.ValueKind == JsonValueKind.String)
-                {
-                    var logicalName = logicalNameElement.GetString();
-                    if (!string.IsNullOrWhiteSpace(logicalName))
-                    {
-                        builder.Add(logicalName!);
-                    }
-                }
-            }
-
-            return builder
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToImmutableArray();
-        }
-        catch (JsonException)
-        {
-            return ImmutableArray<string>.Empty;
-        }
+        return WorkflowDefinitionFile.ConnectionReferenceNames(ReadText(fileAccessor, new AgentFilePath(workflowJsonPath)))
+            .Where(logicalName => !string.IsNullOrWhiteSpace(logicalName))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToImmutableArray();
     }
 
     private static void ScanConnectors(IFileAccessor fileAccessor, IReadOnlyList<AgentFilePath> allFiles, IReadOnlyDictionary<string, string> connectorInternalIdByLogicalName, Dictionary<string, List<ConnectionReferenceUsage>> usages, CancellationToken cancellationToken)
@@ -344,7 +295,7 @@ public sealed class ConnectionReferenceUsageScanner
         foreach (var file in allFiles)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var path = NormalizePath(file.ToString());
+            var path = file.ToString();
 
             if (!IsUnder(path, folder) || !path.EndsWith("/metadata.yml", StringComparison.OrdinalIgnoreCase))
             {
@@ -388,11 +339,6 @@ public sealed class ConnectionReferenceUsageScanner
         }
 
         return name;
-    }
-
-    private static string NormalizePath(string path)
-    {
-        return path.Replace('\\', '/');
     }
 }
 

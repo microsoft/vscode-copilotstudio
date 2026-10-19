@@ -19,10 +19,19 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
         [Theory]
         [InlineData(typeof(InlineAgentSkill), "behaviors/weather", "Default_draft_ECaOPZ.skill.weather")]
         [InlineData(typeof(InlineAgentSkill), "behaviors/weather/skill", "Default_draft_ECaOPZ.skill.weather")]
+        [InlineData(typeof(ImportedPackageSkill), "behaviors/weather", "Default_draft_ECaOPZ.skill.weather")]
         [InlineData(typeof(ConnectorTool), "capabilities/tools/Getsearchindexes", "Default_draft_ECaOPZ.tool.Getsearchindexes")]
         [InlineData(typeof(WorkflowTool), "capabilities/tools/AgentFlow1", "Default_draft_ECaOPZ.tool.AgentFlow1")]
         [InlineData(typeof(McpTool), "capabilities/tools/WorkIQCopilotPreview", "Default_draft_ECaOPZ.tool.WorkIQCopilotPreview")]
+        [InlineData(typeof(FabricTool), "capabilities/tools/Fabric1", "Default_draft_ECaOPZ.tool.Fabric1")]
+        [InlineData(typeof(PackagedMcpTool), "capabilities/tools/Packaged1", "Default_draft_ECaOPZ.tool.Packaged1")]
+        [InlineData(typeof(BrokeredMcpTool), "capabilities/tools/Brokered1", "Default_draft_ECaOPZ.tool.Brokered1")]
+        [InlineData(typeof(IQCapability), "capabilities/tools/Iq1", "Default_draft_ECaOPZ.tool.Iq1")]
         [InlineData(typeof(ConnectedAgentTool), "capabilities/tools/cre98_AgentC4", "Default_draft_ECaOPZ.tool.connected-agent.cre98_AgentC4")]
+        [InlineData(typeof(AgentToAgentTool), "capabilities/tools/cre98_AgentC5", "Default_draft_ECaOPZ.tool.connected-agent.cre98_AgentC5")]
+        [InlineData(typeof(SDKAgentTool), "capabilities/tools/cre98_AgentC6", "Default_draft_ECaOPZ.tool.connected-agent.cre98_AgentC6")]
+        [InlineData(typeof(FoundryAgentTool), "capabilities/tools/cre98_AgentC7", "Default_draft_ECaOPZ.tool.connected-agent.cre98_AgentC7")]
+        [InlineData(typeof(AgentHook), "hooks/Onsessionstart_aLf", "Default_draft_ECaOPZ.tool.Onsessionstart_aLf")]
         public void GetSchemaName_FromLocalPath_ProducesExpectedSchema(System.Type elementType, string pathWithoutExt, string expectedSchema)
         {
             var result = LspProjection.GetSchemaName(pathWithoutExt, Bot, elementType, Cli);
@@ -31,10 +40,19 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
 
         [Theory]
         [InlineData(typeof(InlineAgentSkill), "Default_draft_ECaOPZ.skill.weather", "behaviors/weather/skill.mcs.yml")]
+        [InlineData(typeof(ImportedPackageSkill), "Default_draft_ECaOPZ.skill.weather", "behaviors/weather.mcs.yml")]
         [InlineData(typeof(ConnectorTool), "Default_draft_ECaOPZ.tool.Getsearchindexes", "capabilities/tools/Getsearchindexes.mcs.yml")]
         [InlineData(typeof(WorkflowTool), "Default_draft_ECaOPZ.tool.AgentFlow1", "capabilities/tools/AgentFlow1.mcs.yml")]
         [InlineData(typeof(McpTool), "Default_draft_ECaOPZ.tool.WorkIQCopilotPreview", "capabilities/tools/WorkIQCopilotPreview.mcs.yml")]
+        [InlineData(typeof(FabricTool), "Default_draft_ECaOPZ.tool.Fabric1", "capabilities/tools/Fabric1.mcs.yml")]
+        [InlineData(typeof(PackagedMcpTool), "Default_draft_ECaOPZ.tool.Packaged1", "capabilities/tools/Packaged1.mcs.yml")]
+        [InlineData(typeof(BrokeredMcpTool), "Default_draft_ECaOPZ.tool.Brokered1", "capabilities/tools/Brokered1.mcs.yml")]
+        [InlineData(typeof(IQCapability), "Default_draft_ECaOPZ.tool.Iq1", "capabilities/tools/Iq1.mcs.yml")]
         [InlineData(typeof(ConnectedAgentTool), "Default_draft_ECaOPZ.tool.connected-agent.cre98_AgentC4", "capabilities/tools/cre98_AgentC4.mcs.yml")]
+        [InlineData(typeof(AgentToAgentTool), "Default_draft_ECaOPZ.tool.connected-agent.cre98_AgentC5", "capabilities/tools/cre98_AgentC5.mcs.yml")]
+        [InlineData(typeof(SDKAgentTool), "Default_draft_ECaOPZ.tool.connected-agent.cre98_AgentC6", "capabilities/tools/cre98_AgentC6.mcs.yml")]
+        [InlineData(typeof(FoundryAgentTool), "Default_draft_ECaOPZ.tool.connected-agent.cre98_AgentC7", "capabilities/tools/cre98_AgentC7.mcs.yml")]
+        [InlineData(typeof(AgentHook), "Default_draft_ECaOPZ.tool.Onsessionstart_aLf", "hooks/Onsessionstart_aLf.mcs.yml")]
         public void GetFilePath_FromSchema_ProducesExpectedLocalPath(System.Type elementType, string schema, string expectedPath)
         {
             var result = LspProjection.GetFilePath(elementType, schema, Bot, subAgentFolder: null, pathWithoutExtension: null, Cli);
@@ -53,14 +71,58 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
         [Fact]
         public void CliRule_DoesNotPointAt_TranslationsFolder()
         {
-            System.Type[] cliTypes = { typeof(InlineAgentSkill), typeof(ConnectorTool), typeof(WorkflowTool), typeof(McpTool), typeof(ConnectedAgentTool) };
-            foreach (var t in cliTypes)
+            var dialogTypes = typeof(DialogBase).Assembly
+                .GetTypes()
+                .Where(t => t.IsClass && !t.IsAbstract)
+                .Where(t => typeof(DialogBase).IsAssignableFrom(t))
+                .Where(t => !t.Name.StartsWith("Unknown", System.StringComparison.Ordinal));
+
+            foreach (var t in dialogTypes)
             {
                 var folder = LspProjection.GetRuleFolderForElementType(t, Cli);
                 Assert.NotNull(folder);
                 Assert.False(folder!.StartsWith("translations", System.StringComparison.OrdinalIgnoreCase),
                     $"CLI rule for {t.Name} should not project to translations/.");
             }
+        }
+
+        [Theory]
+        [InlineData(typeof(ImportedPackageSkill), "behaviors/", ".skill.")]
+        [InlineData(typeof(FabricTool), "capabilities/tools/", ".tool.")]
+        [InlineData(typeof(PackagedMcpTool), "capabilities/tools/", ".tool.")]
+        [InlineData(typeof(BrokeredMcpTool), "capabilities/tools/", ".tool.")]
+        [InlineData(typeof(IQCapability), "capabilities/tools/", ".tool.")]
+        [InlineData(typeof(AgentToAgentTool), "capabilities/tools/", ".tool.connected-agent.")]
+        [InlineData(typeof(SDKAgentTool), "capabilities/tools/", ".tool.connected-agent.")]
+        [InlineData(typeof(FoundryAgentTool), "capabilities/tools/", ".tool.connected-agent.")]
+        public void ToolFamilyTypes_InheritSiblingRule_WithoutPerTypeRegistration(System.Type elementType, string expectedFolder, string expectedInfix)
+        {
+            Assert.False(LspProjection.CliRules.ContainsKey(elementType));
+            Assert.Equal(expectedFolder, LspProjection.GetRuleFolderForElementType(elementType, Cli));
+            Assert.Equal(expectedInfix, LspProjection.GetRuleInfixForElementType(elementType, Cli));
+        }
+
+        [Fact]
+        public void AgentHook_RoutesToHooks_UsingToolInfix()
+        {
+            const string hookBot = "crf9a_nb2_4tl6mu";
+            const string hookSchema = "crf9a_nb2_4tl6mu.tool.Onsessionstart_aLf";
+
+            Assert.Equal(LspProjection.HooksFolder, LspProjection.GetRuleFolderForElementType(typeof(AgentHook), Cli));
+
+            var path = LspProjection.GetFilePath(
+                typeof(AgentHook), hookSchema, hookBot, subAgentFolder: null, pathWithoutExtension: null, Cli);
+            Assert.Equal("hooks/Onsessionstart_aLf.mcs.yml", path);
+
+            var schema = LspProjection.GetSchemaName("hooks/Onsessionstart_aLf", hookBot, typeof(AgentHook), Cli);
+            Assert.Equal(hookSchema, schema);
+        }
+
+        [Fact]
+        public void AgentHook_RoutesToHooks_InEveryShape()
+        {
+            Assert.Equal(LspProjection.HooksFolder, LspProjection.GetRuleFolderForElementType(typeof(AgentHook), Cli));
+            Assert.Equal(LspProjection.HooksFolder, LspProjection.GetRuleFolderForElementType(typeof(AgentHook), AuthoringShape.Classic));
         }
 
         [Fact]

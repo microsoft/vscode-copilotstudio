@@ -466,7 +466,7 @@ public class ChildAgentFolderStickyTests
         var local = CreateChildTopicComponent(schema, "Help", localParentId);
         var remote = CreateChildTopicComponent(schema, "Help", cloudParentId);
 
-        var merged = synchronizer.MergeComponent(schema, original, local, remote);
+        var merged = synchronizer.MergeComponent(schema, original, local, remote, out _);
 
         Assert.NotNull(merged);
         Assert.True(merged!.ParentBotComponentId.HasValue);

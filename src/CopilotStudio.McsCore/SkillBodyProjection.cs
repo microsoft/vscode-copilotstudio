@@ -31,13 +31,28 @@ internal static class SkillBodyProjection
 
     internal static BotComponentBase PrepareForWrite(BotComponentBase component, AgentFilePath path)
     {
-        if (!IsSkillAnchor(component, path) || component is not DialogComponent dialogComponent || dialogComponent.Dialog is not InlineAgentSkill skill || string.IsNullOrEmpty(skill.Content))
+        if (!IsSkillAnchor(component, path) || string.IsNullOrEmpty(GetContent(component)))
+        {
+            return component;
+        }
+
+        return WithContent(component, null);
+    }
+
+    internal static bool IsInlineSkill(BotComponentBase? component) => component is DialogComponent { Dialog: InlineAgentSkill };
+
+    internal static string? GetContent(BotComponentBase? component)
+        => component is DialogComponent { Dialog: InlineAgentSkill skill } ? skill.Content : null;
+
+    internal static BotComponentBase WithContent(BotComponentBase component, string? content)
+    {
+        if (component is not DialogComponent dialogComponent || dialogComponent.Dialog is not InlineAgentSkill skill)
         {
             return component;
         }
 
         var skillBuilder = skill.ToBuilder();
-        skillBuilder.Content = null;
+        skillBuilder.Content = content;
         var componentBuilder = dialogComponent.ToBuilder();
         componentBuilder.Dialog = skillBuilder;
         return componentBuilder.Build();

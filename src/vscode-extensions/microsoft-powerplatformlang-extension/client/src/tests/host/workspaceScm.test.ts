@@ -1,7 +1,26 @@
 import * as assert from 'node:assert';
 import { describe, test } from 'node:test';
 
-import { refreshInitialLocalChanges, scheduleLocalChangeRefresh } from '../../sync/workspaceScm';
+import { WorkspaceType } from '../../sync/localWorkspaces';
+import { pullsBeforePush, refreshInitialLocalChanges, scheduleLocalChangeRefresh } from '../../sync/workspaceScm';
+
+describe('workspaceScm: pull before push', () => {
+	test('pulls an agent workspace before pushing it', () => {
+		assert.strictEqual(pullsBeforePush(WorkspaceType.Agent), true);
+	});
+
+	test('pulls a workspace of an unknown kind before pushing it', () => {
+		assert.strictEqual(pullsBeforePush(WorkspaceType.Unknown), true);
+	});
+
+	test('skips the pull for a component collection workspace', () => {
+		assert.strictEqual(pullsBeforePush(WorkspaceType.ComponentCollection), false);
+	});
+
+	test('skips the pull for a standalone workflow workspace', () => {
+		assert.strictEqual(pullsBeforePush(WorkspaceType.StandaloneWorkflow), false);
+	});
+});
 
 describe('workspaceScm: initial local changes', () => {
 	test('keeps setup alive when the initial local diff fails', async () => {

@@ -8,6 +8,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         Unknown = -1,
         Agent = 0,
         ComponentCollection = 1,
+        StandaloneWorkflow = 2,
     }
 
     internal class CopilotStudioWorkspaceInfo

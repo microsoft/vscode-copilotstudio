@@ -1,14 +1,14 @@
 import * as vscode from 'vscode';
-import { resetAccount, isIdentityUnbound, resolveAccountIdentity } from '../clients/account';
-import { SyncRequest, SyncResponse, WorkflowResponse, AIPromptResponse } from '../types';
-import { CopilotStudioWorkspace, tryRepairAgentManagementEndpoint, tryRepairAccountInfo } from './localWorkspaces';
+import { resetAccount, hasUsableTenantId, isIdentityUnbound, resolveAccountIdentity } from '../clients/account';
+import { AccountInfo, SyncRequest, SyncResponse, WorkflowResponse, AIPromptResponse } from '../types';
+import { captureWorkspaceConnectionSnapshot, CopilotStudioWorkspace, getAccountRepairFailureMessage, persistWorkspaceAccountBinding, refreshSyncInfoFromConnection, repairAccountInfo, tryRepairAgentManagementEndpoint } from './localWorkspaces';
 import { uploadKnowledgeFiles } from '../knowledgeFiles/uploadKnowledgeFiles';
 import { virtualKnowledgeFileSystemProvider } from '../knowledgeFiles/virtualKnowledgeFile';
 import { knowledgeTreeDataProvider } from '../knowledgeFiles/knowledgeFileTree';
 import { LspMethods, TelemetryEventsKeys } from '../constants';
-import { lspClient, buildLspRequestPayload } from '../services/lspClient';
+import { lspClient, buildLspRequestPayload, LspRequestError, LSP_UNPUSHED_LOCAL_CHANGES } from '../services/lspClient';
 import { replaceLocalChanges } from './workspaceScm';
-import logger, { formatPii, PiiRedactionType } from '../services/logger';
+import logger, { formatPii, PiiRedactionType, stripPiiTags } from '../services/logger';
 
 let treeDataProvider: knowledgeTreeDataProvider | undefined;
 
@@ -68,8 +68,15 @@ export async function withSyncCommandBusy<T>(workspaceUri: string, body: () => P
 
 export interface PushOptions {
     suppressErrorNotification?: boolean;
+    suppressSuccessNotification?: boolean;
     suppressDisabledWorkflowWarnings?: boolean;
     draftConnectionReferenceWorkflows?: boolean;
+}
+
+export interface PullOptions {
+    suppressErrorNotification?: boolean;
+    suppressSuccessNotification?: boolean;
+    account?: Partial<AccountInfo>;
 }
 
 export interface WorkspaceSynchronizer {
@@ -77,7 +84,7 @@ export interface WorkspaceSynchronizer {
     syncState: SyncState;
     lastOperationSucceeded: boolean;
     push: (options?: PushOptions) => Promise<SyncResponse | undefined>;
-    pull: (virtualProvider: virtualKnowledgeFileSystemProvider) => Promise<SyncResponse | undefined >;
+    pull: (virtualProvider: virtualKnowledgeFileSystemProvider, options?: PullOptions) => Promise<SyncResponse | undefined >;
     fetch: () => Promise<void>;
     subscribe: (listener: SyncStateListener) => () => void;
 }
@@ -163,19 +170,35 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
     get syncState() { return currentState; },
     get lastOperationSucceeded() { return operationSucceeded; },
     push: async (options: PushOptions = {}): Promise<SyncResponse> => {
-      const { suppressErrorNotification = false, suppressDisabledWorkflowWarnings = false, draftConnectionReferenceWorkflows = false } = options;
+      const {
+        suppressErrorNotification = false,
+        suppressSuccessNotification = false,
+        suppressDisabledWorkflowWarnings = false,
+        draftConnectionReferenceWorkflows = false,
+      } = options;
       return await executeSyncOperation(async () => {
         const workspace = currentWorkspace;
-        const response = await sync(workspace, 'applying changes', LspMethods.SYNC_PUSH, false, suppressErrorNotification, suppressDisabledWorkflowWarnings, draftConnectionReferenceWorkflows);
+        const response = await sync(workspace, 'applying changes', LspMethods.SYNC_PUSH, false, suppressErrorNotification, suppressSuccessNotification, suppressDisabledWorkflowWarnings, draftConnectionReferenceWorkflows);
         replaceLocalChanges(workspace.workspaceUri, response.localChanges);
         await uploadKnowledgeFiles(workspace);
         return response;
       }, SyncState.Pushing);
     },
-    pull: async (virtualProvider: virtualKnowledgeFileSystemProvider): Promise<SyncResponse> => {
+    pull: async (virtualProvider: virtualKnowledgeFileSystemProvider, options: PullOptions = {}): Promise<SyncResponse> => {
       return await executeSyncOperation(async () => {
         const workspace = currentWorkspace;
-        const response = await sync(workspace, "getting changes", LspMethods.SYNC_PULL, false);
+        const response = await sync(
+          workspace,
+          "getting changes",
+          LspMethods.SYNC_PULL,
+          false,
+          options.suppressErrorNotification,
+          options.suppressSuccessNotification,
+          false,
+          false,
+          true,
+          options.account
+        );
         replaceLocalChanges(workspace.workspaceUri, response.localChanges);
 
         if (virtualProvider) {
@@ -209,21 +232,66 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
   };
 }
 
-export async function sync(workspace: CopilotStudioWorkspace, displayText: string, methodName: string, silent: boolean, suppressErrorNotification = false, suppressDisabledWorkflowWarnings = false, draftConnectionReferenceWorkflows = false, retryOnUserNotMember = true): Promise<SyncResponse> {
-  const { syncInfo, workspaceUri } = workspace;
-  if (!syncInfo) {
+export async function sync(workspace: CopilotStudioWorkspace, displayText: string, methodName: string, silent: boolean, suppressErrorNotification = false, suppressSuccessNotification = false, suppressDisabledWorkflowWarnings = false, draftConnectionReferenceWorkflows = false, retryOnUserNotMember = true, accountOverride?: Partial<AccountInfo>, overwriteLocalChanges = false): Promise<SyncResponse> {
+  const { workspaceUri } = workspace;
+  if (!workspace.syncInfo) {
     throw new Error(`${displayText} failed. Connection file .mcs::conn.json is missing, please clone again.`);
   }
 
-  await tryRepairAccountInfo(syncInfo, workspaceUri);
+  const hasIdentityOverride = accountOverride !== undefined
+    && (!isIdentityUnbound(accountOverride.accountId, accountOverride.accountEmail)
+      || hasUsableTenantId(accountOverride.tenantId));
+  const overrideIdentity = hasIdentityOverride
+    ? resolveAccountIdentity(accountOverride)
+    : {};
+  const hasAccountOverride = hasIdentityOverride
+    && !isIdentityUnbound(overrideIdentity.accountId, overrideIdentity.accountEmail);
+  if (!hasAccountOverride) {
+    let repairOutcome = await repairAccountInfo(workspace.syncInfo, workspaceUri);
+    if (repairOutcome === 'stale') {
+      repairOutcome = await repairAccountInfo(workspace.syncInfo, workspaceUri);
+    }
+    if (repairOutcome !== 'repaired' && repairOutcome !== 'already-bound') {
+      throw new Error(getAccountRepairFailureMessage(displayText, repairOutcome));
+    }
+  }
+
+  const syncInfo = refreshSyncInfoFromConnection(workspace.syncInfo, workspaceUri);
+  if (!syncInfo) {
+    throw new Error(`${displayText} failed. Connection file .mcs::conn.json is missing or invalid, please clone again.`);
+  }
+
+  const requestSyncInfo = accountOverride
+    ? {
+      ...syncInfo,
+      accountInfo: {
+        ...syncInfo.accountInfo,
+        ...accountOverride,
+        ...(hasAccountOverride
+          ? {
+            accountId: overrideIdentity.accountId,
+            accountEmail: overrideIdentity.accountEmail,
+            tenantId: overrideIdentity.tenantId ?? '',
+          }
+          : {}),
+      },
+    }
+    : syncInfo;
 
   // On-demand repair: resolve missing agentManagementEndpoint from BAP single-environment lookup.
   // PAC-cloned workspaces may have null endpoint when user lacks PP admin role.
-  if (!syncInfo.agentManagementEndpoint) {
-    await tryRepairAgentManagementEndpoint(syncInfo, workspaceUri);
+  if (!requestSyncInfo.agentManagementEndpoint) {
+    await tryRepairAgentManagementEndpoint(requestSyncInfo, workspaceUri);
   }
 
-  const { accountInfo, agentManagementEndpoint, dataverseEndpoint, environmentId } = syncInfo;
+  const connectionSnapshot = accountOverride
+    ? captureWorkspaceConnectionSnapshot(workspaceUri)
+    : undefined;
+  if (accountOverride && connectionSnapshot === undefined) {
+    throw new Error(`${displayText} failed because the connection changed. Try again.`);
+  }
+
+  const { accountInfo, agentManagementEndpoint, dataverseEndpoint, environmentId } = requestSyncInfo;
   if (!dataverseEndpoint || !environmentId) {
     throw new Error(`${displayText} failed. Connection settings in .mcs::conn.json are incomplete or invalid, please clone again.`);
   }
@@ -237,10 +305,12 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
     throw new Error(`${displayText} failed. Could not determine which account this agent belongs to. Select the account that owns it and try again.`);
   }
 
+  workspace.syncInfo = syncInfo;
   const request: SyncRequest = {
-    ...await buildLspRequestPayload(syncInfo, undefined, undefined, true),
+    ...await buildLspRequestPayload(requestSyncInfo, undefined, undefined, true),
     workspaceUri,
     draftConnectionReferenceWorkflows,
+    overwriteLocalChanges,
   };
 
   try {
@@ -250,27 +320,46 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
       : await vscode.window.withProgress({ location: vscode.ProgressLocation.SourceControl }, async () => {
         return await lspClient.sendRequest<SyncResponse>(methodName, request);
       });
+    if (accountOverride && connectionSnapshot !== undefined) {
+      persistWorkspaceAccountBinding(syncInfo, workspaceUri, request.accountInfo, connectionSnapshot);
+    }
     const durationMs = Date.now() - startTime;
     const workflowErrorsFound = logWorkflowIssues(result.workflowResponse, suppressDisabledWorkflowWarnings);
-    if (!workflowErrorsFound) {
+    if (!workflowErrorsFound && !suppressSuccessNotification) {
       const successLog = createSyncSuccessLog(workspace, displayText, durationMs);
       logger.logInfo(TelemetryEventsKeys.SyncWorkspaceSuccess, successLog.message, successLog.data);
     }
     logAIPromptIssues(result.aiPromptResponse);
+    logSyncConflicts(result.message);
     return result;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
+    if (!overwriteLocalChanges && holdsUnpushedLocalChanges(error)) {
+      if (await confirmLocalChangeReplacement(errorMessage)) {
+        return await sync(workspace, displayText, methodName, silent, suppressErrorNotification, suppressSuccessNotification, suppressDisabledWorkflowWarnings, draftConnectionReferenceWorkflows, retryOnUserNotMember, accountOverride, true);
+      }
+
+      logger.logWarning(TelemetryEventsKeys.SyncWorkspaceWarning, `${displayText} was cancelled to keep local changes.`);
+      throw error;
+    }
+
     if (retryOnUserNotMember && errorMessage.includes("UserNotMemberOfOrg")) {
-      const accountIdentifier = `(${accountInfo.accountEmail ?? accountInfo.accountId})`;
+      const accountIdentifier = `(${request.accountInfo.accountEmail ?? request.accountInfo.accountId})`;
+      const permissionMessage = `Your current account does not have permission. Please sign in with the account ${formatPii(accountIdentifier, PiiRedactionType.AccountIdentifier)} to perform this operation.`;
       logger.logError(
         TelemetryEventsKeys.SyncWorkspaceError,
-        `Your current account does not have permission. Please sign in with the account ${formatPii(accountIdentifier, PiiRedactionType.AccountIdentifier)} to perform this operation.`,
+        suppressErrorNotification ? undefined : permissionMessage,
+        suppressErrorNotification ? { message: permissionMessage } : undefined,
       );
       try {
         resetAccount();
-        return await sync(workspace, displayText, methodName, silent, suppressErrorNotification, suppressDisabledWorkflowWarnings, draftConnectionReferenceWorkflows, false);
+        return await sync(workspace, displayText, methodName, silent, suppressErrorNotification, suppressSuccessNotification, suppressDisabledWorkflowWarnings, draftConnectionReferenceWorkflows, false, accountOverride);
       } catch (error) {
-        logger.logError(TelemetryEventsKeys.SyncWorkspaceError, 'Re-authentication failed', { error });
+        logger.logError(
+          TelemetryEventsKeys.SyncWorkspaceError,
+          suppressErrorNotification ? undefined : 'Re-authentication failed',
+          suppressErrorNotification ? { message: 'Re-authentication failed', error } : { error }
+        );
         throw error;
       }
     } else if (suppressErrorNotification) {
@@ -281,6 +370,34 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
       throw error;
     }
   }
+}
+
+/**
+ * Whether the server refused an operation because the workspace holds a workflow edit the
+ * environment has not seen.
+ */
+export function holdsUnpushedLocalChanges(error: unknown): boolean {
+  return error instanceof LspRequestError && error.code === LSP_UNPUSHED_LOCAL_CHANGES;
+}
+
+/** Asks whether the unpushed local workflow edits the server named may be replaced. */
+async function confirmLocalChangeReplacement(reason: string): Promise<boolean> {
+  const replace = 'Replace local changes';
+
+  const choice = await vscode.window.showWarningMessage(
+    stripPiiTags(reason),
+    { modal: true, detail: 'Getting the cloud copy discards these local changes. Apply them first to keep them.' },
+    replace);
+
+  return choice === replace;
+}
+
+export function logSyncConflicts(message: string | undefined): boolean {  if (!message) {
+    return false;
+  }
+
+  logger.logWarning(TelemetryEventsKeys.SyncWorkspaceWarning, message);
+  return true;
 }
 
 export function logWorkflowIssues(workflows: WorkflowResponse[] | undefined, suppressDisabledWarnings = false): boolean {

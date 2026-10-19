@@ -18,5 +18,7 @@
         public bool AllowRetarget { get; set; }
 
         public RetargetConflictResolution ConflictResolution { get; set; }
+
+        public bool CheckRemoteAgentOnly { get; set; }
     }
 }

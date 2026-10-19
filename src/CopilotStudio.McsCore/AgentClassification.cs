@@ -81,6 +81,20 @@ namespace Microsoft.CopilotStudio.McsCore
     }
 
     /// <summary>
+    /// What a local workspace holds. Separate from <see cref="AuthoringShape"/> and
+    /// <see cref="WorkspaceLayout"/>: those describe the schema lineage and the file
+    /// projection, while this describes whether the workspace is an agent at all.
+    /// </summary>
+    public enum WorkspaceKind
+    {
+        Unknown = 0,
+
+        Agent = 1,
+
+        StandaloneWorkflow = 2,
+    }
+
+    /// <summary>
     /// Single structured classification result (PRD R1, TDD D1). Separates the persisted
     /// authoring shape from the local workspace layout, carries a graded
     /// <see cref="SupportLevel"/>, preserves the raw value of unrecognized shapes, and
@@ -93,6 +107,9 @@ namespace Microsoft.CopilotStudio.McsCore
         string? RawShapeValue,
         string? Evidence)
     {
+        /// <summary>What the workspace holds, when the caller resolved it.</summary>
+        public WorkspaceKind Kind { get; init; }
+
         /// <summary>No agent / no usable evidence.</summary>
         public static readonly AgentClassification None =
             new(AuthoringShape.Unknown, WorkspaceLayout.Unknown, SupportLevel.Unsupported, null, "no-agent");

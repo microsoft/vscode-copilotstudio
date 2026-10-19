@@ -482,12 +482,20 @@ export const promptManageConnectionsForWorkspaces = async (context: vscode.Exten
   const message = workspaces.length === 1
     ? `This ${getWorkspaceKindLabel(workspaces[0])} has connections that still need to be set up before it can run.`
     : `Connections still need to be set up before these can run: ${workspaces.map(workspace => `'${workspace.displayName}'`).join(', ')}. Their connection managers will open one at a time.`;
-  const choice = await vscode.window.showInformationMessage(message, { modal: true }, manageNow);
-  if (choice !== manageNow) {
-    return;
-  }
+  try {
+    const choice = await vscode.window.showInformationMessage(message, { modal: true }, manageNow);
+    if (choice !== manageNow) {
+      return;
+    }
 
-  for (const workspace of workspaces) {
-    await ConnectionManagerController.show(context, workspace);
+    for (const workspace of workspaces) {
+      await ConnectionManagerController.show(context, workspace);
+    }
+  } catch (error) {
+    logger.logWarning(
+      TelemetryEventsKeys.ConnectionCreationError,
+      `An error occurred in the connection management.`,
+      { error }
+    );
   }
 };

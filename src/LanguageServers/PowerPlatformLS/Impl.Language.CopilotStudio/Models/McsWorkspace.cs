@@ -8,6 +8,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models
     using Microsoft.CommonLanguageServerProtocol.Framework;
     using Microsoft.Extensions.FileProviders;
     using Microsoft.CopilotStudio.McsCore;
+    using Microsoft.CopilotStudio.McsCore.Yaml;
     using Microsoft.PowerPlatformLS.Contracts.FileLayout;
     using Microsoft.PowerPlatformLS.Contracts.Internal;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
@@ -63,6 +64,44 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models
         }
 
         public AuthoringShape AuthoringShape => AgentClassifier.DetectAuthoringShape(CompilationAnalyzer?.RootDefinition);
+
+        public IEnumerable<(AgentFilePath FilePath, Exception Failure)> GetUnreadableDocuments()
+        {
+            foreach (var entry in _documents)
+            {
+                var document = entry.Value.As<McsLspDocument>();
+                if (document.IsIcon || document.FileModel is DefinitionBase)
+                {
+                    continue;
+                }
+
+                var failure = Record(document, CompilationAnalyzer);
+                if (failure != null)
+                {
+                    yield return (document.RelativePath, failure);
+                }
+            }
+        }
+
+        private static Exception? Record(McsLspDocument document, McsCompilationAnalyzer? analyzer)
+        {
+            try
+            {
+                McsYamlValidator.ThrowIfMalformed(document.Text);
+            }
+            catch (McsYamlFormatException failure)
+            {
+                return failure;
+            }
+
+            if (document.FileModel == null && document.ParsingInfo.Diagnostic is { Severity: DiagnosticSeverity.Error } diagnostic)
+            {
+                var position = diagnostic.Range?.Start;
+                return new McsYamlFormatException(diagnostic.Message, position?.Line + 1 ?? 0, position?.Character + 1 ?? 0);
+            }
+
+            return analyzer != null && analyzer.TryGetUncompiledDocumentFailure(document, out var uncompiled) ? uncompiled : null;
+        }
 
         public override void AddDocument(LspDocument document)
         {

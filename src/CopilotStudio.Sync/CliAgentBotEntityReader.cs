@@ -16,12 +16,10 @@
 //    the cloud schemaName. Renaming an agent re-roots every projected component
 //    path, so it is a cloud-side operation that requires a fresh clone.
 
-using System;
-using System.IO;
 using System.Text;
 using Microsoft.Agents.ObjectModel;
-using Microsoft.Agents.ObjectModel.Yaml;
 using Microsoft.CopilotStudio.McsCore;
+using Microsoft.CopilotStudio.McsCore.Yaml;
 
 namespace Microsoft.CopilotStudio.Sync;
 
@@ -94,7 +92,7 @@ internal static class CliAgentBotEntityReader
 
     /// <summary>
     /// Overlay on-disk identity + configuration onto the cloud-cache entity.
-    /// Throws <see cref="InvalidOperationException"/> if the file is malformed or
+    /// Throws <see cref="WorkspaceValidationException"/> if the file is malformed or
     /// contains a schemaName that is missing or differs from cloud.
     /// </summary>
     public static BotEntity Overlay(IFileAccessor fileAccessor, BotEntity cloudEntity)
@@ -108,37 +106,7 @@ internal static class CliAgentBotEntityReader
             throw new ArgumentNullException(nameof(cloudEntity));
         }
 
-        string yamlText;
-        try
-        {
-            using var stream = fileAccessor.OpenRead(SettingsPath);
-            using var sr = new StreamReader(stream, Encoding.UTF8);
-            yamlText = sr.ReadToEnd();
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException(
-                $"CLI settings.mcs.yml could not be read: {ex.Message}. Aborting read to avoid masking identity changes with cloud-cache values.",
-                ex);
-        }
-
-        BotEntity? diskEntity;
-        try
-        {
-            diskEntity = CodeSerializer.Deserialize<BotEntity>(yamlText);
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException(
-                $"CLI settings.mcs.yml is malformed: {ex.Message}. Aborting read; fix or remove the file to re-establish a clean workspace state.",
-                ex);
-        }
-
-        if (diskEntity == null)
-        {
-            throw new InvalidOperationException(
-                "CLI settings.mcs.yml did not deserialize to a BotEntity. Aborting read; fix or re-clone the agent.");
-        }
+        var diskEntity = Read(fileAccessor);
 
         // Hard-fail on missing/empty schemaName: settings.mcs.yml is the identity
         // manifest, and silently falling back to cloud's schemaName would mask a
@@ -146,20 +114,35 @@ internal static class CliAgentBotEntityReader
         var diskSchemaName = diskEntity.SchemaName.Value;
         if (string.IsNullOrEmpty(diskSchemaName))
         {
-            throw new InvalidOperationException(
-                "CLI settings.mcs.yml is missing a 'schemaName' value. settings.mcs.yml is the workspace identity manifest; restore the schemaName or re-clone the agent.");
+            throw new WorkspaceValidationException([new WorkspaceDiagnostic(SettingsPath.ToString(),
+                "CLI settings.mcs.yml is missing a 'schemaName' value. settings.mcs.yml is the workspace identity manifest; restore the schemaName or re-clone the agent.", 0, 0)]);
         }
 
         var cloudSchemaName = cloudEntity.SchemaName.Value;
         if (!string.Equals(diskSchemaName, cloudSchemaName, StringComparison.Ordinal))
         {
-            throw new InvalidOperationException(
+            throw new WorkspaceValidationException([new WorkspaceDiagnostic(SettingsPath.ToString(),
                 $"CLI settings.mcs.yml schemaName '{diskSchemaName}' does not match cloud schemaName '{cloudSchemaName}'. " +
-                "Renaming an agent is a cloud-side operation; restore the schemaName in settings.mcs.yml or re-clone the agent.");
+                "Renaming an agent is a cloud-side operation; restore the schemaName in settings.mcs.yml or re-clone the agent.", 0, 0)]);
         }
 
         // OM-native overlay: start from the on-disk settings (identity + recognizer
         // + agentSettings) and layer the cloud-only metadata back on.
         return cloudEntity.ApplySettingsYamlProperties(diskEntity);
+    }
+
+    internal static BotEntity Read(IFileAccessor fileAccessor)
+    {
+        try
+        {
+            using var stream = fileAccessor.OpenRead(SettingsPath);
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            return McsYamlValidator.Deserialize<BotEntity>(reader.ReadToEnd())
+                ?? throw new McsYamlFormatException("Settings did not deserialize to a BotEntity. Fix or re-clone the agent.", 0, 0);
+        }
+        catch (Exception failure) when (WorkspaceSynchronizer.IsProjectionSerializationFailure(failure) || failure is IOException or UnauthorizedAccessException)
+        {
+            throw new WorkspaceValidationException([WorkspaceDiagnostic.FromException(SettingsPath.ToString(), failure)]);
+        }
     }
 }

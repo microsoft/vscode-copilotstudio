@@ -8,6 +8,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Handlers
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.SemanticToken;
+    using System;
     using System.Threading;
     using System.Threading.Tasks;
 
@@ -26,20 +27,25 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Handlers
         public Task<SemanticTokens> HandleRequestAsync(SemanticTokensParams request, RequestContext requestContext, CancellationToken cancellationToken)
         {
             var doc = requestContext.Document.As<McsLspDocument>();
-            SyntaxNode? fileSyntax = doc.FileModel?.Syntax;
-
-            if (fileSyntax == null)
-            {
-                var bot = CodeSerializer.Deserialize<BotElement>(requestContext.Document.Text, doc.Uri);
-                fileSyntax = bot?.Syntax;
-            }
-
+            SyntaxNode? fileSyntax = doc.FileModel?.Syntax ?? TryGetSyntax(requestContext.Document.Text, doc.Uri);
 
             return Task.FromResult(new SemanticTokens
             {
                 ResultId = requestContext.Index.ToString(),
                 Data = SemanticTokenHelper.GetSemanticTokenData(fileSyntax, requestContext, _logger)
             });
+        }
+
+        private static SyntaxNode? TryGetSyntax(string text, Uri uri)
+        {
+            try
+            {
+                return CodeSerializer.Deserialize<BotElement>(text, uri)?.Syntax;
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                return null;
+            }
         }
     }
 }

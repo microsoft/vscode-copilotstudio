@@ -32,7 +32,7 @@ public class WorkflowResponseIdentityTests
     {
         var client = CreateClient(_ => Ok("{}"));
 
-        var response = await client.InsertWorkflowAsync(Guid.NewGuid(), CreateMetadata(SecondWorkflowId, "Shared", activated: false), CancellationToken.None);
+        var response = await client.InsertWorkflowAsync(CreateMetadata(SecondWorkflowId, "Shared", activated: false), CancellationToken.None);
 
         Assert.Equal(SecondWorkflowId, response.WorkflowId);
         Assert.Equal("Shared", response.WorkflowName);
