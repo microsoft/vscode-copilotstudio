@@ -45,6 +45,7 @@ export class WorkflowVisualizerController {
   private refreshTimer: NodeJS.Timeout | undefined;
   private connectors: ConnectorInfo[] = [];
   private catalogRequested = false;
+  private catalogRequestId = 0;
   private catalogKey: string | undefined;
   private catalogRetryAt = 0;
   private readonly warnedCatalogKeys = new Set<string | undefined>();
@@ -127,6 +128,7 @@ export class WorkflowVisualizerController {
       ]) : undefined;
       if (catalogKey !== this.catalogKey) {
         this.catalogKey = catalogKey;
+        this.catalogRequestId++;
         this.connectors = [];
         this.catalogRequested = false;
         this.catalogRetryAt = 0;
@@ -148,9 +150,10 @@ export class WorkflowVisualizerController {
   }
 
   private async loadConnectorIcons(workspace: CopilotStudioWorkspace, catalogKey: string | undefined): Promise<void> {
+    const requestId = ++this.catalogRequestId;
     try {
       const connectors = await listConnectors(workspace);
-      if (!this.disposed && this.catalogKey === catalogKey) {
+      if (!this.disposed && this.catalogKey === catalogKey && this.catalogRequestId === requestId) {
         this.connectors = connectors;
         this.catalogRetryAt = 0;
         this.postModel();
@@ -161,7 +164,7 @@ export class WorkflowVisualizerController {
         undefined,
         { message: 'Failed to load workflow connector icons', error },
       );
-      if (!this.disposed && this.catalogKey === catalogKey) {
+      if (!this.disposed && this.catalogKey === catalogKey && this.catalogRequestId === requestId) {
         this.catalogRequested = false;
         this.catalogRetryAt = Date.now() + CATALOG_RETRY_DELAY_MS;
         if (!this.warnedCatalogKeys.has(catalogKey)) {

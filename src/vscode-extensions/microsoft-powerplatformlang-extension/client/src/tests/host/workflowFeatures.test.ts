@@ -375,6 +375,41 @@ describe('Workflow catalog recovery', () => {
 		controller.dispose();
 	});
 
+	for (const staleOutcome of ['success', 'failure'] as const) {
+		test(`ignores an older ${staleOutcome} after switching environments A to B to A and loading the latest catalog`, async () => {
+			const controller = createCatalogController();
+			controller.ready();
+			controller.retarget();
+			await controller.flush();
+			controller.retarget('first');
+			await controller.flush();
+			assert.strictEqual(controller.requests.length, 3);
+			controller.requests[2].resolve(catalog);
+			await controller.flush();
+			const modelCount = controller.models.length;
+			if (staleOutcome === 'success') {
+				controller.requests[0].resolve([{ internalId: 'shared_teams', iconUri: 'https://catalog.example/old.png' }]);
+			} else {
+				controller.requests[0].reject(new Error('Old request failed after the latest request succeeded'));
+			}
+			await controller.flush();
+			assert.strictEqual(controller.models.length, modelCount, 'stale completions must not redraw the model');
+			assert.strictEqual(controller.models.at(-1)?.nodes[0].catalogIconUri, catalog[0].iconUri);
+			assert.deepStrictEqual(controller.warnings, []);
+			assert.deepStrictEqual(controller.errorMessages, []);
+			assert.strictEqual(controller.logs.length, staleOutcome === 'failure' ? 1 : 0);
+			controller.requests[1].resolve([]);
+			await controller.flush();
+			assert.strictEqual(controller.models.length, modelCount);
+			controller.advanceTime(30_000);
+			controller.refresh();
+			await controller.flush();
+			assert.strictEqual(controller.requests.length, 3, 'stale failures must not invalidate a successfully cached catalog');
+			assert.strictEqual(controller.models.at(-1)?.nodes[0].catalogIconUri, catalog[0].iconUri);
+			controller.dispose();
+		});
+	}
+
 	test('does not notify or reset a newer request when a previous environment request fails', async () => {
 		const controller = createCatalogController();
 		controller.ready();
