@@ -2531,6 +2531,14 @@ beginDialog:
                 $"workflowId: {workflowId}\nname: Test",
                 CancellationToken.None);
 
+            var (cachedFlow, _) = WorkspaceSynchronizer.GetFlowDefinition(new WorkflowMetadata
+            {
+                WorkflowId = workflowId,
+                Name = "Test",
+                ClientData = "{ \"test\": true }",
+            });
+            WorkspaceSynchronizer.WriteCloudCache(filesystem, new BotDefinition().WithFlows(new[] { cachedFlow }));
+
             var synchronizer = new WorkspaceSynchronizer(
                 new SyncMcsFileParser(Microsoft.CopilotStudio.McsCore.LspProjectorService.Instance),
                 (Microsoft.CopilotStudio.McsCore.IFileAccessorFactory)filesystem,

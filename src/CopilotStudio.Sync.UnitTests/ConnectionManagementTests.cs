@@ -2,6 +2,7 @@
 
 using Microsoft.Agents.ObjectModel;
 using Microsoft.Agents.ObjectModel.Yaml;
+using Microsoft.Agents.Platform.Content;
 using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Moq;
@@ -12,6 +13,96 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests;
 public class ConnectionManagementTests
 {
     private static readonly DirectoryPath Workspace = new("c:/test/workspace/");
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public async Task PushChangeset_NewConnectionReference_ReusesCloudIdentityAndPreservesLocalFilesOnFailure(bool alreadyExists, bool saveFails)
+    {
+        const string logicalName = "new_sharedapprovals_test";
+        const string connectorId = "/providers/Microsoft.PowerApps/apis/shared_approvals";
+        var referenceId = Guid.NewGuid();
+        var (synchronizer, factory, island) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var accessor = factory.Create(Workspace);
+        var bot = new BotEntity.Builder { SchemaName = "testbot" }.Build();
+        WorkspaceSynchronizer.WriteCloudCache(accessor, new BotDefinition().WithEntity(bot));
+        await accessor.WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "before", CancellationToken.None);
+        var workflowPath = new AgentFilePath("workflows/Test/workflow.json");
+        await accessor.WriteAsync(workflowPath, "{\"sample\":\"preserve\"}", CancellationToken.None);
+        var cachePath = new AgentFilePath(".mcs/botdefinition.json");
+        var cacheBefore = await accessor.ReadStringAsync(cachePath, CancellationToken.None);
+        var builder = new PvaComponentChangeSet(null, bot, "after").ToBuilder();
+        builder.ConnectionReferenceChanges.Add(new ConnectionReferenceInsert(
+            new ConnectionReference.Builder
+            {
+                ConnectionReferenceLogicalName = logicalName,
+                ConnectorId = connectorId,
+            }.Build()));
+        var dataverse = new Mock<ISyncDataverseClient>();
+        dataverse.Setup(client => client.GetConnectionReferencesByLogicalNamesAsync(
+                It.Is<IEnumerable<string>>(names => names.SequenceEqual(new[] { logicalName })),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(alreadyExists
+                ? new[]
+                {
+                    new SyncDataverseClient.ConnectionReferenceInfo
+                    {
+                        ConnectionReferenceLogicalName = logicalName.ToUpperInvariant(),
+                        ConnectionReferenceId = referenceId,
+                        ConnectorId = connectorId,
+                        ConnectionId = "existing-authenticated-connection",
+                        Version = 734,
+                    },
+                }
+                : Array.Empty<SyncDataverseClient.ConnectionReferenceInfo>());
+        PvaComponentChangeSet? sent = null;
+        island.Setup(service => service.SaveChangesAsync(
+                It.IsAny<AuthoringOperationContextBase>(),
+                It.IsAny<PvaComponentChangeSet>(),
+                It.IsAny<CancellationToken>()))
+            .Returns<AuthoringOperationContextBase, PvaComponentChangeSet, CancellationToken>((_, incoming, _) =>
+            {
+                sent = incoming;
+                if (saveFails)
+                {
+                    throw new InvalidOperationException("Save rejected");
+                }
+                return Task.FromResult(incoming);
+            });
+
+        Task PushAsync() => synchronizer.PushChangesetAsync(
+            Workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(),
+            builder.Build(), dataverse.Object, Guid.NewGuid(), null, default, CancellationToken.None);
+
+        if (saveFails)
+        {
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(PushAsync);
+            Assert.Equal("Save rejected", exception.Message);
+            Assert.Equal(cacheBefore, await accessor.ReadStringAsync(cachePath, CancellationToken.None));
+            Assert.Equal("before", await accessor.ReadStringAsync(new AgentFilePath(".mcs/changetoken.txt"), CancellationToken.None));
+        }
+        else
+        {
+            await PushAsync();
+        }
+
+        Assert.NotNull(sent);
+        var change = Assert.Single(sent!.ConnectionReferenceChanges);
+        if (alreadyExists)
+        {
+            var update = Assert.IsType<ConnectionReferenceUpdate>(change).ConnectionReference!;
+            Assert.Equal(referenceId, update.Id.Value);
+            Assert.Equal(734, update.Version);
+            Assert.Equal("existing-authenticated-connection", update.ConnectionId);
+            Assert.Equal(connectorId, update.ConnectorId.Value);
+        }
+        else
+        {
+            Assert.IsType<ConnectionReferenceInsert>(change);
+        }
+        Assert.Equal("{\"sample\":\"preserve\"}", await accessor.ReadStringAsync(workflowPath, CancellationToken.None));
+    }
 
     private static void Write(InMemoryFileAccessor accessor, string relativePath, string content)
     {
@@ -858,4 +949,3 @@ public class ConnectionManagementTests
         Assert.False(view.CatalogUnavailable);
     }
 }
-

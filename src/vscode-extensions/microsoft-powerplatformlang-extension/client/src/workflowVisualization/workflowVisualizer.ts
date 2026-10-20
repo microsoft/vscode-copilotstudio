@@ -5,8 +5,13 @@ import { FOCUS_NODE_COMMAND } from '../workflows/workflowCommands';
 import type { FocusNodeArgs } from '../workflows/workflowCommands';
 import { buildGraphModel } from './workflowGraphModel';
 import { buildWebviewHtml } from './webviewHtml';
+import { listConnectors } from '../connections/connectionCatalog';
+import { addWorkspaceChangeSubscription, getWorkspaceByUri } from '../sync/localWorkspaces';
+import type { CopilotStudioWorkspace } from '../sync/localWorkspaces';
+import type { ConnectorInfo } from '../types';
 
 const REFRESH_DEBOUNCE_MS = 350;
+const CATALOG_RETRY_DELAY_MS = 30_000;
 
 interface RevealMessage {
   type: 'reveal';
@@ -38,6 +43,13 @@ export class WorkflowVisualizerController {
   private readonly panel: vscode.WebviewPanel;
   private readonly disposables: vscode.Disposable[] = [];
   private refreshTimer: NodeJS.Timeout | undefined;
+  private connectors: ConnectorInfo[] = [];
+  private catalogRequested = false;
+  private catalogRequestId = 0;
+  private catalogKey: string | undefined;
+  private catalogRetryAt = 0;
+  private readonly warnedCatalogKeys = new Set<string | undefined>();
+  private disposed = false;
 
   private constructor(
     private readonly context: vscode.ExtensionContext,
@@ -58,6 +70,7 @@ export class WorkflowVisualizerController {
 
     this.disposables.push(
       this.panel.webview.onDidReceiveMessage((msg: WebviewMessage) => this.onMessage(msg)),
+      addWorkspaceChangeSubscription(() => this.scheduleRefresh()),
       vscode.workspace.onDidChangeTextDocument((e) => {
         if (e.document.uri.toString() === this.document.uri.toString()) {
           this.scheduleRefresh();
@@ -81,7 +94,7 @@ export class WorkflowVisualizerController {
 
   private onMessage(msg: WebviewMessage): void {
     if (msg.type === 'ready') {
-      this.postModel();
+      this.postModel(true);
       return;
     }
     if (msg.type === 'reveal') {
@@ -106,10 +119,27 @@ export class WorkflowVisualizerController {
     }, REFRESH_DEBOUNCE_MS);
   }
 
-  private postModel(): void {
+  private postModel(fit = false): void {
     try {
-      const model = buildGraphModel(this.document.getText());
-      void this.panel.webview.postMessage({ type: 'model', model });
+      const workspace = getWorkspaceByUri(this.document.uri);
+      const catalogKey = workspace?.syncInfo ? JSON.stringify([
+        workspace.workspaceUri, workspace.syncInfo.dataverseEndpoint,
+        workspace.syncInfo.environmentId, workspace.syncInfo.accountInfo,
+      ]) : undefined;
+      if (catalogKey !== this.catalogKey) {
+        this.catalogKey = catalogKey;
+        this.catalogRequestId++;
+        this.connectors = [];
+        this.catalogRequested = false;
+        this.catalogRetryAt = 0;
+      }
+      const model = buildGraphModel(this.document.getText(), this.connectors);
+      void this.panel.webview.postMessage({ type: 'model', model, fit });
+      if (workspace?.syncInfo && !this.catalogRequested && Date.now() >= this.catalogRetryAt
+        && model.nodes.some(node => node.connectorId)) {
+        this.catalogRequested = true;
+        void this.loadConnectorIcons(workspace, catalogKey);
+      }
     } catch (error) {
       logger.logError(
         TelemetryEventsKeys.WorkflowVisualizeError,
@@ -119,12 +149,39 @@ export class WorkflowVisualizerController {
     }
   }
 
+  private async loadConnectorIcons(workspace: CopilotStudioWorkspace, catalogKey: string | undefined): Promise<void> {
+    const requestId = ++this.catalogRequestId;
+    try {
+      const connectors = await listConnectors(workspace);
+      if (!this.disposed && this.catalogKey === catalogKey && this.catalogRequestId === requestId) {
+        this.connectors = connectors;
+        this.catalogRetryAt = 0;
+        this.postModel();
+      }
+    } catch (error) {
+      logger.logError(
+        TelemetryEventsKeys.WorkflowVisualizeError,
+        undefined,
+        { message: 'Failed to load workflow connector icons', error },
+      );
+      if (!this.disposed && this.catalogKey === catalogKey && this.catalogRequestId === requestId) {
+        this.catalogRequested = false;
+        this.catalogRetryAt = Date.now() + CATALOG_RETRY_DELAY_MS;
+        if (!this.warnedCatalogKeys.has(catalogKey)) {
+          this.warnedCatalogKeys.add(catalogKey);
+          void vscode.window.showWarningMessage('Could not load the connector catalog. Connector catalog icons are unavailable.');
+        }
+      }
+    }
+  }
+
   private syncSelectionToWebview(position: vscode.Position): void {
     const offset = this.document.offsetAt(position);
     void this.panel.webview.postMessage({ type: 'selection', offset });
   }
 
   private dispose(): void {
+    this.disposed = true;
     WorkflowVisualizerController.panels.delete(this.document.uri.toString());
     if (this.refreshTimer) {
       clearTimeout(this.refreshTimer);

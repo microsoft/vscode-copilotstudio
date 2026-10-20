@@ -13,14 +13,25 @@ html, body {
   background: var(--vscode-editor-background);
 }
 
-#toolbar {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  z-index: 10;
+body {
   display: flex;
-  gap: 4px;
+  flex-direction: column;
+}
+
+#toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  gap: 12px;
   align-items: center;
+  padding: 8px;
+  border-bottom: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 #toolbar button {
@@ -34,12 +45,17 @@ html, body {
   font-size: 13px;
 }
 
+button:focus-visible, #canvas:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
 #toolbar button:hover {
   background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground));
 }
 
 #banner {
-  margin-left: 8px;
+  margin: 8px;
   padding: 2px 8px;
   border-radius: 4px;
   background: var(--vscode-inputValidation-warningBackground);
@@ -53,14 +69,21 @@ html, body {
 }
 
 #canvas {
-  position: absolute;
-  inset: 0;
+  flex: 1;
+  min-height: 0;
+}
+
+#hint {
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
 }
 
 #surface {
   width: 100%;
   height: 100%;
   cursor: grab;
+  touch-action: none;
 }
 
 #surface.panning {
@@ -69,29 +92,21 @@ html, body {
 
 .wf-container {
   fill: var(--vscode-editorWidget-background);
-  fill-opacity: 0.35;
-  stroke: var(--vscode-editor-foreground, var(--vscode-foreground));
-  stroke-width: 1.75;
-  stroke-opacity: 0.95;
+  fill-opacity: 0.15;
+  stroke: var(--vscode-panel-border, var(--vscode-foreground));
+  stroke-width: 1.5;
   stroke-dasharray: 4 3;
   rx: 10;
 }
 
-.wf-container-label {
-  fill: var(--vscode-descriptionForeground);
-  font-size: 12px;
-  font-weight: 600;
-}
-
 .wf-node-card {
-  fill: var(--vscode-editorWidget-background);
-  stroke: var(--vscode-widget-border, var(--vscode-editorWidget-border));
+  fill: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+  stroke: var(--vscode-widget-border, var(--vscode-panel-border, var(--vscode-foreground)));
   stroke-width: 1;
-  rx: 8;
   cursor: pointer;
 }
 
-.wf-node-card:hover {
+.wf-node:hover .wf-node-card, .wf-node:focus .wf-node-card {
   stroke: var(--vscode-focusBorder);
   stroke-width: 2;
 }
@@ -101,35 +116,150 @@ html, body {
   stroke-width: 2.5;
 }
 
-.wf-node-accent {
-  rx: 8;
+.wf-node:focus {
+  outline: none;
 }
 
 .wf-node-label {
   fill: var(--vscode-foreground);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   pointer-events: none;
 }
 
-.wf-node-type {
-  fill: var(--vscode-descriptionForeground);
-  font-size: 11px;
+.wf-node-icon {
+  color: var(--vscode-descriptionForeground);
+  pointer-events: none;
+}
+
+.wf-branch {
+  fill: var(--vscode-badge-background, var(--vscode-toolbar-hoverBackground, #80808033));
+}
+
+.wf-branch-label {
+  fill: var(--vscode-foreground);
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.wf-port {
+  fill: var(--vscode-foreground);
   pointer-events: none;
 }
 
 .wf-edge {
   fill: none;
   stroke: var(--vscode-editor-foreground, var(--vscode-foreground));
-  stroke-width: 1.75;
+  stroke-width: 1.25;
+  stroke-linejoin: round;
   opacity: 0.95;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.wf-arrow {
+  fill: var(--vscode-editor-foreground, var(--vscode-foreground));
 }
 
 .wf-edge-label {
-  fill: var(--vscode-descriptionForeground);
-  font-size: 11px;
+  fill: var(--vscode-foreground);
+  font-size: 12px;
 }
 
 .wf-edge-label-bg {
   fill: var(--vscode-editor-background);
+}
+
+#surface[data-format="designer"],
+#surface[data-format="classic"] {
+  --wf-node-border: color-mix(in srgb, var(--vscode-foreground) 50%, var(--vscode-editor-background));
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--vscode-editorWidget-border, var(--vscode-panel-border, #808080)) 55%, transparent) 0.7px, transparent 0.8px);
+  background-size: 20px 20px;
+}
+
+#surface[data-format="classic"] {
+  --wf-classic-border: color-mix(in srgb, var(--vscode-foreground) 30%, var(--vscode-editor-background));
+  --wf-classic-edge: color-mix(in srgb, var(--vscode-foreground) 40%, var(--vscode-editor-background));
+}
+
+#surface[data-format="classic"] .wf-node-card {
+  stroke: var(--wf-classic-border);
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 1px 1px color-mix(in srgb, var(--vscode-foreground) 8%, transparent));
+}
+
+#surface[data-format="classic"] .wf-container {
+  stroke-dasharray: none;
+}
+
+#surface[data-format="classic"] .wf-node-label {
+  font-weight: 400;
+}
+
+#surface[data-format="classic"] .wf-edge {
+  stroke: var(--wf-classic-edge);
+  stroke-width: 1.5;
+  opacity: 1;
+}
+
+#surface[data-format="classic"] .wf-arrow {
+  fill: none;
+  stroke: var(--wf-classic-edge);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+#surface[data-format="designer"] .wf-node-card,
+#surface[data-format="designer"] .wf-header-divider {
+  stroke: var(--wf-node-border);
+  vector-effect: non-scaling-stroke;
+}
+
+#surface[data-format="designer"] .wf-header-divider {
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+#surface[data-format="designer"] .wf-edge {
+  stroke: var(--vscode-editorWidget-border, var(--vscode-panel-border, #80808066));
+  opacity: 0.8;
+}
+
+#surface[data-format="designer"] .wf-container {
+  stroke: color-mix(in srgb, var(--vscode-foreground) 60%, var(--vscode-editor-background));
+}
+
+#surface[data-format="designer"] .wf-branch {
+  fill: color-mix(in srgb, var(--vscode-foreground) 12%, var(--vscode-editor-background));
+}
+
+#surface[data-format="designer"] .wf-note {
+  fill: #ffe7de;
+  stroke: #d8bfb5;
+}
+
+#surface[data-format="designer"] .wf-note[data-note-color="blue"] { fill: #dceeff; stroke: #a8c9e7; }
+#surface[data-format="designer"] .wf-note[data-note-color="green"] { fill: #e1f1db; stroke: #b0c9a5; }
+#surface[data-format="designer"] .wf-note[data-note-color="pink"] { fill: #ffe0ee; stroke: #d7adbf; }
+#surface[data-format="designer"] .wf-note[data-note-color="purple"] { fill: #eee3ff; stroke: #c7b4e0; }
+
+.wf-note-text {
+  fill: #323130;
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.wf-note-empty {
+  font-style: italic;
+  fill: #605e5c;
+}
+
+#surface[data-format="designer"] .wf-node:hover .wf-node-card,
+#surface[data-format="designer"] .wf-node:focus .wf-node-card,
+#surface[data-format="designer"] .wf-node.selected .wf-node-card,
+#surface[data-format="classic"] .wf-node:hover .wf-node-card,
+#surface[data-format="classic"] .wf-node:focus .wf-node-card,
+#surface[data-format="classic"] .wf-node.selected .wf-node-card {
+  stroke: var(--vscode-focusBorder);
 }

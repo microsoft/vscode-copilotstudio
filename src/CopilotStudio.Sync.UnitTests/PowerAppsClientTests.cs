@@ -94,6 +94,50 @@ public class PowerAppsClientTests
             () => client.ListConnectionsAsync(Context, "shared_office365users", cts.Token));
     }
 
+    [Fact]
+    public async Task ListConnectorsAsync_FollowsEveryPageAndPreservesCatalogIdsAndIcons()
+    {
+        var pages = new Queue<string>(new[]
+        {
+            "{\"value\":[{\"name\":\"shared_teams\",\"properties\":{\"iconUri\":\"https://catalog.example/teams.png\"}}],\"@odata.nextLink\":\"https://api.powerapps.com/page2\"}",
+            "{\"value\":[{\"name\":\"custom-connector\",\"properties\":{\"iconUri\":\"https://catalog.example/custom.png\"}}]}",
+        });
+        var handler = new StubHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(pages.Dequeue(), Encoding.UTF8, "application/json"),
+        }));
+        var client = new PowerAppsClient(new HttpClient(handler));
+
+        var result = await client.ListConnectorsAsync(Context, CancellationToken.None);
+
+        Assert.Empty(pages);
+        Assert.Equal(new[] { "shared_teams", "custom-connector" }, result.Select(connector => connector.InternalId));
+        Assert.Equal(new[] { "https://catalog.example/teams.png", "https://catalog.example/custom.png" }, result.Select(connector => connector.IconUri));
+    }
+
+    [Fact]
+    public async Task ListConnectorsAsync_WhenPageLimitIsReached_ReturnsCollectedConnectors()
+    {
+        var requests = 0;
+        var handler = new StubHandler((_, _) =>
+        {
+            requests++;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    $$"""{"value":[{"name":"shared_test_{{requests}}"}],"@odata.nextLink":"https://api.powerapps.com/more"}""",
+                    Encoding.UTF8,
+                    "application/json"),
+            });
+        });
+        var client = new PowerAppsClient(new HttpClient(handler));
+
+        var result = await client.ListConnectorsAsync(Context, CancellationToken.None);
+
+        Assert.Equal(50, requests);
+        Assert.Equal(Enumerable.Range(1, 50).Select(page => $"shared_test_{page}"), result.Select(connector => connector.InternalId));
+    }
+
     private sealed class StubHandler : HttpMessageHandler
     {
         private readonly Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> _handler;

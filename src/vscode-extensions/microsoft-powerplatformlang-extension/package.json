@@ -135,12 +135,22 @@
       ],
       "editor/context": [
         {
+          "command": "microsoft-copilot-studio.workflow.visualize",
+          "when": "resourceFilename == workflow.json && resourcePath =~ /workflows/",
+          "group": "z_commands"
+        },
+        {
           "command": "microsoft-copilot-studio.manageConnections",
           "when": "editorLangId == CopilotStudio",
           "group": "z_commands"
         }
       ],
       "explorer/context": [
+        {
+          "command": "microsoft-copilot-studio.workflow.visualize",
+          "when": "!explorerResourceIsFolder && resourceFilename == workflow.json && resourcePath =~ /workflows/",
+          "group": "z_commands"
+        },
         {
           "command": "microsoft-copilot-studio.manageConnections",
           "when": "resourceExtname == .yml && resourceFilename =~ /\\.mcs\\.yml$/",
