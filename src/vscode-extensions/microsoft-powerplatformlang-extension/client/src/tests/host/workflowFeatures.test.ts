@@ -6,10 +6,20 @@ import { runInNewContext } from 'node:vm';
 import { buildGraphModel } from '../../workflowVisualization/workflowGraphModel';
 import { findEmbeddedJsonFields, isWorkflowFile, parseWorkflow, resolveStringValueSpan } from '../../workflows/workflowParser';
 
+interface IconTestEvent {
+	button?: number;
+	buttons?: number;
+	pointerId?: number;
+	clientX?: number;
+	clientY?: number;
+	target?: IconTestElement;
+}
+
 class IconTestElement {
 	readonly children: IconTestElement[] = [];
 	readonly attributes = new Map<string, string>();
-	readonly listeners = new Map<string, () => void>();
+	readonly listeners = new Map<string, (event?: IconTestEvent) => void>();
+	readonly pointerCaptures: number[] = [];
 	readonly classes = new Set<string>();
 	readonly style: { backgroundSize?: string; backgroundPosition?: string } = {};
 	parent?: IconTestElement;
@@ -27,7 +37,7 @@ class IconTestElement {
 		},
 	};
 
-	constructor(readonly tagName: string) { }
+	constructor(readonly tagName: string, private readonly onFocus?: (element: IconTestElement) => void) { }
 	setAttribute(name: string, value: string): void {
 		this.attributes.set(name, value);
 		if (name === 'class') {
@@ -36,13 +46,36 @@ class IconTestElement {
 	}
 	getAttribute(name: string): string | undefined { return this.attributes.get(name); }
 	appendChild(child: IconTestElement): void { child.parent = this; this.children.push(child); }
-	replaceChildren(): void { this.children.length = 0; }
+	replaceChildren(): void {
+		for (const child of this.children) {
+			child.parent = undefined;
+		}
+		this.children.length = 0;
+	}
+	focus(): void { this.onFocus?.(this); }
+	contains(element: IconTestElement): boolean {
+		for (let current: IconTestElement | undefined = element; current; current = current.parent) {
+			if (current === this) {
+				return true;
+			}
+		}
+		return false;
+	}
 	remove(): void {
 		if (this.parent) {
 			this.parent.children.splice(this.parent.children.indexOf(this), 1);
 		}
 	}
-	addEventListener(name: string, listener: () => void): void { this.listeners.set(name, listener); }
+	addEventListener(name: string, listener: (event?: IconTestEvent) => void): void { this.listeners.set(name, listener); }
+	setPointerCapture(pointerId: number): void { this.pointerCaptures.push(pointerId); }
+	closest(selector: string): IconTestElement | undefined {
+		for (let element: IconTestElement | undefined = this; element; element = element.parent) {
+			if (element.classList.contains(selector.slice(1))) {
+				return element;
+			}
+		}
+		return undefined;
+	}
 	querySelector(tagName: string): IconTestElement | undefined {
 		return this.children.find((child) => child.tagName === tagName);
 	}
@@ -74,12 +107,24 @@ function findElements(root: IconTestElement, className: string): IconTestElement
 	];
 }
 
-function renderWorkflow(text: string, connectors: Parameters<typeof buildGraphModel>[1] = []): IconTestElement {
+function renderWorkflow(
+	text: string,
+	connectors: Parameters<typeof buildGraphModel>[1] = [],
+	onPostMessage?: (message: { type: string; nodeId?: string }) => void,
+): IconTestElement {
+	const webview = createWorkflowWebview(onPostMessage);
+	webview.updateModel(buildGraphModel(text, connectors));
+	return webview.surface;
+}
+
+function createWorkflowWebview(onPostMessage?: (message: { type: string; nodeId?: string }) => void) {
 	const elements = new Map<string, IconTestElement>();
+	let activeElement: IconTestElement | undefined;
+	const onFocus = (element: IconTestElement) => { activeElement = element; };
 	const getElement = (id: string): IconTestElement => {
 		let element = elements.get(id);
 		if (!element) {
-			element = new IconTestElement(id);
+			element = new IconTestElement(id, onFocus);
 			elements.set(id, element);
 		}
 		return element;
@@ -88,19 +133,339 @@ function renderWorkflow(text: string, connectors: Parameters<typeof buildGraphMo
 	let onMessage: ((event: { data: object }) => void) | undefined;
 	runInNewContext(readFileSync(path.join(__dirname, '..', '..', '..', 'src',
 		'workflowVisualization', 'media', 'visualizer.js'), 'utf8'), {
-		acquireVsCodeApi: () => ({ postMessage: () => {} }),
+		acquireVsCodeApi: () => ({ postMessage: (message: { type: string; nodeId?: string }) => onPostMessage?.(message) }),
 		document: {
+			get activeElement() { return activeElement; },
 			getElementById: getElement,
-			createElementNS: (_namespace: string, name: string) => new IconTestElement(name),
+			createElementNS: (_namespace: string, name: string) => new IconTestElement(name, onFocus),
 		},
 		window: {
 			addEventListener: (_name: string, listener: typeof onMessage) => { onMessage = listener; },
 		},
 	});
 	assert.ok(onMessage);
-	onMessage({ data: { type: 'model', model: buildGraphModel(text, connectors) } });
-	return getElement('surface');
+	const sendMessage = onMessage;
+	return {
+		surface: getElement('surface'),
+		get activeElement() { return activeElement; },
+		getElement,
+		updateModel: (model: ReturnType<typeof buildGraphModel>) => sendMessage({ data: { type: 'model', model } }),
+	};
 }
+
+describe('Workflow accessibility', () => {
+	test('exposes full edge labels without exposing decorative connections', () => {
+		const workflow = JSON.parse(classicWorkflowText());
+		workflow.properties.definition.actions.Respond_to_the_agent.runAfter = { Send_an_email_notification: ['Failed'] };
+		const switchWorkflow = JSON.parse(classicSwitchWorkflowText());
+		const caseLabel = 'A switch case value longer than the displayed label width';
+		switchWorkflow.properties.definition.actions.Switch.cases.Case.case = caseLabel;
+		for (const [text, expected] of [[JSON.stringify(workflow), 'Failed'], [JSON.stringify(switchWorkflow), caseLabel]]) {
+			const surface = renderWorkflow(text);
+			const label = findElements(surface, 'wf-edge-label').find(element => element.parent?.getAttribute('aria-label') === expected);
+			assert.ok(label);
+			assert.strictEqual(label.parent!.getAttribute('role'), 'img');
+			for (let element: IconTestElement | undefined = label; element; element = element.parent) {
+				assert.notStrictEqual(element.getAttribute('aria-hidden'), 'true');
+			}
+			for (const path of findElements(surface, 'wf-edge')) {
+				assert.strictEqual(path.getAttribute('aria-hidden'), 'true');
+			}
+		}
+	});
+
+	test('includes displayed branch outcomes in the button accessible name even when visually truncated', () => {
+		const workflow = JSON.parse(workflowText());
+		const graph = workflow.properties.definition.triggers.manual.metadata.associatedData.graph;
+		const rejected = 'Rejected with an outcome longer than the branch card width';
+		graph.nodes = [{
+			id: 'review', name: 'Human review', type: 'classifyOnInlineAgent', width: 240, height: 169,
+			position: { x: 0, y: 0 },
+			data: { outcomes: [{ id: 'approved', label: 'Approved' }, { id: 'rejected', label: rejected }] },
+		}];
+		graph.edges = [];
+		const surface = renderWorkflow(JSON.stringify(workflow));
+		const node = findElements(surface, 'wf-node')[0];
+		assert.strictEqual(node.getAttribute('aria-label'), `Human review, classifyOnInlineAgent, Approved, ${rejected}`);
+		assert.strictEqual(findElements(node, 'wf-branch-label').length, 2);
+		assert.notStrictEqual(findElements(node, 'wf-branch-label')[1].textContent, rejected);
+	});
+
+	test('restores focused nodes after model updates, falls back to the canvas, and leaves external focus unchanged', () => {
+		const webview = createWorkflowWebview();
+		const model = buildGraphModel(workflowText());
+		webview.updateModel(model);
+		assert.strictEqual(webview.activeElement, undefined);
+		const focused = findElements(webview.surface, 'wf-node').find(node => node.getAttribute('data-id') === 'yes-node');
+		assert.ok(focused);
+		focused.focus();
+		webview.updateModel(model);
+		const replacement = findElements(webview.surface, 'wf-node').find(node => node.getAttribute('data-id') === 'yes-node');
+		assert.ok(replacement);
+		assert.notStrictEqual(replacement, focused);
+		assert.strictEqual(webview.activeElement, replacement);
+		webview.updateModel({ ...model, nodes: model.nodes.filter(node => node.id !== 'yes-node') });
+		assert.strictEqual(webview.activeElement, webview.getElement('canvas'));
+		const toolbarButton = webview.getElement('btn-fit');
+		toolbarButton.focus();
+		webview.updateModel(model);
+		assert.strictEqual(webview.activeElement, toolbarButton);
+	});
+});
+
+function createCatalogController() {
+	type Catalog = NonNullable<Parameters<typeof buildGraphModel>[1]>;
+	let receive: (message: { type: 'ready' }) => void = () => assert.fail('Webview listener was not registered');
+	let workspaceChanged: () => void = () => assert.fail('Workspace listener was not registered');
+	let dispose: () => void = () => assert.fail('Disposal listener was not registered');
+	let scheduled: (() => void) | undefined;
+	let now = 0;
+	let workspace = { workspaceUri: 'file:///fixture', syncInfo: { environmentId: 'first', accountInfo: {} } };
+	const disposable = { dispose() {} };
+	const models: ReturnType<typeof buildGraphModel>[] = [];
+	const warnings: string[] = [];
+	const errorMessages: string[] = [];
+	const logs: { message?: string; data?: { message?: string; error: unknown } }[] = [];
+	const requests: { resolve: (catalog: Catalog) => void; reject: (error: Error) => void }[] = [];
+	const workflow = JSON.parse(workflowText());
+	const graph = workflow.properties.definition.triggers.manual.metadata.associatedData.graph;
+	graph.nodes = [{ id: 'connector', type: 'connector', data: { config: { apiName: 'shared_teams' } } }];
+	graph.edges = [];
+	const document = {
+		uri: { path: '/fixture/workflow.json', toString: () => 'file:///fixture/workflow.json' },
+		getText: () => JSON.stringify(workflow),
+	};
+	const dependencies: Record<string, unknown> = {
+		vscode: {
+			ViewColumn: { Beside: 2 },
+			window: {
+				createWebviewPanel: () => ({
+					webview: {
+						onDidReceiveMessage: (callback: typeof receive) => { receive = callback; return disposable; },
+						postMessage: (message: { model: ReturnType<typeof buildGraphModel> }) => {
+							models.push(message.model);
+							return Promise.resolve(true);
+						},
+					},
+					onDidDispose: (callback: () => void) => { dispose = callback; return disposable; },
+				}),
+				onDidChangeTextEditorSelection: () => disposable,
+				showWarningMessage: (message: string) => { warnings.push(message); },
+			},
+			workspace: { onDidChangeTextDocument: () => disposable },
+		},
+		'../services/logger': {
+			logError: (_event: string, message?: string, data?: { message?: string; error: unknown }) => {
+				logs.push({ message, data });
+				if (message) {
+					errorMessages.push(message);
+				}
+			},
+		},
+		'../constants': { TelemetryEventsKeys: { WorkflowVisualizeError: 'visualizeError' } },
+		'../workflows/workflowCommands': {},
+		'./workflowGraphModel': { buildGraphModel },
+		'./webviewHtml': { buildWebviewHtml: () => '' },
+		'../sync/localWorkspaces': {
+			getWorkspaceByUri: () => workspace,
+			addWorkspaceChangeSubscription: (callback: () => void) => { workspaceChanged = callback; return disposable; },
+		},
+		'../connections/connectionCatalog': {
+			listConnectors: () => new Promise<Catalog>((resolve, reject) => requests.push({ resolve, reject })),
+		},
+	};
+	const exports: { WorkflowVisualizerController?: { show(context: object, document: object): void } } = {};
+	runInNewContext(readFileSync(path.join(__dirname, '..', '..', 'workflowVisualization', 'workflowVisualizer.js'), 'utf8'), {
+		exports,
+		require: (id: string) => { assert.ok(Object.hasOwn(dependencies, id), id); return dependencies[id]; },
+		setTimeout: (callback: () => void) => { scheduled = callback; return 1; },
+		clearTimeout: () => { scheduled = undefined; },
+		Date: { now: () => now },
+	});
+	assert.ok(exports.WorkflowVisualizerController);
+	exports.WorkflowVisualizerController.show({ extensionUri: {} }, document);
+	return {
+		models, warnings, errorMessages, logs, requests,
+		ready: () => receive({ type: 'ready' }),
+		refresh: () => workspaceChanged(),
+		advanceTime: (milliseconds: number) => { now += milliseconds; },
+		retarget: (environmentId = 'second') => {
+			workspace = { ...workspace, syncInfo: { ...workspace.syncInfo, environmentId } };
+			workspaceChanged();
+		},
+		dispose: () => dispose(),
+		flush: async () => {
+			const callback = scheduled;
+			scheduled = undefined;
+			callback?.();
+			await new Promise<void>(resolve => setImmediate(resolve));
+		},
+	};
+}
+
+describe('Workflow catalog recovery', () => {
+	const catalog = [{ internalId: 'shared_teams', iconUri: 'https://catalog.example/teams.png' }];
+
+	test('backs off repeated failures, warns once per catalog key, and recovers on a later refresh', async () => {
+		const controller = createCatalogController();
+		controller.ready();
+		const failure = new Error('Catalog unavailable');
+		controller.requests[0].reject(failure);
+		await controller.flush();
+		assert.strictEqual(controller.requests.length, 1, 'do not immediately retry a failed request');
+		assert.strictEqual(controller.warnings.length, 1);
+		assert.deepStrictEqual(controller.errorMessages, []);
+		assert.strictEqual(controller.logs.length, 1);
+		assert.strictEqual(controller.logs[0].message, undefined);
+		assert.strictEqual(controller.logs[0].data?.message, 'Failed to load workflow connector icons');
+		assert.strictEqual(controller.logs[0].data?.error, failure);
+
+		for (const elapsed of [0, 10_000, 19_999]) {
+			controller.advanceTime(elapsed);
+			controller.refresh();
+			await controller.flush();
+			assert.strictEqual(controller.requests.length, 1, 'ordinary edits must not retry during backoff');
+			assert.strictEqual(controller.models.at(-1)?.nodes[0].catalogIconUri, undefined);
+		}
+		assert.strictEqual(controller.models.length, 4, 'keep updating the graph during backoff');
+		controller.advanceTime(1);
+		controller.refresh();
+		await controller.flush();
+		assert.strictEqual(controller.requests.length, 2);
+		controller.requests[1].reject(new Error('Catalog still unavailable'));
+		await controller.flush();
+		assert.strictEqual(controller.warnings.length, 1, 'do not repeat a warning for the same catalog key');
+		assert.strictEqual(controller.logs.length, 2, 'still log each attempted request failure');
+		assert.deepStrictEqual(controller.errorMessages, []);
+		controller.advanceTime(29_999);
+		controller.refresh();
+		await controller.flush();
+		assert.strictEqual(controller.requests.length, 2, 'apply backoff after every failure');
+		controller.advanceTime(1);
+		controller.refresh();
+		await controller.flush();
+		assert.strictEqual(controller.requests.length, 3);
+		controller.requests[2].resolve(catalog);
+		await controller.flush();
+		assert.strictEqual(controller.models.at(-1)?.nodes[0].catalogIconUri, catalog[0].iconUri);
+		controller.refresh();
+		await controller.flush();
+		assert.strictEqual(controller.requests.length, 3, 'reuse the catalog after a successful retry');
+		controller.dispose();
+	});
+
+	test('allows a new catalog key immediately and remembers warnings when returning to a previous key', async () => {
+		const controller = createCatalogController();
+		controller.ready();
+		controller.requests[0].reject(new Error('First environment unavailable'));
+		await controller.flush();
+		controller.retarget();
+		await controller.flush();
+		assert.strictEqual(controller.requests.length, 2, 'a different environment must not inherit the backoff');
+		controller.requests[1].reject(new Error('Second environment unavailable'));
+		await controller.flush();
+		assert.strictEqual(controller.warnings.length, 2, 'warn once for each catalog key');
+		controller.retarget('first');
+		await controller.flush();
+		assert.strictEqual(controller.requests.length, 3);
+		controller.requests[2].reject(new Error('First environment still unavailable'));
+		await controller.flush();
+		assert.strictEqual(controller.warnings.length, 2, 'do not repeat warnings after switching back');
+		assert.deepStrictEqual(controller.errorMessages, []);
+		controller.dispose();
+	});
+
+	test('does not notify or reset a newer request when a previous environment request fails', async () => {
+		const controller = createCatalogController();
+		controller.ready();
+		controller.retarget();
+		await controller.flush();
+		assert.strictEqual(controller.requests.length, 2);
+		controller.requests[0].reject(new Error('Old environment unavailable'));
+		await controller.flush();
+		assert.deepStrictEqual(controller.warnings, []);
+		assert.deepStrictEqual(controller.errorMessages, []);
+		assert.strictEqual(controller.logs.length, 1);
+		controller.refresh();
+		await controller.flush();
+		assert.strictEqual(controller.requests.length, 2, 'a stale failure must not clear the current in-flight flag');
+		controller.requests[1].resolve(catalog);
+		await controller.flush();
+		assert.strictEqual(controller.models.at(-1)?.nodes[0].catalogIconUri, catalog[0].iconUri);
+		controller.dispose();
+	});
+
+	test('logs without notifications or model updates when a disposed panel request fails', async () => {
+		const controller = createCatalogController();
+		controller.ready();
+		controller.dispose();
+		controller.requests[0].reject(new Error('Catalog unavailable'));
+		await controller.flush();
+		assert.deepStrictEqual(controller.warnings, []);
+		assert.deepStrictEqual(controller.errorMessages, []);
+		assert.strictEqual(controller.logs.length, 1);
+		assert.strictEqual(controller.models.length, 1);
+	});
+});
+
+describe('Workflow container navigation', () => {
+	test('pans container backgrounds only after a drag threshold and suppresses source navigation after dragging', () => {
+		for (const text of [workflowText(), classicConditionWorkflowText()]) {
+			const messages: { type: string; nodeId?: string }[] = [];
+			const surface = renderWorkflow(text, [], message => messages.push(message));
+			const background = findElements(surface, 'wf-container')[0];
+			assert.ok(background);
+			const pointer = { button: 0, buttons: 1, pointerId: 1, clientX: 100, clientY: 100, target: background };
+			const before = surface.style.backgroundPosition;
+			surface.listeners.get('pointerdown')!(pointer);
+			surface.listeners.get('pointermove')!({ ...pointer, clientX: 102 });
+			assert.strictEqual(surface.style.backgroundPosition, before);
+			assert.strictEqual(surface.pointerCaptures.length, 0);
+			surface.listeners.get('pointermove')!({ ...pointer, clientX: 140, clientY: 130 });
+			assert.notStrictEqual(surface.style.backgroundPosition, before);
+			assert.deepStrictEqual(surface.pointerCaptures, [1]);
+			assert.ok(surface.classList.contains('panning'));
+			surface.listeners.get('pointerup')!(pointer);
+			background.parent!.listeners.get('click')!();
+			assert.strictEqual(messages.filter(message => message.type === 'reveal').length, 0);
+			assert.ok(!surface.classList.contains('panning'));
+			const after = surface.style.backgroundPosition;
+			surface.listeners.get('pointermove')!({ ...pointer, clientX: 180 });
+			assert.strictEqual(surface.style.backgroundPosition, after);
+			surface.listeners.get('pointerdown')!(pointer);
+			surface.listeners.get('pointerleave')!(pointer);
+			surface.listeners.get('pointermove')!({ ...pointer, clientX: 180 });
+			assert.strictEqual(surface.style.backgroundPosition, after);
+		}
+	});
+
+	test('preserves intentional container clicks and keeps child cards clickable instead of draggable', () => {
+		for (const [text, childId] of [[workflowText(), 'yes-node'], [classicConditionWorkflowText(), 'Respond_to_the_agent']]) {
+			const messages: { type: string; nodeId?: string }[] = [];
+			const surface = renderWorkflow(text, [], message => messages.push(message));
+			const background = findElements(surface, 'wf-container')[0];
+			assert.ok(background);
+			const pointer = { button: 0, buttons: 1, pointerId: 1, clientX: 100, clientY: 100, target: background };
+			const before = surface.style.backgroundPosition;
+			surface.listeners.get('pointerdown')!(pointer);
+			surface.listeners.get('pointermove')!({ ...pointer, clientX: 102 });
+			surface.listeners.get('pointerup')!(pointer);
+			background.parent!.listeners.get('click')!();
+			assert.strictEqual(messages.at(-1)?.nodeId, background.parent!.getAttribute('data-id'));
+			assert.strictEqual(surface.style.backgroundPosition, before);
+
+			const card = findElements(surface, 'wf-node-card').find(element => element.parent?.getAttribute('data-id')?.endsWith(childId));
+			assert.ok(card);
+			surface.listeners.get('pointerdown')!({ ...pointer, target: card });
+			surface.listeners.get('pointermove')!({ ...pointer, target: card, clientX: 140 });
+			surface.listeners.get('pointerup')!({ ...pointer, target: card });
+			card.parent!.listeners.get('click')!();
+			assert.strictEqual(messages.at(-1)?.nodeId, card.parent!.getAttribute('data-id'));
+			assert.strictEqual(surface.style.backgroundPosition, before);
+			assert.strictEqual(surface.pointerCaptures.length, 0);
+		}
+	});
+});
 
 describe('Workflow category icons', () => {
 	test('uses bundled category artwork for renamed steps and no icon for unmapped types or Copilot', () => {

@@ -11,6 +11,7 @@ import type { CopilotStudioWorkspace } from '../sync/localWorkspaces';
 import type { ConnectorInfo } from '../types';
 
 const REFRESH_DEBOUNCE_MS = 350;
+const CATALOG_RETRY_DELAY_MS = 30_000;
 
 interface RevealMessage {
   type: 'reveal';
@@ -45,6 +46,8 @@ export class WorkflowVisualizerController {
   private connectors: ConnectorInfo[] = [];
   private catalogRequested = false;
   private catalogKey: string | undefined;
+  private catalogRetryAt = 0;
+  private readonly warnedCatalogKeys = new Set<string | undefined>();
   private disposed = false;
 
   private constructor(
@@ -126,10 +129,12 @@ export class WorkflowVisualizerController {
         this.catalogKey = catalogKey;
         this.connectors = [];
         this.catalogRequested = false;
+        this.catalogRetryAt = 0;
       }
       const model = buildGraphModel(this.document.getText(), this.connectors);
       void this.panel.webview.postMessage({ type: 'model', model, fit });
-      if (workspace?.syncInfo && !this.catalogRequested && model.nodes.some(node => node.connectorId)) {
+      if (workspace?.syncInfo && !this.catalogRequested && Date.now() >= this.catalogRetryAt
+        && model.nodes.some(node => node.connectorId)) {
         this.catalogRequested = true;
         void this.loadConnectorIcons(workspace, catalogKey);
       }
@@ -147,16 +152,22 @@ export class WorkflowVisualizerController {
       const connectors = await listConnectors(workspace);
       if (!this.disposed && this.catalogKey === catalogKey) {
         this.connectors = connectors;
+        this.catalogRetryAt = 0;
         this.postModel();
       }
     } catch (error) {
       logger.logError(
         TelemetryEventsKeys.WorkflowVisualizeError,
-        'Failed to load workflow connector icons',
-        { error },
+        undefined,
+        { message: 'Failed to load workflow connector icons', error },
       );
       if (!this.disposed && this.catalogKey === catalogKey) {
-        void vscode.window.showWarningMessage('Could not load the connector catalog. Connector catalog icons are unavailable.');
+        this.catalogRequested = false;
+        this.catalogRetryAt = Date.now() + CATALOG_RETRY_DELAY_MS;
+        if (!this.warnedCatalogKeys.has(catalogKey)) {
+          this.warnedCatalogKeys.add(catalogKey);
+          void vscode.window.showWarningMessage('Could not load the connector catalog. Connector catalog icons are unavailable.');
+        }
       }
     }
   }

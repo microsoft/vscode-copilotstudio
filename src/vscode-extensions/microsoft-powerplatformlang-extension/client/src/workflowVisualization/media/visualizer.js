@@ -2,6 +2,7 @@
 (function () {
   const vscode = acquireVsCodeApi();
   const SVG_NS = 'http://www.w3.org/2000/svg';
+  const PAN_THRESHOLD = 4;
   const surface = document.getElementById('surface');
   const canvas = document.getElementById('canvas');
   const banner = document.getElementById('banner');
@@ -93,6 +94,7 @@
   let view = { x: 0, y: 0, scale: 1 };
   let root;
   let panStart = null;
+  let suppressClick = false;
 
   function el(name, attrs, parent) {
     const node = document.createElementNS(SVG_NS, name);
@@ -276,6 +278,8 @@
   }
 
   function render() {
+    const focusedNode = document.activeElement?.closest('.wf-node');
+    const focusedNodeId = focusedNode && surface.contains(focusedNode) ? focusedNode.getAttribute('data-id') : null;
     surface.replaceChildren();
     surface.setAttribute('data-format', model.format);
     nodeElements.clear();
@@ -289,14 +293,14 @@
     root = el('g', {}, surface);
     applyView();
     const containerLayer = el('g', {}, root);
-    const edgeLayer = el('g', { 'aria-hidden': 'true' }, root);
+    const edgeLayer = el('g', {}, root);
     const nodeLayer = el('g', {}, root);
 
     for (const node of model.nodes) {
       const rows = branchRows(node);
       const group = el('g', {
         class: 'wf-node', 'data-id': node.id, tabindex: 0, role: 'button',
-        'aria-label': `${node.label}, ${node.type}`,
+        'aria-label': [node.label, node.type, ...rows.map(row => row.label)].join(', '),
       }, node.isContainer ? containerLayer : nodeLayer);
       nodeElements.set(node.id, group);
       el('title', {}, group).textContent = `${node.label}\n${node.type}`;
@@ -340,7 +344,11 @@
           vscode.postMessage({ type: 'reveal', nodeId: node.id, offset: node.actionOffset, length: node.actionLength });
         }
       };
-      group.addEventListener('click', reveal);
+      group.addEventListener('click', () => {
+        if (!suppressClick) {
+          reveal();
+        }
+      });
       group.addEventListener('keydown', event => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
@@ -359,10 +367,13 @@
       const path = points.length === 4
         ? `M ${points[0].join(' ')} C ${points.slice(1).map(point => point.join(' ')).join(', ')}`
         : `M ${points[0].join(' ')} L ${points[1].join(' ')}`;
-      el('path', { class: 'wf-edge', d: path, ...(model.format === 'designer' ? {} : { 'marker-end': 'url(#arrow)' }) }, edgeLayer);
+      el('path', {
+        class: 'wf-edge', d: path, 'aria-hidden': 'true',
+        ...(model.format === 'designer' ? {} : { 'marker-end': 'url(#arrow)' }),
+      }, edgeLayer);
       if (model.format !== 'classic') {
         for (const point of [points[0], points[points.length - 1]]) {
-          el('circle', { class: 'wf-port', cx: point[0], cy: point[1], r: 3.5 }, nodeLayer);
+          el('circle', { class: 'wf-port', cx: point[0], cy: point[1], r: 3.5, 'aria-hidden': 'true' }, nodeLayer);
         }
       }
       const hasBranchRow = branchRows(source).some(row => row.id === edge.sourceHandle
@@ -374,15 +385,20 @@
         const y = (first[1] + last[1]) / 2;
         const label = truncate(edge.label, 36);
         const width = label.length * 7 + 16;
-        const group = el('g', {}, edgeLayer);
+        const group = el('g', { role: 'img', 'aria-label': edge.label }, edgeLayer);
         el('title', {}, group).textContent = edge.label;
-        el('rect', { class: 'wf-edge-label-bg', x: x - width / 2, y: y - 11, width, height: 22, rx: 4 }, group);
+        el('rect', {
+          class: 'wf-edge-label-bg', x: x - width / 2, y: y - 11, width, height: 22, rx: 4, 'aria-hidden': 'true',
+        }, group);
         el('text', { class: 'wf-edge-label', x, y: y + 4, 'text-anchor': 'middle' }, group).textContent = label;
       }
     });
     selectNode(selectedId);
     banner.textContent = 'No workflow graph found in this file.';
     banner.classList.toggle('hidden', model.valid);
+    if (focusedNodeId !== null) {
+      (nodeElements.get(focusedNodeId) || canvas).focus({ preventScroll: true });
+    }
   }
 
   function selectNode(id) {
@@ -422,27 +438,52 @@
   }
 
   surface.addEventListener('pointerdown', event => {
-    if (event.button !== 0 || event.target.closest('.wf-node')) {
+    if (panStart) {
       return;
     }
-    panStart = { x: event.clientX - view.x, y: event.clientY - view.y };
-    surface.setPointerCapture(event.pointerId);
-    surface.classList.add('panning');
+    suppressClick = false;
+    if (event.button !== 0 || (event.target.closest('.wf-node') && !event.target.closest('.wf-container'))) {
+      return;
+    }
+    panStart = { x: view.x, y: view.y, clientX: event.clientX, clientY: event.clientY, pointerId: event.pointerId };
   });
   surface.addEventListener('pointermove', event => {
-    if (panStart) {
-      view.x = event.clientX - panStart.x;
-      view.y = event.clientY - panStart.y;
-      applyView();
+    if (!panStart || event.pointerId !== panStart.pointerId) {
+      return;
     }
+    if (!(event.buttons & 1)) {
+      endPan(event);
+      return;
+    }
+    const dx = event.clientX - panStart.clientX;
+    const dy = event.clientY - panStart.clientY;
+    if (!suppressClick) {
+      if (Math.hypot(dx, dy) < PAN_THRESHOLD) {
+        return;
+      }
+      suppressClick = true;
+      surface.setPointerCapture(event.pointerId);
+      surface.classList.add('panning');
+    }
+    view.x = panStart.x + dx;
+    view.y = panStart.y + dy;
+    applyView();
   });
-  function endPan() {
+  function endPan(event) {
+    if (panStart && event.pointerId !== panStart.pointerId) {
+      return;
+    }
     panStart = null;
     surface.classList.remove('panning');
   }
   surface.addEventListener('pointerup', endPan);
   surface.addEventListener('pointercancel', endPan);
   surface.addEventListener('lostpointercapture', endPan);
+  surface.addEventListener('pointerleave', event => {
+    if (!suppressClick) {
+      endPan(event);
+    }
+  });
   surface.addEventListener('wheel', event => {
     event.preventDefault();
     const rect = surface.getBoundingClientRect();
