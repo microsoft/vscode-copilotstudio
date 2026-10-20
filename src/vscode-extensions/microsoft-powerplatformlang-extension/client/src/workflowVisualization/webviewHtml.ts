@@ -17,6 +17,9 @@ export function buildWebviewHtml(webview: vscode.Webview, extensionUri: vscode.U
   const styleUri = webview.asWebviewUri(
     vscode.Uri.joinPath(extensionUri, 'client', 'src', 'workflowVisualization', 'media', 'visualizer.css'),
   );
+  const iconBaseUri = webview.asWebviewUri(
+    vscode.Uri.joinPath(extensionUri, 'client', 'src', 'workflowVisualization', 'media', 'icons'),
+  );
 
   const csp = [
     `default-src 'none'`,
@@ -37,14 +40,18 @@ export function buildWebviewHtml(webview: vscode.Webview, extensionUri: vscode.U
 </head>
 <body>
   <div id="toolbar">
-    <button id="btn-fit" title="Fit to view">Fit</button>
-    <button id="btn-zoom-in" title="Zoom in">+</button>
-    <button id="btn-zoom-out" title="Zoom out">&minus;</button>
-    <span id="banner" class="hidden"></span>
+    <div class="toolbar-group" role="group" aria-label="Graph navigation">
+      <button id="btn-fit" title="Fit to view (F)">Fit</button>
+      <button id="btn-zoom-out" title="Zoom out (-)" aria-label="Zoom out">&minus;</button>
+      <button id="btn-reset" title="Actual size (0)">100%</button>
+      <button id="btn-zoom-in" title="Zoom in (+)" aria-label="Zoom in">+</button>
+    </div>
   </div>
-  <div id="canvas">
-    <svg id="surface" xmlns="http://www.w3.org/2000/svg"></svg>
+  <div id="banner" class="hidden" role="status"></div>
+  <div id="canvas" tabindex="0" role="region" aria-label="Workflow graph. Drag to pan, scroll to zoom. Use arrow keys to pan, F to fit, and Tab to navigate nodes.">
+    <svg id="surface" data-icon-base="${iconBaseUri}" xmlns="http://www.w3.org/2000/svg" role="group" aria-label="Workflow nodes and connections"></svg>
   </div>
+  <div id="hint">Drag to pan &middot; Scroll to zoom &middot; Click a node to open its source</div>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;

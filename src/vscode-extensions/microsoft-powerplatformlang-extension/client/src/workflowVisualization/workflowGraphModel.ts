@@ -1,5 +1,6 @@
 import { parseTree } from 'jsonc-parser';
 import type { Node } from 'jsonc-parser';
+import type { ConnectorInfo } from '../types';
 
 interface GraphVizNode {
   id: string;
@@ -11,6 +12,14 @@ interface GraphVizNode {
   height: number;
   parentId?: string;
   isContainer: boolean;
+  outcomes?: { id: string; label: string }[];
+  iconUri?: string;
+  catalogIconUri?: string;
+  connectorId?: string;
+  iconCategory?: string;
+  operationKind?: string;
+  functionCategory?: string;
+  note?: { text: string; color?: string };
   actionOffset?: number;
   actionLength?: number;
 }
@@ -25,16 +34,19 @@ interface GraphVizEdge {
 }
 
 interface WorkflowGraphModel {
+  format: 'designer' | 'classic';
   nodes: GraphVizNode[];
   edges: GraphVizEdge[];
   valid: boolean;
+  direction: 'horizontal' | 'vertical';
 }
 
 const DEFAULT_WIDTH = 240;
 const DEFAULT_HEIGHT = 66;
 const HORIZONTAL_GAP = 80;
-const VERTICAL_GAP = 90;
-const CONTAINER_TYPES = new Set(['loop', 'ifElse', 'switch', 'scope', 'foreach', 'until', 'condition']);
+const CLASSIC_CARD_WIDTH = 600;
+const CLASSIC_CARD_HEIGHT = 74;
+const CLASSIC_VERTICAL_GAP = 46;
 
 function findProp(objNode: Node | undefined, name: string): Node | undefined {
   if (!objNode || objNode.type !== 'object' || !objNode.children) {
@@ -60,8 +72,50 @@ function getNumber(objNode: Node | undefined, name: string): number | undefined 
   return v && typeof v.value === 'number' ? v.value : undefined;
 }
 
-function buildActionSpanIndex(definition: Node | undefined): Map<string, { offset: number; length: number }> {
-  const index = new Map<string, { offset: number; length: number }>();
+function validateIconUri(iconUri: string | undefined): string | undefined {
+  if (!iconUri) {
+    return undefined;
+  }
+  try {
+    const url = new URL(iconUri);
+    return url.protocol === 'https:' && !url.username && !url.password ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const CLASSIC_CONNECTOR_TYPES = new Set([
+  'ApiApp', 'ApiConnection', 'OpenApiConnection', 'OpenApiConnectionWebhook',
+  'ApiConnectionWebhook', 'ApiManagement', 'ApiConnectionNotification',
+]);
+
+function connectorCatalogKey(id: string | undefined): string | undefined {
+  return id?.match(/^(?:\/providers\/Microsoft\.PowerApps\/apis\/)?([\w-]+)$/i)?.[1].toLowerCase();
+}
+
+function resolveConnectorId(
+  apiId: string | undefined,
+  connectionName: string | undefined,
+  connectionReferences: Node | undefined,
+): string | undefined {
+  const reference = connectionName ? findProp(connectionReferences, connectionName) : undefined;
+  return connectorCatalogKey(apiId ?? getString(findProp(reference, 'api'), 'name'));
+}
+
+function buildConnectorIconMap(connectors: readonly Pick<ConnectorInfo, 'internalId' | 'iconUri'>[]): Map<string, string> {
+  const icons = new Map<string, string>();
+  for (const connector of connectors) {
+    const key = connectorCatalogKey(connector.internalId);
+    const iconUri = validateIconUri(connector.iconUri);
+    if (key && iconUri) {
+      icons.set(key, iconUri);
+    }
+  }
+  return icons;
+}
+
+function buildActionSpanIndex(definition: Node | undefined): Map<string, { offset: number; length: number; label: string }> {
+  const index = new Map<string, { offset: number; length: number; label: string }>();
 
   const walk = (actionsObj: Node | undefined): void => {
     if (!actionsObj || actionsObj.type !== 'object' || !actionsObj.children) {
@@ -75,7 +129,11 @@ function buildActionSpanIndex(definition: Node | undefined): Map<string, { offse
       const metadata = findProp(valueNode, 'metadata');
       const nodeId = getString(metadata, 'nodeId');
       if (nodeId) {
-        index.set(nodeId, { offset: prop.offset, length: prop.length });
+        index.set(nodeId, {
+          offset: prop.offset,
+          length: prop.length,
+          label: getString(metadata, 'description') || humanizeName(String(prop.children[0].value)),
+        });
       }
 
       walk(findProp(valueNode, 'actions'));
@@ -106,7 +164,11 @@ function humanizeName(name: string): string {
   return name.replace(/_/g, ' ');
 }
 
-function buildClassicGraphModel(definition: Node | undefined): WorkflowGraphModel {
+function buildClassicGraphModel(
+  definition: Node | undefined,
+  connectionReferences: Node | undefined,
+  connectorIcons: ReadonlyMap<string, string>,
+): WorkflowGraphModel {
   const rawNodes = new Map<string, RawNode>();
   const edges: GraphVizEdge[] = [];
   const order = new Map<string, number>();
@@ -124,6 +186,12 @@ function buildClassicGraphModel(definition: Node | undefined): WorkflowGraphMode
     if (rawNodes.has(id)) {
       return;
     }
+    const operation = sourceNode?.type === 'property' ? sourceNode.children?.[1] : sourceNode;
+    const host = findProp(findProp(operation, 'inputs'), 'host');
+    const connectionName = getString(host, 'connectionName')
+      ?? getString(findProp(host, 'connection'), 'referenceName');
+    const connectorKey = CLASSIC_CONNECTOR_TYPES.has(type)
+      ? resolveConnectorId(getString(host, 'apiId'), connectionName, connectionReferences) : undefined;
     rawNodes.set(id, {
       id,
       label,
@@ -132,13 +200,16 @@ function buildClassicGraphModel(definition: Node | undefined): WorkflowGraphMode
       y: 0,
       localX: 0,
       localY: 0,
-      width: DEFAULT_WIDTH,
-      height: DEFAULT_HEIGHT,
+      width: CLASSIC_CARD_WIDTH,
+      height: CLASSIC_CARD_HEIGHT,
       parentId,
       isContainer,
       actionOffset: sourceNode?.offset,
       actionLength: sourceNode?.length,
       branch,
+      operationKind: getString(operation, 'kind'),
+      connectorId: connectorKey,
+      catalogIconUri: connectorKey ? connectorIcons.get(connectorKey) : undefined,
     });
     order.set(id, nextOrder++);
   };
@@ -148,8 +219,15 @@ function buildClassicGraphModel(definition: Node | undefined): WorkflowGraphMode
     const triggerName = String(triggerProp.children![0].value);
     const triggerValue = triggerProp.children![1];
     const triggerId = `trigger:${triggerName}`;
+    const triggerType = getString(triggerValue, 'type') ?? 'Manual';
+    const triggerKind = getString(triggerValue, 'kind');
+    let label = humanizeName(triggerName);
+    if (triggerName === 'manual' && triggerType === 'Request') {
+      label = triggerKind === 'Skills' ? 'When an agent calls the flow'
+        : triggerKind?.toLowerCase() === 'http' || !triggerKind ? 'When an HTTP request is received' : label;
+    }
     triggerIds.push(triggerId);
-    addNode(triggerId, humanizeName(triggerName), 'start', triggerProp);
+    addNode(triggerId, label, triggerType, triggerProp);
   }
 
   const collectActions = (actionsObj: Node | undefined, scopePrefix: string, parentActionId?: string, branch?: string): void => {
@@ -209,7 +287,7 @@ function buildClassicGraphModel(definition: Node | undefined): WorkflowGraphMode
         const statusValues = dep.children![1].type === 'array' && dep.children![1].children
           ? dep.children![1].children.map((status) => String(status.value))
           : [];
-        const label = statusValues.length > 0 && statusValues.some((status) => status !== 'SUCCEEDED')
+        const label = statusValues.length > 0 && statusValues.some((status) => status.toUpperCase() !== 'SUCCEEDED')
           ? statusValues.join(', ')
           : undefined;
         edges.push({ id: `${source}->${targetId}`, source, target: targetId, label });
@@ -291,11 +369,14 @@ function buildClassicGraphModel(definition: Node | undefined): WorkflowGraphMode
     height: node.height,
     parentId: node.parentId,
     isContainer: node.isContainer,
+    operationKind: node.operationKind,
+    connectorId: node.connectorId,
+    catalogIconUri: node.catalogIconUri,
     actionOffset: node.actionOffset,
     actionLength: node.actionLength,
   }));
 
-  return { nodes, edges, valid: nodes.length > 0 };
+  return { nodes, edges, valid: nodes.length > 0, direction: 'vertical', format: 'classic' };
 }
 
 function isClassicContainerType(actionType: string): boolean {
@@ -386,10 +467,10 @@ function layoutClassicNodes(
 
   for (const [level, nodesAtLevel] of byLevel) {
     nodesAtLevel.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
-    const rowWidth = nodesAtLevel.length * DEFAULT_WIDTH + Math.max(0, nodesAtLevel.length - 1) * HORIZONTAL_GAP;
+    const rowWidth = nodesAtLevel.length * CLASSIC_CARD_WIDTH + Math.max(0, nodesAtLevel.length - 1) * HORIZONTAL_GAP;
     nodesAtLevel.forEach((node, index) => {
-      node.x = index * (DEFAULT_WIDTH + HORIZONTAL_GAP) - rowWidth / 2;
-      node.y = level * (DEFAULT_HEIGHT + VERTICAL_GAP);
+      node.x = index * (CLASSIC_CARD_WIDTH + HORIZONTAL_GAP) - rowWidth / 2;
+      node.y = level * (CLASSIC_CARD_HEIGHT + CLASSIC_VERTICAL_GAP);
       node.localX = node.x;
       node.localY = node.y;
     });
@@ -419,8 +500,8 @@ function layoutClassicContainerChildren(
   if (container.type === 'If') {
     const left = children.filter((child) => child.branch !== 'false');
     const right = children.filter((child) => child.branch === 'false');
-    const leftX = container.x - DEFAULT_WIDTH - HORIZONTAL_GAP / 2;
-    const rightX = container.x + DEFAULT_WIDTH + HORIZONTAL_GAP / 2;
+    const leftX = container.x - CLASSIC_CARD_WIDTH - HORIZONTAL_GAP / 2;
+    const rightX = container.x + CLASSIC_CARD_WIDTH + HORIZONTAL_GAP / 2;
     const startY = container.y + CONTAINER_PAD_TOP;
     layoutClassicColumn(left, leftX, startY, rawNodes, edges, order);
     layoutClassicColumn(right, rightX, startY, rawNodes, edges, order);
@@ -433,7 +514,7 @@ function layoutClassicContainerChildren(
     const branches = children.filter((child) => child.branch !== 'switch');
     const startY = container.y + CONTAINER_PAD_TOP;
     layoutClassicColumn(switchCards, container.x, startY, rawNodes, edges, order);
-    const branchY = startY + (switchCards[0]?.height ?? DEFAULT_HEIGHT) + VERTICAL_GAP;
+    const branchY = startY + (switchCards[0]?.height ?? CLASSIC_CARD_HEIGHT) + CLASSIC_VERTICAL_GAP;
     layoutClassicRow(branches, container.x, branchY, rawNodes, edges, order);
     fitContainerToChildren(container, rawNodes);
     return;
@@ -485,7 +566,7 @@ function layoutClassicColumn(
       layoutClassicContainerChildren(child, rawNodes, edges, order);
       shiftNodeAndChildren(child, rawNodes, x - child.x, desiredY - child.y);
     }
-    y = child.y + child.height + VERTICAL_GAP;
+    y = child.y + child.height + CLASSIC_VERTICAL_GAP;
   }
 }
 
@@ -544,8 +625,8 @@ function spreadClassicLevels(rawNodes: Map<string, RawNode>, byLevel: Map<number
     for (const node of nodesAtLevel) {
       shiftNodeAndChildren(node, rawNodes, 0, deltaY);
     }
-    const maxHeight = Math.max(...nodesAtLevel.map((node) => node.height), DEFAULT_HEIGHT);
-    y += maxHeight + VERTICAL_GAP;
+    const maxHeight = Math.max(...nodesAtLevel.map((node) => node.height), CLASSIC_CARD_HEIGHT);
+    y += maxHeight + CLASSIC_VERTICAL_GAP;
   }
 }
 
@@ -567,25 +648,30 @@ interface RawNode extends GraphVizNode {
   branch?: string;
 }
 
-export function buildGraphModel(text: string): WorkflowGraphModel {
+export function buildGraphModel(
+  text: string,
+  connectors: readonly Pick<ConnectorInfo, 'internalId' | 'iconUri'>[] = [],
+): WorkflowGraphModel {
   let tree: Node | undefined;
   try {
     tree = parseTree(text);
   } catch {
-    return { nodes: [], edges: [], valid: false };
+    return { nodes: [], edges: [], valid: false, direction: 'horizontal', format: 'designer' };
   }
   if (!tree) {
-    return { nodes: [], edges: [], valid: false };
+    return { nodes: [], edges: [], valid: false, direction: 'horizontal', format: 'designer' };
   }
 
   const properties = findProp(tree, 'properties');
   const definition = findProp(properties, 'definition');
   const triggers = findProp(definition, 'triggers');
   if (!triggers || triggers.type !== 'object' || !triggers.children) {
-    return { nodes: [], edges: [], valid: false };
+    return { nodes: [], edges: [], valid: false, direction: 'horizontal', format: 'designer' };
   }
 
   const actionSpans = buildActionSpanIndex(definition);
+  const connectionReferences = findProp(properties, 'connectionReferences');
+  const connectorIcons = buildConnectorIconMap(connectors);
 
   const rawNodes = new Map<string, RawNode>();
   const edges: GraphVizEdge[] = [];
@@ -607,29 +693,56 @@ export function buildGraphModel(text: string): WorkflowGraphModel {
           continue;
         }
         const type = getString(n, 'type') ?? '';
+        const data = findProp(n, 'data');
+        const config = findProp(data, 'config');
+        const connectorId = type === 'connector'
+          ? resolveConnectorId(getString(config, 'apiName'), getString(config, 'connectionName'), connectionReferences)
+          : undefined;
+        const outcomes: { id: string; label: string }[] = [];
+        for (const outcome of findProp(data, 'outcomes')?.children ?? []) {
+          const outcomeId = getString(outcome, 'id');
+          const label = getString(outcome, 'label');
+          if (outcomeId && label) {
+            outcomes.push({ id: outcomeId, label });
+          }
+        }
+        const defaultHeight = outcomes.length > 1
+          ? 68 + outcomes.length * 42
+          : DEFAULT_HEIGHT;
         const position = findProp(n, 'position');
         const localX = getNumber(position, 'x') ?? 0;
         const localY = getNumber(position, 'y') ?? 0;
         const measured = findProp(n, 'measured');
         const width = getNumber(n, 'width') ?? getNumber(measured, 'width') ?? DEFAULT_WIDTH;
-        const height = getNumber(n, 'height') ?? getNumber(measured, 'height') ?? DEFAULT_HEIGHT;
+        const height = getNumber(n, 'height') ?? getNumber(measured, 'height') ?? defaultHeight;
         const parentId = getString(n, 'parentId');
         const span = actionSpans.get(id);
 
         rawNodes.set(id, {
           id,
-          label: getString(n, 'name') ?? id,
+          label: getString(n, 'name') || getString(n, 'label') || getString(config, 'displayName')
+            || span?.label || humanizeName(type) || 'Action',
           type,
           x: 0,
           y: 0,
-          localX,
-          localY,
-          width,
-          height,
+          localX: Number.isFinite(localX) ? localX : 0,
+          localY: Number.isFinite(localY) ? localY : 0,
+          width: width > 0 && Number.isFinite(width) ? width : DEFAULT_WIDTH,
+          height: height > 0 && Number.isFinite(height) ? height : defaultHeight,
           parentId,
-          isContainer: CONTAINER_TYPES.has(type),
-          actionOffset: span?.offset,
-          actionLength: span?.length,
+          isContainer: false,
+          outcomes: outcomes.length > 0 ? outcomes : undefined,
+          iconUri: validateIconUri(getString(config, 'iconUri')),
+          catalogIconUri: connectorId ? connectorIcons.get(connectorId) : undefined,
+          connectorId,
+          iconCategory: getString(config, 'paletteIconHint'),
+          functionCategory: type === 'builtinFunction' ? getString(config, 'category') : undefined,
+          note: type === 'canvasNote' ? {
+            text: getString(config, 'markdown') ?? '',
+            color: getString(config, 'color'),
+          } : undefined,
+          actionOffset: span?.offset ?? (type === 'start' ? triggerProp.offset : undefined),
+          actionLength: span?.length ?? (type === 'start' ? triggerProp.length : undefined),
         });
       }
     }
@@ -647,19 +760,36 @@ export function buildGraphModel(text: string): WorkflowGraphModel {
         const targetHandle = getString(e, 'targetHandle');
         const label = sourceHandle && sourceHandle !== 'internal-source' && sourceHandle !== 'output'
           && sourceHandle !== 'external-output'
+          && !/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(sourceHandle)
           ? sourceHandle
           : undefined;
-        edges.push({ id: id ?? `${source}->${target}`, source, target, label, sourceHandle, targetHandle });
+        edges.push({ id: id ?? `${source}->${target}`, source, target, label: getString(e, 'label') || label, sourceHandle, targetHandle });
       }
     }
   }
 
   if (rawNodes.size === 0) {
-    return buildClassicGraphModel(definition);
+    return buildClassicGraphModel(definition, connectionReferences, connectorIcons);
   }
 
+  for (const node of rawNodes.values()) {
+    const seen = new Set([node.id]);
+    let parentId = node.parentId;
+    while (parentId) {
+      if (seen.has(parentId) || !rawNodes.has(parentId)) {
+        node.parentId = undefined;
+        break;
+      }
+      seen.add(parentId);
+      parentId = rawNodes.get(parentId)?.parentId;
+    }
+  }
+  const parents = new Set([...rawNodes.values()].map((node) => node.parentId));
+  for (const node of rawNodes.values()) {
+    node.isContainer = parents.has(node.id);
+  }
   resolveAbsolutePositions(rawNodes);
-  fitContainersToChildren(rawNodes);
+  fitContainersToChildren(rawNodes, true);
 
   const nodes: GraphVizNode[] = [...rawNodes.values()].map((n) => ({
     id: n.id,
@@ -671,11 +801,18 @@ export function buildGraphModel(text: string): WorkflowGraphModel {
     height: n.height,
     parentId: n.parentId,
     isContainer: n.isContainer,
+    outcomes: n.outcomes,
+    iconUri: n.iconUri,
+    catalogIconUri: n.catalogIconUri,
+    connectorId: n.connectorId,
+    iconCategory: n.iconCategory,
+    functionCategory: n.functionCategory,
+    note: n.note,
     actionOffset: n.actionOffset,
     actionLength: n.actionLength,
   }));
 
-  return { nodes, edges, valid: nodes.length > 0 };
+  return { nodes, edges, valid: nodes.length > 0, direction: 'horizontal', format: 'designer' };
 }
 
 function resolveAbsolutePositions(rawNodes: Map<string, RawNode>): void {
@@ -719,6 +856,7 @@ function resolveAbsolutePositions(rawNodes: Map<string, RawNode>): void {
 const CONTAINER_PAD_X = 30;
 const CONTAINER_PAD_TOP = 56;
 const CONTAINER_PAD_BOTTOM = 30;
+const MIN_CONTAINER_GUTTER = 12;
 
 function depthOf(node: RawNode, rawNodes: Map<string, RawNode>): number {
   let depth = 0;
@@ -732,16 +870,21 @@ function depthOf(node: RawNode, rawNodes: Map<string, RawNode>): number {
   return depth;
 }
 
-function fitContainersToChildren(rawNodes: Map<string, RawNode>): void {
-  const containers = [...rawNodes.values()].filter((n) => n.isContainer);
+function fitContainersToChildren(rawNodes: Map<string, RawNode>, preserveSavedBounds = false): void {
+  const nodes = [...rawNodes.values()];
+  const containers = nodes.filter((n) => n.isContainer);
+  const overlapping = new Set(containers.filter((container) => preserveSavedBounds && nodes.some((sibling) =>
+    sibling.id !== container.id && sibling.parentId === container.parentId && sibling.type !== 'canvasNote'
+    && sibling.x < container.x + container.width && sibling.x + sibling.width > container.x
+    && sibling.y < container.y + container.height && sibling.y + sibling.height > container.y)));
   containers.sort((a, b) => depthOf(b, rawNodes) - depthOf(a, rawNodes));
 
   for (const container of containers) {
-    fitContainerToChildren(container, rawNodes);
+    fitContainerToChildren(container, rawNodes, preserveSavedBounds && !overlapping.has(container));
   }
 }
 
-function fitContainerToChildren(container: RawNode, rawNodes: Map<string, RawNode>): void {
+function fitContainerToChildren(container: RawNode, rawNodes: Map<string, RawNode>, preserveSavedBounds = false): void {
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -763,8 +906,15 @@ function fitContainerToChildren(container: RawNode, rawNodes: Map<string, RawNod
     return;
   }
 
-  container.x = minX - CONTAINER_PAD_X;
-  container.y = minY - CONTAINER_PAD_TOP;
-  container.width = maxX - minX + CONTAINER_PAD_X * 2;
-  container.height = maxY - minY + CONTAINER_PAD_TOP + CONTAINER_PAD_BOTTOM;
+  const savedRight = container.x + container.width;
+  const savedBottom = container.y + container.height;
+  const right = preserveSavedBounds && savedRight >= maxX + MIN_CONTAINER_GUTTER
+    ? savedRight : Math.max(maxX + CONTAINER_PAD_X, preserveSavedBounds ? savedRight : -Infinity);
+  const bottom = preserveSavedBounds && savedBottom >= maxY + MIN_CONTAINER_GUTTER
+    ? savedBottom : Math.max(maxY + CONTAINER_PAD_BOTTOM, preserveSavedBounds ? savedBottom : -Infinity);
+  container.x = preserveSavedBounds && container.x <= minX - MIN_CONTAINER_GUTTER
+    ? container.x : Math.min(minX - CONTAINER_PAD_X, preserveSavedBounds ? container.x : Infinity);
+  container.y = Math.min(minY - CONTAINER_PAD_TOP, preserveSavedBounds ? container.y : Infinity);
+  container.width = right - container.x;
+  container.height = bottom - container.y;
 }

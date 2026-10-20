@@ -289,7 +289,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
             return Array.Empty<ConnectionReferenceInfo>();
         }
 
-        const string select = "connectionreferenceid,connectionreferencelogicalname,connectorid,connectionid";
+        const string select = "connectionreferenceid,connectionreferencelogicalname,connectorid,connectionid,versionnumber";
         var results = new List<ConnectionReferenceInfo>();
 
         foreach (var batch in names.Chunk(BatchSize))
@@ -1670,6 +1670,9 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
 
         [JsonPropertyName("connectionid")]
         public string? ConnectionId { get; set; } = string.Empty;
+
+        [JsonPropertyName("versionnumber")]
+        public long Version { get; set; }
     }
 
     internal class AgentSyncInfoDetail

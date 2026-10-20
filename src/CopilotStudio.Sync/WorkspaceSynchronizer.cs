@@ -861,6 +861,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
 
         var contentSaveContext = contentSaveContextOverride ?? operationContext;
+        pushChangeset = await ResolveExistingConnectionReferenceInsertsAsync(pushChangeset, dataverseClient, cancellationToken).ConfigureAwait(false);
 
         // Upload will atomically:
         //  - send up changes,
@@ -964,6 +965,53 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             builder.ComponentCollectionChanges.Add(componentCollectionChange);
         }
+        return builder.Build();
+    }
+
+    private static async Task<PvaComponentChangeSet> ResolveExistingConnectionReferenceInsertsAsync(
+        PvaComponentChangeSet changeSet,
+        ISyncDataverseClient dataverseClient,
+        CancellationToken cancellationToken)
+    {
+        var inserts = changeSet.ConnectionReferenceChanges
+            .OfType<ConnectionReferenceInsert>()
+            .Where(insert => insert.ConnectionReference != null)
+            .ToList();
+        if (inserts.Count == 0)
+        {
+            return changeSet;
+        }
+
+        // Provisioning or an earlier partial push may already have created these global records.
+        var existing = await dataverseClient.GetConnectionReferencesByLogicalNamesAsync(
+            inserts.Select(insert => insert.ConnectionReference!.ConnectionReferenceLogicalName.Value),
+            cancellationToken).ConfigureAwait(false);
+        var existingByName = existing.ToDictionary(reference => reference.ConnectionReferenceLogicalName, StringComparer.OrdinalIgnoreCase);
+        var builder = changeSet.ToBuilder();
+        builder.ConnectionReferenceChanges.Clear();
+        foreach (var change in changeSet.ConnectionReferenceChanges)
+        {
+            if (change is ConnectionReferenceInsert insert &&
+                insert.ConnectionReference is { } reference &&
+                existingByName.TryGetValue(reference.ConnectionReferenceLogicalName.Value, out var cloud))
+            {
+                if (cloud.ConnectionReferenceId == Guid.Empty)
+                {
+                    throw new InvalidOperationException($"Existing connection reference '{cloud.ConnectionReferenceLogicalName}' has no cloud identifier.");
+                }
+
+                var referenceBuilder = reference.ToBuilder();
+                referenceBuilder.Id = cloud.ConnectionReferenceId;
+                referenceBuilder.Version = cloud.Version;
+                referenceBuilder.ConnectionId = cloud.ConnectionId ?? string.Empty;
+                builder.ConnectionReferenceChanges.Add(new ConnectionReferenceUpdate(referenceBuilder.Build()));
+            }
+            else
+            {
+                builder.ConnectionReferenceChanges.Add(change);
+            }
+        }
+
         return builder.Build();
     }
 
@@ -6990,6 +7038,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             var remote = await dataverseClient.DownloadAllWorkflowsForAgentAsync(syncInfo, cancellationToken).ConfigureAwait(false);
             var existingFolders = new Dictionary<Guid, string>();
+            var cachedWorkflowIds = (ReadCloudCacheSnapshot(fileAccessor, allowMissing: true)?.Flows ?? ImmutableArray<CloudFlowDefinition>.Empty)
+                .Select(flow => flow.WorkflowId.Value)
+                .ToHashSet();
 
             foreach (var folder in EnumerateComponentFolders(fileAccessor, WorkflowFolder))
             {
@@ -7002,7 +7053,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
             if (remote is null || remote.Length == 0)
             {
-                DeleteLocalComponentFolders(fileAccessor, existingFolders.Values);
+                DeleteLocalComponentFolders(fileAccessor, existingFolders.Where(folder => cachedWorkflowIds.Contains(folder.Key)).Select(folder => folder.Value));
 
                 return new CloudFlowMetadata
                 {
@@ -7058,7 +7109,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             // Remove local workflow if cloud workflow is removed.
             var existingWorkflowIds = existingFolders.Keys.ToHashSet();
             var cloudWorkflowIds = new HashSet<Guid>(cloudFlowDefinitions.Select(w => w.WorkflowId.Value));
-            var workflowsToDelete = existingWorkflowIds.Except(cloudWorkflowIds);
+            var workflowsToDelete = existingWorkflowIds.Intersect(cachedWorkflowIds).Except(cloudWorkflowIds);
 
             DeleteLocalComponentFolders(fileAccessor, workflowsToDelete.Where(existingFolders.ContainsKey).Select(id => existingFolders[id]));
         }
@@ -8568,7 +8619,14 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         if (logicalNames.Any())
         {
             var result = await dataverseClient.GetConnectionReferencesByLogicalNamesAsync(logicalNames, cancellationToken).ConfigureAwait(false);
-            references = result.Select(dto => new ConnectionReference(connectionReferenceLogicalName: dto.ConnectionReferenceLogicalName, connectionId: dto.ConnectionId, connectorId: dto.ConnectorId ?? throw new InvalidOperationException($"ConnectorId missing for connection reference {dto.ConnectionReferenceLogicalName}"))).ToImmutableArray();
+            references = result.Select(dto => new ConnectionReference.Builder
+            {
+                Id = dto.ConnectionReferenceId,
+                Version = dto.Version,
+                ConnectionReferenceLogicalName = dto.ConnectionReferenceLogicalName,
+                ConnectionId = dto.ConnectionId ?? string.Empty,
+                ConnectorId = dto.ConnectorId ?? throw new InvalidOperationException($"ConnectorId missing for connection reference {dto.ConnectionReferenceLogicalName}"),
+            }.Build()).ToImmutableArray();
         }
 
         return references;

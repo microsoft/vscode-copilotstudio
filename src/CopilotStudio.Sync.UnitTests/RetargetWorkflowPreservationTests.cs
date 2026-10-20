@@ -1,5 +1,6 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 
+using Microsoft.Agents.ObjectModel;
 using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Moq;
@@ -81,7 +82,7 @@ public class RetargetWorkflowPreservationTests : IDisposable
     }
 
     [Fact]
-    public async Task GetWorkflowsAsync_RemoteEmpty_NotRetargeting_DeletesLocalWorkflowFolder()
+    public async Task GetWorkflowsAsync_RemoteEmpty_PreservesUnpushedLocalWorkflowFolder()
     {
         var synchronizer = CreateSynchronizer();
         var workflowFolder = CreateLocalWorkflowFolder();
@@ -89,7 +90,75 @@ public class RetargetWorkflowPreservationTests : IDisposable
 
         await synchronizer.GetWorkflowsAsync(_workspace, dataverse.Object, _syncInfo, _fileAccessor, CancellationToken.None);
 
+        Assert.True(Directory.Exists(workflowFolder));
+        Assert.Equal("{}", File.ReadAllText(Path.Combine(workflowFolder, "workflow.json")));
+    }
+
+    [Fact]
+    public async Task GetWorkflowsAsync_RemoteHasOtherWorkflows_PreservesUnpushedLocalWorkflowFolder()
+    {
+        var synchronizer = CreateSynchronizer();
+        var workflowFolder = CreateLocalWorkflowFolder();
+        var dataverse = CreateEmptyRemoteDataverse();
+        dataverse.Setup(client => client.DownloadAllWorkflowsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { new WorkflowMetadata { WorkflowId = Guid.NewGuid(), Name = "Other", ClientData = "{}" } });
+
+        await synchronizer.GetWorkflowsAsync(_workspace, dataverse.Object, _syncInfo, _fileAccessor, CancellationToken.None);
+
+        Assert.Equal("{}", File.ReadAllText(Path.Combine(workflowFolder, "workflow.json")));
+        Assert.True(File.Exists(Path.Combine(workflowFolder, "metadata.yml")));
+    }
+
+    [Fact]
+    public async Task GetWorkflowsAsync_RemoteEmpty_DeletesPreviouslySyncedWorkflowFolder()
+    {
+        var synchronizer = CreateSynchronizer();
+        var workflowFolder = CreateLocalWorkflowFolder();
+        var workflowId = WorkflowWorkspace.WorkflowIdOf(Path.GetFileName(workflowFolder))!.Value;
+        var (flow, _) = WorkspaceSynchronizer.GetFlowDefinition(new WorkflowMetadata { WorkflowId = workflowId, Name = "My Flow", ClientData = "{}" });
+        WorkspaceSynchronizer.WriteCloudCache(_fileAccessor, new BotDefinition().WithFlows(new[] { flow }));
+        var dataverse = CreateEmptyRemoteDataverse();
+
+        await synchronizer.GetWorkflowsAsync(_workspace, dataverse.Object, _syncInfo, _fileAccessor, CancellationToken.None);
+
         Assert.False(Directory.Exists(workflowFolder));
+    }
+
+    [Fact]
+    public async Task GetWorkflowsAsync_PreservesDownloadedConnectionReferenceIdentity()
+    {
+        var synchronizer = CreateSynchronizer();
+        var referenceId = Guid.NewGuid();
+        var dataverse = CreateEmptyRemoteDataverse();
+        dataverse.Setup(client => client.DownloadAllWorkflowsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[]
+            {
+                new WorkflowMetadata
+                {
+                    WorkflowId = Guid.NewGuid(),
+                    Name = "Test",
+                    ClientData = "{\"properties\":{\"connectionReferences\":{\"shared_approvals\":{\"connection\":{\"connectionReferenceLogicalName\":\"new_sharedapprovals_test\"}}}}}",
+                },
+            });
+        dataverse.Setup(client => client.GetConnectionReferencesByLogicalNamesAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[]
+            {
+                new ConnectionReferenceInfo
+                {
+                    ConnectionReferenceLogicalName = "new_sharedapprovals_test",
+                    ConnectorId = "/providers/Microsoft.PowerApps/apis/shared_approvals",
+                    ConnectionId = "existing-connection",
+                    ConnectionReferenceId = referenceId,
+                    Version = 734,
+                },
+            });
+
+        var metadata = await synchronizer.GetWorkflowsAsync(_workspace, dataverse.Object, _syncInfo, _fileAccessor, CancellationToken.None);
+
+        var reference = Assert.Single(metadata.ConnectionReferences);
+        Assert.Equal(referenceId, reference.Id.Value);
+        Assert.Equal(734, reference.Version);
+        Assert.Equal("existing-connection", reference.ConnectionId);
     }
 
     [Fact]
