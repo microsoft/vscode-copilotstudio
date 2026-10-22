@@ -1,0 +1,11 @@
+connectionReferences:
+  - connectionReferenceLogicalName: ahe2e_MCSClassicAgent.shared_cre98-5fweather-20agent-202-5f2c520b622e718fe6.c712ea8cc54c478cb088f5d8081b15d6
+    connectorId: /providers/Microsoft.PowerApps/apis/shared_cre98-5fweather-20agent-202-5f2c520b622e718fe6
+  - connectionReferenceLogicalName: ahe2e_MCSClassicAgent.shared_office365users.b446bdb70ea5437cacefe7fe2170fccb
+    connectorId: /providers/Microsoft.PowerApps/apis/shared_office365users
+  - connectionReferenceLogicalName: ahe2e_MCSClassicAgent.shared_teams.0add195409434636943683365d5bbcce
+    connectorId: /providers/Microsoft.PowerApps/apis/shared_teams
+  - connectionReferenceLogicalName: new_sharedmsnweather_08889
+    connectorId: /providers/Microsoft.PowerApps/apis/shared_msnweather
+  - connectionReferenceLogicalName: ahe2e_MCSClassicAgent.cr.WX3p-EQ4
+    connectorId: /providers/Microsoft.PowerApps/apis/shared_onedriveforbusiness

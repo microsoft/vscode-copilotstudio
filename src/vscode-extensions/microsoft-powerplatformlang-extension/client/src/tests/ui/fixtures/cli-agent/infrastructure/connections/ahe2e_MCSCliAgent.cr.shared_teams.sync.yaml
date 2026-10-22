@@ -1,0 +1,3 @@
+connectionReferences:
+  - connectionReferenceLogicalName: ahe2e_MCSCliAgent.cr.shared_teams
+    connectorId: /providers/Microsoft.PowerApps/apis/shared_teams

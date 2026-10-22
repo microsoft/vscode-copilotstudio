@@ -153,14 +153,12 @@ public static class StandaloneWorkflowCache
         return !McsYamlComparer.DocumentsMatch(WorkspaceSynchronizer.GetWorkflowMetadata(flow), WorkspaceSynchronizer.GetWorkflowMetadata(reference));
     }
 
-    private static bool Store(IFileAccessor fileAccessor, Guid workflowId, CloudFlowDefinition? flow)
+    internal static ImmutableArray<CloudFlowDefinition> WithFlow(ImmutableArray<CloudFlowDefinition> flows, Guid workflowId, CloudFlowDefinition? flow)
     {
-        var snapshot = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor, allowMissing: true) ?? BotDefinition.Empty;
-        var existing = snapshot.Flows;
         var updated = ImmutableArray.CreateBuilder<CloudFlowDefinition>();
         var replaced = false;
 
-        foreach (var candidate in existing)
+        foreach (var candidate in flows)
         {
             if (candidate.WorkflowId.Value != workflowId)
             {
@@ -182,9 +180,15 @@ public static class StandaloneWorkflowCache
             updated.Add(flow);
         }
 
-        var result = updated.ToImmutable();
+        return updated.ToImmutable();
+    }
 
-        if (SameContent(existing, result))
+    private static bool Store(IFileAccessor fileAccessor, Guid workflowId, CloudFlowDefinition? flow)
+    {
+        var snapshot = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor, allowMissing: true) ?? BotDefinition.Empty;
+        var result = WithFlow(snapshot.Flows, workflowId, flow);
+
+        if (SameContent(snapshot.Flows, result))
         {
             return false;
         }

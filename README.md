@@ -61,6 +61,59 @@ For architecture details, see the [docs/](docs/) folder.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for build prerequisites, current build
 state, and contribution guidelines.
 
+### End-to-end tests against a real environment
+
+Drives the real extension in a real VS Code window, over the LSP client and server,
+against a real environment. **It creates and deletes cloud agents, so point it at a
+development environment only.**
+
+Setup is one gitignored config file at the extension root:
+
+```bash
+cd src/vscode-extensions/microsoft-powerplatformlang-extension
+cp lspe2e.config.example.json lspe2e.config.json   # use copy on Windows
+```
+
+Fill in `environmentId` for your development environment — the Power Platform admin center
+shows it. The suite resolves the environment's Dataverse URL through BAP. Running any command
+below without the config prints the exact path and the template.
+
+Every agent scenario runs in two agent shapes — `classic` and `cli`. The `workflow` shape is a
+standalone workflow project.
+
+| Command | Scenarios | Runs | Time | Covers |
+|---|---|---|---|---|
+| `npm run test:ui` | 28 | 52 | ~20 min | everything below |
+| `npm run test:ui:smoke` | 4 | 8 | ~3 min | clone, push, pull — the fastest useful signal |
+| `npm run test:ui:vscode` | 20 | 40 | ~14 min | the extension on its own |
+| `npm run test:ui:workflow` | 4 | 4 | ~3 min | a standalone cloud flow with no agent |
+| `npm run test:ui:interop` | 4 | 8 | ~3 min | `pac` / `msagent` compatibility |
+| `npm run test:ui:signin` | — | — | ~1 min | one-time: seed the cached sign-in |
+| `npm run test:ui:clean [prefix]` | — | — | ~1 min | delete leftover agents and cloud flows by name prefix |
+
+`--group` takes `smoke`, `vscode`, `workflow`, `interop`, `all`, or a comma-separated list.
+`--no-clean` leaves the agents behind for inspection.
+
+`msagent` must be installed and signed in by running msagent auth login, because deleting the agents a run
+created goes through `msagent agent delete`.
+
+Result for each run — full transcript, machine-readable report, per-failure logs and the
+cloned workspaces — are left in `%TEMP%\mcs-lsp-e2e\<run>\`, and the path is printed when the
+run finishes.
+
+#### What it tests against
+
+Every run uploads three fixtures to the environment — one per authoring shape, plus a standalone
+cloud flow — and works against those. They live in
+[client/src/tests/ui/fixtures](src/vscode-extensions/microsoft-powerplatformlang-extension/client/src/tests/ui/fixtures):
+
+| Fixture | Shape | Contents |
+|---|---|---|
+| [`classic-agent`](src/vscode-extensions/microsoft-powerplatformlang-extension/client/src/tests/ui/fixtures/classic-agent) | `classic` — `agent.mcs.yml` | topics, actions, knowledge files, AI prompts, a workflow, a custom connector, a sub-agent and connection references |
+| [`cli-agent`](src/vscode-extensions/microsoft-powerplatformlang-extension/client/src/tests/ui/fixtures/cli-agent) | `cli` — `agent.sync.yaml` | behaviors (skills with `SKILL.md` and scripts), knowledge capabilities, a workflow, connection references under `infrastructure/` |
+| [`standalone-workflow`](src/vscode-extensions/microsoft-powerplatformlang-extension/client/src/tests/ui/fixtures/standalone-workflow) | `workflow` — `workflow.sync.yaml` | one cloud flow and no agent: a definition, its metadata sidecar and the connection references it binds under `infrastructure/` |
+| [`new-components`](src/vscode-extensions/microsoft-powerplatformlang-extension/client/src/tests/ui/fixtures/new-components) | both agents | components added mid-run by B-07, including a **bare skill folder** with no `.mcs.yml` — generating that metadata is what the scenario tests |
+
 ## Reporting Issues
 
 To help us resolve problems more efficiently, please use the custom issue reporting command built into this extension. It automatically includes helpful diagnostic information like your session ID.

@@ -1,7 +1,7 @@
 import { commands, DiagnosticSeverity, ExtensionContext, languages, ProgressLocation, RelativePattern, TextDocument, Uri, window, workspace as VSworkspace } from "vscode";
 import { CopilotStudioWorkspace, getAllWorkspaces, hasConnectionFileInWorkspace, chooseAccountForWorkspace } from "../sync/localWorkspaces";
 import { selectWorkspace } from "../sync/workspacePicker";
-import { getOrAddSynchronizer, withSyncCommandBusy, WorkspaceSynchronizer } from "../sync/workspaceSynchronizer";
+import { askRemoteChangeResolution, getOrAddSynchronizer, RemoteOverwriteRequestedError, reportSyncError, withSyncCommandBusy, WorkspaceSynchronizer } from "../sync/workspaceSynchronizer";
 import { registerVirtualKnowledgeProvider } from "../knowledgeFiles/virtualKnowledgeFile";
 import { getWorkspaceChanges, refreshAgentChangesAfterFetch } from "../sync/workspaceScm";
 import { refreshAgentChangesTree } from "../sync/agentChangesTreeProvider";
@@ -24,6 +24,9 @@ export const resolveWorkspaceArg = (arg?: Workspace): CopilotStudioWorkspace | u
   }
   return 'workspaceUri' in arg && arg.workspaceUri ? arg : undefined;
 };
+
+export const requestsRemoteOverwrite = (arg?: unknown): boolean =>
+  typeof arg === 'object' && arg !== null && (arg as { overwriteRemoteChanges?: unknown }).overwriteRemoteChanges === true;
 
 interface SyncCommand {
   id: string;
@@ -65,7 +68,7 @@ export const registerSyncCommands = (context: ExtensionContext) => {
       displayName: 'Get',
       action: async (synchroniser) => {
         const virtualKnowledgeProvider = await registerVirtualKnowledgeProvider(context, synchroniser.workspace);
-        await synchroniser.pull(virtualKnowledgeProvider);
+        await synchroniser.pull(virtualKnowledgeProvider, { offerRemoteOverwrite: true });
       }
     },
     {
@@ -175,10 +178,11 @@ const registerSyncCommand = (
       }
 
       let errors = { files: 0, count: 0 };
+      let overwriteRemoteChanges = requestsRemoteOverwrite(workspace);
       // For sync buttons to be disabled and loading indicators to be visible during the entire sync process.
       await withSyncCommandBusy(selectedWorkspace.workspaceUri, async () => {
         // For Apply operation, fetch remote changes first then check for conflicts
-        if (id === 'microsoft-copilot-studio.applyChanges') {
+        if (id === 'microsoft-copilot-studio.applyChanges' && !overwriteRemoteChanges) {
           // First, fetch to get the current remote state
           await window.withProgress({
             location: ProgressLocation.Notification,
@@ -200,14 +204,9 @@ const registerSyncCommand = (
             ) ?? [];
 
           if (changesWithoutKnowledgeFiles.length > 0) {
-            const remoteCount = changesWithoutKnowledgeFiles.length;
-            const choice = await window.showWarningMessage(
-              `The agent has ${remoteCount} remote change${remoteCount === 1 ? '' : 's'} that must be retrieved before your local changes can be applied.`,
-              { modal: true },
-              'Get Remote Changes'
-            );
+            const resolution = await askRemoteChangeResolution(selectedWorkspace, changesWithoutKnowledgeFiles.length);
 
-            if (choice === 'Get Remote Changes') {
+            if (resolution === 'getRemoteChanges') {
               // Run the Get logic directly rather than dispatching the Get
               // command, to avoid re-entering withSyncCommandBusy.
               await window.withProgress({
@@ -217,11 +216,15 @@ const registerSyncCommand = (
               }, async () => {
                 const virtualKnowledgeProvider = await registerVirtualKnowledgeProvider(context, selectedWorkspace);
                 const synchronizer = getOrAddSynchronizer(selectedWorkspace);
-                await synchronizer.pull(virtualKnowledgeProvider);
+                await synchronizer.pull(virtualKnowledgeProvider, { offerRemoteOverwrite: true });
               });
             }
-            // Either way, don't proceed with Apply
-            return;
+
+            if (resolution !== 'overwriteRemoteChanges') {
+              return;
+            }
+
+            overwriteRemoteChanges = true;
           }
         }
 
@@ -237,7 +240,7 @@ const registerSyncCommand = (
           if (errors.count === 0) {
             const synchronizer = getOrAddSynchronizer(selectedWorkspace);
             if (id === 'microsoft-copilot-studio.applyChanges') {
-              await synchronizer.push({ suppressDisabledWorkflowWarnings: true });
+              await synchronizer.push({ suppressDisabledWorkflowWarnings: true, requireNoUnpulledChanges: !overwriteRemoteChanges });
             } else {
               await action(synchronizer);
             }
@@ -256,10 +259,14 @@ const registerSyncCommand = (
         }
       }
     } catch (error) {
+      if (error instanceof RemoteOverwriteRequestedError && workspaceForCatch) {
+        await commands.executeCommand('microsoft-copilot-studio.applyChanges', { ws: workspaceForCatch, overwriteRemoteChanges: true });
+        return;
+      }
       if (workspaceForCatch && await handleSyncAuthError(workspaceForCatch, error, async () => { await commands.executeCommand(id, workspaceForCatch); })) {
         return;
       }
-      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Failed to execute ${displayName} operation`, { error, ...workspaceContext });
+      reportSyncError(`Failed to execute ${displayName} operation`, error, false, workspaceContext);
     }
   });
 

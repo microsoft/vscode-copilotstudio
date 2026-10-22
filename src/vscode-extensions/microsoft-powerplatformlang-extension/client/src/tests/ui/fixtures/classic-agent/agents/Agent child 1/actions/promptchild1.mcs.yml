@@ -1,0 +1,21 @@
+mcs.metadata:
+  componentName: prompt child 1
+kind: TaskDialog
+inputs:
+  - kind: AutomaticTaskInput
+    propertyName: input_20Categories
+    name: input Categories
+    shouldPromptUser: true
+
+  - kind: AutomaticTaskInput
+    propertyName: input_20text
+    name: input text
+    shouldPromptUser: true
+
+modelDisplayName: prompt child 1
+modelDescription: prompt child 1 description 1
+action:
+  kind: InvokeAIBuilderModelTaskAction
+  aIModelId: 3b5436b4-d7b4-4389-96e8-107446c9094a
+
+outputMode: All

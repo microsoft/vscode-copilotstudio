@@ -1,0 +1,6 @@
+mcs.metadata:
+  componentName: get-us-weather
+  schemaName: ahe2e_MCSCliAgent.skill.get-us-weather
+  bundle: ahe2e_MCSCliAgent.file.getusweather6fd9fd40zip
+  manifestSchemaName: ahe2e_MCSCliAgent.file.get-us-weather.SKILL.md
+kind: InlineAgentSkill

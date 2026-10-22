@@ -50,6 +50,32 @@ public static class WorkflowActivationPlanner
         return workflow.ConnectionReferences.Any(logicalName => !string.IsNullOrWhiteSpace(logicalName));
     }
 
+    /// <summary>The logical names of the connection references Dataverse reports bound to a connection.</summary>
+    /// <param name="references">The connection references as Dataverse returned them.</param>
+    /// <returns>The bound references, compared without regard to case.</returns>
+    public static ISet<string> BoundReferences(IEnumerable<SyncDataverseClient.ConnectionReferenceInfo> references) => references is null ? throw new ArgumentNullException(nameof(references)) : new HashSet<string>(references.Where(reference => !string.IsNullOrWhiteSpace(reference.ConnectionId)).Select(reference => reference.ConnectionReferenceLogicalName), StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The connection references a workflow uses that are not bound to a connection.</summary>
+    /// <param name="connectionReferenceLogicalNames">The references the workflow uses, where a blank name is no reference.</param>
+    /// <param name="boundReferences">The references bound to a connection.</param>
+    /// <returns>Each unbound reference once, in the order the workflow uses them.</returns>
+    public static IReadOnlyList<string> UnboundReferences(IEnumerable<string> connectionReferenceLogicalNames, ISet<string> boundReferences) => Unbound(connectionReferenceLogicalNames, boundReferences).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+
+    private static IEnumerable<string> Unbound(IEnumerable<string> connectionReferenceLogicalNames, ISet<string> boundReferences)
+    {
+        if (connectionReferenceLogicalNames is null)
+        {
+            throw new ArgumentNullException(nameof(connectionReferenceLogicalNames));
+        }
+
+        if (boundReferences is null)
+        {
+            throw new ArgumentNullException(nameof(boundReferences));
+        }
+
+        return connectionReferenceLogicalNames.Where(logicalName => !string.IsNullOrWhiteSpace(logicalName) && !boundReferences.Contains(logicalName));
+    }
+
     /// <summary>Drafts every workflow that wants to start but still has an unbound connection reference.</summary>
     /// <param name="workflows">The workflows about to be written.</param>
     /// <param name="dataverseClient">Reads which references carry a connection.</param>
@@ -188,7 +214,7 @@ public static class WorkflowActivationPlanner
             : $"Workflow '{workflowName}' was saved, but the environment refused to have it {requested} ({outcome.Failure}).";
     }
 
-    private static async Task<HashSet<string>> BoundLogicalNamesAsync(IReadOnlyList<SyncDataverseClient.WorkflowMetadata> workflows, ReferenceReader readReferences, CancellationToken cancellationToken)
+    private static async Task<ISet<string>> BoundLogicalNamesAsync(IReadOnlyList<SyncDataverseClient.WorkflowMetadata> workflows, ReferenceReader readReferences, CancellationToken cancellationToken)
     {
         var logicalNames = workflows.SelectMany(DeclaredReferences).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
@@ -197,14 +223,10 @@ public static class WorkflowActivationPlanner
             return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         }
 
-        var references = await readReferences(logicalNames, cancellationToken).ConfigureAwait(false);
-
-        return new HashSet<string>(
-            references.Where(reference => !string.IsNullOrWhiteSpace(reference.ConnectionId)).Select(reference => reference.ConnectionReferenceLogicalName),
-            StringComparer.OrdinalIgnoreCase);
+        return BoundReferences(await readReferences(logicalNames, cancellationToken).ConfigureAwait(false));
     }
 
-    private static bool BindsOnlyBoundReferences(SyncDataverseClient.WorkflowMetadata workflow, HashSet<string> bound) => DeclaredReferences(workflow).All(bound.Contains);
+    private static bool BindsOnlyBoundReferences(SyncDataverseClient.WorkflowMetadata workflow, ISet<string> bound) => !Unbound(workflow.ConnectionReferences, bound).Any();
 
     private static IEnumerable<string> DeclaredReferences(SyncDataverseClient.WorkflowMetadata workflow) =>
         workflow.ConnectionReferences.Where(logicalName => !string.IsNullOrWhiteSpace(logicalName));

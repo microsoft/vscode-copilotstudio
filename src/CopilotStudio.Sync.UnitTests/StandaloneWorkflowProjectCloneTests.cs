@@ -24,17 +24,32 @@ public class StandaloneWorkflowProjectCloneTests : IDisposable
     {"properties":{"connectionReferences":{"shared_teams":{"api":{"name":"shared_teams"},"connection":{"connectionReferenceLogicalName":"new_teams"}}}}}
     """;
 
-    private static SyncDataverseClient.WorkflowMetadata Row(Guid workflowId, string name) => new()
+    private static SyncDataverseClient.WorkflowMetadata Row(Guid workflowId, string name, bool? isManaged = null) => new()
     {
         WorkflowId = workflowId,
         Name = name,
         ClientData = Definition,
         StateCode = 0,
         StatusCode = 1,
+        IsManaged = isManaged,
     };
 
     private Task<StandaloneWorkflowProjectDownload> CloneAsync(FakeStandaloneWorkflowClient client, Guid workflowId) =>
         new StandaloneWorkflowSynchronizer(client).DownloadProjectAsync(workflowId, _root, "env", CancellationToken.None);
+
+    [Fact]
+    public async Task DownloadProject_OfAManagedFlow_IsRefusedWithoutCreatingAProjectFolder()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+
+        client.Seed(Row(workflowId, "My Flow", isManaged: true));
+
+        var failure = await Assert.ThrowsAsync<StandaloneWorkflowException>(() => CloneAsync(client, workflowId));
+
+        Assert.Equal(StandaloneWorkflowFailure.Managed, failure.Failure);
+        Assert.False(Directory.Exists(_root));
+    }
 
     [Fact]
     public async Task DownloadProject_CreatesAFolderNamedForTheWorkflow()

@@ -1,6 +1,8 @@
 import * as assert from 'node:assert';
-import { describe, test } from 'node:test';
+import { afterEach, describe, test } from 'node:test';
+import * as vscode from 'vscode';
 import {
+	askRemoteChangeResolution,
 	createSyncSuccessLog,
 	getActiveSyncUri,
 	getOrAddSynchronizer,
@@ -9,15 +11,19 @@ import {
 	logSyncConflicts,
 	logWorkflowIssues,
 	onAnySyncStateChanged,
+	RemoteOverwriteRequestedError,
 	removeSynchronizer,
+	reportSyncError,
 	sync,
 	SyncState,
 	withSyncCommandBusy,
 } from '../../sync/workspaceSynchronizer';
-import { resolveWorkspaceArg } from '../../commands/syncWorkspace';
+import { registerSyncCommands, requestsRemoteOverwrite, resolveWorkspaceArg } from '../../commands/syncWorkspace';
+import { LspMethods } from '../../constants';
 import logger, { formatFileName, formatPii, PiiRedactionType, prepareLogData, sanitizeErrorDetails, stripPiiTags } from '../../services/logger';
 import { LspRequestError, LSP_UNPUSHED_LOCAL_CHANGES } from '../../services/lspClient';
-import type { WorkflowResponse } from '../../types';
+import type { SyncRequest, WorkflowResponse } from '../../types';
+import { replace, restoreReplaced } from './helpers/replace';
 
 import { ThemeIcon } from 'vscode';
 import { WorkspaceType, type CopilotStudioWorkspace } from '../../sync/localWorkspaces';
@@ -31,6 +37,46 @@ function createMockWorkspace(agentName: string): CopilotStudioWorkspace {
 		type: WorkspaceType.Agent,
 	};
 }
+
+const workflowSyncInfo = {
+	accountInfo: { accountId: 'account-id', accountEmail: 'user@example.com', tenantId: 'tenant-id' },
+	agentManagementEndpoint: 'https://api.example.com',
+	dataverseEndpoint: 'https://org.example.com',
+	environmentId: 'environment-id',
+} as NonNullable<CopilotStudioWorkspace['syncInfo']>;
+
+const createWorkflowWorkspace = (folderName: string): CopilotStudioWorkspace => ({
+	...createMockWorkspace(folderName),
+	workspaceUri: `file:///c%3A/tmp/${folderName}`,
+	type: WorkspaceType.StandaloneWorkflow,
+	syncInfo: workflowSyncInfo,
+});
+
+const runProgressInline = () => replace(vscode.window as any, 'withProgress', async (_options: unknown, task: () => Promise<unknown>) => await task());
+
+const replaceLanguageServer = (sendRequest: (method: string, request: SyncRequest) => Promise<unknown>) => {
+	replace(require('../../sync/localWorkspaces'), 'repairAccountInfo', async () => 'already-bound');
+	replace(require('../../sync/localWorkspaces'), 'refreshSyncInfoFromConnection', () => workflowSyncInfo);
+	replace(require('../../services/lspClient'), 'buildLspRequestPayload', async () => ({ accountInfo: workflowSyncInfo.accountInfo }));
+	replace(require('../../services/lspClient'), 'lspClient', { sendRequest });
+};
+
+const arrangeSyncCommands = () => {
+	const handlers = new Map<string, (arg?: unknown) => Promise<void>>();
+	replace(vscode.commands as any, 'registerCommand', (id: string, handler: (arg?: unknown) => Promise<void>) => {
+		handlers.set(id, handler);
+		return { dispose: () => undefined };
+	});
+	runProgressInline();
+	replace(vscode.workspace as any, 'findFiles', async () => []);
+	replace(require('../../knowledgeFiles/virtualKnowledgeFile'), 'registerVirtualKnowledgeProvider', async () => undefined);
+	registerSyncCommands({ subscriptions: [] } as unknown as vscode.ExtensionContext);
+	return async (command: string, arg: unknown) => {
+		const handler = handlers.get(command);
+		assert.ok(handler, `${command} was not registered`);
+		await handler(arg);
+	};
+};
 
 describe('workspaceSynchronizer: unpushed local workflow changes', () => {
 	test('recognises the refusal the server returns for unpushed local edits', () => {
@@ -695,6 +741,131 @@ describe('workspaceSynchronizer: workspace binding', () => {
 	});
 });
 
+describe('workspaceSynchronizer: remote change conflicts', () => {
+	const workflowWorkspace = createWorkflowWorkspace('conflict-flow');
+	const refusal = `'${formatPii('MyFlow-1', PiiRedactionType.WorkflowNames)}' has conflict local changes, and a pull would replace them.`;
+
+	let prompts: { message: string; options: vscode.MessageOptions; items: string[] }[];
+	let requests: { method: string; request: SyncRequest }[];
+
+	const arrange = (answer?: string) => {
+		prompts = [];
+		requests = [];
+		replaceLanguageServer(async (method: string, request: SyncRequest) => {
+			requests.push({ method, request });
+			if (method === LspMethods.SYNC_PULL && !request.overwriteLocalChanges) {
+				throw new LspRequestError(LSP_UNPUSHED_LOCAL_CHANGES, refusal);
+			}
+			return { localChanges: [] };
+		});
+		runProgressInline();
+		replace(vscode.window as any, 'showWarningMessage', async (message: string, options: vscode.MessageOptions, ...items: string[]) => {
+			prompts.push({ message, options, items });
+			return answer;
+		});
+		replace(logger as any, 'logInfo', () => undefined);
+		replace(logger as any, 'logWarning', () => undefined);
+		replace(logger as any, 'logError', () => undefined);
+		removeSynchronizer(workflowWorkspace.workspaceUri);
+	};
+
+	const pull = (offerRemoteOverwrite?: boolean) => getOrAddSynchronizer(workflowWorkspace).pull(undefined as any, { offerRemoteOverwrite });
+
+	afterEach(() => {
+		restoreReplaced();
+		removeSynchronizer(workflowWorkspace.workspaceUri);
+	});
+
+	test('a push requires that nothing is left to pull only when asked', async () => {
+		arrange();
+		const synchronizer = getOrAddSynchronizer(workflowWorkspace);
+
+		await synchronizer.push({ requireNoUnpulledChanges: true });
+		await synchronizer.push();
+
+		assert.deepStrictEqual(requests.map(({ method, request }) => [method, request.requireNoUnpulledChanges]), [
+			[LspMethods.SYNC_PUSH, true],
+			[LspMethods.SYNC_PUSH, false],
+		]);
+	});
+
+	test('a refused Get that may overwrite the cloud offers it and hands the overwrite to the caller', async () => {
+		arrange('Overwrite cloud changes');
+
+		await assert.rejects(() => pull(true), RemoteOverwriteRequestedError);
+
+		assert.strictEqual(requests.length, 1);
+		assert.deepStrictEqual(prompts, [{
+			message: "'MyFlow-1' has conflict local changes, and a pull would replace them.",
+			options: {
+				modal: true,
+				detail: "Replace local changes discards your edits and gets the cloud copy. Overwrite cloud changes applies your edits and discards the cloud's.",
+			},
+			items: ['Replace local changes', 'Overwrite cloud changes'],
+		}]);
+	});
+
+	test('a refused Get that may overwrite the cloud still replaces the local changes when the user picks that', async () => {
+		arrange('Replace local changes');
+
+		await pull(true);
+
+		assert.deepStrictEqual(requests.map(({ method, request }) => [method, request.overwriteLocalChanges, request.requireNoUnpulledChanges]), [
+			[LspMethods.SYNC_PULL, false, false],
+			[LspMethods.SYNC_PULL, true, false],
+		]);
+		assert.strictEqual(prompts.length, 1);
+	});
+
+	test('a refused Get that may overwrite the cloud keeps the local changes when the dialog is dismissed', async () => {
+		arrange();
+
+		await assert.rejects(() => pull(true), (error: unknown) => holdsUnpushedLocalChanges(error));
+
+		assert.strictEqual(requests.length, 1);
+	});
+
+	test('a refused Get that may not overwrite the cloud offers only replacing the local changes', async () => {
+		arrange();
+
+		await assert.rejects(() => pull(), (error: unknown) => holdsUnpushedLocalChanges(error));
+
+		assert.deepStrictEqual(prompts.map(({ options, items }) => [options.detail, items]), [
+			['Getting the cloud copy discards these local changes. Apply them first to keep them.', ['Replace local changes']],
+		]);
+	});
+
+	test('remote changes to a workflow can be got or overwritten', async () => {
+		arrange('Overwrite remote changes');
+
+		const resolution = await askRemoteChangeResolution(workflowWorkspace, 1);
+
+		assert.strictEqual(resolution, 'overwriteRemoteChanges');
+		assert.deepStrictEqual(prompts, [{
+			message: 'The agent has 1 remote change that must be retrieved before your local changes can be applied.',
+			options: { modal: true },
+			items: ['Get Remote Changes', 'Overwrite remote changes'],
+		}]);
+	});
+
+	test('remote changes to an agent can only be got', async () => {
+		arrange('Get Remote Changes');
+
+		const resolution = await askRemoteChangeResolution({ ...workflowWorkspace, type: WorkspaceType.Agent }, 2);
+
+		assert.strictEqual(resolution, 'getRemoteChanges');
+		assert.deepStrictEqual(prompts.map(({ message, items }) => [message, items]), [
+			['The agent has 2 remote changes that must be retrieved before your local changes can be applied.', ['Get Remote Changes']],
+		]);
+	});
+
+	test('a dismissed remote change dialog resolves nothing', async () => {
+		arrange();
+
+		assert.strictEqual(await askRemoteChangeResolution(workflowWorkspace, 1), undefined);
+	});
+});
+
 describe('syncWorkspace: command argument resolution', () => {
 	const workspace = createMockWorkspace('Arg Agent');
 
@@ -714,5 +885,220 @@ describe('syncWorkspace: command argument resolution', () => {
 		assert.strictEqual(resolveWorkspaceArg(undefined), undefined);
 		assert.strictEqual(resolveWorkspaceArg(null), undefined);
 		assert.strictEqual(resolveWorkspaceArg({} as any), undefined);
+	});
+
+	test('reads a request to overwrite remote changes only from an explicit true flag', () => {
+		assert.strictEqual(requestsRemoteOverwrite({ ws: workspace, overwriteRemoteChanges: true }), true);
+		assert.strictEqual(requestsRemoteOverwrite({ ws: workspace }), false);
+		assert.strictEqual(requestsRemoteOverwrite({ ws: workspace, overwriteRemoteChanges: 'true' }), false);
+		assert.strictEqual(requestsRemoteOverwrite(workspace), false);
+		assert.strictEqual(requestsRemoteOverwrite(undefined), false);
+		assert.strictEqual(requestsRemoteOverwrite(null), false);
+	});
+});
+
+describe('syncWorkspace: overwriting remote workflow changes', () => {
+	const workflowWorkspace = createWorkflowWorkspace('command-flow');
+	const overwritingApply = ['microsoft-copilot-studio.applyChanges', { ws: workflowWorkspace, overwriteRemoteChanges: true }];
+	const checkedPush = ['push', { suppressDisabledWorkflowWarnings: true, requireNoUnpulledChanges: true }];
+	const overwritingPush = ['push', { suppressDisabledWorkflowWarnings: true, requireNoUnpulledChanges: false }];
+	const offeringPull = ['pull', { offerRemoteOverwrite: true }];
+
+	let run: (command: string, arg: unknown) => Promise<void>;
+	let calls: unknown[][];
+	let executed: unknown[][];
+	let prompts: string[][];
+	let errors: (string | undefined)[];
+
+	const arrange = ({ remoteChanges = 0, answer, pullFailure }: { remoteChanges?: number; answer?: string; pullFailure?: Error } = {}) => {
+		calls = [];
+		executed = [];
+		prompts = [];
+		errors = [];
+		replace(vscode.commands as any, 'executeCommand', async (...args: unknown[]) => { executed.push(args); });
+		replace(vscode.window as any, 'showWarningMessage', async (_message: string, _options: vscode.MessageOptions, ...items: string[]) => {
+			prompts.push(items);
+			return answer;
+		});
+		replace(require('../../sync/workspaceScm'), 'getWorkspaceChanges', () => ({
+			localChanges: [],
+			remoteChanges: Array.from({ length: remoteChanges }, () => ({ changeKind: 'Workflow' })),
+		}));
+		replace(require('../../sync/workspaceSynchronizer'), 'getOrAddSynchronizer', () => ({
+			workspace: workflowWorkspace,
+			fetch: async () => { calls.push(['fetch']); },
+			pull: async (_provider: unknown, options: unknown) => {
+				calls.push(['pull', options]);
+				if (pullFailure) {
+					throw pullFailure;
+				}
+			},
+			push: async (options: unknown) => { calls.push(['push', options]); },
+		}));
+		replace(logger as any, 'logInfo', () => undefined);
+		replace(logger as any, 'logWarning', () => undefined);
+		replace(logger as any, 'logError', (_event: string, message?: string) => { errors.push(message); });
+		run = arrangeSyncCommands();
+	};
+
+	afterEach(restoreReplaced);
+
+	test('an Apply asked to overwrite remote changes pushes without checking for them first', async () => {
+		arrange({ remoteChanges: 1 });
+
+		await run('microsoft-copilot-studio.applyChanges', { ws: workflowWorkspace, overwriteRemoteChanges: true });
+
+		assert.deepStrictEqual(calls, [overwritingPush]);
+		assert.deepStrictEqual(prompts, []);
+	});
+
+	test('an Apply with nothing to get pushes while requiring that nothing is left to pull', async () => {
+		arrange();
+
+		await run('microsoft-copilot-studio.applyChanges', { ws: workflowWorkspace });
+
+		assert.deepStrictEqual(calls, [['fetch'], checkedPush]);
+	});
+
+	test('an Apply over remote workflow changes overwrites them when the user picks that', async () => {
+		arrange({ remoteChanges: 1, answer: 'Overwrite remote changes' });
+
+		await run('microsoft-copilot-studio.applyChanges', { ws: workflowWorkspace });
+
+		assert.deepStrictEqual(prompts, [['Get Remote Changes', 'Overwrite remote changes']]);
+		assert.deepStrictEqual(calls, [['fetch'], overwritingPush]);
+	});
+
+	test('an Apply over remote workflow changes gets them instead of pushing when the user picks that', async () => {
+		arrange({ remoteChanges: 1, answer: 'Get Remote Changes' });
+
+		await run('microsoft-copilot-studio.applyChanges', { ws: workflowWorkspace });
+
+		assert.deepStrictEqual(calls, [['fetch'], offeringPull]);
+	});
+
+	test('an Apply over remote workflow changes does nothing when the dialog is dismissed', async () => {
+		arrange({ remoteChanges: 1 });
+
+		await run('microsoft-copilot-studio.applyChanges', { ws: workflowWorkspace });
+
+		assert.deepStrictEqual(calls, [['fetch']]);
+		assert.deepStrictEqual(executed, []);
+	});
+
+	test('a Get the user turns into a cloud overwrite reruns Apply as an overwrite', async () => {
+		arrange({ pullFailure: new RemoteOverwriteRequestedError() });
+
+		await run('microsoft-copilot-studio.getChanges', { ws: workflowWorkspace });
+
+		assert.deepStrictEqual(calls, [offeringPull]);
+		assert.deepStrictEqual(executed, [overwritingApply]);
+		assert.deepStrictEqual(errors, []);
+	});
+
+	test('a Get from the Apply check that the user turns into a cloud overwrite reruns Apply as an overwrite', async () => {
+		arrange({ remoteChanges: 1, answer: 'Get Remote Changes', pullFailure: new RemoteOverwriteRequestedError() });
+
+		await run('microsoft-copilot-studio.applyChanges', { ws: workflowWorkspace });
+
+		assert.deepStrictEqual(calls, [['fetch'], offeringPull]);
+		assert.deepStrictEqual(executed, [overwritingApply]);
+		assert.deepStrictEqual(errors, []);
+	});
+
+	test('a failed Get is reported rather than turned into an overwrite', async () => {
+		arrange({ pullFailure: new Error('Getting changes failed.') });
+
+		await run('microsoft-copilot-studio.getChanges', { ws: workflowWorkspace });
+
+		assert.deepStrictEqual(executed, []);
+		assert.deepStrictEqual(errors, ['Failed to execute Get operation']);
+	});
+});
+
+describe('sync commands: showing a failure once', () => {
+	const workflowWorkspace = createWorkflowWorkspace('once-flow');
+	const draftRefusal = "'S5D1 WF 1' has a draft version that was saved in Copilot Studio but not published, and the environment refuses to apply changes while it exists. Publish the draft in Copilot Studio, then use Get changes to get it, or Apply changes again and choose Overwrite remote changes to replace it.";
+
+	let run: (command: string, arg: unknown) => Promise<void>;
+	let errors: (string | undefined)[][];
+	let warnings: (string | undefined)[];
+
+	const arrange = (failures: Record<string, Error[]>) => {
+		errors = [];
+		warnings = [];
+		replaceLanguageServer(async (method: string) => {
+			const failure = failures[method]?.shift();
+			if (failure) {
+				throw failure;
+			}
+			return { localChanges: [] };
+		});
+		replace(vscode.window as any, 'showWarningMessage', async () => undefined);
+		replace(require('../../clients/account'), 'resetAccount', () => undefined);
+		replace(logger as any, 'logInfo', () => undefined);
+		replace(logger as any, 'logWarning', (_event: string, message?: string) => { warnings.push(message); });
+		replace(logger as any, 'logError', (_event: string, message?: string, data?: { message?: string }) => { errors.push([message, data?.message]); });
+		removeSynchronizer(workflowWorkspace.workspaceUri);
+		run = arrangeSyncCommands();
+	};
+
+	afterEach(() => {
+		restoreReplaced();
+		removeSynchronizer(workflowWorkspace.workspaceUri);
+	});
+
+	test('a refused Apply shows the refusal once and still records the failed command', async () => {
+		arrange({ [LspMethods.SYNC_PUSH]: [new LspRequestError(400, draftRefusal)] });
+
+		await run('microsoft-copilot-studio.applyChanges', { ws: workflowWorkspace });
+
+		assert.deepStrictEqual(errors, [
+			['Error applying changes', 'Error applying changes'],
+			[undefined, 'Failed to execute Apply operation'],
+		]);
+	});
+
+	test('a Get the user cancels to keep local changes is not reported again as an error', async () => {
+		arrange({ [LspMethods.SYNC_PULL]: [new LspRequestError(LSP_UNPUSHED_LOCAL_CHANGES, "'MyFlow-1' has conflict local changes, and a pull would replace them.")] });
+
+		await run('microsoft-copilot-studio.getChanges', { ws: workflowWorkspace });
+
+		assert.deepStrictEqual(warnings, ['getting changes was cancelled to keep local changes.']);
+		assert.deepStrictEqual(errors, [[undefined, 'Failed to execute Get operation']]);
+	});
+
+	test('an Apply that fails again after signing in shows that failure once', async () => {
+		arrange({ [LspMethods.SYNC_PUSH]: [new Error('UserNotMemberOfOrg'), new LspRequestError(400, draftRefusal)] });
+
+		await run('microsoft-copilot-studio.applyChanges', { ws: workflowWorkspace });
+
+		assert.deepStrictEqual(errors, [
+			[`Your current account does not have permission. Please sign in with the account ${formatPii('(user@example.com)', PiiRedactionType.AccountIdentifier)} to perform this operation.`, undefined],
+			['Error applying changes', 'Error applying changes'],
+			[undefined, 'Re-authentication failed'],
+			[undefined, 'Failed to execute Apply operation'],
+		]);
+	});
+
+	test('a failure the sync code kept quiet is still shown by the caller that reports it', async () => {
+		arrange({ [LspMethods.SYNC_PUSH]: [new LspRequestError(400, draftRefusal)] });
+		const failure = await getOrAddSynchronizer(workflowWorkspace).push({ suppressErrorNotification: true }).catch((error: unknown) => error);
+
+		reportSyncError('Failed to execute Apply operation', failure);
+
+		assert.deepStrictEqual(errors, [
+			[undefined, 'Error applying changes'],
+			['Failed to execute Apply operation', 'Failed to execute Apply operation'],
+		]);
+	});
+
+	test('a failure that is not an error object is shown every time it is reported', () => {
+		arrange({});
+
+		reportSyncError('Error applying changes', 'refused');
+		reportSyncError('Failed to execute Apply operation', 'refused');
+
+		assert.deepStrictEqual(errors.map(([message]) => message), ['Error applying changes', 'Failed to execute Apply operation']);
 	});
 });

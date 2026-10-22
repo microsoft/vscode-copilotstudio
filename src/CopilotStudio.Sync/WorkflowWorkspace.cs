@@ -48,28 +48,16 @@ public static class WorkflowWorkspace
 
     private static readonly AgentFilePath LayoutMarkerPath = new AgentFilePath(AgentClassifier.WorkspaceLayoutMarkerFileName);
 
-    private static readonly char[] InvalidFolderNameCharacters =
-        Path.GetInvalidFileNameChars().Concat("\\/:*?\"<>|").Distinct().ToArray();
-
     /// <summary>The workflows folder beneath a workspace root.</summary>
     public static string WorkflowsDirectory(string workspaceRoot) => Path.Combine(workspaceRoot, WorkflowsFolderName);
 
     /// <summary>The folder name a workflow of this name and identifier occupies.</summary>
-    public static string FolderNameFor(string? name, Guid workflowId) => $"{ProjectFolderNameFor(name)}-{workflowId}";
+    public static string FolderNameFor(string? name, Guid workflowId) => WorkspaceFolderNames.ForWorkflow(name, workflowId);
 
     /// <summary>The folder name a standalone workflow project of this name occupies beneath a root.</summary>
     /// <param name="name">The workflow name the folder is derived from.</param>
     /// <returns>The portable folder name, empty when the name carries no character a folder may hold.</returns>
-    public static string ProjectFolderNameFor(string? name) =>
-        new string((name ?? string.Empty).Where(Portable).ToArray()).TrimEnd('.', ' ');
-
-    /// <summary>
-    /// Whether a character means the same thing in a folder name on every platform. The invalid set
-    /// a host reports is the host's own, so filtering by it alone would name one workflow's folder
-    /// differently on Windows and on Linux.
-    /// </summary>
-    private static bool Portable(char character) =>
-        !char.IsControl(character) && !char.IsWhiteSpace(character) && !InvalidFolderNameCharacters.Contains(character);
+    public static string ProjectFolderNameFor(string? name) => WorkspaceFolderNames.ForWorkflow(name);
 
     /// <summary>The relative folder a workflow of this name and identifier occupies.</summary>
     public static string RelativeFolderFor(string? name, Guid workflowId) => $"{WorkflowsFolderName}/{FolderNameFor(name, workflowId)}";

@@ -123,6 +123,59 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             Assert.False(captured.AllowDestructiveReplace);
         }
 
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task SyncPush_StandaloneWorkflowWorkspace_ChecksForUnpulledChangesBeforeUploadingOnlyWhenAsked(bool requireNoUnpulledChanges)
+        {
+            var (requestContext, request) = CreateSetup("Workspace/UnrecognizedTemplateWorkspace");
+            request.RequireNoUnpulledChanges = requireNoUnpulledChanges;
+            var calls = new System.Collections.Generic.List<string>();
+            var standalone = new Mock<IStandaloneWorkflowSynchronizer>();
+            standalone
+                .Setup(service => service.RequireNoUnpulledChangesAsync(It.IsAny<Microsoft.CopilotStudio.McsCore.IFileAccessor>(), EnvironmentId, It.IsAny<CancellationToken>()))
+                .Callback(() => calls.Add("check"))
+                .Returns(Task.CompletedTask);
+            standalone
+                .Setup(service => service.UpsertAsync(It.IsAny<Microsoft.CopilotStudio.McsCore.IFileAccessor>(), EnvironmentId, It.IsAny<CancellationToken>(), It.IsAny<StandaloneWorkflowUpsertOptions?>()))
+                .Callback(() => calls.Add("upsert"))
+                .ReturnsAsync(new StandaloneWorkflowUpsert());
+
+            var handler = CreateHandler(
+                new MockDataverseClient(),
+                new PushTrackingSynchronizer(),
+                standalone.Object,
+                CreateStandaloneWorkflowFactory(((Microsoft.PowerPlatformLS.Contracts.FileLayout.IMcsWorkspace)requestContext.Workspace).FolderPath));
+
+            var response = await handler.HandleRequestAsync(request, requestContext, CancellationToken.None);
+
+            Assert.Equal(200, response.Code);
+            Assert.Equal(requireNoUnpulledChanges ? new[] { "check", "upsert" } : new[] { "upsert" }, calls);
+        }
+
+        [Fact]
+        public async Task SyncPush_WhenTheEnvironmentHoldsUnpulledChanges_IsRefusedForTheUserWithoutUploading()
+        {
+            var (requestContext, request) = CreateSetup("Workspace/UnrecognizedTemplateWorkspace");
+            request.RequireNoUnpulledChanges = true;
+            var standalone = new Mock<IStandaloneWorkflowSynchronizer>();
+            standalone
+                .Setup(service => service.RequireNoUnpulledChangesAsync(It.IsAny<Microsoft.CopilotStudio.McsCore.IFileAccessor>(), EnvironmentId, It.IsAny<CancellationToken>()))
+                .ThrowsAsync(StandaloneWorkflowException.EnvironmentHoldsUnpulledChanges("MyFlow-1", EnvironmentId));
+
+            var handler = CreateHandler(
+                new MockDataverseClient(),
+                new PushTrackingSynchronizer(),
+                standalone.Object,
+                CreateStandaloneWorkflowFactory(((Microsoft.PowerPlatformLS.Contracts.FileLayout.IMcsWorkspace)requestContext.Workspace).FolderPath));
+
+            var response = await handler.HandleRequestAsync(request, requestContext, CancellationToken.None);
+
+            Assert.Equal(400, response.Code);
+            Assert.Contains("<pii type=\"WORKFLOW NAMES\" encoded=\"true\">MyFlow-1</pii>", response.Message, StringComparison.Ordinal);
+            standalone.Verify(service => service.UpsertAsync(It.IsAny<Microsoft.CopilotStudio.McsCore.IFileAccessor>(), It.IsAny<string?>(), It.IsAny<CancellationToken>(), It.IsAny<StandaloneWorkflowUpsertOptions?>()), Times.Never);
+        }
+
         private static Microsoft.CopilotStudio.McsCore.InMemoryFileAccessorFactory CreateStandaloneWorkflowFactory(DirectoryPath workspaceFolder)
         {
             var factory = new Microsoft.CopilotStudio.McsCore.InMemoryFileAccessorFactory();

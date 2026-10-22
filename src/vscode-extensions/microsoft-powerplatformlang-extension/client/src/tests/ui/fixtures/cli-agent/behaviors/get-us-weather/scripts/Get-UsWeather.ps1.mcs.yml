@@ -1,0 +1,4 @@
+mcs.metadata:
+  componentName: scripts/Get-UsWeather.ps1
+  description: This knowledge source searches information contained in scripts/Get-UsWeather.ps1
+  schemaName: ahe2e_MCSCliAgent.file.scriptsGet-UsWeather.ps1

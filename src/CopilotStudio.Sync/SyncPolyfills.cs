@@ -36,6 +36,12 @@ namespace System.Net.Http
             cancellationToken.ThrowIfCancellationRequested();
             return await content.ReadAsStreamAsync().ConfigureAwait(false);
         }
+
+        public static async Task<byte[]> ReadAsByteArrayAsync(this HttpContent content, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return await content.ReadAsByteArrayAsync().ConfigureAwait(false);
+        }
     }
 }
 

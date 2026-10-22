@@ -362,6 +362,75 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
         }
 
         [Fact]
+        public void Handle_AManagedFlow_ReportsItToTheUserAndTagsItsNameAndEnvironment()
+        {
+            var failure = StandaloneWorkflowException.Managed(Guid.NewGuid(), "Payroll Approvals", "env-contoso");
+
+            var (code, message) = LspExceptionHandler.Handle(failure, _logger);
+
+            Assert.Equal(400, code);
+            Assert.Equal(failure.Message, StripPiiTags(message));
+            Assert.Contains("<pii type=\"WORKFLOW NAMES\" encoded=\"true\">Payroll Approvals</pii>", message, StringComparison.Ordinal);
+            Assert.DoesNotContain("Payroll Approvals", RedactPiiTags(message), StringComparison.Ordinal);
+            Assert.DoesNotContain("env-contoso", RedactPiiTags(message), StringComparison.Ordinal);
+            Assert.Empty(_testLogger.Error);
+        }
+
+        [Fact]
+        public async Task Handle_APushRefusedOverAnUnpublishedDraft_ReportsItToTheUserAndTagsItsNameAndEnvironment()
+        {
+            var workflowId = Guid.NewGuid();
+            var workspace = new Microsoft.CopilotStudio.McsCore.InMemoryFileAccessorFactory().Create(new Microsoft.CopilotStudio.McsCore.DirectoryPath("workspace"));
+
+            WriteWorkspaceFile(workspace, $"workflows/PayrollApprovals-{workflowId}/workflow.json", "{\"properties\":{\"from\":\"local\"}}");
+            WriteWorkspaceFile(workspace, $"workflows/PayrollApprovals-{workflowId}/metadata.yml", $"workflowId: {workflowId}\nname: Payroll Approvals\nstateCode: 0\nstatusCode: 1\n");
+
+            var client = new Mock<IStandaloneWorkflowDataverseClient>();
+
+            client
+                .Setup(dataverse => dataverse.GetWorkflowAsync(workflowId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new SyncDataverseClient.WorkflowMetadata
+                {
+                    WorkflowId = workflowId,
+                    Name = "Payroll Approvals",
+                    StateCode = 0,
+                    StatusCode = 1,
+                    ClientData = "{\"properties\":{\"from\":\"cloud\"}}",
+                });
+
+            client
+                .Setup(dataverse => dataverse.HasUnpublishedDraftAsync(workflowId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(true);
+
+            var failure = await Assert.ThrowsAsync<StandaloneWorkflowException>(
+                () => new StandaloneWorkflowSynchronizer(client.Object).UpsertAsync(workspace, "env-contoso", CancellationToken.None));
+
+            var (code, message) = LspExceptionHandler.Handle(failure, _logger);
+
+            Assert.Equal(400, code);
+            Assert.Equal(failure.Message, StripPiiTags(message));
+            Assert.Contains("<pii type=\"WORKFLOW NAMES\" encoded=\"true\">Payroll Approvals</pii>", message, StringComparison.Ordinal);
+            Assert.DoesNotContain("env-contoso", RedactPiiTags(message), StringComparison.Ordinal);
+            Assert.Empty(_testLogger.Error);
+            client.Verify(dataverse => dataverse.UpdateWorkflowDefinitionAsync(It.IsAny<SyncDataverseClient.WorkflowMetadata?>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
+
+        [Fact]
+        public void Handle_AnInvalidWorkflowNameInMetadata_ReportsTheReasonTheNameRuleGaveToTheUser()
+        {
+            var reason = WorkflowNaming.Validate(new string('x', WorkflowNaming.MaximumLength + 1))!;
+            var failure = StandaloneWorkflowException.InvalidMetadataName("workflows/Payroll Approvals-1/metadata.yml", reason);
+
+            var (code, message) = LspExceptionHandler.Handle(failure, _logger);
+
+            Assert.Equal(400, code);
+            Assert.Equal(failure.Message, StripPiiTags(message));
+            Assert.EndsWith(reason, message, StringComparison.Ordinal);
+            Assert.DoesNotContain("Payroll Approvals", RedactPiiTags(message), StringComparison.Ordinal);
+            Assert.Empty(_testLogger.Error);
+        }
+
+        [Fact]
         public async Task Handle_AnUnpushedChangeRefusal_TagsTheFolderBeforeAnyLoggingBoundarySeesIt()
         {
             var workflowId = Guid.NewGuid();
@@ -390,6 +459,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
             var (code, message) = LspExceptionHandler.Handle(failure, _logger);
 
             Assert.Equal(409, code);
+            Assert.Equal($"'{folderName}' has conflict local changes, and a pull would replace them.", StripPiiTags(message));
             Assert.Contains($"<pii type=\"WORKFLOW NAMES\" encoded=\"true\">{folderName}</pii>", message, StringComparison.Ordinal);
             Assert.DoesNotContain($"'{folderName}'", message, StringComparison.Ordinal);
             Assert.Empty(_testLogger.Error);

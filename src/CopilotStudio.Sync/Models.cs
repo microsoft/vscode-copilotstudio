@@ -602,6 +602,10 @@ public class WorkflowResponse
     public bool IsDisabled { get; init; } = false;
 
     public string ErrorMessage { get; init; } = string.Empty;
+
+    /// <summary>The workflow as the service stored it after the write, or <see langword="null"/> when the write failed or the service returned no copy.</summary>
+    [JsonIgnore]
+    public Dataverse.SyncDataverseClient.WorkflowMetadata? StoredWorkflow { get; init; }
 }
 
 #endregion

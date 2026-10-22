@@ -1,0 +1,8 @@
+mcs.metadata:
+  componentName: MCS Classic Agent
+kind: GptComponentMetadata
+instructions:
+gptCapabilities: {}
+aISettings:
+  model:
+    modelNameHint: GPT55Chat

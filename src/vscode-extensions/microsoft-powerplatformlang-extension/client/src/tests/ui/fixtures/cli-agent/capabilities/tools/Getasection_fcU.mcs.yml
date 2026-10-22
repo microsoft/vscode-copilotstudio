@@ -1,0 +1,8 @@
+mcs.metadata:
+  componentName: Get a section
+  description: Gets a specific teamwork section by ID
+kind: ConnectorTool
+authMode: Invoker
+connectionReference: ahe2e_MCSCliAgent.cr.shared_teams
+connectorId: /providers/Microsoft.PowerApps/apis/shared_teams
+operationId: GetSection

@@ -1,0 +1,25 @@
+Get US Temperature skill instructions
+
+Purpose:
+Return the latest observed temperature for a city or town in the United States.
+
+Inputs:
+- City: Required US city or town name. local 4.
+- State: Optional full state name or two-letter abbreviation. Ask the user for the state when the city name is ambiguous.
+- Unit: Optional script parameter. Use Fahrenheit by default for user-facing answers.
+
+Operation:
+1. Identify the US city and state from the user's request.
+2. If the requested place is outside the United States, do not run the scripts. Explain that this skill only supports US locations.
+3. Run scripts/Get-UsTemperature.ps1 with the city and state values.
+4. Use the returned Temperature, TemperatureF, TemperatureC, and ObservedUtc fields to answer the user.
+5. Keep the response concise. Mention only the current temperature unless the user asks for more context.
+
+Limitations:
+- Temperature data comes from the closest available National Weather Service station and can lag real time by about one hour.
+- Some nearby stations may not report temperature. The main script checks several stations before returning an error.
+- The skill does not provide full forecasts, precipitation, wind, humidity, or non-US temperature data.
+
+Scripts:
+- scripts/Get-UsTemperature.ps1: main entry point that fetches the latest observed temperature.
+- scripts/Resolve-UsTemperatureLocation.ps1: helper that geocodes the city and resolves state names or abbreviations.

@@ -84,4 +84,18 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     {
         public bool Deleted { get; set; }
     }
+
+    internal class GetStandaloneWorkflowAgentUseRequest : DataverseRequest, IDefaultContextRequest
+    {
+        public const string MessageName = "powerplatformls/getStandaloneWorkflowAgentUse";
+
+        public required Guid WorkflowId { get; set; }
+    }
+
+    internal class GetStandaloneWorkflowAgentUseResponse : ResponseBase
+    {
+        public ImmutableArray<string> AgentNames { get; set; } = ImmutableArray<string>.Empty;
+
+        public string Warning { get; set; } = string.Empty;
+    }
 }

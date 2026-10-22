@@ -1,0 +1,32 @@
+displayName: MCS CLI Agent
+schemaName: ahe2e_MCSCliAgent
+accessControlPolicy: GroupMembership
+authenticationMode: Integrated
+authenticationTrigger: Always
+configuration:
+  channels:
+    - id: MsTeams
+      channelId: MsTeams
+
+  publishOnCreate: false
+  publishOnImport: true
+  isLightweightBot: false
+  recognizer:
+    kind: CLICopilotRecognizer
+
+  agentSettings:
+    model:
+      series: GPT56Reasoning
+
+    instructions:
+      segments:
+        - kind: StaticSegment
+
+    web:
+      enableWebSearch: false
+
+  deferredProvisioning: false
+
+publishedOn: 2026-08-20T23:11:43.0000000Z
+template: cliagent-1.0.0
+language: 1033

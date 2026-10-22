@@ -314,7 +314,78 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             Assert.IsAssignableFrom<IDefaultContextRequest>(ListRequest());
             Assert.IsAssignableFrom<IDefaultContextRequest>(CloneRequest());
             Assert.IsAssignableFrom<IDefaultContextRequest>(DeleteRequest());
+            Assert.IsAssignableFrom<IDefaultContextRequest>(AgentUseRequest());
             Assert.IsAssignableFrom<IDefaultContextRequest>(new CreateStandaloneWorkflowRequest { Name = "My Flow", RootFolder = new Uri("file:///c:/ws") });
+        }
+
+        private static GetStandaloneWorkflowAgentUseRequest AgentUseRequest() => new GetStandaloneWorkflowAgentUseRequest
+        {
+            AccountInfo = Account,
+            EnvironmentInfo = Environment,
+            SolutionVersions = Solutions,
+            DataverseAccessToken = "dv-token",
+            CopilotStudioAccessToken = "cs-token",
+            WorkflowId = WorkflowId,
+        };
+
+        private static GetStandaloneWorkflowAgentUseHandler AgentUseHandler(Mock<IStandaloneWorkflowSynchronizer> synchronizer) => new GetStandaloneWorkflowAgentUseHandler(
+            new Mock<IIslandControlPlaneService>().Object,
+            new TestTokenManager(),
+            new Mock<ISyncDataverseClient>().Object,
+            new LspDataverseHttpClientAccessor(new Mock<ISyncAuthProvider>().Object),
+            synchronizer.Object,
+            new Mock<IWorkspaceSynchronizer>().Object,
+            new TestFileAccessorFactory(),
+            new Mock<ILspLogger>().Object);
+
+        [Fact]
+        public async Task AgentUse_ReportsTheAgentsThatUseTheWorkflowAndTheirWarningWithoutChangingAnything()
+        {
+            var agentUse = new StandaloneWorkflowAgentUse { AgentNames = new[] { "Agent A", "NB1" } };
+            var synchronizer = new Mock<IStandaloneWorkflowSynchronizer>(MockBehavior.Strict);
+            synchronizer
+                .Setup(s => s.GetAgentUseAsync(WorkflowId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(agentUse);
+            var handler = AgentUseHandler(synchronizer);
+
+            var response = await handler.HandleRequestAsync(AgentUseRequest(), default, CancellationToken.None);
+
+            Assert.Equal(200, response.Code);
+            Assert.Equal(new[] { "Agent A", "NB1" }, response.AgentNames);
+            Assert.Equal(agentUse.Warning, response.Warning);
+            Assert.False(handler.MutatesSolutionState);
+            synchronizer.Verify(s => s.GetAgentUseAsync(WorkflowId, It.IsAny<CancellationToken>()), Times.Once);
+            synchronizer.VerifyNoOtherCalls();
+        }
+
+        [Fact]
+        public async Task AgentUse_WhenNoAgentUsesTheWorkflow_ReportsNoAgentsAndNoWarning()
+        {
+            var synchronizer = new Mock<IStandaloneWorkflowSynchronizer>();
+            synchronizer
+                .Setup(s => s.GetAgentUseAsync(WorkflowId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new StandaloneWorkflowAgentUse());
+
+            var response = await AgentUseHandler(synchronizer).HandleRequestAsync(AgentUseRequest(), default, CancellationToken.None);
+
+            Assert.Equal(200, response.Code);
+            Assert.Empty(response.AgentNames);
+            Assert.Equal(string.Empty, response.Warning);
+        }
+
+        [Fact]
+        public async Task AgentUse_WhenTheServiceRefusesTheRead_ReportsTheFailureRatherThanNoAgents()
+        {
+            var synchronizer = new Mock<IStandaloneWorkflowSynchronizer>();
+            synchronizer
+                .Setup(s => s.GetAgentUseAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new DataverseRequestException(System.Net.HttpStatusCode.Forbidden, "{\"error\":{\"message\":\"denied\"}}"));
+
+            var response = await AgentUseHandler(synchronizer).HandleRequestAsync(AgentUseRequest(), default, CancellationToken.None);
+
+            Assert.NotEqual(200, response.Code);
+            Assert.False(string.IsNullOrEmpty(response.Message));
+            Assert.Empty(response.AgentNames);
         }
 
         [Fact]
@@ -444,6 +515,29 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
                 await new CreateStandaloneWorkflowHandler(new Mock<ILspLogger>().Object).HandleRequestAsync(request, default, CancellationToken.None);
 
                 Assert.False(File.Exists(Path.Combine(root, "MyFlow", ".mcs", "conn.json")));
+            }
+            finally
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+
+        public static TheoryData<string> NamesTheNameRuleRefuses => new() { " ", new string('x', WorkflowNaming.MaximumLength + 1) };
+
+        [Theory]
+        [MemberData(nameof(NamesTheNameRuleRefuses))]
+        public async Task Create_WithANameTheNameRuleRefuses_ReportsTheReasonAsAUserErrorAndWritesNothing(string name)
+        {
+            var root = Path.Combine(Path.GetTempPath(), "mcs-create-" + Guid.NewGuid().ToString("N"));
+
+            try
+            {
+                var request = new CreateStandaloneWorkflowRequest { Name = name, RootFolder = new Uri(root) };
+                var response = await new CreateStandaloneWorkflowHandler(new Mock<ILspLogger>().Object).HandleRequestAsync(request, default, CancellationToken.None);
+
+                Assert.Equal(400, response.Code);
+                Assert.Equal(WorkflowNaming.Validate(name), response.Message);
+                Assert.Empty(Directory.EnumerateFileSystemEntries(root));
             }
             finally
             {

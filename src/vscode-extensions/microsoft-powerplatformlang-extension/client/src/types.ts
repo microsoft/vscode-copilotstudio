@@ -33,6 +33,7 @@ export interface SyncRequest extends RemoteApiRequest {
   workspaceUri: string;
   draftConnectionReferenceWorkflows?: boolean;
   overwriteLocalChanges?: boolean;
+  requireNoUnpulledChanges?: boolean;
 }
 
 export interface SyncResponse extends RemoteApiResponse {

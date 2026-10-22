@@ -441,6 +441,13 @@
     "pretest": "npm run compile-tests && npm run compile && npm run lint",
     "lint": "eslint client/src",
     "test": "node ./scripts/runHostTests.js",
+    "test:ui": "node ./scripts/runUiE2E.js",
+    "test:ui:smoke": "node ./scripts/runUiE2E.js --group smoke",
+    "test:ui:vscode": "node ./scripts/runUiE2E.js --group vscode",
+    "test:ui:workflow": "node ./scripts/runUiE2E.js --group workflow",
+    "test:ui:interop": "node ./scripts/runUiE2E.js --group interop",
+    "test:ui:signin": "node ./scripts/signInUiE2E.js",
+    "test:ui:clean": "node ./scripts/cleanUiE2E.js",
     "postinstall": "(cd client && npm install)",
     "package": "node ./scripts/packageVsix.js"
   },

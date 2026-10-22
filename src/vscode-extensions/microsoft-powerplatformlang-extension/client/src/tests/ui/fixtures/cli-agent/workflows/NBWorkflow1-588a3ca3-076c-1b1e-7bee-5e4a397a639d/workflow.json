@@ -1,0 +1,991 @@
+﻿{
+  "properties": {
+    "connectionReferences": {
+      "shared_teams": {
+        "api": {
+          "name": "shared_teams"
+        },
+        "connection": {
+          "connectionReferenceLogicalName": "new_sharedteams_777c895a"
+        },
+        "runtimeSource": "invoker",
+        "connectionName": "shared-teams-762ff8da-a818-4708-ba92-b18f65c9e9f2"
+      },
+      "shared_msnweather": {
+        "api": {
+          "name": "shared_msnweather"
+        },
+        "connection": {
+          "connectionReferenceLogicalName": "new_sharedmsnweather_08889"
+        },
+        "runtimeSource": "invoker",
+        "connectionName": "shared-msnweather-279ad7c9-6c6d-4825-b758-d041aa8d2059"
+      },
+      "shared_advancedapprovals": {
+        "api": {
+          "name": "shared_advancedapprovals"
+        },
+        "connection": {
+          "connectionReferenceLogicalName": "new_sharedadvancedapprovals_275f6bca"
+        },
+        "runtimeSource": "invoker",
+        "connectionName": "2321467abadc42fd828dfaef991ad56b"
+      }
+    },
+    "definition": {
+      "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+      "contentVersion": "1.0.0.0",
+      "parameters": {
+        "$authentication": {
+          "defaultValue": {},
+          "type": "SecureObject"
+        },
+        "$connections": {
+          "defaultValue": {},
+          "type": "Object"
+        }
+      },
+      "triggers": {
+        "manual": {
+          "type": "Request",
+          "kind": "Skills",
+          "inputs": {
+            "schema": {
+              "type": "object",
+              "properties": {},
+              "required": []
+            }
+          },
+          "metadata": {
+            "associatedData": {
+              "graph": {
+                "name": "NB Workflow1",
+                "nodes": [
+                  {
+                    "id": "start-3d67d79c-bfb2-492e-815d-52f2cc043634",
+                    "name": "When an agent calls the flow",
+                    "type": "start",
+                    "version": 1,
+                    "position": {
+                      "x": 250,
+                      "y": 0
+                    },
+                    "data": {
+                      "config": {
+                        "triggerType": "connector",
+                        "connector": {
+                          "apiName": "Skills",
+                          "operationName": "When_an_agent_calls_the_flow",
+                          "displayName": "When an agent calls the flow",
+                          "kind": "Skills",
+                          "inputs": {
+                            "schema": {
+                              "type": "object",
+                              "properties": {},
+                              "required": []
+                            }
+                          }
+                        }
+                      },
+                      "outcomes": [
+                        {
+                          "id": "default",
+                          "label": "Default",
+                          "outcomeSchema": {
+                            "type": "object",
+                            "properties": {},
+                            "required": []
+                          }
+                        }
+                      ]
+                    },
+                    "measured": {
+                      "width": 261,
+                      "height": 66
+                    }
+                  },
+                  {
+                    "id": "builtinFunction-3c3d830d-4eb2-43a0-9357-ed9749f1b684",
+                    "name": "Respond to the agent",
+                    "type": "builtinFunction",
+                    "version": 1,
+                    "position": {
+                      "x": 1679,
+                      "y": 0
+                    },
+                    "data": {
+                      "config": {
+                        "operationId": "response",
+                        "operationName": "response",
+                        "displayName": "Respond to the agent",
+                        "category": "request",
+                        "categoryDisplayName": "Request",
+                        "iconUri": "",
+                        "brandColor": "",
+                        "parameters": {},
+                        "description": "Respond to the calling agent with typed outputs.",
+                        "kind": "Skills"
+                      },
+                      "outcomes": [
+                        {
+                          "id": "default",
+                          "label": "Default",
+                          "outcomeSchema": {
+                            "type": "object",
+                            "description": "Function output"
+                          }
+                        }
+                      ]
+                    },
+                    "measured": {
+                      "width": 240,
+                      "height": 66
+                    }
+                  },
+                  {
+                    "id": "connector-53e3a091-9a1c-451e-b13f-a8ccfd871a1d",
+                    "name": "Create a chat",
+                    "type": "connector",
+                    "version": 1,
+                    "position": {
+                      "x": 587,
+                      "y": 0
+                    },
+                    "data": {
+                      "config": {
+                        "apiName": "shared_teams",
+                        "displayName": "Microsoft Teams",
+                        "iconUri": "https://static.powerapps.com/resource/ppcr/releases/v1.0.1812/1.0.1812.4744/teams/icon.png",
+                        "brandColor": "#5558AF",
+                        "operationName": "CreateChat",
+                        "operationType": "OpenApiConnection",
+                        "parametersSchema": {
+                          "type": "object",
+                          "properties": {
+                            "item": {
+                              "type": "object",
+                              "title": "Item",
+                              "properties": {
+                                "topic": {
+                                  "type": "string",
+                                  "title": "Title",
+                                  "description": "Title, displayed only in group chats",
+                                  "x-ms-visibility": "important",
+                                  "x-ms-property-name-alias": "item/topic"
+                                },
+                                "members": {
+                                  "type": "string",
+                                  "title": "Members to add",
+                                  "description": "User\u0027s IDs, separated by semicolons",
+                                  "x-ms-property-name-alias": "item/members"
+                                }
+                              },
+                              "required": [
+                                "members"
+                              ],
+                              "description": "Chat to create",
+                              "x-ms-property-name-alias": "item"
+                            }
+                          },
+                          "required": [
+                            "item"
+                          ]
+                        },
+                        "connectionName": "shared_teams",
+                        "parameters": {
+                          "item/members": "a@b.com"
+                        }
+                      },
+                      "outcomes": [
+                        {
+                          "id": "default",
+                          "label": "Default",
+                          "outcomeSchema": {
+                            "type": "object",
+                            "properties": {
+                              "body": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "title": "Conversation ID",
+                                    "description": "The chat\u0027s unique identifier",
+                                    "x-ms-property-name-alias": "body/id"
+                                  }
+                                },
+                                "required": [],
+                                "description": "Response for new chat that was created",
+                                "x-ms-property-name-alias": "body"
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "measured": {
+                      "width": 240,
+                      "height": 66
+                    }
+                  },
+                  {
+                    "id": "connector-c64737eb-c05a-4c23-9e7d-5ba9a114205b",
+                    "name": "Get the forecast for tomorrow",
+                    "type": "connector",
+                    "version": 1,
+                    "position": {
+                      "x": 903,
+                      "y": 0
+                    },
+                    "data": {
+                      "config": {
+                        "apiName": "shared_msnweather",
+                        "displayName": "MSN Weather",
+                        "iconUri": "https://static.powerapps.com/resource/ppcr/releases/v1.0.1827/1.0.1827.4902/msnweather/icon.png",
+                        "brandColor": "",
+                        "operationName": "TomorrowsForecast",
+                        "operationType": "OpenApiConnection",
+                        "parameters": {
+                          "units": "I",
+                          "Location": "Seatle, USA"
+                        },
+                        "parametersSchema": {
+                          "type": "object",
+                          "properties": {
+                            "Location": {
+                              "type": "string",
+                              "title": "Location",
+                              "description": "The location search query. Valid inputs are City, Region, State, Country, Landmark, Postal Code, latitude and longitude",
+                              "minLength": 1,
+                              "x-ms-property-name-alias": "Location"
+                            },
+                            "units": {
+                              "type": "string",
+                              "title": "Units",
+                              "description": "The measurement system used for all the measure values in the request and response. Valid options are \u0027Imperial\u0027 and \u0027Metric\u0027.",
+                              "default": "I",
+                              "enum": [
+                                "I",
+                                "C"
+                              ],
+                              "x-ms-enum-values": [
+                                {
+                                  "displayName": "Imperial",
+                                  "value": "I"
+                                },
+                                {
+                                  "displayName": "Metric",
+                                  "value": "C"
+                                }
+                              ],
+                              "x-ms-property-name-alias": "units"
+                            }
+                          },
+                          "required": [
+                            "Location",
+                            "units"
+                          ]
+                        },
+                        "connectionName": "shared_msnweather"
+                      },
+                      "outcomes": [
+                        {
+                          "id": "default",
+                          "label": "Default",
+                          "outcomeSchema": {
+                            "type": "object",
+                            "properties": {
+                              "body": {
+                                "type": "object",
+                                "properties": {
+                                  "responses": {
+                                    "type": "object",
+                                    "properties": {
+                                      "daily": {
+                                        "type": "object",
+                                        "properties": {
+                                          "day": {
+                                            "type": "object",
+                                            "title": "Day",
+                                            "properties": {
+                                              "cap": {
+                                                "type": "string",
+                                                "title": "Conditions",
+                                                "description": "The caption of weather conditions such as rainy, sunny, etc.",
+                                                "x-ms-visibility": "advanced",
+                                                "x-ms-property-name-alias": "body/responses/daily/day/cap"
+                                              },
+                                              "precip": {
+                                                "type": "number",
+                                                "title": "Rain Chance",
+                                                "format": "float",
+                                                "description": "The chance of precipitation (%).",
+                                                "x-ms-visibility": "advanced",
+                                                "x-ms-property-name-alias": "body/responses/daily/day/precip"
+                                              },
+                                              "wx": {
+                                                "type": "string",
+                                                "title": "METAR Weather Conditions",
+                                                "description": "The METAR code of weather conditions.",
+                                                "x-ms-visibility": "advanced",
+                                                "x-ms-property-name-alias": "body/responses/daily/day/wx"
+                                              },
+                                              "sky": {
+                                                "type": "string",
+                                                "title": "METAR Sky Conditions",
+                                                "description": "The METAR code of sky conditions.",
+                                                "x-ms-visibility": "advanced",
+                                                "x-ms-property-name-alias": "body/responses/daily/day/sky"
+                                              },
+                                              "windDir": {
+                                                "type": "integer",
+                                                "title": "Wind Direction",
+                                                "format": "int32",
+                                                "description": "The wind direction in degrees clockwise from north.",
+                                                "x-ms-visibility": "advanced",
+                                                "x-ms-property-name-alias": "body/responses/daily/day/windDir"
+                                              },
+                                              "windSpd": {
+                                                "type": "number",
+                                                "title": "Wind Speed",
+                                                "format": "float",
+                                                "description": "The wind speed.",
+                                                "x-ms-visibility": "advanced",
+                                                "x-ms-property-name-alias": "body/responses/daily/day/windSpd"
+                                              },
+                                              "summary": {
+                                                "type": "string",
+                                                "title": "Summary",
+                                                "description": "A text summary of the forecast.",
+                                                "x-ms-visibility": "advanced",
+                                                "x-ms-property-name-alias": "body/responses/daily/day/summary"
+                                              }
+                                            },
+                                            "required": [],
+                                            "x-ms-property-name-alias": "body/responses/daily/day"
+                                          },
+                                          "night": {
+                                            "type": "object",
+                                            "title": "Night",
+                                            "properties": {
+                                              "cap": {
+                                                "type": "string",
+                                                "title": "Conditions",
+                                                "description": "The caption of weather conditions such as rainy, sunny, etc.",
+                                                "x-ms-visibility": "advanced",
+                                                "x-ms-property-name-alias": "body/responses/daily/night/cap"
+                                              },
+                                              "precip": {
+                                                "type": "number",
+                                                "title": "Rain Chance",
+                                                "format": "float",
+                                                "description": "The chance of precipitation (%).",
+                                                "x-ms-visibility": "advanced",
+                                                "x-ms-property-name-alias": "body/responses/daily/night/precip"
+                                              },
+                                              "wx": {
+                                                "type": "string",
+                                                "title": "METAR Weather Conditions",
+                                                "description": "The METAR code of weather conditions.",
+                                                "x-ms-visibility": "advanced",
+                                                "x-ms-property-name-alias": "body/responses/daily/night/wx"
+                                              },
+                                              "sky": {
+                                                "type": "string",
+                                                "title": "METAR Sky Conditions",
+                                                "description": "The METAR code of sky conditions.",
+                                                "x-ms-visibility": "advanced",
+                                                "x-ms-property-name-alias": "body/responses/daily/night/sky"
+                                              },
+                                              "windDir": {
+                                                "type": "integer",
+                                                "title": "Wind Direction",
+                                                "format": "int32",
+                                                "description": "The wind direction in degrees clockwise from north.",
+                                                "x-ms-visibility": "advanced",
+                                                "x-ms-property-name-alias": "body/responses/daily/night/windDir"
+                                              },
+                                              "windSpd": {
+                                                "type": "number",
+                                                "title": "Wind Speed",
+                                                "format": "float",
+                                                "description": "The wind speed.",
+                                                "x-ms-visibility": "advanced",
+                                                "x-ms-property-name-alias": "body/responses/daily/night/windSpd"
+                                              },
+                                              "summary": {
+                                                "type": "string",
+                                                "title": "Summary",
+                                                "description": "A text summary of the forecast.",
+                                                "x-ms-visibility": "advanced",
+                                                "x-ms-property-name-alias": "body/responses/daily/night/summary"
+                                              }
+                                            },
+                                            "required": [],
+                                            "x-ms-property-name-alias": "body/responses/daily/night"
+                                          },
+                                          "pvdrCap": {
+                                            "type": "string",
+                                            "title": "Conditions",
+                                            "description": "The caption of weather conditions such as rainy, sunny, etc.",
+                                            "x-ms-property-name-alias": "body/responses/daily/pvdrCap"
+                                          },
+                                          "valid": {
+                                            "type": "string",
+                                            "title": "Date",
+                                            "format": "date-time",
+                                            "description": "The datetime at which the forecast is valid.",
+                                            "x-ms-property-name-alias": "body/responses/daily/valid"
+                                          },
+                                          "precip": {
+                                            "type": "number",
+                                            "title": "Rain Chance",
+                                            "format": "float",
+                                            "description": "The chance of precipitation (%).",
+                                            "x-ms-property-name-alias": "body/responses/daily/precip"
+                                          },
+                                          "windMax": {
+                                            "type": "number",
+                                            "title": "Max Wind Speed",
+                                            "format": "float",
+                                            "description": "The peak wind speed for the day.",
+                                            "x-ms-property-name-alias": "body/responses/daily/windMax"
+                                          },
+                                          "windMaxDir": {
+                                            "type": "integer",
+                                            "title": "Max Wind Direction",
+                                            "format": "int32",
+                                            "description": "The direction of the peak wind for the day.",
+                                            "x-ms-visibility": "advanced",
+                                            "x-ms-property-name-alias": "body/responses/daily/windMaxDir"
+                                          },
+                                          "rhHi": {
+                                            "type": "number",
+                                            "title": "Humidity High",
+                                            "format": "float",
+                                            "description": "The high relative humidity point for the day.",
+                                            "x-ms-property-name-alias": "body/responses/daily/rhHi"
+                                          },
+                                          "rhLo": {
+                                            "type": "number",
+                                            "title": "Humidity Low",
+                                            "format": "float",
+                                            "description": "The low relative humidity point for the day.",
+                                            "x-ms-property-name-alias": "body/responses/daily/rhLo"
+                                          },
+                                          "tempHi": {
+                                            "type": "number",
+                                            "title": "Temperature High",
+                                            "format": "float",
+                                            "description": "The high temperature.",
+                                            "x-ms-property-name-alias": "body/responses/daily/tempHi"
+                                          },
+                                          "tempLo": {
+                                            "type": "number",
+                                            "title": "Temperature Low",
+                                            "format": "float",
+                                            "description": "The low temperature.",
+                                            "x-ms-property-name-alias": "body/responses/daily/tempLo"
+                                          },
+                                          "uv": {
+                                            "type": "number",
+                                            "title": "UV Index",
+                                            "format": "float",
+                                            "description": "The numerical UV index.",
+                                            "x-ms-property-name-alias": "body/responses/daily/uv"
+                                          },
+                                          "uvDesc": {
+                                            "type": "string",
+                                            "title": "UV Index Description",
+                                            "description": "A description of the meaning of the UV index.",
+                                            "x-ms-visibility": "advanced",
+                                            "x-ms-property-name-alias": "body/responses/daily/uvDesc"
+                                          },
+                                          "created": {
+                                            "type": "string",
+                                            "title": "Forecast Date",
+                                            "format": "date-time",
+                                            "description": "The datetime at which the daily forecast was derived.",
+                                            "x-ms-visibility": "advanced",
+                                            "x-ms-property-name-alias": "body/responses/daily/created"
+                                          }
+                                        },
+                                        "required": [],
+                                        "x-ms-property-name-alias": "body/responses/daily"
+                                      },
+                                      "almanac": {
+                                        "type": "object",
+                                        "properties": {
+                                          "sunrise": {
+                                            "type": "string",
+                                            "title": "Sunrise Time",
+                                            "format": "date-time",
+                                            "description": "Time of sunrise on the day of this forecast.",
+                                            "x-ms-visibility": "advanced",
+                                            "x-ms-property-name-alias": "body/responses/almanac/sunrise"
+                                          },
+                                          "sunset": {
+                                            "type": "string",
+                                            "title": "Sunset Time",
+                                            "format": "date-time",
+                                            "description": "Time of sunset on the day of this forecast.",
+                                            "x-ms-visibility": "advanced",
+                                            "x-ms-property-name-alias": "body/responses/almanac/sunset"
+                                          },
+                                          "moonrise": {
+                                            "type": "string",
+                                            "title": "Moonrise Time",
+                                            "format": "date-time",
+                                            "description": "Time of moonrise on the day of this forecast.",
+                                            "x-ms-visibility": "advanced",
+                                            "x-ms-property-name-alias": "body/responses/almanac/moonrise"
+                                          },
+                                          "moonset": {
+                                            "type": "string",
+                                            "title": "Moonset Time",
+                                            "format": "date-time",
+                                            "description": "Time of moonset on the day of this forecast.",
+                                            "x-ms-visibility": "advanced",
+                                            "x-ms-property-name-alias": "body/responses/almanac/moonset"
+                                          },
+                                          "moonPhase": {
+                                            "type": "string",
+                                            "title": "Moon Phase",
+                                            "description": "The phase of the moon the day of this forecast.",
+                                            "x-ms-visibility": "advanced",
+                                            "x-ms-property-name-alias": "body/responses/almanac/moonPhase"
+                                          },
+                                          "moonPhaseCode": {
+                                            "type": "string",
+                                            "title": "Moon Phase Code",
+                                            "description": "The code representing the phase of the moon.",
+                                            "x-ms-visibility": "advanced",
+                                            "x-ms-property-name-alias": "body/responses/almanac/moonPhaseCode"
+                                          }
+                                        },
+                                        "required": [],
+                                        "x-ms-property-name-alias": "body/responses/almanac"
+                                      },
+                                      "source": {
+                                        "type": "object",
+                                        "properties": {
+                                          "coordinates": {
+                                            "type": "object",
+                                            "properties": {
+                                              "lat": {
+                                                "type": "number",
+                                                "title": "Latitude",
+                                                "format": "float",
+                                                "description": "The latitude of the location.",
+                                                "x-ms-visibility": "advanced",
+                                                "x-ms-property-name-alias": "body/responses/source/coordinates/lat"
+                                              },
+                                              "lon": {
+                                                "type": "number",
+                                                "title": "Longitude",
+                                                "format": "float",
+                                                "description": "The longitude of the location.",
+                                                "x-ms-visibility": "advanced",
+                                                "x-ms-property-name-alias": "body/responses/source/coordinates/lon"
+                                              }
+                                            },
+                                            "required": [],
+                                            "x-ms-property-name-alias": "body/responses/source/coordinates"
+                                          },
+                                          "location": {
+                                            "type": "string",
+                                            "title": "Location",
+                                            "description": "The location for which provider created the forecast.",
+                                            "x-ms-property-name-alias": "body/responses/source/location"
+                                          }
+                                        },
+                                        "required": [],
+                                        "x-ms-property-name-alias": "body/responses/source"
+                                      }
+                                    },
+                                    "required": [],
+                                    "x-ms-property-name-alias": "body/responses"
+                                  },
+                                  "units": {
+                                    "type": "object",
+                                    "properties": {
+                                      "pressure": {
+                                        "type": "string",
+                                        "title": "Pressure Units",
+                                        "description": "Units used for pressure measurements.",
+                                        "x-ms-visibility": "advanced",
+                                        "x-ms-property-name-alias": "body/units/pressure"
+                                      },
+                                      "temperature": {
+                                        "type": "string",
+                                        "title": "Temperature Units",
+                                        "description": "Units used for temperature measurements.",
+                                        "x-ms-property-name-alias": "body/units/temperature"
+                                      },
+                                      "speed": {
+                                        "type": "string",
+                                        "title": "Speed Units",
+                                        "description": "Units used for speed measurements.",
+                                        "x-ms-visibility": "advanced",
+                                        "x-ms-property-name-alias": "body/units/speed"
+                                      },
+                                      "distance": {
+                                        "type": "string",
+                                        "title": "Distance Units",
+                                        "description": "Units used for distance measurements.",
+                                        "x-ms-visibility": "advanced",
+                                        "x-ms-property-name-alias": "body/units/distance"
+                                      }
+                                    },
+                                    "required": [],
+                                    "x-ms-property-name-alias": "body/units"
+                                  }
+                                },
+                                "required": [],
+                                "x-ms-property-name-alias": "body"
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "measured": {
+                      "width": 269,
+                      "height": 66
+                    }
+                  },
+                  {
+                    "id": "connector-40461339-6121-48e9-a9cf-8f40dc7c4119",
+                    "name": "Human review",
+                    "type": "connector",
+                    "version": 1,
+                    "position": {
+                      "x": 1248,
+                      "y": 0
+                    },
+                    "data": {
+                      "config": {
+                        "apiName": "shared_advancedapprovals",
+                        "operationName": "RequestForInformation",
+                        "displayName": "Human review",
+                        "paletteIconHint": "humanReview",
+                        "parameters": {
+                          "RequestForInformationInput/channel": "Teams",
+                          "RequestForInformationInput/title": "Review result",
+                          "RequestForInformationInput/message": "review forcast result",
+                          "RequestForInformationInput/assignedTo": "a@b.com",
+                          "RequestForInformationInput/input": {
+                            "type": "object",
+                            "properties": {
+                              "text": {
+                                "title": "TextIn2",
+                                "type": "string",
+                                "x-ms-content-hint": "TEXT",
+                                "x-ms-dynamically-added": true,
+                                "description": "Please enter your input"
+                              }
+                            },
+                            "required": [
+                              "text"
+                            ]
+                          }
+                        },
+                        "parametersSchema": {
+                          "type": "object",
+                          "properties": {
+                            "RequestForInformationInput": {
+                              "type": "object",
+                              "properties": {
+                                "title": {
+                                  "type": "string",
+                                  "title": "Title",
+                                  "description": "Specify the title of the request.",
+                                  "x-ms-visibility": "important",
+                                  "x-ms-property-name-alias": "RequestForInformationInput/title"
+                                },
+                                "message": {
+                                  "type": "string",
+                                  "title": "Message",
+                                  "description": "Specify the message for the request.",
+                                  "x-ms-visibility": "important",
+                                  "x-ms-property-name-alias": "RequestForInformationInput/message"
+                                },
+                                "assignedTo": {
+                                  "type": "string",
+                                  "title": "Assigned to (first to respond)",
+                                  "x-ms-dynamic-list": {
+                                    "builtInOperation": "AadGraph.GetUsers",
+                                    "parameters": {},
+                                    "itemValuePath": "mail",
+                                    "itemTitlePath": "displayName"
+                                  },
+                                  "format": "email",
+                                  "description": "Recipient email addresses, UPNs, or Microsoft Entra user ids separated by semicolons. The response from the first user to respond to the request is used.",
+                                  "x-ms-visibility": "important",
+                                  "x-ms-property-name-alias": "RequestForInformationInput/assignedTo"
+                                },
+                                "channel": {
+                                  "type": "string",
+                                  "title": "Channel",
+                                  "description": "Set this to the notification channel for the request based on user query. Choose one of: Outlook or Teams. Defaults to Outlook if not specified. Use Teams if the user mentions Teams, flow bot, or teams bot.",
+                                  "default": "Outlook",
+                                  "enum": [
+                                    "Outlook",
+                                    "Teams"
+                                  ],
+                                  "x-ms-visibility": "important",
+                                  "x-ms-enum-values": [
+                                    {
+                                      "displayName": "Outlook",
+                                      "value": "Outlook"
+                                    },
+                                    {
+                                      "displayName": "Teams",
+                                      "value": "Teams"
+                                    }
+                                  ],
+                                  "x-ms-property-name-alias": "RequestForInformationInput/channel"
+                                },
+                                "input": {
+                                  "type": "object",
+                                  "title": "Input",
+                                  "properties": {},
+                                  "required": [],
+                                  "description": "Input definition.",
+                                  "x-ms-visibility": "important",
+                                  "x-ms-property-name-alias": "RequestForInformationInput/input"
+                                }
+                              },
+                              "required": [
+                                "assignedTo",
+                                "channel",
+                                "input",
+                                "message",
+                                "title"
+                              ],
+                              "description": "Request information",
+                              "x-ms-property-name-alias": "RequestForInformationInput"
+                            }
+                          },
+                          "required": [
+                            "RequestForInformationInput"
+                          ]
+                        },
+                        "operationType": "OpenApiConnectionWebhook",
+                        "iconUri": "https://static.powerapps.com/resource/ppcr/releases/v1.0.1825/1.0.1825.4855/advancedapprovals/icon.png",
+                        "connectionName": "shared_advancedapprovals"
+                      },
+                      "outcomes": [
+                        {
+                          "id": "default",
+                          "label": "Default",
+                          "outcomeSchema": {
+                            "type": "object",
+                            "properties": {
+                              "text": {
+                                "title": "TextIn2",
+                                "type": "string",
+                                "x-ms-content-hint": "TEXT",
+                                "x-ms-dynamically-added": true,
+                                "description": "Please enter your input"
+                              }
+                            },
+                            "required": [
+                              "text"
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    "measured": {
+                      "width": 240,
+                      "height": 66
+                    }
+                  }
+                ],
+                "edges": [
+                  {
+                    "id": "edge-start-3d67d79c-bfb2-492e-815d-52f2cc043634-connector-53e3a091-9a1c-451e-b13f-a8ccfd871a1d",
+                    "source": "start-3d67d79c-bfb2-492e-815d-52f2cc043634",
+                    "target": "connector-53e3a091-9a1c-451e-b13f-a8ccfd871a1d"
+                  },
+                  {
+                    "id": "edge-connector-53e3a091-9a1c-451e-b13f-a8ccfd871a1d-connector-c64737eb-c05a-4c23-9e7d-5ba9a114205b",
+                    "source": "connector-53e3a091-9a1c-451e-b13f-a8ccfd871a1d",
+                    "target": "connector-c64737eb-c05a-4c23-9e7d-5ba9a114205b"
+                  },
+                  {
+                    "id": "edge-connector-c64737eb-c05a-4c23-9e7d-5ba9a114205b-connector-40461339-6121-48e9-a9cf-8f40dc7c4119",
+                    "source": "connector-c64737eb-c05a-4c23-9e7d-5ba9a114205b",
+                    "target": "connector-40461339-6121-48e9-a9cf-8f40dc7c4119"
+                  },
+                  {
+                    "id": "edge-connector-40461339-6121-48e9-a9cf-8f40dc7c4119-builtinFunction-3c3d830d-4eb2-43a0-9357-ed9749f1b684",
+                    "source": "connector-40461339-6121-48e9-a9cf-8f40dc7c4119",
+                    "target": "builtinFunction-3c3d830d-4eb2-43a0-9357-ed9749f1b684"
+                  }
+                ],
+                "connectionReferences": {
+                  "shared_teams": {
+                    "api": {
+                      "name": "shared_teams"
+                    },
+                    "connection": {
+                      "connectionReferenceLogicalName": "new_sharedteams_777c895a"
+                    },
+                    "runtimeSource": "invoker",
+                    "connectionName": "shared-teams-762ff8da-a818-4708-ba92-b18f65c9e9f2"
+                  },
+                  "shared_msnweather": {
+                    "api": {
+                      "name": "shared_msnweather"
+                    },
+                    "connection": {
+                      "connectionReferenceLogicalName": "new_sharedmsnweather_08889"
+                    },
+                    "runtimeSource": "invoker",
+                    "connectionName": "shared-msnweather-279ad7c9-6c6d-4825-b758-d041aa8d2059"
+                  },
+                  "shared_advancedapprovals": {
+                    "api": {
+                      "name": "shared_advancedapprovals"
+                    },
+                    "connection": {
+                      "connectionReferenceLogicalName": "new_sharedadvancedapprovals_275f6bca"
+                    },
+                    "runtimeSource": "invoker",
+                    "connectionName": "2321467abadc42fd828dfaef991ad56b"
+                  }
+                }
+              },
+              "nodeActionMapping": {
+                "connector-53e3a091-9a1c-451e-b13f-a8ccfd871a1d": [
+                  "Create_a_chat"
+                ],
+                "connector-c64737eb-c05a-4c23-9e7d-5ba9a114205b": [
+                  "Get_the_forecast_for_tomorrow"
+                ],
+                "connector-40461339-6121-48e9-a9cf-8f40dc7c4119": [
+                  "Human_review"
+                ],
+                "builtinFunction-3c3d830d-4eb2-43a0-9357-ed9749f1b684": [
+                  "Respond_to_the_agent"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "actions": {
+        "Create_a_chat": {
+          "type": "OpenApiConnection",
+          "inputs": {
+            "parameters": {
+              "item/members": "a@b.com"
+            },
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_teams",
+              "connectionName": "shared_teams",
+              "operationId": "CreateChat"
+            }
+          },
+          "metadata": {
+            "description": "Create a chat",
+            "nodeId": "connector-53e3a091-9a1c-451e-b13f-a8ccfd871a1d"
+          }
+        },
+        "Get_the_forecast_for_tomorrow": {
+          "type": "OpenApiConnection",
+          "inputs": {
+            "parameters": {
+              "units": "I",
+              "Location": "Seatle, USA"
+            },
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_msnweather",
+              "connectionName": "shared_msnweather",
+              "operationId": "TomorrowsForecast"
+            }
+          },
+          "runAfter": {
+            "Create_a_chat": [
+              "Succeeded"
+            ]
+          },
+          "metadata": {
+            "description": "Get the forecast for tomorrow",
+            "nodeId": "connector-c64737eb-c05a-4c23-9e7d-5ba9a114205b"
+          }
+        },
+        "Human_review": {
+          "type": "OpenApiConnectionWebhook",
+          "inputs": {
+            "parameters": {
+              "RequestForInformationInput/channel": "Teams",
+              "RequestForInformationInput/title": "Review result",
+              "RequestForInformationInput/message": "review forcast result",
+              "RequestForInformationInput/assignedTo": "a@b.com",
+              "RequestForInformationInput/input": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "title": "TextIn2",
+                    "type": "string",
+                    "x-ms-content-hint": "TEXT",
+                    "x-ms-dynamically-added": true,
+                    "description": "Please enter your input"
+                  }
+                },
+                "required": [
+                  "text"
+                ]
+              }
+            },
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_advancedapprovals",
+              "connectionName": "shared_advancedapprovals",
+              "operationId": "RequestForInformation"
+            }
+          },
+          "runAfter": {
+            "Get_the_forecast_for_tomorrow": [
+              "Succeeded"
+            ]
+          },
+          "metadata": {
+            "description": "Human review",
+            "nodeId": "connector-40461339-6121-48e9-a9cf-8f40dc7c4119"
+          }
+        },
+        "Respond_to_the_agent": {
+          "type": "Response",
+          "kind": "Skills",
+          "inputs": {
+            "schema": {
+              "type": "object",
+              "properties": {},
+              "required": []
+            },
+            "statusCode": 200
+          },
+          "runAfter": {
+            "Human_review": [
+              "Succeeded"
+            ]
+          },
+          "metadata": {
+            "description": "Respond to the agent",
+            "nodeId": "builtinFunction-3c3d830d-4eb2-43a0-9357-ed9749f1b684"
+          }
+        }
+      },
+      "outputs": {},
+      "metadata": {
+        "telemetryMetadata": {
+          "creationSource": "WorkflowDesigner",
+          "modifiedSources": "WorkflowDesigner"
+        }
+      }
+    }
+  },
+  "schemaVersion": "1.0.0.0"
+}

@@ -1,0 +1,16 @@
+{
+  "name": "lspe2e-driver",
+  "displayName": "Copilot Studio LSP E2E driver",
+  "description": "Runs the Copilot Studio LSP end-to-end scenarios in a normal VS Code window so real sign-in is available.",
+  "publisher": "local",
+  "version": "0.0.1",
+  "private": true,
+  "engines": {
+    "vscode": "^1.108.0"
+  },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "../out/tests/ui/driver.js",
+  "contributes": {}
+}

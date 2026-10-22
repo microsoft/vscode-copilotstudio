@@ -2,16 +2,20 @@ import * as assert from 'node:assert';
 import { describe, test, beforeEach, afterEach } from 'node:test';
 import * as vscode from 'vscode';
 import { LspMethods, TelemetryEventsKeys } from '../../constants';
+import { TreeItemKind } from '../../clone/tree';
+import { confirmAndDeleteStandaloneWorkflow } from '../../commands/deleteStandaloneWorkflow';
 import logger, { formatEnvironmentId, formatPii, PiiRedactionType, prepareLogData } from '../../services/logger';
 import {
     cloneStandaloneWorkflow,
     createStandaloneWorkflow,
     deleteStandaloneWorkflow,
+    getStandaloneWorkflowAgentUse,
     listStandaloneWorkflows,
     reportStandaloneWorkflowFailure,
     resolveStandaloneWorkflowProject,
     StandaloneWorkflowRequestError,
 } from '../../workflows/standaloneWorkflows';
+import { replace, restoreReplaced } from './helpers/replace';
 
 describe('standaloneWorkflows', () => {
     const environmentInfo = {
@@ -172,6 +176,124 @@ describe('standaloneWorkflows', () => {
         await assert.rejects(
             () => deleteStandaloneWorkflow(environmentInfo, {}, workflow.workflowId),
             (error: unknown) => error instanceof StandaloneWorkflowRequestError && error.code === 403);
+    });
+
+    test('agent use reports the agents and the warning the server returned', async () => {
+        const warning = "Copilot Studio agents 'Agent A' and 'NB1' use this workflow and lose it when the workflow is deleted.";
+        stubLsp(() => ({ code: 200, message: '', agentNames: ['Agent A', 'NB1'], warning }));
+
+        const agentUse = await getStandaloneWorkflowAgentUse(environmentInfo, {}, workflow.workflowId);
+
+        assert.strictEqual(sent[0].method, LspMethods.GET_STANDALONE_WORKFLOW_AGENT_USE);
+        assert.strictEqual(sent[0].request.workflowId, workflow.workflowId);
+        assert.strictEqual(sent[0].request.environmentInfo, environmentInfo);
+        assert.deepStrictEqual(agentUse, { agentNames: ['Agent A', 'NB1'], warning });
+    });
+
+    test('agent use treats absent names and warning as no agents', async () => {
+        stubLsp(() => ({ code: 200, message: '' }));
+
+        assert.deepStrictEqual(await getStandaloneWorkflowAgentUse(environmentInfo, {}, workflow.workflowId), { agentNames: [], warning: '' });
+    });
+
+    test('agent use surfaces a server failure', async () => {
+        stubLsp(() => ({ code: 403, message: 'not allowed' }));
+
+        await assert.rejects(
+            () => getStandaloneWorkflowAgentUse(environmentInfo, {}, workflow.workflowId),
+            (error: unknown) => error instanceof StandaloneWorkflowRequestError && error.code === 403);
+    });
+});
+
+describe('confirmAndDeleteStandaloneWorkflow', () => {
+    const environment = { environmentId: 'env-01', displayName: 'Contoso' } as any;
+    const treeItem = {
+        kind: TreeItemKind.Workflow,
+        environment,
+        workflow: { workflowId: 'wf-1', name: 'NB Workflow1', isActivated: true, connectionReferences: [] },
+        sourceAccount: { accountId: 'account' },
+    };
+    const deleteDetail = 'This deletes the cloud flow. Local files are not touched and this cannot be undone.';
+    const agentWarning = "Copilot Studio agent 'NB1' uses this workflow and loses it when the workflow is deleted.";
+
+    let sent: { method: string; request: any }[];
+    let prompts: { message: string; options: vscode.MessageOptions; items: string[] }[];
+    let executed: unknown[][];
+    let reported: (string | undefined)[];
+
+    const arrange = (agentUseResponse: unknown, answer: string | undefined) => {
+        replace(require('../../services/lspClient'), 'buildLspRequestPayload', async () => ({ environmentInfo: environment }));
+        replace(require('../../services/lspClient'), 'lspClient', {
+            sendRequest: async (method: string, request: any) => {
+                sent.push({ method, request });
+                return method === LspMethods.GET_STANDALONE_WORKFLOW_AGENT_USE ? agentUseResponse : { code: 200, message: '', deleted: true };
+            },
+        });
+        replace(vscode.window as any, 'showWarningMessage', async (message: string, options: vscode.MessageOptions, ...items: string[]) => {
+            prompts.push({ message, options, items });
+            return answer;
+        });
+        replace(vscode.window as any, 'withProgress', async (_options: unknown, task: (progress: unknown, token: vscode.CancellationToken) => Promise<unknown>) =>
+            task({ report: () => undefined }, new vscode.CancellationTokenSource().token));
+        replace(vscode.window as any, 'showInformationMessage', async () => undefined);
+        replace(vscode.commands as any, 'executeCommand', async (...args: unknown[]) => { executed.push(args); });
+        replace(logger as any, 'logError', (_event: string, message?: string) => { reported.push(message); });
+    };
+
+    beforeEach(() => {
+        sent = [];
+        prompts = [];
+        executed = [];
+        reported = [];
+    });
+
+    afterEach(restoreReplaced);
+
+    test('the confirmation names the agents that use the flow and nothing is deleted when the user declines', async () => {
+        arrange({ code: 200, message: '', agentNames: ['NB1'], warning: agentWarning }, undefined);
+
+        await confirmAndDeleteStandaloneWorkflow(treeItem);
+
+        assert.deepStrictEqual(sent.map(entry => entry.method), [LspMethods.GET_STANDALONE_WORKFLOW_AGENT_USE]);
+        assert.strictEqual(sent[0].request.workflowId, 'wf-1');
+        assert.strictEqual(prompts.length, 1);
+        assert.strictEqual(prompts[0].message, 'Delete "NB Workflow1" from Contoso?');
+        assert.strictEqual(prompts[0].options.modal, true);
+        assert.strictEqual(prompts[0].options.detail, `${agentWarning}\n\n${deleteDetail}`);
+        assert.deepStrictEqual(prompts[0].items, ['Delete']);
+        assert.deepStrictEqual(executed, []);
+        assert.deepStrictEqual(reported, []);
+    });
+
+    test('a flow an agent uses is deleted once the user confirms the warning', async () => {
+        arrange({ code: 200, message: '', agentNames: ['NB1'], warning: agentWarning }, 'Delete');
+
+        await confirmAndDeleteStandaloneWorkflow(treeItem);
+
+        assert.deepStrictEqual(sent.map(entry => entry.method), [LspMethods.GET_STANDALONE_WORKFLOW_AGENT_USE, LspMethods.DELETE_STANDALONE_WORKFLOW]);
+        assert.strictEqual(sent[1].request.workflowId, 'wf-1');
+        assert.deepStrictEqual(executed, [['microsoft-copilot-studio.refreshAgentTreeView']]);
+        assert.deepStrictEqual(reported, []);
+    });
+
+    test('a flow no agent uses shows only the usual detail', async () => {
+        arrange({ code: 200, message: '', agentNames: [], warning: '' }, 'Delete');
+
+        await confirmAndDeleteStandaloneWorkflow(treeItem);
+
+        assert.strictEqual(prompts[0].options.detail, deleteDetail);
+        assert.deepStrictEqual(sent.map(entry => entry.method), [LspMethods.GET_STANDALONE_WORKFLOW_AGENT_USE, LspMethods.DELETE_STANDALONE_WORKFLOW]);
+    });
+
+    test('when the agents cannot be read nothing is asked or deleted and the failure is reported', async () => {
+        arrange({ code: 403, message: 'not allowed' }, 'Delete');
+
+        await confirmAndDeleteStandaloneWorkflow(treeItem);
+
+        assert.deepStrictEqual(sent.map(entry => entry.method), [LspMethods.GET_STANDALONE_WORKFLOW_AGENT_USE]);
+        assert.deepStrictEqual(prompts, []);
+        assert.deepStrictEqual(executed, []);
+        assert.deepStrictEqual(reported, ['Error deleting cloud flow']);
     });
 });
 

@@ -1,0 +1,17 @@
+mcs.metadata:
+  componentName: Flow F1
+kind: TaskDialog
+outputs:
+  - propertyName: fileout1
+
+  - propertyName: textout1
+
+action:
+  kind: InvokeFlowTaskAction
+  flowId: 873fa1c4-6292-f111-b8dc-7ced8d702753
+  connectionProperties:
+    $kind: ConnectionProperties
+    diagnostics:
+    mode: Invoker
+
+outputMode: All

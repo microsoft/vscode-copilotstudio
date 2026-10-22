@@ -1,0 +1,21 @@
+mcs.metadata:
+  componentName: summarize document 1
+kind: TaskDialog
+inputs:
+  - kind: AutomaticTaskInput
+    propertyName: Document_20input
+    name: Document_20input
+    shouldPromptUser: true
+
+  - kind: AutomaticTaskInput
+    propertyName: Text_20input
+    name: Text input
+    shouldPromptUser: true
+
+modelDisplayName: summarize document 1
+modelDescription: summarize document 1
+action:
+  kind: InvokeAIBuilderModelTaskAction
+  aIModelId: 5995fe80-b68f-4366-9a9c-0cb06f141fed
+
+outputMode: All

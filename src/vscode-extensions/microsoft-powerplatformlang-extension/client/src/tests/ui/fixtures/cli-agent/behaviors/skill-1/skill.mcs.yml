@@ -1,0 +1,4 @@
+mcs.metadata:
+  componentName: skill-1
+  schemaName: ahe2e_MCSCliAgent.skill.skill-1
+kind: InlineAgentSkill

@@ -1,0 +1,3 @@
+connectionReferences:
+  - connectionReferenceLogicalName: new_sharedmsnweather_08889
+    connectorId: /providers/Microsoft.PowerApps/apis/shared_msnweather

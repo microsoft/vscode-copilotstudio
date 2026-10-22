@@ -478,6 +478,11 @@ function updateSyncInProgressContextKey(): void {
   void commands.executeCommand('setContext', 'mcs.isSyncing', getActiveSyncUri() !== undefined);
 }
 
+/** Reveals a tree element without letting a stale-node rejection escape as an unhandled promise. */
+export function revealQuietly<T>(view: TreeView<T>, element: T): void {
+  view.reveal(element, { expand: true, focus: false, select: false }).then(undefined, () => undefined);
+}
+
 /** Reveal and expand the active sync agent so its loading state is visible. */
 function revealActiveAgent(): void {
   const activeUri = getActiveSyncUri();
@@ -487,7 +492,7 @@ function revealActiveAgent(): void {
   const activeAgent = treeDataProvider.getChildren()
     .find((c): c is AgentTreeItem => c.kind === AgentChangesItemKind.Agent && c.workspace.workspaceUri === activeUri);
   if (activeAgent) {
-    void treeView.reveal(activeAgent, { expand: true, focus: false, select: false });
+    revealQuietly(treeView, activeAgent);
   }
 }
 

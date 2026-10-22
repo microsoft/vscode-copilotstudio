@@ -1,0 +1,35 @@
+﻿{
+  "name": "prompt child 1",
+  "instruction": "Classify the {{input_20text}} into one of the {{input_20Categories}}, or \u0027unclear\u0027. Analyze the key themes and context of the provided text and classify it into the most appropriate category from the list of categories. Take into consideration any subcategories, industry-specific terminology, and the possibility of ambiguous classification. If the text does not clearly fit into a single category, pick the closest category or label it as \u0027unclear\u0027. Your answer may only have the exact text of the closest category. Do not explain and do not use categories not listed.",
+  "model": "gpt-41-mini",
+  "modelParameters": {
+    "gptParameters": {
+      "temperature": 0
+    }
+  },
+  "inputs": [
+    {
+      "id": "input_20text",
+      "text": "input text",
+      "type": "text",
+      "quickTestValue": "Seven-times world champion Lewis Hamilton played down his chances of starting the Formula One season with a win and said on Saturday his Mercedes lacked a \u0027considerable amount\u0027 of pace."
+    },
+    {
+      "id": "input_20Categories",
+      "text": "input Categories",
+      "type": "text",
+      "quickTestValue": "politics, business, sport, entertainment, logistics, health, news, art"
+    }
+  ],
+  "output": {
+    "formats": [
+      "text"
+    ]
+  },
+  "settings": {
+    "recordRetrievalLimit": 30,
+    "shouldPreserveRecordLinks": null,
+    "runtime": null
+  },
+  "version": "GptDynamicPrompt-2"
+}

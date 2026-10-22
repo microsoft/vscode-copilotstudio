@@ -58,3 +58,6 @@ Thumbs.db
 # === Local development overrides (never commit) ===
 *.config.user
 Directory.Build.props.user
+
+.vscode-test-ui-profile/
+lspe2e.config.json

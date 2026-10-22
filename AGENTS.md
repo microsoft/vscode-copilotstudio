@@ -419,6 +419,43 @@ The extension publishes LSP binaries for 6 platforms via `extension.proj`:
 - Test workspace: `LanguageServers/PowerPlatformLS/UnitTests/PowerPlatformLS.UnitTests/TestData/WorkspaceWithSubAgents`
 - Runner: `scripts/runHostTests.js` loads `client/out/tests/host/runner.js`
 
+### End-to-End Suite (real tenant)
+Drives the real extension in a VS Code window, over the LSP client and server,
+against a real Dataverse environment. Nothing in the product path is stubbed.
+
+**Setup is one file.** Copy the committed template at the extension root and fill in your own
+environment — it is gitignored and holds no secrets:
+
+```bash
+cd src/vscode-extensions/microsoft-powerplatformlang-extension
+cp lspe2e.config.example.json lspe2e.config.json   # copy on Windows
+```
+
+`lspe2e.config.json` must sit next to `package.json` at the extension root. `environmentId`
+identifies the development environment to use, and its Dataverse URL is resolved through BAP.
+Running any `test:ui` script without it prints the full path, the template and these
+instructions. A seeded sign-in is also required, plus
+`msagent` signed in to that same environment for cleanup, and `pac`, `msagent` as well for the interop
+group.
+
+```bash
+cd src/vscode-extensions/microsoft-powerplatformlang-extension
+npm run test:ui:signin       # one-time: seed the cached sign-in
+npm run test:ui:smoke        # 4 scenarios, 8 runs — clone, push, pull — ~3 min
+npm run test:ui              # 28 scenarios, 52 runs — everything — ~20 min
+
+npm run test:ui:vscode       # 20 scenarios, 40 runs — the extension on its own — ~14 min
+npm run test:ui:workflow     # 4 scenarios, 4 runs — a standalone cloud flow — ~3 min
+npm run test:ui:interop      # 4 scenarios, 8 runs — vscode / pac / msagent compatibility — ~3 min
+npm run test:ui:clean        # delete leftover agents and cloud flows by name prefix
+```
+
+The scenario catalogue is `client/src/tests/ui/lib/groups.ts` and the shapes are
+`client/src/tests/ui/lib/shapes.ts`; scenarios themselves live in
+`client/src/tests/ui/scenarios/`. Report for each run — transcript, `run-report.json`,
+`ledger.json`, per-failure logs and the cloned workspaces — are left in
+`%TEMP%\mcs-lsp-e2e\<run>\`.
+
 ## CI/CD
 - Pull requests to `main` run `.github/workflows/pr.yml`, which restores, builds, and tests `src/build.proj` in Debug configuration.
 - Pushes to `main` run `.github/workflows/push.yml`, which triggers and monitors Azure DevOps pipeline `31673`.

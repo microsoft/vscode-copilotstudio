@@ -15,7 +15,7 @@ public class StandaloneWorkflowDataverseTests
 {
     private const string DataverseUrl = "https://test.crm.dynamics.com";
 
-    private sealed record Exchange(HttpMethod Method, string Url, string Body);
+    private sealed record Exchange(HttpMethod Method, string Url, string Body, string? ClientRequestId);
 
     private sealed class RecordingHandler : HttpMessageHandler
     {
@@ -30,14 +30,20 @@ public class StandaloneWorkflowDataverseTests
             Exchanges.Add(new Exchange(
                 request.Method,
                 request.RequestUri!.ToString(),
-                request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync()));
+                request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(),
+                request.Headers.TryGetValues("x-ms-client-request-id", out var clientRequestIds) ? string.Join(",", clientRequestIds) : null));
 
             return _respond(request);
         }
     }
 
+    private const string NoActiveTransactionBody = "{\"error\":{\"code\":\"0x80040251\",\"message\":\"There is no active transaction. This error is usually caused by custom plug-ins that ignore errors from service calls and continue processing.\"}}";
+
     private static HttpResponseMessage Json(string payload) =>
         new(HttpStatusCode.OK) { Content = new StringContent(payload, Encoding.UTF8, "application/json") };
+
+    private static HttpResponseMessage Failure(HttpStatusCode statusCode, string payload) =>
+        new(statusCode) { Content = new StringContent(payload, Encoding.UTF8, "application/json") };
 
     private static HttpResponseMessage NotFound() =>
         new(HttpStatusCode.NotFound) { Content = new StringContent("{\"error\":\"not found\"}", Encoding.UTF8, "application/json") };
@@ -48,7 +54,7 @@ public class StandaloneWorkflowDataverseTests
         var accessor = new Mock<IDataverseHttpClientAccessor>();
         accessor.Setup(a => a.CreateClient()).Returns(new HttpClient(handler));
 
-        var client = new SyncDataverseClient(accessor.Object);
+        var client = new SyncDataverseClient(accessor.Object, "CopilotStudio.Sync", new DataverseRetryPolicy { Delay = (_, _) => Task.CompletedTask });
         client.SetDataverseUrl(DataverseUrl);
 
         return (client, handler);
@@ -125,6 +131,31 @@ public class StandaloneWorkflowDataverseTests
     }
 
     [Fact]
+    public async Task ListWorkflowsAsync_WhenTheServiceStaysUnavailable_ReportsTheLastFailureAfterThreeAttempts()
+    {
+        var (client, handler) = Create(_ => Failure(HttpStatusCode.ServiceUnavailable, "{\"error\":{\"message\":\"Try again later.\"}}"));
+
+        var failure = await Assert.ThrowsAsync<DataverseRequestException>(() => client.ListWorkflowsAsync(null, null, CancellationToken.None));
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, failure.StatusCode);
+        Assert.Contains("Try again later.", failure.ResponseBody, StringComparison.Ordinal);
+        Assert.Equal(3, handler.Exchanges.Count);
+        Assert.Single(handler.Exchanges.Select(exchange => exchange.ClientRequestId).Distinct());
+    }
+
+    [Fact]
+    public async Task ListWorkflowsAsync_WhenTheServiceFailsWithoutATransientCode_ReportsTheFailureAtOnce()
+    {
+        var (client, handler) = Create(_ => Failure(HttpStatusCode.InternalServerError, "{\"error\":{\"code\":\"0x80040216\",\"message\":\"An unexpected error occurred.\"}}"));
+
+        var failure = await Assert.ThrowsAsync<DataverseRequestException>(() => client.ListWorkflowsAsync(null, null, CancellationToken.None));
+
+        Assert.Equal(HttpStatusCode.InternalServerError, failure.StatusCode);
+        Assert.Contains("0x80040216", failure.ResponseBody, StringComparison.Ordinal);
+        Assert.Single(handler.Exchanges);
+    }
+
+    [Fact]
     public async Task InsertWorkflowAsync_CreatesTheWorkflow()
     {
         var workflowId = Guid.NewGuid();
@@ -147,6 +178,40 @@ public class StandaloneWorkflowDataverseTests
 
         var activation = Assert.Single(handler.Exchanges, exchange => exchange.Method.Method == "PATCH");
         Assert.Contains("\"statecode\":1", activation.Body.Replace(" ", string.Empty), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task InsertWorkflowAsync_WhenTheServiceIsUnavailable_DoesNotCreateTheWorkflowTwice()
+    {
+        var (client, handler) = Create(_ => Failure(HttpStatusCode.ServiceUnavailable, "{\"error\":{\"message\":\"Try again later.\"}}"));
+
+        var response = await client.InsertWorkflowAsync(new WorkflowMetadata { WorkflowId = Guid.NewGuid(), Name = "Standalone", ClientData = "{}", StateCode = 0, StatusCode = 1 }, CancellationToken.None);
+
+        Assert.Contains("Try again later.", response.ErrorMessage, StringComparison.Ordinal);
+        Assert.Single(handler.Exchanges);
+    }
+
+    [Fact]
+    public async Task UpdateWorkflowAsync_WhenTheUpdateIsBrieflyUnavailable_SendsTheSameUpdateAgainUnderOneRequestId()
+    {
+        var workflowId = Guid.NewGuid();
+        var updates = 0;
+        var (client, handler) = Create(request => request.Method == HttpMethod.Get
+            ? Json($"{{\"workflowid\":\"{workflowId}\"}}")
+            : ++updates == 1
+                ? Failure(HttpStatusCode.ServiceUnavailable, string.Empty)
+                : Json($"{{\"workflowid\":\"{workflowId}\",\"name\":\"Standalone\"}}"));
+
+        var response = await client.UpdateWorkflowAsync(null, new WorkflowMetadata { WorkflowId = workflowId, Name = "Standalone", ClientData = "{}" }, CancellationToken.None);
+
+        Assert.Equal(string.Empty, response.ErrorMessage);
+        Assert.Equal("Standalone", response.StoredWorkflow?.Name);
+        var sent = handler.Exchanges.Where(exchange => exchange.Method.Method == "PATCH").ToArray();
+        Assert.Equal(2, sent.Length);
+        Assert.Contains("\"name\":\"Standalone\"", sent[0].Body.Replace(" ", string.Empty), StringComparison.Ordinal);
+        Assert.Equal(sent[0].Body, sent[1].Body);
+        Assert.Equal(sent[0].ClientRequestId, sent[1].ClientRequestId);
+        Assert.NotEqual(handler.Exchanges[0].ClientRequestId, sent[0].ClientRequestId);
     }
 
     [Fact]
@@ -313,6 +378,18 @@ public class StandaloneWorkflowDataverseTests
     }
 
     [Fact]
+    public async Task GetWorkflowAsync_ReadsWhetherTheFlowIsManagedInTheSameRequest()
+    {
+        var workflowId = Guid.NewGuid();
+        var (client, handler) = Create(_ => Json($"{{\"value\":[{{\"workflowid\":\"{workflowId}\",\"name\":\"Flow\",\"clientdata\":\"{{}}\",\"ismanaged\":true}}]}}"));
+
+        var workflow = await client.GetWorkflowAsync(workflowId, CancellationToken.None);
+
+        Assert.True(workflow!.IsManaged);
+        Assert.Contains("ismanaged", Assert.Single(handler.Exchanges).Url, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task GetWorkflowAsync_DerivesTheConnectionReferencesTheDefinitionDeclares()
     {
         var workflowId = Guid.NewGuid();
@@ -392,6 +469,153 @@ public class StandaloneWorkflowDataverseTests
     }
 
     [Fact]
+    public async Task ListWorkflowsAsync_MatchesWildcardCharactersInTheNameFilterLiterally()
+    {
+        var (client, handler) = Create(_ => Json("{\"value\":[]}"));
+
+        await client.ListWorkflowsAsync("50%_off", null, CancellationToken.None);
+
+        Assert.Contains("contains(name,'50[%][_]off')", Uri.UnescapeDataString(handler.Exchanges[0].Url), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GetConnectorsByInternalIdPrefixAsync_MatchesAnUnderscoreInThePrefixLiterally()
+    {
+        var (client, handler) = Create(_ => Json("{\"value\":[]}"));
+
+        await client.GetConnectorsByInternalIdPrefixAsync("cr123_my", CancellationToken.None);
+
+        Assert.Contains("startswith(connectorinternalid,'cr123[_]my')", Uri.UnescapeDataString(handler.Exchanges[0].Url), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ListWorkflowsAsync_ListsEveryUnmanagedCloudFlowIncludingTheOnesAgentsUseInOneRequest()
+    {
+        var preferences = new List<bool>();
+        var (client, handler) = Create(request =>
+        {
+            preferences.Add(request.Headers.Contains("Prefer"));
+
+            return Json("{\"value\":[]}");
+        });
+
+        await client.ListWorkflowsAsync(null, 5, CancellationToken.None);
+
+        var url = Uri.UnescapeDataString(Assert.Single(handler.Exchanges).Url);
+        Assert.Contains("$filter=category eq 5 and type eq 1 and ismanaged eq false&", url, StringComparison.Ordinal);
+        Assert.DoesNotContain("botcomponent_workflow", url, StringComparison.Ordinal);
+        Assert.Contains("$top=5", url, StringComparison.Ordinal);
+        Assert.DoesNotContain("$expand", url, StringComparison.Ordinal);
+        Assert.Equal([false], preferences);
+    }
+
+    [Fact]
+    public async Task GetAgentsUsingWorkflowAsync_ReadsTheAgentNamesInOneRequestThatAsksForFormattedValues()
+    {
+        var workflowId = Guid.NewGuid();
+        var preferences = new List<string>();
+        var (client, handler) = Create(request =>
+        {
+            preferences.AddRange(request.Headers.GetValues("Prefer"));
+
+            return Json($$"""{"workflowid":"{{workflowId}}","botcomponent_workflow":[]}""");
+        });
+
+        await client.GetAgentsUsingWorkflowAsync(workflowId, CancellationToken.None);
+
+        var exchange = Assert.Single(handler.Exchanges);
+        Assert.Equal(HttpMethod.Get, exchange.Method);
+        Assert.Equal($"{DataverseUrl}/api/data/v9.2/workflows({workflowId})?$select=workflowid&$expand=botcomponent_workflow($select=_parentbotid_value,_parentbotcomponentcollectionid_value)", Uri.UnescapeDataString(exchange.Url));
+        Assert.Equal(["odata.include-annotations=\"OData.Community.Display.V1.FormattedValue\""], preferences);
+    }
+
+    [Fact]
+    public async Task GetAgentsUsingWorkflowAsync_NamesEachAgentOnceInOrderAndFallsBackToTheComponentCollection()
+    {
+        const string Agent = "_parentbotid_value@OData.Community.Display.V1.FormattedValue";
+        const string Collection = "_parentbotcomponentcollectionid_value@OData.Community.Display.V1.FormattedValue";
+        var (client, _) = Create(_ => Json($$"""
+            {"botcomponent_workflow":[
+              {"{{Agent}}":"Zeta"},
+              {"{{Agent}}":"Alpha"},
+              {"{{Agent}}":"Alpha","{{Collection}}":"Ignored Collection"},
+              {"{{Collection}}":"Collection One"},
+              {"{{Agent}}":"  ","{{Collection}}":"Collection Two"},
+              {"{{Agent}}":null,"{{Collection}}":"  "},
+              {}
+            ]}
+            """));
+
+        var names = await client.GetAgentsUsingWorkflowAsync(Guid.NewGuid(), CancellationToken.None);
+
+        Assert.Equal(["Alpha", "Collection One", "Collection Two", "Zeta"], names);
+    }
+
+    [Theory]
+    [InlineData("{\"botcomponent_workflow\":[]}")]
+    [InlineData("{\"workflowid\":\"00000000-0000-0000-0000-000000000001\"}")]
+    public async Task GetAgentsUsingWorkflowAsync_WhenNoAgentUsesTheWorkflow_ReturnsNoNames(string payload)
+    {
+        var (client, _) = Create(_ => Json(payload));
+
+        Assert.Empty(await client.GetAgentsUsingWorkflowAsync(Guid.NewGuid(), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task GetAgentsUsingWorkflowAsync_WhenTheWorkflowIsGone_ReturnsNoNames()
+    {
+        var (client, handler) = Create(_ => NotFound());
+
+        Assert.Empty(await client.GetAgentsUsingWorkflowAsync(Guid.NewGuid(), CancellationToken.None));
+        Assert.Single(handler.Exchanges);
+    }
+
+    [Fact]
+    public async Task GetAgentsUsingWorkflowAsync_WhenTheServiceRefusesTheRead_ReportsTheFailure()
+    {
+        var (client, _) = Create(_ => new HttpResponseMessage(HttpStatusCode.Forbidden) { Content = new StringContent("{\"error\":\"denied\"}", Encoding.UTF8, "application/json") });
+
+        var failure = await Assert.ThrowsAsync<DataverseRequestException>(() => client.GetAgentsUsingWorkflowAsync(Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal(HttpStatusCode.Forbidden, failure.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(1, true)]
+    [InlineData(0, false)]
+    public async Task HasUnpublishedDraftAsync_ReadsTheUnpublishedRowsComponentStateInOneRequest(int componentState, bool expected)
+    {
+        var workflowId = Guid.NewGuid();
+        var (client, handler) = Create(_ => Json($"{{\"workflowid\":\"{workflowId}\",\"componentstate\":{componentState}}}"));
+
+        Assert.Equal(expected, await client.HasUnpublishedDraftAsync(workflowId, CancellationToken.None));
+
+        var exchange = Assert.Single(handler.Exchanges);
+
+        Assert.Equal(HttpMethod.Get, exchange.Method);
+        Assert.Equal($"{DataverseUrl}/api/data/v9.2/workflows({workflowId})/Microsoft.Dynamics.CRM.RetrieveUnpublished()?$select=componentstate", exchange.Url);
+    }
+
+    [Fact]
+    public async Task HasUnpublishedDraftAsync_WhenTheWorkflowIsGone_ReportsNoDraft()
+    {
+        var (client, handler) = Create(_ => NotFound());
+
+        Assert.False(await client.HasUnpublishedDraftAsync(Guid.NewGuid(), CancellationToken.None));
+        Assert.Single(handler.Exchanges);
+    }
+
+    [Fact]
+    public async Task HasUnpublishedDraftAsync_WhenTheServiceRefusesTheRead_ReportsTheFailure()
+    {
+        var (client, _) = Create(_ => Failure(HttpStatusCode.Forbidden, "{\"error\":\"denied\"}"));
+
+        var failure = await Assert.ThrowsAsync<DataverseRequestException>(() => client.HasUnpublishedDraftAsync(Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal(HttpStatusCode.Forbidden, failure.StatusCode);
+    }
+
+    [Fact]
     public async Task ListWorkflowsAsync_ReadsEveryColumnTheListingShows()
     {
         var workflowId = Guid.NewGuid();
@@ -467,12 +691,13 @@ public class StandaloneWorkflowDataverseTests
     {
         var (client, handler) = Create(_ => Json("{}"));
 
-        await client.InsertWorkflowAsync(new WorkflowMetadata { WorkflowId = Guid.NewGuid(), Name = "Flow", ClientData = "{}" }, CancellationToken.None);
+        await client.InsertWorkflowAsync(new WorkflowMetadata { WorkflowId = Guid.NewGuid(), Name = "Flow", ClientData = "{}", IsManaged = true }, CancellationToken.None);
 
         var post = Assert.Single(handler.Exchanges, exchange => exchange.Method == HttpMethod.Post);
 
         Assert.DoesNotContain("modifiedon", post.Body, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("createdon", post.Body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ismanaged", post.Body, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -615,6 +840,50 @@ public class StandaloneWorkflowDataverseTests
     }
 
     [Fact]
+    public async Task DeleteWorkflowAsync_WhenTheServiceLosesItsTransaction_DeletesOnTheNextAttempt()
+    {
+        var workflowId = Guid.NewGuid();
+        var deletes = 0;
+        var (client, handler) = Create(request => request.Method == HttpMethod.Get
+            ? Json($"{{\"workflowid\":\"{workflowId}\",\"statecode\":0}}")
+            : ++deletes == 1
+                ? Failure(HttpStatusCode.InternalServerError, NoActiveTransactionBody)
+                : new HttpResponseMessage(HttpStatusCode.NoContent));
+
+        Assert.True(await client.DeleteWorkflowAsync(workflowId, CancellationToken.None));
+        Assert.Equal(2, handler.Exchanges.Count(exchange => exchange.Method == HttpMethod.Delete));
+    }
+
+    [Fact]
+    public async Task DeleteWorkflowAsync_WhenAnEarlierAttemptAlreadyRemovedTheRow_ReportsItDeleted()
+    {
+        var workflowId = Guid.NewGuid();
+        var deletes = 0;
+        var (client, handler) = Create(request => request.Method == HttpMethod.Get
+            ? Json($"{{\"workflowid\":\"{workflowId}\",\"statecode\":0}}")
+            : ++deletes == 1
+                ? Failure(HttpStatusCode.GatewayTimeout, string.Empty)
+                : NotFound());
+
+        Assert.True(await client.DeleteWorkflowAsync(workflowId, CancellationToken.None));
+        Assert.Equal(2, handler.Exchanges.Count(exchange => exchange.Method == HttpMethod.Delete));
+    }
+
+    [Fact]
+    public async Task DeleteWorkflowAsync_WhenTheServiceKeepsLosingItsTransaction_ReportsTheFailureAfterThreeAttempts()
+    {
+        var workflowId = Guid.NewGuid();
+        var (client, handler) = Create(request => request.Method == HttpMethod.Get
+            ? Json($"{{\"workflowid\":\"{workflowId}\",\"statecode\":0}}")
+            : Failure(HttpStatusCode.InternalServerError, NoActiveTransactionBody));
+
+        var failure = await Assert.ThrowsAsync<DataverseRequestException>(() => client.DeleteWorkflowAsync(workflowId, CancellationToken.None));
+
+        Assert.Contains("0x80040251", failure.ResponseBody, StringComparison.Ordinal);
+        Assert.Equal(3, handler.Exchanges.Count(exchange => exchange.Method == HttpMethod.Delete));
+    }
+
+    [Fact]
     public async Task UpdateWorkflowDefinitionAsync_WhenTheServiceRefuses_ReportsTheFailure()
     {
         var (client, _) = Create(_ => new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("ConnectionAuthorizationFailed", Encoding.UTF8, "application/json") });
@@ -622,5 +891,57 @@ public class StandaloneWorkflowDataverseTests
         var response = await client.UpdateWorkflowDefinitionAsync(new WorkflowMetadata { WorkflowId = Guid.NewGuid(), Name = "WF", ClientData = "{}" }, CancellationToken.None);
 
         Assert.Contains("ConnectionAuthorizationFailed", response.ErrorMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task UpdateWorkflowAsync_AsksForTheRowTheServiceStored_AndReturnsIt()
+    {
+        var workflowId = Guid.NewGuid();
+        var preferences = new List<string>();
+        var (client, handler) = Create(request =>
+        {
+            if (request.Method.Method == "PATCH")
+            {
+                preferences.AddRange(request.Headers.GetValues("Prefer"));
+            }
+
+            return Json(request.Method == HttpMethod.Get ? "{}" : $$"""{"workflowid":"{{workflowId}}","name":"Stored","clientdata":"{}","statecode":0,"statuscode":1}""");
+        });
+
+        var response = await client.UpdateWorkflowAsync(Guid.NewGuid(), new WorkflowMetadata { WorkflowId = workflowId, Name = "Local", ClientData = "{}", StateCode = 0, StatusCode = 1 }, CancellationToken.None);
+
+        Assert.Equal(["return=representation"], preferences);
+        Assert.Contains("$select=", Assert.Single(handler.Exchanges, exchange => exchange.Method.Method == "PATCH").Url, StringComparison.Ordinal);
+        Assert.Equal("Stored", response.StoredWorkflow!.Name);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task InsertWorkflowAsync_ReturnsTheRowItsLastWriteStored(int stateCode)
+    {
+        var workflowId = Guid.NewGuid();
+        var (client, _) = Create(request => Json(request.Method == HttpMethod.Post ? $$"""{"workflowid":"{{workflowId}}","statecode":0,"statuscode":1}""" : $$"""{"workflowid":"{{workflowId}}","statecode":1,"statuscode":2}"""));
+
+        var response = await client.InsertWorkflowAsync(new WorkflowMetadata { WorkflowId = workflowId, Name = "Flow", ClientData = "{}", StateCode = stateCode, StatusCode = stateCode == 1 ? 2 : 1 }, CancellationToken.None);
+
+        Assert.Equal(stateCode, response.StoredWorkflow!.StateCode);
+    }
+
+    [Fact]
+    public async Task AWorkflowWrite_StopsAskingForAColumnTheEnvironmentLacks_AndStillReturnsTheRow()
+    {
+        var workflowId = Guid.NewGuid();
+        var (client, handler) = Create(request => request.RequestUri!.Query.Contains("introducedversion", StringComparison.Ordinal)
+            ? new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("{\"error\":{\"message\":\"Could not find a property named 'introducedversion' on type 'Microsoft.Dynamics.CRM.workflow'.\"}}", Encoding.UTF8, "application/json") }
+            : Json($$"""{"workflowid":"{{workflowId}}","name":"WF"}"""));
+
+        var response = await client.UpdateWorkflowAsync(Guid.NewGuid(), new WorkflowMetadata { WorkflowId = workflowId, Name = "WF", ClientData = "{}" }, CancellationToken.None);
+        var patches = handler.Exchanges.Where(exchange => exchange.Method.Method == "PATCH").ToList();
+
+        Assert.Empty(response.ErrorMessage);
+        Assert.Equal(workflowId, response.StoredWorkflow!.WorkflowId);
+        Assert.Equal(2, patches.Count);
+        Assert.Equal(patches[0].Body, patches[1].Body);
     }
 }

@@ -1,0 +1,6 @@
+mcs.metadata:
+  componentName: my-skill-5
+  description: description of my skill 5
+  schemaName: ahe2e_MCSCliAgent.skill.my-skill-1_abH
+kind: InlineAgentSkill
+authoringSource: Blank

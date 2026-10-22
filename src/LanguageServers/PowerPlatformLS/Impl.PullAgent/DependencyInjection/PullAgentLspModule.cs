@@ -106,6 +106,7 @@
             services.AddSingleton<IMethodHandler, CloneStandaloneWorkflowHandler>();
             services.AddSingleton<IMethodHandler, CreateStandaloneWorkflowHandler>();
             services.AddSingleton<IMethodHandler, DeleteStandaloneWorkflowHandler>();
+            services.AddSingleton<IMethodHandler, GetStandaloneWorkflowAgentUseHandler>();
             services.AddSingleton<IMethodHandler, RemoveConnectionReferenceHandler>();
             services.AddSingleton<IMethodHandler, ListConnectorsHandler>();
             services.AddSingleton<IMethodHandler, CreateConnectionReferenceHandler>();

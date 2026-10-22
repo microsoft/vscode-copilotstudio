@@ -192,4 +192,23 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 Deleted = await StandaloneSynchronizer.DeleteAsync(request.WorkflowId, null, cancellationToken).ConfigureAwait(false),
             }, cancellationToken);
     }
+
+    [LanguageServerEndpoint(GetStandaloneWorkflowAgentUseRequest.MessageName, LanguageServerConstants.DefaultLanguageName)]
+    internal class GetStandaloneWorkflowAgentUseHandler : StandaloneWorkflowHandlerBase, IRequestHandler<GetStandaloneWorkflowAgentUseRequest, GetStandaloneWorkflowAgentUseResponse, RequestContext>
+    {
+        public GetStandaloneWorkflowAgentUseHandler(IIslandControlPlaneService islandControlPlaneService, ITokenManager dataverseTokenManager, ISyncDataverseClient dataverseClient, LspDataverseHttpClientAccessor dataverseHttpClientAccessor, IStandaloneWorkflowSynchronizer standaloneSynchronizer, IWorkspaceSynchronizer workspaceSynchronizer, IFileAccessorFactory fileAccessorFactory, ILspLogger logger)
+            : base(islandControlPlaneService, dataverseTokenManager, dataverseClient, dataverseHttpClientAccessor, standaloneSynchronizer, workspaceSynchronizer, fileAccessorFactory, logger)
+        {
+        }
+
+        public override bool MutatesSolutionState => false;
+
+        public Task<GetStandaloneWorkflowAgentUseResponse> HandleRequestAsync(GetStandaloneWorkflowAgentUseRequest request, RequestContext context, CancellationToken cancellationToken) =>
+            RunAsync(request, async () =>
+            {
+                var agentUse = await StandaloneSynchronizer.GetAgentUseAsync(request.WorkflowId, cancellationToken).ConfigureAwait(false);
+
+                return new GetStandaloneWorkflowAgentUseResponse { Code = 200, Message = string.Empty, AgentNames = agentUse.AgentNames.ToImmutableArray(), Warning = agentUse.Warning };
+            }, cancellationToken);
+    }
 }

@@ -1,0 +1,3 @@
+connectionReferences:
+  - connectionReferenceLogicalName: new_sharedteams_777c895a
+    connectorId: /providers/Microsoft.PowerApps/apis/shared_teams
