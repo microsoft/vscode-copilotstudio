@@ -1,0 +1,17 @@
+mcs.metadata:
+  componentName: Microsoft Teams - Create a chat
+kind: TaskDialog
+modelDisplayName: Create a chat
+modelDescription: Creates a one on one or group chat
+outputs:
+  - propertyName: id
+
+action:
+  kind: InvokeConnectorTaskAction
+  connectionReference: ahe2e_MCSClassicAgent.shared_teams.0add195409434636943683365d5bbcce
+  connectionProperties:
+    mode: Invoker
+
+  operationId: CreateChat
+
+outputMode: All

@@ -67,6 +67,17 @@ internal sealed class FakeStandaloneWorkflowClient : IStandaloneWorkflowDatavers
         return Task.FromResult(_rows.TryGetValue(workflowId, out var row) ? (ReturnStoredInstance ? row : Copy(row)) : null);
     }
 
+    public HashSet<Guid> Drafts { get; } = new();
+
+    public List<Guid> DraftChecks { get; } = new();
+
+    public Task<bool> HasUnpublishedDraftAsync(Guid workflowId, CancellationToken cancellationToken)
+    {
+        DraftChecks.Add(workflowId);
+
+        return Task.FromResult(Drafts.Contains(workflowId));
+    }
+
     public Task<SyncDataverseClient.WorkflowSummary[]> ListWorkflowsAsync(string? nameFilter, int? maximumCount, CancellationToken cancellationToken)
     {
         Calls.Add("list");
@@ -76,6 +87,15 @@ internal sealed class FakeStandaloneWorkflowClient : IStandaloneWorkflowDatavers
             .Select(row => new SyncDataverseClient.WorkflowSummary { WorkflowId = row.WorkflowId, Name = row.Name, Description = row.Description, StateCode = row.StateCode });
 
         return Task.FromResult((maximumCount is { } cap ? rows.Take(cap) : rows).ToArray());
+    }
+
+    public Dictionary<Guid, IReadOnlyList<string>> AgentNames { get; } = new();
+
+    public Task<IReadOnlyList<string>> GetAgentsUsingWorkflowAsync(Guid workflowId, CancellationToken cancellationToken)
+    {
+        Calls.Add("agents");
+
+        return Task.FromResult(AgentNames.TryGetValue(workflowId, out var names) ? names : Array.Empty<string>());
     }
 
     public Task<bool> DeleteWorkflowAsync(Guid workflowId, CancellationToken cancellationToken)
@@ -164,6 +184,7 @@ internal sealed class FakeStandaloneWorkflowClient : IStandaloneWorkflowDatavers
         ClientData = source.ClientData,
         StateCode = source.StateCode,
         StatusCode = source.StatusCode,
+        IsManaged = source.IsManaged,
         JsonFileName = source.JsonFileName,
         ConnectionReferences = source.ConnectionReferences.ToList(),
     };
@@ -220,14 +241,17 @@ public class StandaloneWorkflowSynchronizerTests
         return workspace;
     }
 
-    private static SyncDataverseClient.WorkflowMetadata Row(Guid workflowId, string name, string definition, int stateCode = 0) => new()
+    private static SyncDataverseClient.WorkflowMetadata Row(Guid workflowId, string name, string definition, int stateCode = 0, bool? isManaged = null) => new()
     {
         WorkflowId = workflowId,
         Name = name,
         ClientData = definition,
         StateCode = stateCode,
         StatusCode = stateCode == 1 ? 2 : 1,
+        IsManaged = isManaged,
     };
+
+    private static Dictionary<string, string?> Snapshot(IFileAccessor workspace) => workspace.ListFiles().ToDictionary(path => path.ToString(), path => Read(workspace, path.ToString()));
 
     [Fact]
     public async Task Download_WritesTheDefinitionMetadataAndDeclaration()
@@ -332,6 +356,7 @@ public class StandaloneWorkflowSynchronizerTests
         Assert.True(moved.Changed);
         Assert.Single(WorkflowWorkspace.FindAll(workspace));
         Assert.Equal(WorkflowWorkspace.RelativeFolderFor("After", workflowId), moved.Folder);
+        Assert.Equal(WorkflowWorkspace.RelativeFolderFor("Before", workflowId), moved.PreviousFolder);
     }
 
     [Fact]
@@ -360,6 +385,49 @@ public class StandaloneWorkflowSynchronizerTests
             () => new StandaloneWorkflowSynchronizer(new FakeStandaloneWorkflowClient()).DownloadAsync(Guid.NewGuid(), NewWorkspace(), "env", CancellationToken.None));
 
         Assert.Equal(StandaloneWorkflowFailure.SourceNotFound, failure.Failure);
+    }
+
+    [Theory]
+    [InlineData("get")]
+    [InlineData("download")]
+    [InlineData("pull")]
+    public async Task AManagedFlow_IsRefusedBeforeAnythingIsWritten(string operation)
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+        var workspace = WorkspaceWith(workflowId, "Payroll Approvals", DefinitionWithReference);
+        var synchronizer = new StandaloneWorkflowSynchronizer(client);
+
+        client.Seed(Row(workflowId, "Payroll Approvals", "{\"properties\":{\"from\":\"cloud\"}}", isManaged: true));
+
+        var before = Snapshot(workspace);
+
+        var failure = await Assert.ThrowsAsync<StandaloneWorkflowException>(() => operation switch
+        {
+            "get" => synchronizer.GetAsync(workflowId, CancellationToken.None),
+            "download" => synchronizer.DownloadAsync(workflowId, workspace, "env-contoso", CancellationToken.None),
+            _ => synchronizer.PullAsync(workflowId, workspace, CancellationToken.None),
+        });
+
+        Assert.Equal(StandaloneWorkflowFailure.Managed, failure.Failure);
+        Assert.Equal("Payroll Approvals", failure.Subject);
+        Assert.StartsWith($"The workflow 'Payroll Approvals' ({workflowId}) is managed{(operation == "download" ? " in env-contoso" : string.Empty)}.", failure.Message, StringComparison.Ordinal);
+        Assert.Equal(before, Snapshot(workspace));
+    }
+
+    [Fact]
+    public async Task Download_KeepsWhetherTheFlowIsManagedOutOfTheWorkspaceAndTheCache()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+        var workspace = NewWorkspace();
+
+        client.Seed(Row(workflowId, "My Flow", DefinitionWithReference, isManaged: false));
+
+        var result = await new StandaloneWorkflowSynchronizer(client).DownloadAsync(workflowId, workspace, "env", CancellationToken.None);
+
+        Assert.DoesNotContain("ismanaged", Read(workspace, $"{result.Folder}/{WorkflowWorkspace.MetadataFileName}")!, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ismanaged", Read(workspace, ".mcs/botdefinition.json")!, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -685,6 +753,112 @@ public class StandaloneWorkflowSynchronizerTests
 
         Assert.True(await synchronizer.DeleteAsync(workflowId, null, CancellationToken.None));
         Assert.False(await synchronizer.DeleteAsync(workflowId, null, CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData(new string[0], "")]
+    [InlineData(new[] { "NB1" }, "Copilot Studio agent 'NB1' uses this workflow and loses it when the workflow is deleted.")]
+    [InlineData(new[] { "Alpha", "Beta" }, "Copilot Studio agents 'Alpha' and 'Beta' use this workflow and lose it when the workflow is deleted.")]
+    [InlineData(new[] { "Alpha", "Beta", "Gamma" }, "Copilot Studio agents 'Alpha', 'Beta' and 'Gamma' use this workflow and lose it when the workflow is deleted.")]
+    public async Task GetAgentUse_NamesTheAgentsThatUseTheWorkflowAndWarnsAboutThemOnlyReadingTheService(string[] agentNames, string expectedWarning)
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+
+        client.Seed(Row(workflowId, "Flow", "{}"));
+        client.AgentNames[workflowId] = agentNames;
+
+        var agentUse = await new StandaloneWorkflowSynchronizer(client).GetAgentUseAsync(workflowId, CancellationToken.None);
+
+        Assert.Equal(agentNames, agentUse.AgentNames);
+        Assert.Equal(expectedWarning, agentUse.Warning);
+        Assert.Equal(["agents"], client.Calls);
+        Assert.NotNull(client.Stored(workflowId));
+    }
+
+    private const string DefinitionWithThreeReferences = """
+    {"properties":{"connectionReferences":{"shared_teams":{"api":{"name":"shared_teams"},"connection":{"connectionReferenceLogicalName":"new_teams"}},"shared_msnweather":{"api":{"name":"shared_msnweather"},"connection":{"connectionReferenceLogicalName":"new_weather"}},"shared_office365":{"api":{"name":"shared_office365"},"connection":{"connectionReferenceLogicalName":"new_office"}}}}}
+    """;
+
+    private static FakeStandaloneWorkflowClient ClientWithWeatherUnboundAndOfficeBound()
+    {
+        var client = new FakeStandaloneWorkflowClient();
+
+        client.ConnectionReferences["new_weather"] = null;
+        client.ConnectionReferences["new_office"] = "office-connection";
+
+        return client;
+    }
+
+    [Fact]
+    public async Task Upsert_ReportsTheDeclaredAndTheExistingUnboundReferencesButNotTheBoundOnes()
+    {
+        var client = ClientWithWeatherUnboundAndOfficeBound();
+
+        var result = await new StandaloneWorkflowSynchronizer(client).UpsertAsync(WorkspaceWith(Guid.NewGuid(), "Flow", DefinitionWithThreeReferences), "env", CancellationToken.None);
+
+        Assert.Equal(["new_teams", "new_weather"], result.UnboundConnectionReferences);
+        Assert.Equal(1, client.Calls.Count(call => call == "references"));
+    }
+
+    [Fact]
+    public async Task Upsert_OfAFlowWithoutReferences_ReportsNoUnboundReference()
+    {
+        var result = await new StandaloneWorkflowSynchronizer(new FakeStandaloneWorkflowClient()).UpsertAsync(WorkspaceWith(Guid.NewGuid(), "Flow", "{}"), "env", CancellationToken.None);
+
+        Assert.Empty(result.UnboundConnectionReferences);
+    }
+
+    [Fact]
+    public async Task Upsert_WhenTheFlowStaysRunning_ReportsNoUnboundReference()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+
+        client.ConnectionReferences["new_teams"] = null;
+        client.Seed(Row(workflowId, "Flow", "{}", stateCode: 1));
+
+        var result = await new StandaloneWorkflowSynchronizer(client).UpsertAsync(WorkspaceWith(workflowId, "Flow", DefinitionWithReference, stateCode: 1), "env", CancellationToken.None);
+
+        Assert.True(result.Workflow.IsActivated);
+        Assert.Empty(result.UnboundConnectionReferences);
+    }
+
+    [Fact]
+    public async Task Upsert_WhenTheMetadataNamesAWorkflowDataverseWouldRefuse_FailsNamingTheFileBeforeAnyCall()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+        var workspace = WorkspaceWith(workflowId, "Flow", DefinitionWithReference);
+        var metadataPath = WorkflowWorkspace.FindAll(workspace).Single().MetadataPath.ToString();
+
+        Write(workspace, metadataPath, WorkflowMetadataFile.Write(new SyncDataverseClient.WorkflowMetadata { WorkflowId = workflowId, Name = new string('a', 150) }));
+
+        var failure = await Assert.ThrowsAsync<StandaloneWorkflowException>(() => new StandaloneWorkflowSynchronizer(client).UpsertAsync(workspace, "env", CancellationToken.None));
+
+        Assert.Equal(StandaloneWorkflowFailure.InvalidName, failure.Failure);
+        Assert.Contains(metadataPath, failure.Message, StringComparison.Ordinal);
+        Assert.Empty(client.Calls);
+    }
+
+    [Fact]
+    public async Task Pull_AfterACaseOnlyRenameOnACaseInsensitiveDisk_KeepsTheWorkflowInOneFolder()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+        var workspace = new Microsoft.CopilotStudio.McsCore.InMemoryFileAccessor();
+        var synchronizer = new StandaloneWorkflowSynchronizer(client);
+
+        client.Seed(Row(workflowId, "my flow", DefinitionWithReference));
+        await synchronizer.DownloadAsync(workflowId, workspace, "env", CancellationToken.None);
+        client.Seed(Row(workflowId, "My Flow", DefinitionWithReference));
+
+        await synchronizer.PullAsync(workflowId, workspace, CancellationToken.None);
+
+        var workflow = Assert.Single(WorkflowWorkspace.FindAll(workspace));
+
+        Assert.True(workspace.Exists(workflow.DefinitionPath));
+        Assert.Equal("My Flow", WorkflowMetadataFile.ReadStrict(Read(workspace, workflow.MetadataPath.ToString())!)!.Name);
     }
 }
 

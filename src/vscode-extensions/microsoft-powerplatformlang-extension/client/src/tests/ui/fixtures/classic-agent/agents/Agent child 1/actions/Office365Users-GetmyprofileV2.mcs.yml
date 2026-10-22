@@ -1,0 +1,77 @@
+mcs.metadata:
+  componentName: Office 365 Users - Get my profile (V2)
+kind: TaskDialog
+modelDisplayName: Get my profile (V2) - local 1
+modelDescription: "Retrieves the profile of the current user. Learn more about available fields to select"
+outputs:
+  - propertyName: aboutMe
+
+  - propertyName: accountEnabled
+
+  - propertyName: birthday
+
+  - propertyName: businessPhones
+
+  - propertyName: city
+
+  - propertyName: companyName
+
+  - propertyName: country
+
+  - propertyName: department
+
+  - propertyName: displayName
+
+  - propertyName: givenName
+
+  - propertyName: hireDate
+
+  - propertyName: id
+
+  - propertyName: interests
+
+  - propertyName: jobTitle
+
+  - propertyName: mail
+
+  - propertyName: mailNickname
+
+  - propertyName: mobilePhone
+
+  - propertyName: mySite
+
+  - propertyName: officeLocation
+
+  - propertyName: pastProjects
+
+  - propertyName: postalCode
+
+  - propertyName: preferredLanguage
+
+  - propertyName: preferredName
+
+  - propertyName: responsibilities
+
+  - propertyName: schools
+
+  - propertyName: skills
+
+  - propertyName: state
+
+  - propertyName: streetAddress
+
+  - propertyName: surname
+
+  - propertyName: userPrincipalName
+
+  - propertyName: userType
+
+action:
+  kind: InvokeConnectorTaskAction
+  connectionReference: ahe2e_MCSClassicAgent.shared_office365users.b446bdb70ea5437cacefe7fe2170fccb
+  connectionProperties:
+    mode: Invoker
+
+  operationId: MyProfile_V2
+
+outputMode: All

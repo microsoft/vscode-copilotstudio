@@ -9,5 +9,7 @@
         public bool DraftConnectionReferenceWorkflows { get; set; }
 
         public bool OverwriteLocalChanges { get; set; }
+
+        public bool RequireNoUnpulledChanges { get; set; }
     }
 }

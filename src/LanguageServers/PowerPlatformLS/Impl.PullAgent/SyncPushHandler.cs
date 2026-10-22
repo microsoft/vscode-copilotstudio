@@ -21,8 +21,15 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         {
         }
 
-        protected override async Task<string> ExecuteStandaloneAsync(SyncAgentRequest request, IFileAccessor fileAccessor, CancellationToken cancellationToken) =>
-            (await StandaloneSynchronizer.UpsertAsync(fileAccessor, request.EnvironmentInfo.EnvironmentId, cancellationToken, new CopilotStudio.Sync.StandaloneWorkflowUpsertOptions { ActivationMode = ActivationModeFor(request) }).ConfigureAwait(false)).Warning;
+        protected override async Task<string> ExecuteStandaloneAsync(SyncAgentRequest request, IFileAccessor fileAccessor, CancellationToken cancellationToken)
+        {
+            if (request.RequireNoUnpulledChanges)
+            {
+                await StandaloneSynchronizer.RequireNoUnpulledChangesAsync(fileAccessor, request.EnvironmentInfo.EnvironmentId, cancellationToken).ConfigureAwait(false);
+            }
+
+            return (await StandaloneSynchronizer.UpsertAsync(fileAccessor, request.EnvironmentInfo.EnvironmentId, cancellationToken, new CopilotStudio.Sync.StandaloneWorkflowUpsertOptions { ActivationMode = ActivationModeFor(request) }).ConfigureAwait(false)).Warning;
+        }
 
         private static CopilotStudio.Sync.WorkflowActivationMode ActivationModeFor(SyncAgentRequest request) =>
             request.DraftConnectionReferenceWorkflows ? CopilotStudio.Sync.WorkflowActivationMode.DraftWhenConnectionReferencesExist : CopilotStudio.Sync.WorkflowActivationMode.DraftWhenConnectionsUnbound;

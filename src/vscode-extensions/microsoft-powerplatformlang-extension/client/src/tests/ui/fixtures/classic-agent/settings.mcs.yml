@@ -1,0 +1,26 @@
+displayName: MCS Classic Agent
+schemaName: ahe2e_MCSClassicAgent
+accessControlPolicy: GroupMembership
+authenticationMode: Integrated
+authenticationTrigger: Always
+configuration:
+  settings:
+    GenerativeActionsEnabled: true
+
+  isAgentConnectable: true
+  gPTSettings:
+    defaultSchemaName: ahe2e_MCSClassicAgent.gpt.default
+
+  aISettings:
+    useModelKnowledge: true
+    isFileAnalysisEnabled: true
+    isSemanticSearchEnabled: true
+    contentModeration: Low
+    optInUseLatestModels: false
+
+  recognizer:
+    kind: GenerativeAIRecognizer
+
+publishedOn: 2026-09-10T15:49:54.0000000Z
+template: default-2.1.0
+language: 1033

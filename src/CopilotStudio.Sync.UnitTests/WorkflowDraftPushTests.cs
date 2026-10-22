@@ -84,7 +84,7 @@ public class WorkflowDraftPushTests : IDisposable
         dataverse
             .Setup(c => c.UpdateWorkflowAsync(It.IsAny<Guid?>(), It.IsAny<WorkflowMetadata>(), It.IsAny<CancellationToken>()))
             .Callback<Guid?, WorkflowMetadata?, CancellationToken>((_, m, _) => captured[0] = m)
-            .ReturnsAsync(new WorkflowResponse());
+            .ReturnsAsync((Guid? _, WorkflowMetadata? workflow, CancellationToken _) => new WorkflowResponse { WorkflowId = workflow!.WorkflowId, StoredWorkflow = workflow });
 
         dataverse
             .Setup(c => c.GetConnectionReferencesByLogicalNamesAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
@@ -93,12 +93,14 @@ public class WorkflowDraftPushTests : IDisposable
         return dataverse;
     }
 
-    private static Mock<ISyncDataverseClient> CreateFailingDataverse(string errorMessage)
+    private static Mock<ISyncDataverseClient> CreateFailingDataverse(string errorMessage) => CreateDataverseAnswering(new WorkflowResponse { ErrorMessage = errorMessage });
+
+    private static Mock<ISyncDataverseClient> CreateDataverseAnswering(WorkflowResponse response)
     {
         var dataverse = new Mock<ISyncDataverseClient>();
         dataverse
             .Setup(c => c.UpdateWorkflowAsync(It.IsAny<Guid?>(), It.IsAny<WorkflowMetadata>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new WorkflowResponse { ErrorMessage = errorMessage });
+            .ReturnsAsync(response);
 
         dataverse
             .Setup(c => c.GetConnectionReferencesByLogicalNamesAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
@@ -674,5 +676,73 @@ public class WorkflowDraftPushTests : IDisposable
 
         var projected = Assert.Single(afterDelete.Workflows);
         Assert.Equal(_workflowId, projected.WorkflowId.Value);
+    }
+
+    [Fact]
+    public async Task PushedWorkflow_CachesTheCopyTheServiceStored_NotTheLocalFiles()
+    {
+        var synchronizer = CreateSynchronizer();
+        WriteWorkflowFiles("{\"properties\":{\"definition\":{}}}", stateCode: 0, statusCode: 1);
+        var stored = new WorkflowMetadata { WorkflowId = _workflowId, Name = "My Flow", Type = 1, Category = 5, StateCode = 0, StatusCode = 1, ClientData = "{\"properties\":{\"definition\":{}},\"schemaVersion\":\"1.0.0.0\"}" };
+        var agentId = Guid.NewGuid();
+        var definition = new BotDefinition().WithEntity(new BotEntity.Builder { SchemaName = new BotEntitySchemaName("cre98_AgentC1"), CdsBotId = agentId }.Build());
+        var fileAccessor = new FileAccessorFactory().Create(_workspace);
+        WorkspaceSynchronizer.WriteCloudCache(fileAccessor, definition);
+        await fileAccessor.WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "token-1", CancellationToken.None);
+
+        var (_, cloudFlowMetadata) = await synchronizer.UpsertWorkflowForAgentAsync(_workspace, CreateDataverseAnswering(new WorkflowResponse { WorkflowId = _workflowId, StoredWorkflow = stored }).Object, agentId, CancellationToken.None);
+        await synchronizer.PushLocalChangesAsync(
+            _workspace,
+            ComponentWriterDefensiveTests.CreateMockOperationContext(),
+            definition,
+            new Mock<ISyncDataverseClient>().Object,
+            new AgentSyncInfo { AgentId = agentId },
+            cloudFlowMetadata,
+            ImmutableArray<AIPromptMetadata>.Empty,
+            CancellationToken.None);
+
+        var cached = Assert.Single(WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!.Flows);
+        Assert.Equal(stored.ClientData, WorkspaceSynchronizer.GetRawClientData(cached));
+    }
+
+    [Fact]
+    public async Task PushedWorkflow_WhenTheServiceReturnsNoCopy_ReadsOnlyTheWrittenFlowBack_Once()
+    {
+        var synchronizer = CreateSynchronizer();
+        WriteWorkflowFiles("{}", stateCode: 0, statusCode: 1);
+        var unchangedId = Guid.NewGuid();
+        var unchangedFolder = Path.Combine(_root, "workflows", "Other-" + unchangedId.ToString("D"));
+        Directory.CreateDirectory(unchangedFolder);
+        File.WriteAllText(Path.Combine(unchangedFolder, "metadata.yml"), $"workflowId: {unchangedId}\nname: Other\ntype: 1\ncategory: 5\nstateCode: 0\nstatusCode: 1\n");
+        File.WriteAllText(Path.Combine(unchangedFolder, "workflow.json"), "{}");
+        var (_, seeded) = await synchronizer.UpsertWorkflowForAgentAsync(_workspace, CreateDataverse(new WorkflowMetadata?[1]).Object, Guid.NewGuid(), CancellationToken.None);
+        WorkspaceSynchronizer.WriteCloudCache(new FileAccessorFactory().Create(_workspace), new BotDefinition().WithFlows(seeded.Workflows));
+        File.WriteAllText(Path.Combine(_workflowFolder, "workflow.json"), "{\"properties\":{}}");
+        var serviceRow = new WorkflowMetadata { WorkflowId = _workflowId, Name = "My Flow", Type = 1, Category = 5, StateCode = 0, StatusCode = 1, ClientData = "{\"properties\":{},\"schemaVersion\":\"1.0.0.0\"}" };
+        var dataverse = CreateDataverseAnswering(new WorkflowResponse { WorkflowId = _workflowId });
+        var reader = dataverse.As<IStandaloneWorkflowDataverseClient>();
+        reader.Setup(c => c.GetWorkflowAsync(_workflowId, It.IsAny<CancellationToken>())).ReturnsAsync(serviceRow);
+
+        var (_, metadata) = await synchronizer.UpsertWorkflowForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None);
+
+        Assert.Equal(serviceRow.ClientData, WorkspaceSynchronizer.GetRawClientData(metadata.Workflows.Single(flow => flow.WorkflowId.Value == _workflowId)));
+        Assert.Contains(metadata.Workflows, flow => flow.WorkflowId.Value == unchangedId);
+        reader.Verify(c => c.GetWorkflowAsync(_workflowId, It.IsAny<CancellationToken>()), Times.Once);
+        reader.Verify(c => c.GetWorkflowAsync(unchangedId, It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task PushedWorkflow_WhenNoServiceCopyCanBeHad_KeepsThePreviouslyCachedCopy()
+    {
+        var synchronizer = CreateSynchronizer();
+        WriteWorkflowFiles("{}", stateCode: 0, statusCode: 1);
+        var (_, seeded) = await synchronizer.UpsertWorkflowForAgentAsync(_workspace, CreateDataverse(new WorkflowMetadata?[1]).Object, Guid.NewGuid(), CancellationToken.None);
+        WorkspaceSynchronizer.WriteCloudCache(new FileAccessorFactory().Create(_workspace), new BotDefinition().WithFlows(seeded.Workflows));
+        File.WriteAllText(Path.Combine(_workflowFolder, "workflow.json"), "{\"properties\":{}}");
+
+        var (responses, metadata) = await synchronizer.UpsertWorkflowForAgentAsync(_workspace, CreateDataverseAnswering(new WorkflowResponse { WorkflowId = _workflowId }).Object, Guid.NewGuid(), CancellationToken.None);
+
+        Assert.Empty(Assert.Single(responses).ErrorMessage);
+        Assert.Equal(WorkspaceSynchronizer.GetRawClientData(Assert.Single(seeded.Workflows)), WorkspaceSynchronizer.GetRawClientData(Assert.Single(metadata.Workflows)));
     }
 }

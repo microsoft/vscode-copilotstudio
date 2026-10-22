@@ -1,0 +1,3 @@
+﻿# Standalone workflow project marker (Sync overlay; generic YAML, never MCS-parsed).
+# Declares this workspace to hold workflows and no agent; adding an agent project supersedes it.
+workflowProjectVersion: 1

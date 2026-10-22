@@ -1,0 +1,15 @@
+mcs.metadata:
+  componentName: Weather Agent 2 - Weather Agent 2
+  description: This agent answers the weather question related to US. This required city and state of US.
+kind: TaskDialog
+modelDisplayName: Weather Agent 2
+modelDescription: This agent answers the weather question related to US. This required city and state of US.
+action:
+  kind: InvokeExternalAgentTaskAction
+  connectionReference: ahe2e_MCSClassicAgent.shared_cre98-5fweather-20agent-202-5f2c520b622e718fe6.c712ea8cc54c478cb088f5d8081b15d6
+  connectionProperties:
+    mode: Invoker
+
+  operationDetails:
+    kind: ActivityProtocolMetadata
+    operationId: SendActivity

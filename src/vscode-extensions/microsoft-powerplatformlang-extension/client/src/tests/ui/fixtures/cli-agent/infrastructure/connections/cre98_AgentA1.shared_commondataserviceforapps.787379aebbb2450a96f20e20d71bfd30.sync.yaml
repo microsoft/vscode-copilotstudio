@@ -1,0 +1,3 @@
+connectionReferences:
+  - connectionReferenceLogicalName: cre98_AgentA1.shared_commondataserviceforapps.787379aebbb2450a96f20e20d71bfd30
+    connectorId: /providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps

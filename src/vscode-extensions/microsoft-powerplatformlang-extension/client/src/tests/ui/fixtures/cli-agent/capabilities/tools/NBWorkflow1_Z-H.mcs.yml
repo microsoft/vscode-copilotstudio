@@ -1,0 +1,9 @@
+mcs.metadata:
+  componentName: NB Workflow1
+  description: nb workflow 1 description
+kind: WorkflowTool
+workflowId: 588a3ca3-076c-1b1e-7bee-5e4a397a639d
+connectionProperties:
+  $kind: ConnectionProperties
+  diagnostics:
+  mode: Invoker

@@ -32,6 +32,7 @@ export const LspMethods = {
   CLONE_STANDALONE_WORKFLOW: "powerplatformls/cloneStandaloneWorkflow",
   CREATE_STANDALONE_WORKFLOW: "powerplatformls/createStandaloneWorkflow",
   DELETE_STANDALONE_WORKFLOW: "powerplatformls/deleteStandaloneWorkflow",
+  GET_STANDALONE_WORKFLOW_AGENT_USE: "powerplatformls/getStandaloneWorkflowAgentUse",
 } as const;
 
 export enum CoreServicesClusterCategory {

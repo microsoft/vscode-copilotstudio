@@ -152,7 +152,9 @@ public class McsYamlCorpusTests
     {
         AssertObjectMapperMatchesReference<SyncDataverseClient.WorkflowMetadata>(
             "workflows",
-            builder => builder.WithAttributeOverride<SyncDataverseClient.WorkflowMetadata>(metadata => metadata.ClientData!, new YamlDotNet.Serialization.YamlIgnoreAttribute()),
+            builder => builder
+                .WithAttributeOverride<SyncDataverseClient.WorkflowMetadata>(metadata => metadata.ClientData!, new YamlDotNet.Serialization.YamlIgnoreAttribute())
+                .WithAttributeOverride<SyncDataverseClient.WorkflowMetadata>(metadata => metadata.IsManaged!, new YamlDotNet.Serialization.YamlIgnoreAttribute()),
             content => McsYamlObjectMapper.DeserializeStrict<SyncDataverseClient.WorkflowMetadata>(content));
     }
 

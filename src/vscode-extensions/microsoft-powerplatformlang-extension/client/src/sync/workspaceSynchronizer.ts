@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { resetAccount, hasUsableTenantId, isIdentityUnbound, resolveAccountIdentity } from '../clients/account';
 import { AccountInfo, SyncRequest, SyncResponse, WorkflowResponse, AIPromptResponse } from '../types';
-import { captureWorkspaceConnectionSnapshot, CopilotStudioWorkspace, getAccountRepairFailureMessage, persistWorkspaceAccountBinding, refreshSyncInfoFromConnection, repairAccountInfo, tryRepairAgentManagementEndpoint } from './localWorkspaces';
+import { captureWorkspaceConnectionSnapshot, CopilotStudioWorkspace, getAccountRepairFailureMessage, persistWorkspaceAccountBinding, refreshSyncInfoFromConnection, repairAccountInfo, tryRepairAgentManagementEndpoint, WorkspaceType } from './localWorkspaces';
 import { uploadKnowledgeFiles } from '../knowledgeFiles/uploadKnowledgeFiles';
 import { virtualKnowledgeFileSystemProvider } from '../knowledgeFiles/virtualKnowledgeFile';
 import { knowledgeTreeDataProvider } from '../knowledgeFiles/knowledgeFileTree';
@@ -13,6 +13,8 @@ import logger, { formatPii, PiiRedactionType, stripPiiTags } from '../services/l
 let treeDataProvider: knowledgeTreeDataProvider | undefined;
 
 const map = new Map<string, WorkspaceSynchronizer>();
+
+const errorsShownToTheUser = new WeakSet<Error>();
 
 export enum SyncState {
   Idle,
@@ -71,12 +73,25 @@ export interface PushOptions {
     suppressSuccessNotification?: boolean;
     suppressDisabledWorkflowWarnings?: boolean;
     draftConnectionReferenceWorkflows?: boolean;
+    requireNoUnpulledChanges?: boolean;
 }
 
 export interface PullOptions {
     suppressErrorNotification?: boolean;
     suppressSuccessNotification?: boolean;
     account?: Partial<AccountInfo>;
+    offerRemoteOverwrite?: boolean;
+}
+
+export type RemoteChangeOptions = Pick<PushOptions, 'requireNoUnpulledChanges'> & Pick<PullOptions, 'offerRemoteOverwrite'>;
+
+export type ConflictResolution = 'getRemoteChanges' | 'replaceLocalChanges' | 'overwriteRemoteChanges';
+
+export class RemoteOverwriteRequestedError extends Error {
+  public constructor() {
+    super('Applying the local changes over the remote changes was requested.');
+    this.name = 'RemoteOverwriteRequestedError';
+  }
 }
 
 export interface WorkspaceSynchronizer {
@@ -175,10 +190,11 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
         suppressSuccessNotification = false,
         suppressDisabledWorkflowWarnings = false,
         draftConnectionReferenceWorkflows = false,
+        requireNoUnpulledChanges = false,
       } = options;
       return await executeSyncOperation(async () => {
         const workspace = currentWorkspace;
-        const response = await sync(workspace, 'applying changes', LspMethods.SYNC_PUSH, false, suppressErrorNotification, suppressSuccessNotification, suppressDisabledWorkflowWarnings, draftConnectionReferenceWorkflows);
+        const response = await sync(workspace, 'applying changes', LspMethods.SYNC_PUSH, false, suppressErrorNotification, suppressSuccessNotification, suppressDisabledWorkflowWarnings, draftConnectionReferenceWorkflows, true, undefined, false, { requireNoUnpulledChanges });
         replaceLocalChanges(workspace.workspaceUri, response.localChanges);
         await uploadKnowledgeFiles(workspace);
         return response;
@@ -197,7 +213,9 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
           false,
           false,
           true,
-          options.account
+          options.account,
+          false,
+          { offerRemoteOverwrite: options.offerRemoteOverwrite }
         );
         replaceLocalChanges(workspace.workspaceUri, response.localChanges);
 
@@ -232,7 +250,7 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
   };
 }
 
-export async function sync(workspace: CopilotStudioWorkspace, displayText: string, methodName: string, silent: boolean, suppressErrorNotification = false, suppressSuccessNotification = false, suppressDisabledWorkflowWarnings = false, draftConnectionReferenceWorkflows = false, retryOnUserNotMember = true, accountOverride?: Partial<AccountInfo>, overwriteLocalChanges = false): Promise<SyncResponse> {
+export async function sync(workspace: CopilotStudioWorkspace, displayText: string, methodName: string, silent: boolean, suppressErrorNotification = false, suppressSuccessNotification = false, suppressDisabledWorkflowWarnings = false, draftConnectionReferenceWorkflows = false, retryOnUserNotMember = true, accountOverride?: Partial<AccountInfo>, overwriteLocalChanges = false, remoteChanges: RemoteChangeOptions = {}): Promise<SyncResponse> {
   const { workspaceUri } = workspace;
   if (!workspace.syncInfo) {
     throw new Error(`${displayText} failed. Connection file .mcs::conn.json is missing, please clone again.`);
@@ -311,6 +329,7 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
     workspaceUri,
     draftConnectionReferenceWorkflows,
     overwriteLocalChanges,
+    requireNoUnpulledChanges: remoteChanges.requireNoUnpulledChanges ?? false,
   };
 
   try {
@@ -335,11 +354,17 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     if (!overwriteLocalChanges && holdsUnpushedLocalChanges(error)) {
-      if (await confirmLocalChangeReplacement(errorMessage)) {
-        return await sync(workspace, displayText, methodName, silent, suppressErrorNotification, suppressSuccessNotification, suppressDisabledWorkflowWarnings, draftConnectionReferenceWorkflows, retryOnUserNotMember, accountOverride, true);
+      const resolution = await askLocalChangeResolution(errorMessage, remoteChanges.offerRemoteOverwrite ?? false);
+      if (resolution === 'replaceLocalChanges') {
+        return await sync(workspace, displayText, methodName, silent, suppressErrorNotification, suppressSuccessNotification, suppressDisabledWorkflowWarnings, draftConnectionReferenceWorkflows, retryOnUserNotMember, accountOverride, true, remoteChanges);
+      }
+
+      if (resolution === 'overwriteRemoteChanges') {
+        throw new RemoteOverwriteRequestedError();
       }
 
       logger.logWarning(TelemetryEventsKeys.SyncWorkspaceWarning, `${displayText} was cancelled to keep local changes.`);
+      markShownToTheUser(error);
       throw error;
     }
 
@@ -353,22 +378,29 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
       );
       try {
         resetAccount();
-        return await sync(workspace, displayText, methodName, silent, suppressErrorNotification, suppressSuccessNotification, suppressDisabledWorkflowWarnings, draftConnectionReferenceWorkflows, false, accountOverride);
+        return await sync(workspace, displayText, methodName, silent, suppressErrorNotification, suppressSuccessNotification, suppressDisabledWorkflowWarnings, draftConnectionReferenceWorkflows, false, accountOverride, false, remoteChanges);
       } catch (error) {
-        logger.logError(
-          TelemetryEventsKeys.SyncWorkspaceError,
-          suppressErrorNotification ? undefined : 'Re-authentication failed',
-          suppressErrorNotification ? { message: 'Re-authentication failed', error } : { error }
-        );
+        reportSyncError('Re-authentication failed', error, suppressErrorNotification);
         throw error;
       }
-    } else if (suppressErrorNotification) {
-      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, undefined, { message: `Error ${displayText}`, error });
-      throw error;
     } else {
-      logger.logError(TelemetryEventsKeys.SyncWorkspaceError, `Error ${displayText}`, { error });
+      reportSyncError(`Error ${displayText}`, error, suppressErrorNotification);
       throw error;
     }
+  }
+}
+
+export function reportSyncError(message: string, error: unknown, suppressErrorNotification = false, data?: Parameters<typeof logger.logError>[2]): void {
+  const showsTheError = !suppressErrorNotification && !(error instanceof Error && errorsShownToTheUser.has(error));
+  logger.logError(TelemetryEventsKeys.SyncWorkspaceError, showsTheError ? message : undefined, { message, error, ...data });
+  if (showsTheError) {
+    markShownToTheUser(error);
+  }
+}
+
+function markShownToTheUser(error: unknown): void {
+  if (error instanceof Error) {
+    errorsShownToTheUser.add(error);
   }
 }
 
@@ -381,15 +413,29 @@ export function holdsUnpushedLocalChanges(error: unknown): boolean {
 }
 
 /** Asks whether the unpushed local workflow edits the server named may be replaced. */
-async function confirmLocalChangeReplacement(reason: string): Promise<boolean> {
-  const replace = 'Replace local changes';
-
-  const choice = await vscode.window.showWarningMessage(
+async function askLocalChangeResolution(reason: string, offerRemoteOverwrite: boolean): Promise<ConflictResolution | undefined> {
+  return await askConflictResolution(
     stripPiiTags(reason),
-    { modal: true, detail: 'Getting the cloud copy discards these local changes. Apply them first to keep them.' },
-    replace);
+    {
+      modal: true,
+      detail: offerRemoteOverwrite
+        ? "Replace local changes discards your edits and gets the cloud copy. Overwrite cloud changes applies your edits and discards the cloud's."
+        : 'Getting the cloud copy discards these local changes. Apply them first to keep them.',
+    },
+    [['Replace local changes', 'replaceLocalChanges'], ...(offerRemoteOverwrite ? [['Overwrite cloud changes', 'overwriteRemoteChanges'] as const] : [])]);
+}
 
-  return choice === replace;
+export async function askRemoteChangeResolution(workspace: CopilotStudioWorkspace, remoteCount: number): Promise<ConflictResolution | undefined> {
+  return await askConflictResolution(
+    `The agent has ${remoteCount} remote change${remoteCount === 1 ? '' : 's'} that must be retrieved before your local changes can be applied.`,
+    { modal: true },
+    [['Get Remote Changes', 'getRemoteChanges'], ...(workspace.type === WorkspaceType.StandaloneWorkflow ? [['Overwrite remote changes', 'overwriteRemoteChanges'] as const] : [])]);
+}
+
+async function askConflictResolution(message: string, options: vscode.MessageOptions, choices: readonly (readonly [string, ConflictResolution])[]): Promise<ConflictResolution | undefined> {
+  const picked = await vscode.window.showWarningMessage(message, options, ...choices.map(([label]) => label));
+
+  return choices.find(([label]) => label === picked)?.[1];
 }
 
 export function logSyncConflicts(message: string | undefined): boolean {  if (!message) {

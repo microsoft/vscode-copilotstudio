@@ -884,7 +884,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             }
             return Task.FromResult(new WorkflowResponse
             {
-                IsDisabled = false
+                IsDisabled = false,
+                StoredWorkflow = workflowMetadata
             });
         }
 
@@ -909,7 +910,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             }
             return Task.FromResult(new WorkflowResponse
             {
-                IsDisabled = false
+                IsDisabled = false,
+                StoredWorkflow = workflowMetadata
             });
         }
 

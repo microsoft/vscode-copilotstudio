@@ -128,7 +128,7 @@ public class PowerAppsClient : IConnectionCatalogClient
     private string BuildApisRequestUri(PowerAppsContext context, string pathSuffix)
     {
         var host = ResolveHost(context.ClusterCategory);
-        var filter = Uri.EscapeDataString($"environment eq '{context.EnvironmentId.Replace("'", "''")}'");
+        var filter = Uri.EscapeDataString($"environment eq {ODataLiteral.Quote(context.EnvironmentId)}");
         return $"https://{host}/providers/Microsoft.PowerApps/apis{pathSuffix}?api-version={ConnectionsApiVersion}&$filter={filter}";
     }
 

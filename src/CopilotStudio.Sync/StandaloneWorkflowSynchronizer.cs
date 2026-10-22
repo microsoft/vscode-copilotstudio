@@ -40,8 +40,13 @@ public sealed record StandaloneWorkflowDownload
     /// <summary>The workspace-relative folder the content was written to.</summary>
     public string Folder { get; init; } = string.Empty;
 
+    /// <summary>The workspace-relative folder a rename moved the workflow out of, or <see langword="null"/> when the folder kept its name.</summary>
+    public string? PreviousFolder { get; init; }
+
     /// <summary>Whether anything the workspace authors changed, ignoring the cloud mirror cache.</summary>
     public bool Changed { get; init; }
+
+    public string Warning { get; init; } = string.Empty;
 }
 
 /// <summary>What downloading a standalone workflow into its own project folder achieved.</summary>
@@ -96,6 +101,9 @@ public sealed record StandaloneWorkflowUpsert
 
     /// <summary>What the push could not finish, or an empty string when it finished entirely.</summary>
     public string Warning { get; init; } = string.Empty;
+
+    /// <summary>The connection references still without a connection after the push, empty once the workflow is running.</summary>
+    public IReadOnlyList<string> UnboundConnectionReferences { get; init; } = Array.Empty<string>();
 }
 
 /// <summary>How a download is allowed to treat the workflow a workspace already holds.</summary>
@@ -126,10 +134,25 @@ public sealed record StandaloneWorkflowUpsertOptions
     public bool AllowDestructiveReplace { get; init; }
 }
 
-/// <summary>Reads and writes workflows that belong to no agent, in the service and in a workspace.</summary>
+/// <summary>The Copilot Studio agents whose components use a workflow.</summary>
+public sealed record StandaloneWorkflowAgentUse
+{
+    /// <summary>The names of the agents, or component collections, that use the workflow.</summary>
+    public IReadOnlyList<string> AgentNames { get; init; } = Array.Empty<string>();
+
+    /// <summary>The warning a delete shows about those agents, empty when no agent uses the workflow.</summary>
+    public string Warning => AgentNames.Count switch
+    {
+        0 => string.Empty,
+        1 => $"Copilot Studio agent {QuotedNames.Join(AgentNames)} uses this workflow and loses it when the workflow is deleted.",
+        _ => $"Copilot Studio agents {QuotedNames.Join(AgentNames)} use this workflow and lose it when the workflow is deleted.",
+    };
+}
+
+/// <summary>Reads and writes workflows outside an agent workspace, in the service and in a workspace.</summary>
 public interface IStandaloneWorkflowSynchronizer
 {
-    /// <summary>Lists the cloud flows an environment holds.</summary>
+    /// <summary>Lists the unmanaged cloud flows an environment holds, including the ones agents use.</summary>
     /// <param name="nameFilter">Returns only workflows whose name contains this text, when supplied.</param>
     /// <param name="maximumCount">The most rows to return, or null for every row.</param>
     /// <param name="cancellationToken">Cancels the read.</param>
@@ -181,11 +204,19 @@ public interface IStandaloneWorkflowSynchronizer
     /// <returns>What was written.</returns>
     Task<StandaloneWorkflowUpsert> UpsertAsync(IFileAccessor workspace, string? environmentId, CancellationToken cancellationToken, StandaloneWorkflowUpsertOptions? options = null);
 
+    Task RequireNoUnpulledChangesAsync(IFileAccessor workspace, string? environmentId, CancellationToken cancellationToken);
+
     /// <summary>Reads the service's copy of one workflow, as the service stores it.</summary>
     /// <param name="workflowId">The workflow to read.</param>
     /// <param name="cancellationToken">Cancels the read.</param>
     /// <returns>The stored metadata, or <see langword="null"/> when the environment holds none.</returns>
     Task<SyncDataverseClient.WorkflowMetadata?> ReadMetadataAsync(Guid workflowId, CancellationToken cancellationToken);
+
+    /// <summary>Reads which Copilot Studio agents use a workflow.</summary>
+    /// <param name="workflowId">The workflow to look up.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The agents that use the workflow, with the warning a delete shows about them.</returns>
+    Task<StandaloneWorkflowAgentUse> GetAgentUseAsync(Guid workflowId, CancellationToken cancellationToken);
 
     /// <summary>Deletes a workflow, stopping it first.</summary>
     /// <param name="workflowId">The workflow to delete.</param>
@@ -195,7 +226,7 @@ public interface IStandaloneWorkflowSynchronizer
     Task<bool> DeleteAsync(Guid workflowId, IFileAccessor? workspace, CancellationToken cancellationToken);
 }
 
-/// <summary>Reads and writes workflows that belong to no agent, in the service and in a workspace.</summary>
+/// <summary>Reads and writes workflows outside an agent workspace, in the service and in a workspace.</summary>
 public sealed class StandaloneWorkflowSynchronizer : IStandaloneWorkflowSynchronizer
 {
     private static readonly Regex NamedConnection = new Regex(@"Connection '(?<name>[^']+)'", RegexOptions.CultureInvariant | RegexOptions.Compiled);
@@ -223,11 +254,14 @@ public sealed class StandaloneWorkflowSynchronizer : IStandaloneWorkflowSynchron
 
     /// <inheritdoc />
     public async Task<StandaloneWorkflowDocument?> GetAsync(Guid workflowId, CancellationToken cancellationToken) =>
-        await _dataverseClient.GetWorkflowAsync(workflowId, cancellationToken).ConfigureAwait(false) is { } metadata ? Describe(metadata) : null;
+        await ReadUnmanagedAsync(workflowId, null, cancellationToken).ConfigureAwait(false) is { } metadata ? Describe(metadata) : null;
 
     /// <inheritdoc />
     public Task<SyncDataverseClient.WorkflowMetadata?> ReadMetadataAsync(Guid workflowId, CancellationToken cancellationToken) =>
         _dataverseClient.GetWorkflowAsync(workflowId, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<StandaloneWorkflowAgentUse> GetAgentUseAsync(Guid workflowId, CancellationToken cancellationToken) => new() { AgentNames = await _dataverseClient.GetAgentsUsingWorkflowAsync(workflowId, cancellationToken).ConfigureAwait(false) };
 
     /// <inheritdoc />
     public async Task<StandaloneWorkflowDocument> ReadLocalAsync(IFileAccessor workspace, CancellationToken cancellationToken) =>
@@ -245,7 +279,9 @@ public sealed class StandaloneWorkflowSynchronizer : IStandaloneWorkflowSynchron
 
         RequireNoUnpushedChanges(workspace, workflowId, metadata, options);
 
-        return Write(metadata, workspace, workflowId);
+        var warning = await _dataverseClient.HasUnpublishedDraftAsync(workflowId, cancellationToken).ConfigureAwait(false) ? $"'{metadata.Name ?? workflowId.ToString()}' also has a draft{StandaloneWorkflowException.InEnvironment(environmentId)} that was saved in the designer but not published, so only the published version was written. Publish the draft in the designer to get it." : string.Empty;
+
+        return Write(metadata, workspace, workflowId) with { Warning = warning };
     }
 
     /// <inheritdoc />
@@ -256,7 +292,7 @@ public sealed class StandaloneWorkflowSynchronizer : IStandaloneWorkflowSynchron
             throw new ArgumentNullException(nameof(workspace));
         }
 
-        var metadata = await _dataverseClient.GetWorkflowAsync(workflowId, cancellationToken).ConfigureAwait(false);
+        var metadata = await ReadUnmanagedAsync(workflowId, null, cancellationToken).ConfigureAwait(false);
 
         RequireNoUnpushedChanges(workspace, workflowId, metadata, options);
 
@@ -313,16 +349,21 @@ public sealed class StandaloneWorkflowSynchronizer : IStandaloneWorkflowSynchron
         };
     }
 
-    private async Task<SyncDataverseClient.WorkflowMetadata> FetchAsync(Guid workflowId, string? environmentId, CancellationToken cancellationToken) =>
-        await _dataverseClient.GetWorkflowAsync(workflowId, cancellationToken).ConfigureAwait(false)
-            ?? throw StandaloneWorkflowException.SourceNotFound(workflowId, environmentId);
+    private async Task<SyncDataverseClient.WorkflowMetadata> FetchAsync(Guid workflowId, string? environmentId, CancellationToken cancellationToken) => await ReadUnmanagedAsync(workflowId, environmentId, cancellationToken).ConfigureAwait(false) ?? throw StandaloneWorkflowException.SourceNotFound(workflowId, environmentId);
+
+    private async Task<SyncDataverseClient.WorkflowMetadata?> ReadUnmanagedAsync(Guid workflowId, string? environmentId, CancellationToken cancellationToken)
+    {
+        var metadata = await _dataverseClient.GetWorkflowAsync(workflowId, cancellationToken).ConfigureAwait(false);
+
+        return metadata is { IsManaged: true } ? throw StandaloneWorkflowException.Managed(workflowId, metadata.Name, environmentId) : metadata;
+    }
 
     private static StandaloneWorkflowDownload Write(SyncDataverseClient.WorkflowMetadata metadata, IFileAccessor workspace, Guid workflowId)
     {
         StandaloneWorkflowCache.Write(workspace, metadata);
 
         var folder = WorkflowWorkspace.RelativeFolderFor(metadata.Name, workflowId);
-        var relocated = Relocate(workspace, workflowId, folder);
+        var previousFolder = Relocate(workspace, workflowId, folder);
         var definitionPath = $"{folder}/{WorkflowWorkspace.DefinitionFileName}";
 
         var definitionChanged = ConnectionReferenceStore.WriteIfChanged(workspace, new AgentFilePath(definitionPath), WorkflowDefinitionFile.Format(metadata.ClientData ?? "{}"), NoByteOrderMark);
@@ -333,7 +374,8 @@ public sealed class StandaloneWorkflowSynchronizer : IStandaloneWorkflowSynchron
         {
             Workflow = Describe(metadata),
             Folder = folder,
-            Changed = relocated || definitionChanged || metadataChanged || declarationChanged,
+            PreviousFolder = previousFolder,
+            Changed = previousFolder is not null || definitionChanged || metadataChanged || declarationChanged,
         };
     }
 
@@ -343,11 +385,21 @@ public sealed class StandaloneWorkflowSynchronizer : IStandaloneWorkflowSynchron
         var settings = options ?? StandaloneWorkflowUpsertOptions.Default;
         var metadata = await ReadFolderAsync(workspace, cancellationToken).ConfigureAwait(false);
         var local = WorkflowDefinitionFile.Read(metadata.ClientData);
-        var (declared, known) = await ProvisionConnectionReferencesAsync(local.References, cancellationToken).ConfigureAwait(false);
 
         metadata.ClientData = local.Portable;
         metadata.ConnectionReferences = local.References.Select(reference => reference.LogicalName).ToList();
 
+        var workflowName = metadata.Name ?? metadata.WorkflowId.ToString();
+        var existing = await _dataverseClient.GetWorkflowAsync(metadata.WorkflowId, cancellationToken).ConfigureAwait(false);
+        var created = existing is null;
+        var writing = created || Differs(existing!, metadata, local.Canonical);
+
+        if (writing && await _dataverseClient.HasUnpublishedDraftAsync(metadata.WorkflowId, cancellationToken).ConfigureAwait(false))
+        {
+            throw StandaloneWorkflowException.EnvironmentHoldsUnpublishedDraft(workflowName, environmentId);
+        }
+
+        var (declared, known) = await ProvisionConnectionReferencesAsync(local.References, cancellationToken).ConfigureAwait(false);
         var activationRequested = metadata.StateCode == 1;
         var deferredForSetup = activationRequested
             && settings.ActivationMode == WorkflowActivationMode.DraftWhenConnectionReferencesExist
@@ -358,18 +410,15 @@ public sealed class StandaloneWorkflowSynchronizer : IStandaloneWorkflowSynchron
             WorkflowActivationPlanner.ApplyState(metadata, activated: false);
         }
 
-        var referencesBound = activationRequested
-            && !deferredForSetup
-            && (await WorkflowActivationPlanner.DraftUnboundActivationsAsync([metadata], known, cancellationToken).ConfigureAwait(false)).Count == 0;
-        var existing = await _dataverseClient.GetWorkflowAsync(metadata.WorkflowId, cancellationToken).ConfigureAwait(false);
-        var created = existing is null;
+        var unbound = WorkflowActivationPlanner.UnboundReferences(local.References.Select(reference => reference.LogicalName), WorkflowActivationPlanner.BoundReferences(known));
+        var referencesBound = activationRequested && !deferredForSetup && unbound.Count == 0;
         var wasRunning = existing?.StateCode == 1;
         var stopped = false;
         var replaced = false;
         var wrote = false;
         var draftedForConnections = false;
 
-        if (created || Differs(existing!, metadata, local.Canonical))
+        if (writing)
         {
             metadata.StateCode = created ? 0 : null;
             metadata.StatusCode = created ? 1 : null;
@@ -412,8 +461,10 @@ public sealed class StandaloneWorkflowSynchronizer : IStandaloneWorkflowSynchron
                 await RestartAsync(replaceAttempted ? null : existing, stopped).ConfigureAwait(false);
 
                 throw WorkflowActivationPlanner.IsConnectionAuthorizationFailure(response.ErrorMessage)
-                    ? StandaloneWorkflowException.ConnectionsNotReady(metadata.Name ?? metadata.WorkflowId.ToString(), environmentId, NamedConnectionReference(response.ErrorMessage!) ?? "a connection reference")
-                    : StandaloneWorkflowException.PushFailed(metadata.Name ?? metadata.WorkflowId.ToString(), environmentId, response.ErrorMessage!);
+                    ? StandaloneWorkflowException.ConnectionsNotReady(workflowName, environmentId, NamedConnectionReference(response.ErrorMessage!) ?? "a connection reference")
+                    : IsUnpublishedDraftRefusal(response.ErrorMessage!)
+                        ? StandaloneWorkflowException.EnvironmentHoldsUnpublishedDraft(workflowName, environmentId)
+                        : StandaloneWorkflowException.PushFailed(workflowName, environmentId, response.ErrorMessage!);
             }
 
             wrote = true;
@@ -429,9 +480,8 @@ public sealed class StandaloneWorkflowSynchronizer : IStandaloneWorkflowSynchron
             metadata.StatusCode = existing.StatusCode;
         }
 
-        var warning = draftedForConnections ? WorkflowActivationPlanner.DescribeDraftedForConnections(metadata.Name ?? metadata.WorkflowId.ToString()) : string.Empty;
+        var warning = draftedForConnections ? WorkflowActivationPlanner.DescribeDraftedForConnections(workflowName) : string.Empty;
         var warnsOnlyAboutDrafting = draftedForConnections;
-        var workflowName = metadata.Name ?? metadata.WorkflowId.ToString();
 
         if (referencesBound && metadata.StateCode != 1)
         {
@@ -485,7 +535,22 @@ public sealed class StandaloneWorkflowSynchronizer : IStandaloneWorkflowSynchron
             ActivationRequested = activationRequested,
             DraftedForConnections = warnsOnlyAboutDrafting && warning.Length > 0,
             Warning = warning,
+            UnboundConnectionReferences = metadata.StateCode == 1 ? Array.Empty<string>() : unbound,
         };
+    }
+
+    public async Task RequireNoUnpulledChangesAsync(IFileAccessor workspace, string? environmentId, CancellationToken cancellationToken)
+    {
+        var local = await ReadFolderAsync(workspace, cancellationToken).ConfigureAwait(false);
+
+        if (await _dataverseClient.GetWorkflowAsync(local.WorkflowId, cancellationToken).ConfigureAwait(false) is not { } service
+            || !Differs(service, local, WorkflowDefinitionFile.Read(local.ClientData).Canonical)
+            || (StandaloneWorkflowCache.Read(workspace, local.WorkflowId) is { } cached && !Differs(service, cached, WorkflowDefinitionFile.Canonicalize(cached.ClientData))))
+        {
+            return;
+        }
+
+        throw StandaloneWorkflowException.EnvironmentHoldsUnpulledChanges(RequireSingle(workspace).FolderName, environmentId);
     }
 
     /// <inheritdoc />
@@ -536,6 +601,8 @@ public sealed class StandaloneWorkflowSynchronizer : IStandaloneWorkflowSynchron
         !string.Equals(WorkflowDefinitionFile.Canonicalize(existing.ClientData), localDefinition, StringComparison.Ordinal)
         || !string.Equals(existing.Name, local.Name, StringComparison.Ordinal)
         || !string.Equals(existing.Description, local.Description, StringComparison.Ordinal);
+
+    private static bool IsUnpublishedDraftRefusal(string errorMessage) => errorMessage.IndexOf("unpublished active row", StringComparison.OrdinalIgnoreCase) >= 0;
 
     private async Task<WorkflowResponse> ReplaceAsync(SyncDataverseClient.WorkflowMetadata metadata, SyncDataverseClient.WorkflowMetadata existing, string? environmentId, CancellationToken cancellationToken)
     {
@@ -676,62 +743,38 @@ public sealed class StandaloneWorkflowSynchronizer : IStandaloneWorkflowSynchron
 
         metadata.ClientData = ConnectionReferenceStore.ReadTextOrNull(workspace, workflow.DefinitionPath);
 
-        return metadata.WorkflowId == workflow.WorkflowId
-            ? metadata
-            : throw StandaloneWorkflowException.MetadataUnreadable(metadataPath, $"it declares workflow {metadata.WorkflowId}, but the folder names {workflow.WorkflowId}.");
+        if (metadata.WorkflowId != workflow.WorkflowId)
+        {
+            throw StandaloneWorkflowException.MetadataUnreadable(metadataPath, $"it declares workflow {metadata.WorkflowId}, but the folder names {workflow.WorkflowId}.");
+        }
+
+        return WorkflowNaming.Validate(metadata.Name) is { } reason ? throw StandaloneWorkflowException.InvalidMetadataName(metadataPath, reason) : metadata;
     }
 
-    /// <summary>
-    /// Moves a renamed workflow's folder, carrying eve
-    /// </summary>
-    private static bool Relocate(IFileAccessor workspace, Guid workflowId, string folder)
+    private static string? Relocate(IFileAccessor workspace, Guid workflowId, string folder)
     {
         var targetFolderName = folder.Substring(WorkflowWorkspace.WorkflowsFolderName.Length + 1);
         var found = WorkflowWorkspace.FindAll(workspace).Where(file => file.WorkflowId == workflowId).ToList();
         var occupiesTarget = found.Any(file => string.Equals(file.FolderName, targetFolderName, StringComparison.Ordinal));
-        var moved = false;
+        string? previousFolder = null;
 
         foreach (var existing in found)
         {
-            if (string.Equals(existing.FolderName, targetFolderName, StringComparison.Ordinal)
-                || (!occupiesTarget && NamesTheSameFolder(workspace, existing.FolderName, targetFolderName, folder)))
+            if (string.Equals(existing.FolderName, targetFolderName, StringComparison.Ordinal) || (!occupiesTarget && NamesTheSameFolder(workspace, existing.FolderName, targetFolderName, folder)))
             {
                 continue;
             }
 
-            moved |= Move(workspace, existing.FolderName, folder);
+            previousFolder = $"{WorkflowWorkspace.WorkflowsFolderName}/{existing.FolderName}";
+            WorkspaceFolders.Move(workspace, previousFolder, folder);
         }
 
-        return moved;
+        return previousFolder;
     }
 
     private static bool NamesTheSameFolder(IFileAccessor workspace, string existingFolderName, string targetFolderName, string folder) =>
         string.Equals(existingFolderName, targetFolderName, StringComparison.OrdinalIgnoreCase)
         && workspace.Exists(new AgentFilePath($"{folder}/{WorkflowWorkspace.DefinitionFileName}"));
-
-    private static bool Move(IFileAccessor workspace, string existingFolderName, string folder)
-    {
-        var source = $"{WorkflowWorkspace.WorkflowsFolderName}/{existingFolderName}/";
-
-        foreach (var path in workspace.ListFiles($"{WorkflowWorkspace.WorkflowsFolderName}/{existingFolderName}", "*").ToList())
-        {
-            var text = path.ToString();
-
-            if (!text.StartsWith(source, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            if (ConnectionReferenceStore.ReadTextOrNull(workspace, path) is { } content)
-            {
-                ConnectionReferenceStore.WriteIfChanged(workspace, new AgentFilePath(folder + "/" + text.Substring(source.Length)), content, NoByteOrderMark);
-            }
-
-            workspace.Delete(path);
-        }
-
-        return true;
-    }
 
     private static bool RemoveLocal(IFileAccessor workspace, Guid workflowId)
     {
@@ -742,10 +785,7 @@ public sealed class StandaloneWorkflowSynchronizer : IStandaloneWorkflowSynchron
             return removedCache;
         }
 
-        foreach (var path in workspace.ListFiles($"{WorkflowWorkspace.WorkflowsFolderName}/{existing.FolderName}", "*").ToList())
-        {
-            workspace.Delete(path);
-        }
+        WorkspaceFolders.Remove(workspace, $"{WorkflowWorkspace.WorkflowsFolderName}/{existing.FolderName}");
 
         return true;
     }

@@ -11,6 +11,7 @@ import {
 	AgentChangesTreeItemUnion,
 	isWorkspaceConnected,
 	describeDisconnection,
+	revealQuietly,
 } from '../../sync/agentChangesTreeProvider';
 import { getStoredAccountSummaries } from '../../clients/account';
 import { Resource } from '../../sync/changeTracking';
@@ -109,6 +110,45 @@ describe('AgentChangesTreeProvider Item Hierarchy', () => {
 		assert.strictEqual(localGroup.groupType, 'local');
 		assert.strictEqual(remoteGroup.groupType, 'remote');
 		assert.notStrictEqual(localGroup.groupType, remoteGroup.groupType);
+	});
+});
+
+describe('revealQuietly', () => {
+
+	const captureUnhandledRejections = async (action: () => void): Promise<unknown[]> => {
+		const seen: unknown[] = [];
+		const onRejection = (reason: unknown) => seen.push(reason);
+		process.on('unhandledRejection', onRejection);
+		try {
+			action();
+			await new Promise(resolve => setTimeout(resolve, 50));
+		} finally {
+			process.off('unhandledRejection', onRejection);
+		}
+		return seen;
+	};
+
+	test('a rejected reveal does not escape as an unhandled rejection', async () => {
+		const view = {
+			reveal: () => Promise.reject(new Error('Cannot resolve tree item for element 1/agent:file:///test')),
+		} as unknown as vscode.TreeView<unknown>;
+
+		assert.deepStrictEqual(await captureUnhandledRejections(() => revealQuietly(view, {})), []);
+	});
+
+	test('reveal is asked to expand without stealing focus or selection', () => {
+		const calls: unknown[] = [];
+		const view = {
+			reveal: (element: unknown, options: unknown) => {
+				calls.push({ element, options });
+				return Promise.resolve();
+			},
+		} as unknown as vscode.TreeView<unknown>;
+
+		const element = { kind: 'agent' };
+		revealQuietly(view, element);
+
+		assert.deepStrictEqual(calls, [{ element, options: { expand: true, focus: false, select: false } }]);
 	});
 });
 

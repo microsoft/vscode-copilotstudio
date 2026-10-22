@@ -6665,11 +6665,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     public virtual async Task<(ImmutableArray<WorkflowResponse>, CloudFlowMetadata)> UpsertWorkflowForAgentAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken, WorkflowActivationMode activationMode = WorkflowActivationMode.PreserveSavedState)
     {
-        var cloudFlowDefinitions = new List<CloudFlowDefinition>();
         var workflows = new List<WorkflowMetadata>();
-        var successfullyUpsertedWorkflowIds = new HashSet<Guid>();
+        var uploads = Array.Empty<AgentWorkflowUpload>();
         var connectionReferences = ImmutableArray<ConnectionReference>.Empty;
-        var workflowResponseBuilder = ImmutableArray.CreateBuilder<WorkflowResponse>();
 
         var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var cloudSnapshot = ReadCloudCacheSnapshot(fileAccessor, allowMissing: true);
@@ -6753,54 +6751,54 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 downgradedWorkflows = await WorkflowActivationPlanner.DraftUnboundActivationsAsync(workflowsToUpload, dataverseClient, cancellationToken).ConfigureAwait(false);
             }
 
-            if (workflowsToUpload.Count > 0)
-            {
-#if NETSTANDARD2_0
-                foreach (var metadata in workflowsToUpload)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    var workflowResponse = await dataverseClient.UpdateWorkflowAsync(agentId, metadata, cancellationToken).ConfigureAwait(false);
-                    workflowResponseBuilder.Add(workflowResponse);
-                    if (string.IsNullOrEmpty(workflowResponse.ErrorMessage))
-                    {
-                        successfullyUpsertedWorkflowIds.Add(metadata.WorkflowId);
-                    }
-                }
-#else
-                var workflowResponses = new ConcurrentBag<(WorkflowMetadata Metadata, WorkflowResponse Response)>();
-                await Parallel.ForEachAsync(workflowsToUpload, new ParallelOptions
-                {
-                    MaxDegreeOfParallelism = MaxParallelSyncOperations,
-                    CancellationToken = cancellationToken
-                },
-                async (metadata, ct) =>
-                {
-                    var workflowResponse = await dataverseClient.UpdateWorkflowAsync(agentId, metadata, ct).ConfigureAwait(false);
-                    workflowResponses.Add((metadata, workflowResponse));
-                }).ConfigureAwait(false);
-                foreach (var (metadata, response) in workflowResponses)
-                {
-                    workflowResponseBuilder.Add(response);
-                    if (string.IsNullOrEmpty(response.ErrorMessage))
-                    {
-                        successfullyUpsertedWorkflowIds.Add(metadata.WorkflowId);
-                    }
-                }
-#endif
-            }
+            uploads = await UploadAgentWorkflowsAsync(workflowsToUpload, dataverseClient, agentId, cancellationToken).ConfigureAwait(false);
 
-            WriteWorkflowDraftStateToDisk(workspaceFolder, downgradedWorkflows.Where(workflow => successfullyUpsertedWorkflowIds.Contains(workflow.WorkflowId)).ToList(), workflowMetadataRelativePaths);
+            var uploadedWorkflowIds = new HashSet<Guid>(uploads.Where(upload => upload.Succeeded).Select(upload => upload.Workflow.WorkflowId));
+
+            WriteWorkflowDraftStateToDisk(workspaceFolder, downgradedWorkflows.Where(workflow => uploadedWorkflowIds.Contains(workflow.WorkflowId)).ToList(), workflowMetadataRelativePaths);
 
             connectionReferences = await GetConnectionReferenceFromLogicalNamesAsync(GetConnectionReferenceLogicalNamesFromFlows(workflows), dataverseClient, cancellationToken).ConfigureAwait(false);
         }
 
-        cloudFlowDefinitions = BuildProjectedCloudFlows(cloudSnapshot, workflows, successfullyUpsertedWorkflowIds);
-
-        return (workflowResponseBuilder.ToImmutable(), new CloudFlowMetadata
+        return (uploads.Select(upload => upload.Response).ToImmutableArray(), new CloudFlowMetadata
         {
-            Workflows = cloudFlowDefinitions.ToImmutableArray(),
+            Workflows = uploads.Select(upload => upload.ServiceCopy).OfType<WorkflowMetadata>().Aggregate(cloudSnapshot?.Flows is { IsDefault: false } cachedFlows ? cachedFlows : ImmutableArray<CloudFlowDefinition>.Empty, (flows, serviceCopy) => StandaloneWorkflowCache.WithFlow(flows, serviceCopy.WorkflowId, GetFlowDefinition(serviceCopy).Item1)),
             ConnectionReferences = connectionReferences
         });
+    }
+
+    private static async Task<AgentWorkflowUpload[]> UploadAgentWorkflowsAsync(List<WorkflowMetadata> workflows, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
+    {
+        var uploads = new AgentWorkflowUpload[workflows.Count];
+
+#if NETSTANDARD2_0
+        for (var index = 0; index < workflows.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            uploads[index] = await UploadAgentWorkflowAsync(workflows[index], dataverseClient, agentId, cancellationToken).ConfigureAwait(false);
+        }
+#else
+        await Parallel.ForEachAsync(Enumerable.Range(0, workflows.Count), new ParallelOptions { MaxDegreeOfParallelism = MaxParallelSyncOperations, CancellationToken = cancellationToken }, async (index, uploadCancellation) => uploads[index] = await UploadAgentWorkflowAsync(workflows[index], dataverseClient, agentId, uploadCancellation).ConfigureAwait(false)).ConfigureAwait(false);
+#endif
+
+        return uploads;
+    }
+
+    private static async Task<AgentWorkflowUpload> UploadAgentWorkflowAsync(WorkflowMetadata workflow, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
+    {
+        var response = await dataverseClient.UpdateWorkflowAsync(agentId, workflow, cancellationToken).ConfigureAwait(false);
+
+        if (!string.IsNullOrEmpty(response.ErrorMessage))
+        {
+            return new AgentWorkflowUpload(workflow, response, null);
+        }
+
+        return new AgentWorkflowUpload(workflow, response, response.StoredWorkflow?.WorkflowId == workflow.WorkflowId ? response.StoredWorkflow : dataverseClient is IStandaloneWorkflowDataverseClient reader ? await reader.GetWorkflowAsync(workflow.WorkflowId, cancellationToken).ConfigureAwait(false) : null);
+    }
+
+    private sealed record AgentWorkflowUpload(WorkflowMetadata Workflow, WorkflowResponse Response, WorkflowMetadata? ServiceCopy)
+    {
+        public bool Succeeded => string.IsNullOrEmpty(Response.ErrorMessage);
     }
 
     private static IReadOnlyList<WorkflowMetadata> DraftConnectionReferenceWorkflows(IEnumerable<WorkflowMetadata> workflows)
@@ -6842,45 +6840,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
     }
 
-    private static List<CloudFlowDefinition> BuildProjectedCloudFlows(DefinitionBase? cloudSnapshot, List<WorkflowMetadata> localWorkflows, HashSet<Guid> successfullyUpsertedWorkflowIds)
-    {
-        var localWorkflowsById = new Dictionary<Guid, WorkflowMetadata>();
-        foreach (var workflow in localWorkflows)
-        {
-            localWorkflowsById[workflow.WorkflowId] = workflow;
-        }
-
-        var projectedFlows = new List<CloudFlowDefinition>();
-        var projectedWorkflowIds = new HashSet<Guid>();
-        var cachedFlows = cloudSnapshot?.Flows ?? ImmutableArray<CloudFlowDefinition>.Empty;
-        if (!cachedFlows.IsDefaultOrEmpty)
-        {
-            foreach (var cachedFlow in cachedFlows)
-            {
-                var workflowId = cachedFlow.WorkflowId.Value;
-                projectedWorkflowIds.Add(workflowId);
-                if (successfullyUpsertedWorkflowIds.Contains(workflowId) && localWorkflowsById.TryGetValue(workflowId, out var upsertedWorkflow))
-                {
-                    projectedFlows.Add(GetFlowDefinition(upsertedWorkflow).Item1);
-                }
-                else
-                {
-                    projectedFlows.Add(cachedFlow);
-                }
-            }
-        }
-
-        foreach (var workflow in localWorkflows)
-        {
-            if (!projectedWorkflowIds.Contains(workflow.WorkflowId) && successfullyUpsertedWorkflowIds.Contains(workflow.WorkflowId))
-            {
-                projectedFlows.Add(GetFlowDefinition(workflow).Item1);
-            }
-        }
-
-        return projectedFlows;
-    }
-
     private bool IsRetargetInProgress(IFileAccessor fileAccessor) => fileAccessor.Exists(RetargetBackupPath);
 
     private void DeleteLocalComponentFolders(IFileAccessor fileAccessor, IEnumerable<string> folderPaths)
@@ -6892,7 +6851,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         foreach (var folderPath in folderPaths)
         {
-            fileAccessor.DeleteDirectory(new AgentFilePath(folderPath));
+            WorkspaceFolders.Remove(fileAccessor, folderPath);
         }
     }
 

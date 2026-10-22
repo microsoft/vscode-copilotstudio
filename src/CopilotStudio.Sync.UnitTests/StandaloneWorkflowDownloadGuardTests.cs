@@ -61,6 +61,13 @@ public class StandaloneWorkflowDownloadGuardTests
     private static void Edit(IFileAccessor workspace, string folder) =>
         Write(workspace, $"{folder}/{WorkflowWorkspace.DefinitionFileName}", """{"properties":{"from":"local"}}""");
 
+    private static void EditInTheEnvironment(FakeStandaloneWorkflowClient client, Guid workflowId, Action<SyncDataverseClient.WorkflowMetadata> edit)
+    {
+        var stored = client.Stored(workflowId)!;
+        edit(stored);
+        client.Seed(stored);
+    }
+
     [Fact]
     public async Task PullRefusesToReplaceAnUnpushedEdit()
     {
@@ -264,5 +271,299 @@ public class StandaloneWorkflowDownloadGuardTests
         var pulled = await synchronizer.PullAsync(workflowId, workspace, CancellationToken.None);
 
         Assert.NotNull(pulled.Download);
+    }
+
+    [Fact]
+    public async Task PushCheckRefusesToReplaceADefinitionEditedInTheEnvironment()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+
+        client.Seed(Row(workflowId));
+
+        var (synchronizer, workspace, folder) = await ClonedAsync(client, workflowId);
+
+        Edit(workspace, folder);
+        EditInTheEnvironment(client, workflowId, row => row.ClientData = """{"properties":{"from":"server"}}""");
+        client.Calls.Clear();
+
+        var failure = await Assert.ThrowsAsync<StandaloneWorkflowException>(() => synchronizer.RequireNoUnpulledChangesAsync(workspace, "env", CancellationToken.None));
+
+        Assert.Equal(StandaloneWorkflowFailure.EnvironmentHoldsUnpulledChanges, failure.Failure);
+        Assert.Equal(folder, $"{WorkflowWorkspace.WorkflowsFolderName}/{failure.Subject}");
+        Assert.Equal("env", failure.EnvironmentId);
+        Assert.Equal($"'{failure.Subject}' has conflict remote change, and applying changes would replace them. Use Get changes to get them, or Apply changes again and choose Overwrite remote changes to replace them.", failure.Message);
+        Assert.Equal(["get"], client.Calls);
+        Assert.Contains("server", client.Stored(workflowId)!.ClientData!, StringComparison.Ordinal);
+        Assert.Equal("""{"properties":{"from":"local"}}""", Read(workspace, $"{folder}/{WorkflowWorkspace.DefinitionFileName}"));
+    }
+
+    [Fact]
+    public async Task PushCheckRefusesToReplaceADescriptionEditedInTheEnvironment()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+
+        client.Seed(Row(workflowId));
+
+        var (synchronizer, workspace, folder) = await ClonedAsync(client, workflowId);
+
+        Edit(workspace, folder);
+        EditInTheEnvironment(client, workflowId, row => row.Description = "edited in the designer");
+
+        var failure = await Assert.ThrowsAsync<StandaloneWorkflowException>(() => synchronizer.RequireNoUnpulledChangesAsync(workspace, "env", CancellationToken.None));
+
+        Assert.Equal(StandaloneWorkflowFailure.EnvironmentHoldsUnpulledChanges, failure.Failure);
+    }
+
+    [Fact]
+    public async Task PushCheckAllowsALocalEditWhenTheEnvironmentIsUnchanged()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+
+        client.Seed(Row(workflowId));
+
+        var (synchronizer, workspace, folder) = await ClonedAsync(client, workflowId);
+
+        Edit(workspace, folder);
+
+        await synchronizer.RequireNoUnpulledChangesAsync(workspace, "env", CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task PushCheckAllowsAPushThatWouldWriteWhatTheEnvironmentAlreadyHolds()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+
+        client.Seed(Row(workflowId));
+
+        var (synchronizer, workspace, folder) = await ClonedAsync(client, workflowId);
+
+        Edit(workspace, folder);
+        EditInTheEnvironment(client, workflowId, row => row.ClientData = """{"properties":{"from":"local"}}""");
+
+        await synchronizer.RequireNoUnpulledChangesAsync(workspace, "env", CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task PushCheckIgnoresAnActivationChangedInTheEnvironment()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+
+        client.Seed(Row(workflowId));
+
+        var (synchronizer, workspace, folder) = await ClonedAsync(client, workflowId);
+
+        Edit(workspace, folder);
+        EditInTheEnvironment(client, workflowId, row =>
+        {
+            row.StateCode = 1;
+            row.StatusCode = 2;
+        });
+
+        await synchronizer.RequireNoUnpulledChangesAsync(workspace, "env", CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task PushCheckAllowsAWorkflowTheEnvironmentNoLongerHolds()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+
+        client.Seed(Row(workflowId));
+
+        var (synchronizer, workspace, folder) = await ClonedAsync(client, workflowId);
+
+        Edit(workspace, folder);
+        await client.DeleteWorkflowAsync(workflowId, CancellationToken.None);
+
+        await synchronizer.RequireNoUnpulledChangesAsync(workspace, "env", CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task PushCheckAllowsAnEditAfterThisWorkspacePushedTheEnvironmentsCopy()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+
+        client.Seed(Row(workflowId));
+
+        var (synchronizer, workspace, folder) = await ClonedAsync(client, workflowId);
+
+        Edit(workspace, folder);
+        await synchronizer.UpsertAsync(workspace, "env", CancellationToken.None);
+        Write(workspace, $"{folder}/{WorkflowWorkspace.DefinitionFileName}", """{"properties":{"from":"second local edit"}}""");
+
+        await synchronizer.RequireNoUnpulledChangesAsync(workspace, "env", CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task PushCheckOfACacheLessWorkspaceThatWouldReplaceTheEnvironmentsCopy_IsRefused()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+        var workspace = NewWorkspace();
+        var folder = WorkflowWorkspace.RelativeFolderFor("My Flow", workflowId);
+
+        Write(workspace, $"{folder}/{WorkflowWorkspace.DefinitionFileName}", """{"properties":{"from":"local"}}""");
+        Write(workspace, $"{folder}/{WorkflowWorkspace.MetadataFileName}", WorkflowMetadataFile.Write(Row(workflowId)));
+        client.Seed(Row(workflowId));
+
+        var failure = await Assert.ThrowsAsync<StandaloneWorkflowException>(() => new StandaloneWorkflowSynchronizer(client).RequireNoUnpulledChangesAsync(workspace, "env", CancellationToken.None));
+
+        Assert.Equal(StandaloneWorkflowFailure.EnvironmentHoldsUnpulledChanges, failure.Failure);
+    }
+
+    [Fact]
+    public async Task UpsertStillReplacesAnEditMadeInTheEnvironmentWhenNotAskedToCheck()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+
+        client.Seed(Row(workflowId));
+
+        var (synchronizer, workspace, folder) = await ClonedAsync(client, workflowId);
+
+        Edit(workspace, folder);
+        EditInTheEnvironment(client, workflowId, row => row.ClientData = """{"properties":{"from":"server"}}""");
+
+        await synchronizer.UpsertAsync(workspace, "env", CancellationToken.None);
+
+        Assert.Contains("local", client.Stored(workflowId)!.ClientData!, StringComparison.Ordinal);
+    }
+
+    private const string ReferencingDefinition = """{"properties":{"connectionReferences":{"shared_teams":{"api":{"name":"shared_teams"},"connection":{"connectionReferenceLogicalName":"new_teams"}}},"from":"local"}}""";
+
+    private const string DraftRefusal = "Failed to update workflow: Dataverse request failed (400): {\"error\":{\"code\":\"0x80040203\",\"message\":\"You are attempting to do a published update of publishable component in an unmodified active context when there exists an unpublished active row.\\r\\nThis is not allowed context.IsModified =False Component Type: 29 CurrentState=ActiveUnpublished\"}}";
+
+    [Fact]
+    public async Task UpsertRefusesToWriteOverAnUnpublishedDraftBeforeWritingAnything()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+
+        client.Seed(Row(workflowId));
+
+        var (synchronizer, workspace, folder) = await ClonedAsync(client, workflowId);
+
+        Write(workspace, $"{folder}/{WorkflowWorkspace.DefinitionFileName}", ReferencingDefinition);
+        client.Drafts.Add(workflowId);
+        client.Calls.Clear();
+        client.DraftChecks.Clear();
+
+        var failure = await Assert.ThrowsAsync<StandaloneWorkflowException>(() => synchronizer.UpsertAsync(workspace, "env", CancellationToken.None));
+
+        Assert.Equal(StandaloneWorkflowFailure.EnvironmentHoldsUnpublishedDraft, failure.Failure);
+        Assert.Equal("My Flow", failure.Subject);
+        Assert.Equal("env", failure.EnvironmentId);
+        Assert.Equal("'My Flow' has a draft version that was saved in Copilot Studio but not published, and the environment refuses to apply changes while it exists. Publish the draft in Copilot Studio, then use Get changes to get it, or Apply changes again and choose Overwrite remote changes to replace it.", failure.Message);
+        Assert.Equal(["get"], client.Calls);
+        Assert.Equal([workflowId], client.DraftChecks);
+        Assert.Empty(client.ConnectionReferences);
+        Assert.Equal(Definition, client.Stored(workflowId)!.ClientData);
+        Assert.Equal(Definition, StandaloneWorkflowCache.Read(workspace, workflowId)!.ClientData);
+    }
+
+    [Fact]
+    public async Task UpsertOfAWorkflowTheEnvironmentHoldsOnlyAsADraft_IsRefusedWithoutCreatingIt()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+        var workspace = NewWorkspace();
+        var folder = WorkflowWorkspace.RelativeFolderFor("My Flow", workflowId);
+
+        Write(workspace, $"{folder}/{WorkflowWorkspace.DefinitionFileName}", Definition);
+        Write(workspace, $"{folder}/{WorkflowWorkspace.MetadataFileName}", WorkflowMetadataFile.Write(Row(workflowId)));
+        client.Drafts.Add(workflowId);
+
+        var failure = await Assert.ThrowsAsync<StandaloneWorkflowException>(() => new StandaloneWorkflowSynchronizer(client).UpsertAsync(workspace, "env", CancellationToken.None));
+
+        Assert.Equal(StandaloneWorkflowFailure.EnvironmentHoldsUnpublishedDraft, failure.Failure);
+        Assert.DoesNotContain("insert", client.Calls);
+        Assert.Null(client.Stored(workflowId));
+    }
+
+    [Fact]
+    public async Task UpsertWithNothingToWrite_ReadsNoDraftAndSucceeds()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+
+        client.Seed(Row(workflowId));
+
+        var (synchronizer, workspace, _) = await ClonedAsync(client, workflowId);
+
+        client.Drafts.Add(workflowId);
+        client.DraftChecks.Clear();
+
+        var upsert = await synchronizer.UpsertAsync(workspace, "env", CancellationToken.None);
+
+        Assert.False(upsert.Created);
+        Assert.Empty(client.DraftChecks);
+        Assert.DoesNotContain("update", client.Calls);
+    }
+
+    [Fact]
+    public async Task UpsertWithoutADraft_ChecksOnceAndWrites()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+
+        client.Seed(Row(workflowId));
+
+        var (synchronizer, workspace, folder) = await ClonedAsync(client, workflowId);
+
+        Edit(workspace, folder);
+        client.DraftChecks.Clear();
+
+        await synchronizer.UpsertAsync(workspace, "env", CancellationToken.None);
+
+        Assert.Equal([workflowId], client.DraftChecks);
+        Assert.Contains("local", client.Stored(workflowId)!.ClientData!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AWriteRefusedOverADraftSavedDuringThePush_IsReportedAsTheDraft()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient { UpdateFailure = DraftRefusal };
+
+        client.Seed(Row(workflowId));
+
+        var (synchronizer, workspace, folder) = await ClonedAsync(client, workflowId);
+
+        Edit(workspace, folder);
+
+        var failure = await Assert.ThrowsAsync<StandaloneWorkflowException>(() => synchronizer.UpsertAsync(workspace, "env", CancellationToken.None));
+
+        Assert.Equal(StandaloneWorkflowFailure.EnvironmentHoldsUnpublishedDraft, failure.Failure);
+        Assert.Equal("My Flow", failure.Subject);
+        Assert.Equal(Definition, client.Stored(workflowId)!.ClientData);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ADownloadWritesThePublishedVersionAndWarnsOnlyWhenADraftExists(bool draft)
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+
+        client.Seed(Row(workflowId));
+
+        if (draft)
+        {
+            client.Drafts.Add(workflowId);
+        }
+
+        var workspace = NewWorkspace();
+        var download = await new StandaloneWorkflowSynchronizer(client).DownloadAsync(workflowId, workspace, "env", CancellationToken.None);
+
+        Assert.Equal(draft ? "'My Flow' also has a draft in env that was saved in the designer but not published, so only the published version was written. Publish the draft in the designer to get it." : string.Empty, download.Warning);
+        Assert.Contains("cloud", Read(workspace, $"{download.Folder}/{WorkflowWorkspace.DefinitionFileName}"), StringComparison.Ordinal);
+        Assert.Equal([workflowId], client.DraftChecks);
     }
 }

@@ -20,10 +20,7 @@ public static class WorkflowScaffolder
 {
     private const string DefinitionResource = "Templates/mcs-workflow/workflow.json";
 
-    /// <summary>
-    /// Writes a new workflow into its own standalone project beneath a container root, so each
-    /// created workflow stays the single workflow its project is required to hold.
-    /// </summary>
+    /// <summary>Writes a new workflow into its own standalone project beneath a container root.</summary>
     /// <param name="root">The container directory the project is created beneath.</param>
     /// <param name="name">The workflow's display name.</param>
     /// <param name="workflowId">The identifier the workflow takes.</param>
@@ -35,23 +32,14 @@ public static class WorkflowScaffolder
             throw new ArgumentException("A root is required.", nameof(root));
         }
 
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            throw new ArgumentException("A workflow name is required.", nameof(name));
-        }
+        RequireValidName(name);
 
         var projectFolder = WorkflowWorkspace.ResolveProjectFolder(root, name, workflowId);
         var projectRoot = Path.Combine(root, projectFolder);
 
         Directory.CreateDirectory(projectRoot);
 
-        var written = Scaffold(projectRoot, name, workflowId);
-
-        return new WorkflowScaffoldedProject(
-            projectFolder,
-            projectRoot,
-            $"{projectFolder}/{WorkflowWorkspace.RelativeFolderFor(name, workflowId)}",
-            written.Select(path => $"{projectFolder}/{path}").ToArray());
+        return new WorkflowScaffoldedProject(projectFolder, projectRoot, $"{projectFolder}/{WorkflowWorkspace.RelativeFolderFor(name, workflowId)}", Scaffold(projectRoot, name, workflowId).Select(path => $"{projectFolder}/{path}").ToArray());
     }
 
     /// <summary>Writes the definition and metadata pair for a new workflow.</summary>
@@ -66,10 +54,7 @@ public static class WorkflowScaffolder
             throw new ArgumentException("A workspace root is required.", nameof(workspaceRoot));
         }
 
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            throw new ArgumentException("A workflow name is required.", nameof(name));
-        }
+        RequireValidName(name);
 
         var relativeFolder = WorkflowWorkspace.RelativeFolderFor(name, workflowId);
         var folderPath = Path.Combine(WorkflowWorkspace.WorkflowsDirectory(workspaceRoot), WorkflowWorkspace.FolderNameFor(name, workflowId));
@@ -152,4 +137,12 @@ public static class WorkflowScaffolder
     }
 
     private static string JsonEscape(string value) => JsonEncodedText.Encode(value).ToString();
+
+    private static void RequireValidName(string name)
+    {
+        if (WorkflowNaming.Validate(name) is { } reason)
+        {
+            throw StandaloneWorkflowException.InvalidName(name, reason);
+        }
+    }
 }

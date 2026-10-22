@@ -32,7 +32,6 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         {
             return ex switch
             {
-                // No logging — already logged by an instrumented layer or propagated to FE directly.
                 HttpRequestException hre =>
                     NoLog(MapHttpStatusCode(hre), hre.Message),
 
@@ -48,6 +47,9 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 StandaloneWorkflowException swe when HoldsUnpushedChanges(swe.Failure) =>
                     NoLog(409, DescribeStandaloneWorkflow(swe)),
 
+                StandaloneWorkflowException swe when RequiresUserAction(swe.Failure) =>
+                    NoLog(400, DescribeStandaloneWorkflow(swe)),
+
                 InvalidOperationException ioe =>
                     NoLog(400, ioe.Message),
 
@@ -57,7 +59,6 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 OperationCanceledException =>
                     NoLog(504, "Operation timed out."),
 
-                // Logged — service or unexpected errors go to exceptions table.
                 DataverseBadRequestException dbre =>
                     LogAsException(logger, dbre, code: dbre.StatusCode),
 
@@ -77,6 +78,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         /// </summary>
         private static bool HoldsUnpushedChanges(StandaloneWorkflowFailure failure) =>
             failure is StandaloneWorkflowFailure.WorkspaceHoldsUnpushedChanges or StandaloneWorkflowFailure.ProjectHoldsUnpushedChanges;
+
+        private static bool RequiresUserAction(StandaloneWorkflowFailure failure) => failure is StandaloneWorkflowFailure.InvalidName or StandaloneWorkflowFailure.Managed or StandaloneWorkflowFailure.EnvironmentHoldsUnpublishedDraft or StandaloneWorkflowFailure.EnvironmentHoldsUnpulledChanges;
 
         /// <summary>
         /// Returns code/message without logging (exception was already logged by an instrumented layer).
@@ -137,7 +140,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             };
 
         private static string ProtectValue(string message, string? value, string? piiType) =>
-            piiType is null || string.IsNullOrEmpty(value) || !message.Contains(value!, StringComparison.Ordinal)
+            piiType is null || string.IsNullOrWhiteSpace(value) || !message.Contains(value!, StringComparison.Ordinal)
                 ? message
                 : message.Replace(value!, Tag(value!, piiType));
 

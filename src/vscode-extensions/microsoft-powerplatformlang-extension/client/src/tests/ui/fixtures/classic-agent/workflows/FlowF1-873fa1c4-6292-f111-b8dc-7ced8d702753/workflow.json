@@ -1,0 +1,134 @@
+{
+  "properties": {
+    "connectionReferences": {
+      "shared_onedriveforbusiness": {
+        "api": {
+          "name": "shared_onedriveforbusiness"
+        },
+        "connection": {
+          "connectionReferenceLogicalName": "ahe2e_MCSClassicAgent.cr.WX3p-EQ4"
+        },
+        "runtimeSource": "embedded"
+      }
+    },
+    "definition": {
+      "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+      "contentVersion": "1.0.0.0",
+      "parameters": {
+        "$authentication": {
+          "defaultValue": {},
+          "type": "SecureObject"
+        },
+        "$connections": {
+          "defaultValue": {},
+          "type": "Object"
+        }
+      },
+      "triggers": {
+        "manual": {
+          "type": "Request",
+          "kind": "Skills",
+          "inputs": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "description": "Please enter your input",
+                  "title": "TextIn1",
+                  "type": "string",
+                  "x-ms-content-hint": "TEXT",
+                  "x-ms-dynamically-added": true
+                },
+                "file": {
+                  "description": "Please select file or image",
+                  "title": "FileIn1",
+                  "type": "object",
+                  "properties": {
+                    "contentBytes": {
+                      "type": "string",
+                      "format": "byte"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "x-ms-content-hint": "FILE",
+                  "x-ms-dynamically-added": true
+                }
+              },
+              "required": [
+                "text",
+                "file"
+              ]
+            }
+          },
+          "metadata": {
+            "operationMetadataId": "b8f61c18-7224-4f8a-9c5f-72fbce5df764"
+          }
+        }
+      },
+      "actions": {
+        "Respond_to_the_agent": {
+          "type": "Response",
+          "kind": "Skills",
+          "inputs": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "fileout1": {
+                  "title": "FileOut1",
+                  "description": "",
+                  "type": "string",
+                  "format": "byte",
+                  "x-ms-content-hint": "FILE",
+                  "x-ms-dynamically-added": true
+                },
+                "textout1": {
+                  "title": "TextOut1",
+                  "description": "",
+                  "type": "string",
+                  "x-ms-content-hint": "TEXT",
+                  "x-ms-dynamically-added": true
+                }
+              },
+              "additionalProperties": {}
+            },
+            "statusCode": 200,
+            "body": {}
+          },
+          "runAfter": {
+            "List_files_in_folder": [
+              "SUCCEEDED"
+            ]
+          },
+          "metadata": {
+            "operationMetadataId": "81c94f73-dd52-465c-ad3b-a4686da63cc3"
+          }
+        },
+        "List_files_in_folder": {
+          "type": "OpenApiConnection",
+          "inputs": {
+            "parameters": {
+              "id": "6e202211-2856-4d17-9ded-5beb8b8626b0"
+            },
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_onedriveforbusiness",
+              "operationId": "ListFolderV2",
+              "connectionName": "shared_onedriveforbusiness"
+            }
+          },
+          "runAfter": {},
+          "metadata": {
+            "6e202211-2856-4d17-9ded-5beb8b8626b0": "/"
+          }
+        }
+      },
+      "outputs": {},
+      "description": "When an agent calls the flow and send back a response.",
+      "metadata": {
+        "defaultToEmbeddedConnections": true
+      }
+    }
+  },
+  "schemaVersion": "1.0.0.0"
+}

@@ -42,6 +42,16 @@ interface DeleteStandaloneWorkflowResponse extends ResponseBase {
   deleted: boolean;
 }
 
+export interface StandaloneWorkflowAgentUse {
+  agentNames: string[];
+  warning: string;
+}
+
+interface GetStandaloneWorkflowAgentUseResponse extends ResponseBase {
+  agentNames?: string[];
+  warning?: string;
+}
+
 export class StandaloneWorkflowRequestError extends Error {
   public constructor(public readonly code: number, message: string) {
     super(message);
@@ -60,6 +70,8 @@ const succeed = <TResponse extends ResponseBase>(response: TResponse | undefined
 
   return response;
 };
+
+const sendEnvironmentRequest = async <TResponse extends ResponseBase>(method: string, environmentInfo: EnvironmentInfo, account: Partial<AccountInfo>, parameters: object, cancellationToken?: CancellationToken): Promise<TResponse> => succeed(await lspClient.sendRequest<TResponse>(method, { ...await buildLspRequestPayload(undefined, environmentInfo, account, true), ...parameters }, cancellationToken));
 
 /**
  * Reports a standalone workflow failure once, showing the reason to the user while redacting
@@ -96,38 +108,14 @@ export const resolveStandaloneWorkflowProject = (
 });
 
 /**
- * Lists the cloud flows an environment holds.
+ * Lists the unmanaged cloud flows an environment holds, including the ones agents use.
  */
-export const listStandaloneWorkflows = async (
-  environmentInfo: EnvironmentInfo,
-  account: Partial<AccountInfo>,
-  nameFilter?: string,
-  maximumCount?: number,
-  cancellationToken?: CancellationToken): Promise<StandaloneWorkflowView[]> => {
-  const response = await lspClient.sendRequest<ListStandaloneWorkflowsResponse>(
-    LspMethods.LIST_STANDALONE_WORKFLOWS,
-    { ...await buildLspRequestPayload(undefined, environmentInfo, account, true), nameFilter, maximumCount },
-    cancellationToken);
-
-  return succeed(response).workflows ?? [];
-};
+export const listStandaloneWorkflows = async (environmentInfo: EnvironmentInfo, account: Partial<AccountInfo>, nameFilter?: string, maximumCount?: number, cancellationToken?: CancellationToken): Promise<StandaloneWorkflowView[]> => (await sendEnvironmentRequest<ListStandaloneWorkflowsResponse>(LspMethods.LIST_STANDALONE_WORKFLOWS, environmentInfo, account, { nameFilter, maximumCount }, cancellationToken)).workflows ?? [];
 
 /**
  * Downloads one cloud flow into a folder as a standalone workflow workspace.
  */
-export const cloneStandaloneWorkflow = async (
-  environmentInfo: EnvironmentInfo,
-  account: Partial<AccountInfo>,
-  workflowId: string,
-  rootFolder: string,
-  cancellationToken?: CancellationToken): Promise<CloneStandaloneWorkflowResponse> => {
-  const response = await lspClient.sendRequest<CloneStandaloneWorkflowResponse>(
-    LspMethods.CLONE_STANDALONE_WORKFLOW,
-    { ...await buildLspRequestPayload(undefined, environmentInfo, account, true), workflowId, rootFolder },
-    cancellationToken);
-
-  return succeed(response);
-};
+export const cloneStandaloneWorkflow = async (environmentInfo: EnvironmentInfo, account: Partial<AccountInfo>, workflowId: string, rootFolder: string, cancellationToken?: CancellationToken): Promise<CloneStandaloneWorkflowResponse> => sendEnvironmentRequest<CloneStandaloneWorkflowResponse>(LspMethods.CLONE_STANDALONE_WORKFLOW, environmentInfo, account, { workflowId, rootFolder }, cancellationToken);
 
 /**
  * Scaffolds a new standalone workflow in a folder, without touching the cloud.
@@ -147,15 +135,13 @@ export const createStandaloneWorkflow = async (
 /**
  * Deletes one cloud flow from an environment, leaving local files untouched.
  */
-export const deleteStandaloneWorkflow = async (
-  environmentInfo: EnvironmentInfo,
-  account: Partial<AccountInfo>,
-  workflowId: string,
-  cancellationToken?: CancellationToken): Promise<boolean> => {
-  const response = await lspClient.sendRequest<DeleteStandaloneWorkflowResponse>(
-    LspMethods.DELETE_STANDALONE_WORKFLOW,
-    { ...await buildLspRequestPayload(undefined, environmentInfo, account, true), workflowId },
-    cancellationToken);
+export const deleteStandaloneWorkflow = async (environmentInfo: EnvironmentInfo, account: Partial<AccountInfo>, workflowId: string, cancellationToken?: CancellationToken): Promise<boolean> => (await sendEnvironmentRequest<DeleteStandaloneWorkflowResponse>(LspMethods.DELETE_STANDALONE_WORKFLOW, environmentInfo, account, { workflowId }, cancellationToken)).deleted;
 
-  return succeed(response).deleted;
+/**
+ * Reads which Copilot Studio agents use a cloud flow, with the warning a delete shows about them.
+ */
+export const getStandaloneWorkflowAgentUse = async (environmentInfo: EnvironmentInfo, account: Partial<AccountInfo>, workflowId: string, cancellationToken?: CancellationToken): Promise<StandaloneWorkflowAgentUse> => {
+  const response = await sendEnvironmentRequest<GetStandaloneWorkflowAgentUseResponse>(LspMethods.GET_STANDALONE_WORKFLOW_AGENT_USE, environmentInfo, account, { workflowId }, cancellationToken);
+
+  return { agentNames: response.agentNames ?? [], warning: response.warning ?? '' };
 };

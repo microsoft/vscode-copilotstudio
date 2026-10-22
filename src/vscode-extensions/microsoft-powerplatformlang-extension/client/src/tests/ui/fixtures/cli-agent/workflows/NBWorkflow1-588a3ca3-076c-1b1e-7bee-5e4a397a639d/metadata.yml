@@ -1,0 +1,34 @@
+﻿jsonFileName: workflows/NBWorkflow1-588a3ca3-076c-1b1e-7bee-5e4a397a639d/workflow.json
+workflowId: 588a3ca3-076c-1b1e-7bee-5e4a397a639d
+name: NB Workflow1
+type: 1
+description: 
+subprocess: false
+category: 5
+mode: 0
+scope: 4
+onDemand: false
+triggerOnCreate: false
+triggerOnDelete: false
+asyncAutodelete: false
+syncWorkflowLogOnFailure: false
+stateCode: 1
+statusCode: 2
+runAs: 1
+isTransacted: true
+introducedVersion: 1.0
+isCustomizable:
+  value: true
+  canBeChanged: true
+  managedPropertyLogicalName: iscustomizableanddeletable
+businessProcessType: 0
+isCustomProcessingStepAllowedForOtherPublishers:
+  value: true
+  canBeChanged: true
+  managedPropertyLogicalName: canbedeleted
+modernFlowType: 1
+primaryEntity: none
+connectionReferences:
+- new_sharedteams_777c895a
+- new_sharedmsnweather_08889
+- new_sharedadvancedapprovals_275f6bca

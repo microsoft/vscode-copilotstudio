@@ -2,13 +2,14 @@ import { unescape } from "querystring";
 import { CancellationToken, commands, EventEmitter, ExtensionContext, scm, SourceControlResourceGroup, Uri, window } from "vscode";
 import { addWorkspaceChangeSubscription, CopilotStudioWorkspace, getAllWorkspaces, updateWorkspaceCache, hasConnectionFileInWorkspace, WorkspaceType } from "./localWorkspaces";
 import { LocalChangeResourceCommandResolver, RemoteChangeResourceCommandResolver, Resource, ResourceCommandResolver } from "./changeTracking";
-import { SyncResponse, Change, SyncRequest, DiffRequest } from "../types";
+import { Change, SyncRequest, DiffRequest } from "../types";
 import { LOCAL_STATE_SCHEME } from "./originalState";
 import { getOrAddSynchronizer, removeSynchronizer, SyncState } from "./workspaceSynchronizer";
 import { registerVirtualKnowledgeProvider } from "../knowledgeFiles/virtualKnowledgeFile";
-import { lspClient, buildLspRequestPayload } from '../services/lspClient';
+import { buildLspRequestPayload } from '../services/lspClient';
 import { isChildUri, isSameUri } from "../utils/genericUtils";
 import { LspMethods, TelemetryEventsKeys } from "../constants";
+import { fetchChanges } from "./changeQueries";
 import logger from "../services/logger";
 import { refreshAgentChangesTree } from "./agentChangesTreeProvider";
 
@@ -362,11 +363,6 @@ async function setupChangeTracking(ws: CopilotStudioWorkspace, context: Extensio
   const remoteChangeGroup = scmView ? createScmView('remote', 'Remote Changes', ws) : undefined;
   const localCommandController = new LocalChangeResourceCommandResolver(Uri.parse(workspaceUri));
   const remoteCommandController = new RemoteChangeResourceCommandResolver(Uri.parse(workspaceUri));
-
-  const fetchChanges = async<TInput>(requestType: string, input: TInput): Promise<Change[]> => {
-    const result = await lspClient.sendRequest<SyncResponse>(requestType, input);
-    return result.localChanges;
-  };
 
   fileDecorationChangeEmitter = new EventEmitter<Uri[]>();
   let lastFileAnnotations: Uri[] = [];

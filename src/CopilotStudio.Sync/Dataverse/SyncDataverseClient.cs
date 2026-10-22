@@ -40,14 +40,17 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
 
     private static readonly HashSet<string> WorkflowActivationStateColumns = new(StringComparer.OrdinalIgnoreCase) { "statecode", "statuscode" };
 
-    private const string CloudFlowFilter = "category eq 5 and type eq 1";
+    private const string UnmanagedCloudFlowFilter = "category eq 5 and type eq 1 and ismanaged eq false";
+
+    private const string FormattedValuesPreference = "odata.include-annotations=\"OData.Community.Display.V1.FormattedValue\"";
+
+    private const int UnpublishedComponentState = 1;
 
     private static readonly string[] WorkflowSummaryColumns = { "workflowid", "name", "description", "statecode", "statuscode", "modifiedon" };
 
-    private static readonly (string Name, System.Reflection.PropertyInfo Property)[] WorkflowWritableColumns = WorkflowColumns
-        .Where(column => !string.Equals(column.Name, WorkflowPrimaryKeyColumn, StringComparison.OrdinalIgnoreCase))
-        .OrderBy(column => WorkflowActivationStateColumns.Contains(column.Name) ? 1 : 0)
-        .ToArray();
+    private static readonly HashSet<string> ReadOnlyWorkflowColumns = new(StringComparer.OrdinalIgnoreCase) { WorkflowPrimaryKeyColumn, "ismanaged" };
+
+    private static readonly (string Name, System.Reflection.PropertyInfo Property)[] WorkflowWritableColumns = WorkflowColumns.Where(column => !ReadOnlyWorkflowColumns.Contains(column.Name)).OrderBy(column => WorkflowActivationStateColumns.Contains(column.Name) ? 1 : 0).ToArray();
 
     private static readonly Regex MissingPropertyRegex = new(@"Could not find a property named '(?<name>[^']+)'", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
@@ -62,12 +65,19 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
 
     private readonly string _userAgent;
 
+    private readonly DataverseRetryPolicy _retryPolicy;
+
     private static volatile string? _connectionReferenceCustomConnectorNavName;
 
-    public SyncDataverseClient(IDataverseHttpClientAccessor httpClientAccessor, string userAgent = "CopilotStudio.Sync")
+    public SyncDataverseClient(IDataverseHttpClientAccessor httpClientAccessor, string userAgent = "CopilotStudio.Sync") : this(httpClientAccessor, userAgent, DataverseRetryPolicy.Default)
+    {
+    }
+
+    internal SyncDataverseClient(IDataverseHttpClientAccessor httpClientAccessor, string userAgent, DataverseRetryPolicy retryPolicy)
     {
         _httpClientAccessor = httpClientAccessor ?? throw new ArgumentNullException(nameof(httpClientAccessor));
         _userAgent = userAgent;
+        _retryPolicy = retryPolicy;
     }
 
     /// <inheritdoc />
@@ -116,19 +126,11 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         return response.ToComponentCollectionInfo();
     }
 
-    public virtual async Task<Guid> GetAgentIdBySchemaNameAsync(string schemaName, CancellationToken cancellationToken)
-    {
-        var requestUri = $"{DataverseUrl}/api/data/v9.2/bots?$select=botid&$filter=schemaname eq '{schemaName?.Replace("'", "''")}'";
-        var result = await SendAsync<AgentInfoDetail>(HttpMethod.Get, requestUri, null, false, cancellationToken).ConfigureAwait(false);
-        return result?.Value?.FirstOrDefault()?.AgentId ?? Guid.Empty;
-    }
+    public virtual async Task<Guid> GetAgentIdBySchemaNameAsync(string schemaName, CancellationToken cancellationToken) =>
+        (await SendAsync<AgentInfoDetail>(HttpMethod.Get, $"{DataverseUrl}/api/data/v9.2/bots?$select=botid&$filter=schemaname eq {ODataLiteral.Quote(schemaName ?? string.Empty)}", null, false, cancellationToken).ConfigureAwait(false))?.Value?.FirstOrDefault()?.AgentId ?? Guid.Empty;
 
-    public virtual async Task<Guid> GetComponentCollectionIdBySchemaNameAsync(string schemaName, CancellationToken cancellationToken)
-    {
-        var requestUri = $"{DataverseUrl}/api/data/v9.2/botcomponentcollections?$select=botcomponentcollectionid&$filter=schemaname eq '{schemaName?.Replace("'", "''")}'";
-        var result = await SendAsync<ComponentCollectionInfoDetail>(HttpMethod.Get, requestUri, null, false, cancellationToken).ConfigureAwait(false);
-        return result?.Value?.FirstOrDefault()?.BotComponentCollectionId ?? Guid.Empty;
-    }
+    public virtual async Task<Guid> GetComponentCollectionIdBySchemaNameAsync(string schemaName, CancellationToken cancellationToken) =>
+        (await SendAsync<ComponentCollectionInfoDetail>(HttpMethod.Get, $"{DataverseUrl}/api/data/v9.2/botcomponentcollections?$select=botcomponentcollectionid&$filter=schemaname eq {ODataLiteral.Quote(schemaName ?? string.Empty)}", null, false, cancellationToken).ConfigureAwait(false))?.Value?.FirstOrDefault()?.BotComponentCollectionId ?? Guid.Empty;
 
     public virtual async Task InstallComponentCollectionOnAgentAsync(Guid agentId, Guid componentCollectionId, CancellationToken cancellationToken)
     {
@@ -183,10 +185,11 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         }
 
         var errorMessage = string.Empty;
+        WorkflowMetadata? storedWorkflow = null;
+
         try
         {
-            var existsInCloud = await WorkflowExistsAsync(workflowMetadata.WorkflowId, cancellationToken).ConfigureAwait(false);
-            if (!existsInCloud)
+            if (!await WorkflowExistsAsync(workflowMetadata.WorkflowId, cancellationToken).ConfigureAwait(false))
             {
                 if (!agentId.HasValue)
                 {
@@ -196,16 +199,15 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
                 return await InsertWorkflowAsync(agentId, workflowMetadata, cancellationToken).ConfigureAwait(false);
             }
 
-            var updateUrl = $"{DataverseUrl}/api/data/v9.2/workflows({workflowMetadata.WorkflowId})";
-            await SendWorkflowWriteAsync<object>(HttpMethodHelper.Patch, updateUrl, workflowMetadata, null, false, cancellationToken).ConfigureAwait(false);
+            storedWorkflow = await SendWorkflowWriteAsync(HttpMethodHelper.Patch, WorkflowUrl(workflowMetadata.WorkflowId), () => CreateWorkflowRequestBody(workflowMetadata), cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
             throw;
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            errorMessage = $"Failed to update workflow: {ex.Message}";
+            errorMessage = $"Failed to update workflow: {exception.Message}";
         }
 
         return new WorkflowResponse
@@ -213,7 +215,8 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
             WorkflowId = workflowMetadata.WorkflowId,
             WorkflowName = workflowMetadata.Name ?? workflowMetadata.WorkflowId.ToString(),
             IsDisabled = errorMessage.Contains("this is not a valid connection", StringComparison.OrdinalIgnoreCase) || !(workflowMetadata.StateCode == 1 && workflowMetadata.StatusCode == 2),
-            ErrorMessage = errorMessage
+            ErrorMessage = errorMessage,
+            StoredWorkflow = storedWorkflow,
         };
     }
 
@@ -234,29 +237,17 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
             throw new ArgumentNullException(nameof(workflowMetadata));
         }
 
-        var shouldActivate = workflowMetadata.StateCode != 0;
         var errorMessage = string.Empty;
         var activated = false;
+        WorkflowMetadata? storedWorkflow = null;
 
         try
         {
-            await SendWorkflowWriteAsync<JsonElement>(
-                HttpMethod.Post,
-                $"{DataverseUrl}/api/data/v9.2/workflows",
-                workflowMetadata,
-                body =>
-                {
-                    body["workflowid"] = workflowMetadata.WorkflowId;
-                    body.Remove("statecode");
-                    body.Remove("statuscode");
-                },
-                expectReturn: true,
-                cancellationToken
-            ).ConfigureAwait(false);
+            storedWorkflow = await SendWorkflowWriteAsync(HttpMethod.Post, $"{DataverseUrl}/api/data/v9.2/workflows", () => CreateWorkflowInsertBody(workflowMetadata), cancellationToken).ConfigureAwait(false);
 
-            if (shouldActivate)
+            if (workflowMetadata.StateCode != 0)
             {
-                await ActivateWorkflowAsync(workflowMetadata.WorkflowId, cancellationToken).ConfigureAwait(false);
+                storedWorkflow = await ActivateWorkflowAsync(workflowMetadata.WorkflowId, cancellationToken).ConfigureAwait(false);
                 activated = true;
             }
 
@@ -267,9 +258,9 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         {
             throw;
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            errorMessage = $"Failed to create workflow: {ex.Message}";
+            errorMessage = $"Failed to create workflow: {exception.Message}";
         }
 
         return new WorkflowResponse
@@ -277,25 +268,24 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
             WorkflowId = workflowMetadata.WorkflowId,
             WorkflowName = workflowMetadata.Name ?? workflowMetadata.WorkflowId.ToString(),
             IsDisabled = !activated,
-            ErrorMessage = errorMessage
+            ErrorMessage = errorMessage,
+            StoredWorkflow = errorMessage.Length == 0 ? storedWorkflow : null,
         };
     }
 
     public virtual async Task<ConnectionReferenceInfo[]> GetConnectionReferencesByLogicalNamesAsync(IEnumerable<string> logicalNames, CancellationToken cancellationToken)
     {
-        var names = logicalNames?.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var names = logicalNames?.Where(logicalName => !string.IsNullOrWhiteSpace(logicalName)).Select(logicalName => logicalName.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (names == null || names.Count == 0)
         {
             return Array.Empty<ConnectionReferenceInfo>();
         }
 
-        const string select = "connectionreferenceid,connectionreferencelogicalname,connectorid,connectionid,versionnumber";
         var results = new List<ConnectionReferenceInfo>();
 
         foreach (var batch in names.Chunk(BatchSize))
         {
-            var filter = string.Join(" or ", batch.Select(n => $"connectionreferencelogicalname eq '{n.Replace("'", "''")}'"));
-            string? next = $"{DataverseUrl}/api/data/v9.2/connectionreferences?$select={select}&$filter={Uri.EscapeDataString(filter)}";
+            string? next = $"{DataverseUrl}/api/data/v9.2/connectionreferences?$select=connectionreferenceid,connectionreferencelogicalname,connectorid,connectionid,versionnumber&$filter={Uri.EscapeDataString(string.Join(" or ", batch.Select(logicalName => $"connectionreferencelogicalname eq {ODataLiteral.Quote(logicalName)}")))}";
 
             while (!string.IsNullOrEmpty(next))
             {
@@ -348,44 +338,10 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
             return Array.Empty<CustomConnectorMetadata>();
         }
 
-        var ids = connectorInternalIds.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-
-        if (ids.Count == 0)
-        {
-            return Array.Empty<CustomConnectorMetadata>();
-        }
-
-        var results = new List<CustomConnectorMetadata>();
-        var seenConnectorIds = new HashSet<Guid>();
-
-        foreach (var batch in ids.Chunk(BatchSize))
-        {
-            var idClauses = string.Join(" or ", batch.Select(id => $"connectorinternalid eq '{id.Replace("'", "''")}'"));
-            var filter = isManaged ? $"({idClauses})" : $"({idClauses}) and ismanaged eq false";
-            string? next = $"{DataverseUrl}/api/data/v9.2/connectors" + $"?$select={select}" + $"&$filter={Uri.EscapeDataString(filter)}";
-
-            while (!string.IsNullOrEmpty(next))
-            {
-                var page = await SendAsync<JsonElement>(HttpMethod.Get, next!, null, false, cancellationToken).ConfigureAwait(false);
-
-                if (page.TryGetProperty("value", out var arr) && arr.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var el in arr.EnumerateArray())
-                    {
-                        var meta = JsonSerializer.Deserialize<CustomConnectorMetadata>(el.GetRawText(), JsonSerializerOptions);
-                        if (meta != null && meta.ConnectorId != Guid.Empty && seenConnectorIds.Add(meta.ConnectorId))
-                        {
-                            results.Add(meta);
-                        }
-                    }
-                }
-
-                next = page.TryGetProperty("@odata.nextLink", out var nextLinkProp) ? nextLinkProp.GetString() : null;
-            }
-        }
-
-        return results.ToArray();
+        return await ReadConnectorsAsync(connectorInternalIds.Where(internalId => !string.IsNullOrWhiteSpace(internalId)).Select(internalId => internalId.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList().Chunk(BatchSize).Select(batch => $"{DataverseUrl}/api/data/v9.2/connectors?$select={select}&$filter={Uri.EscapeDataString(InternalIdFilter(batch, isManaged))}"), cancellationToken).ConfigureAwait(false);
     }
+
+    private static string InternalIdFilter(IEnumerable<string> internalIds, bool isManaged) => $"({string.Join(" or ", internalIds.Select(internalId => $"connectorinternalid eq {ODataLiteral.Quote(internalId)}"))}){(isManaged ? string.Empty : " and ismanaged eq false")}";
 
     public virtual async Task<CustomConnectorMetadata[]> GetConnectorsByInternalIdPrefixAsync(string connectorInternalIdPrefix, CancellationToken cancellationToken)
     {
@@ -394,30 +350,36 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
             return Array.Empty<CustomConnectorMetadata>();
         }
 
-        const string select = "connectorid,name,displayname,connectorinternalid,connectortype,ismanaged,modifiedon";
-        var filter = $"startswith(connectorinternalid,'{connectorInternalIdPrefix.Replace("'", "''")}')";
-        string? next = $"{DataverseUrl}/api/data/v9.2/connectors?$select={select}&$filter={Uri.EscapeDataString(filter)}";
+        return await ReadConnectorsAsync(new[] { $"{DataverseUrl}/api/data/v9.2/connectors?$select=connectorid,name,displayname,connectorinternalid,connectortype,ismanaged,modifiedon&$filter={Uri.EscapeDataString($"startswith(connectorinternalid,{ODataLiteral.LikePattern(connectorInternalIdPrefix)})")}" }, cancellationToken).ConfigureAwait(false);
+    }
 
+    private async Task<CustomConnectorMetadata[]> ReadConnectorsAsync(IEnumerable<string> firstPageUrls, CancellationToken cancellationToken)
+    {
         var results = new List<CustomConnectorMetadata>();
         var seenConnectorIds = new HashSet<Guid>();
 
-        while (!string.IsNullOrEmpty(next))
+        foreach (var firstPageUrl in firstPageUrls)
         {
-            var page = await SendAsync<JsonElement>(HttpMethod.Get, next!, null, false, cancellationToken).ConfigureAwait(false);
+            string? next = firstPageUrl;
 
-            if (page.TryGetProperty("value", out var arr) && arr.ValueKind == JsonValueKind.Array)
+            while (!string.IsNullOrEmpty(next))
             {
-                foreach (var el in arr.EnumerateArray())
+                var page = await SendAsync<JsonElement>(HttpMethod.Get, next!, null, false, cancellationToken).ConfigureAwait(false);
+
+                if (page.TryGetProperty("value", out var values) && values.ValueKind == JsonValueKind.Array)
                 {
-                    var meta = JsonSerializer.Deserialize<CustomConnectorMetadata>(el.GetRawText(), JsonSerializerOptions);
-                    if (meta != null && meta.ConnectorId != Guid.Empty && seenConnectorIds.Add(meta.ConnectorId))
+                    foreach (var element in values.EnumerateArray())
                     {
-                        results.Add(meta);
+                        var metadata = JsonSerializer.Deserialize<CustomConnectorMetadata>(element.GetRawText(), JsonSerializerOptions);
+                        if (metadata != null && metadata.ConnectorId != Guid.Empty && seenConnectorIds.Add(metadata.ConnectorId))
+                        {
+                            results.Add(metadata);
+                        }
                     }
                 }
-            }
 
-            next = page.TryGetProperty("@odata.nextLink", out var nextLinkProp) ? nextLinkProp.GetString() : null;
+                next = page.TryGetProperty("@odata.nextLink", out var nextLinkProperty) ? nextLinkProperty.GetString() : null;
+            }
         }
 
         return results.ToArray();
@@ -525,11 +487,35 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         return true;
     }
 
-    public virtual async Task<WorkflowMetadata?> GetWorkflowAsync(Guid workflowId, CancellationToken cancellationToken)
-    {
-        var response = await GetWorkflowPageAsync($"&$filter={Uri.EscapeDataString($"workflowid eq {workflowId}")}", cancellationToken).ConfigureAwait(false);
-        var workflow = response?.Value?.FirstOrDefault();
+    public virtual async Task<WorkflowMetadata?> GetWorkflowAsync(Guid workflowId, CancellationToken cancellationToken) =>
+        WithConnectionReferences((await GetWorkflowPageAsync($"&$filter={Uri.EscapeDataString($"workflowid eq {workflowId}")}", cancellationToken).ConfigureAwait(false))?.Value?.FirstOrDefault());
 
+    public virtual async Task<bool> HasUnpublishedDraftAsync(Guid workflowId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return (await SendAsync<WorkflowComponentStateResponse>(HttpMethod.Get, $"{WorkflowUrl(workflowId)}/Microsoft.Dynamics.CRM.RetrieveUnpublished()?$select=componentstate", null, false, cancellationToken).ConfigureAwait(false))?.ComponentState == UnpublishedComponentState;
+        }
+        catch (DataverseRequestException exception) when (exception.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+    }
+
+    public virtual async Task<IReadOnlyList<string>> GetAgentsUsingWorkflowAsync(Guid workflowId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return (await SendAsync<WorkflowAgentUseResponse>(HttpMethod.Get, $"{WorkflowUrl(workflowId)}?$select=workflowid&$expand=botcomponent_workflow($select=_parentbotid_value,_parentbotcomponentcollectionid_value)", null, false, cancellationToken, FormattedValuesPreference).ConfigureAwait(false))?.Components.Select(component => component.Name).OfType<string>().Distinct(StringComparer.Ordinal).OrderBy(name => name, StringComparer.Ordinal).ToArray() ?? Array.Empty<string>();
+        }
+        catch (DataverseRequestException exception) when (exception.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return Array.Empty<string>();
+        }
+    }
+
+    private static WorkflowMetadata? WithConnectionReferences(WorkflowMetadata? workflow)
+    {
         if (workflow is not null)
         {
             workflow.ConnectionReferences = WorkflowDefinitionFile.ConnectionReferenceNames(workflow.ClientData).ToList();
@@ -550,11 +536,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
             return Array.Empty<WorkflowSummary>();
         }
 
-        var filter = string.IsNullOrWhiteSpace(nameFilter)
-            ? CloudFlowFilter
-            : $"{CloudFlowFilter} and contains(name,'{nameFilter!.Trim().Replace("'", "''")}')";
-
-        var requestUrl = $"{DataverseUrl}/api/data/v9.2/workflows?$select={string.Join(",", WorkflowSummaryColumns)}&$filter={Uri.EscapeDataString(filter)}";
+        var requestUrl = $"{DataverseUrl}/api/data/v9.2/workflows?$select={string.Join(",", WorkflowSummaryColumns)}&$filter={Uri.EscapeDataString(string.IsNullOrWhiteSpace(nameFilter) ? UnmanagedCloudFlowFilter : $"{UnmanagedCloudFlowFilter} and contains(name,{ODataLiteral.LikePattern(nameFilter!.Trim())})")}";
 
         if (maximumCount > 0)
         {
@@ -603,7 +585,14 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
             await SetWorkflowStateAsync(workflowId, false, cancellationToken).ConfigureAwait(false);
         }
 
-        await SendAsync<object>(HttpMethod.Delete, $"{DataverseUrl}/api/data/v9.2/workflows({workflowId})", null, false, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await SendAsync<object>(HttpMethod.Delete, $"{DataverseUrl}/api/data/v9.2/workflows({workflowId})", null, false, cancellationToken).ConfigureAwait(false);
+        }
+        catch (DataverseRequestException exception) when (exception.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return true;
+        }
 
         return true;
     }
@@ -644,30 +633,37 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         return body;
     }
 
-    private async Task<T?> SendWorkflowWriteAsync<T>(
-        HttpMethod httpMethod,
-        string requestUrl,
-        WorkflowMetadata workflowMetadata,
-        Action<Dictionary<string, object?>>? configureBody,
-        bool expectReturn,
-        CancellationToken cancellationToken)
+    private Dictionary<string, object?> CreateWorkflowInsertBody(WorkflowMetadata workflowMetadata)
+    {
+        var body = CreateWorkflowRequestBody(workflowMetadata);
+
+        body["workflowid"] = workflowMetadata.WorkflowId;
+        body.Remove("statecode");
+        body.Remove("statuscode");
+
+        return body;
+    }
+
+    private string WorkflowUrl(Guid workflowId) => $"{DataverseUrl}/api/data/v9.2/workflows({workflowId})";
+
+    private async Task<WorkflowMetadata?> SendWorkflowWriteAsync(HttpMethod httpMethod, string entityUrl, Func<Dictionary<string, object?>> createBody, CancellationToken cancellationToken)
     {
         var droppedColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         while (true)
         {
-            var requestBody = CreateWorkflowRequestBody(workflowMetadata);
-            configureBody?.Invoke(requestBody);
+            var requestBody = createBody();
+            var selectedColumns = GetSupportedWorkflowReadColumns();
 
             try
             {
-                return await SendAsync<T>(httpMethod, requestUrl, requestBody, expectReturn, cancellationToken).ConfigureAwait(false);
+                return WithConnectionReferences(await SendAsync<WorkflowMetadata>(httpMethod, $"{entityUrl}?$select={string.Join(",", selectedColumns)}", requestBody, expectReturn: true, cancellationToken).ConfigureAwait(false));
             }
             catch (DataverseRequestException exception)
             {
                 var unknownColumn = TryGetDroppableWorkflowColumn(exception);
 
-                if (unknownColumn == null || !requestBody.ContainsKey(unknownColumn) || !droppedColumns.Add(unknownColumn))
+                if (unknownColumn == null || !(requestBody.ContainsKey(unknownColumn) || selectedColumns.Contains(unknownColumn, StringComparer.OrdinalIgnoreCase)) || !droppedColumns.Add(unknownColumn))
                 {
                     throw;
                 }
@@ -677,17 +673,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         }
     }
 
-    private async Task ActivateWorkflowAsync(Guid workflowId, CancellationToken cancellationToken)
-    {
-        var activateUrl = $"{DataverseUrl}/api/data/v9.2/workflows({workflowId})";
-        var activateBody = new Dictionary<string, object?>
-        {
-            ["statecode"] = 1,
-            ["statuscode"] = 2
-        };
-
-        await SendAsync<object>(HttpMethodHelper.Patch, activateUrl, activateBody, false, cancellationToken).ConfigureAwait(false);
-    }
+    private Task<WorkflowMetadata?> ActivateWorkflowAsync(Guid workflowId, CancellationToken cancellationToken) => SendWorkflowWriteAsync(HttpMethodHelper.Patch, WorkflowUrl(workflowId), () => new Dictionary<string, object?> { ["statecode"] = 1, ["statuscode"] = 2 }, cancellationToken);
 
     public virtual async Task SetWorkflowStateAsync(Guid workflowId, bool activate, CancellationToken cancellationToken)
     {
@@ -883,32 +869,12 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         return requested;
     }
 
-    private async Task<T?> SendAsync<T>(HttpMethod httpMethod, string requestUrl, object? requestBody, bool expectReturn, CancellationToken cancellationToken)
+    private async Task<T?> SendAsync<T>(HttpMethod httpMethod, string requestUrl, object? requestBody, bool expectReturn, CancellationToken cancellationToken, string? preference = null)
     {
-        // Auth is handled by the DataverseHttpClientAccessor's AuthenticatedHttpClientHandler.
-        // The accessor owns HttpClient lifetime — callers must not dispose.
-        var httpClient = _httpClientAccessor.CreateClient();
-        using var requestMessage = new HttpRequestMessage(httpMethod, RequireDataverseOrigin(requestUrl));
-        requestMessage.Headers.Add("OData-MaxVersion", "4.0");
-        requestMessage.Headers.Add("OData-Version", "4.0");
-        requestMessage.Headers.UserAgent.ParseAdd(_userAgent);
+        var requestUri = RequireDataverseOrigin(requestUrl);
+        var body = requestBody is null ? null : JsonSerializer.SerializeToUtf8Bytes(requestBody, JsonSerializerOptions);
 
-        if (expectReturn)
-        {
-            requestMessage.Headers.Add("Prefer", "return=representation");
-        }
-
-        if (requestBody != null)
-        {
-            var bodyStream = new MemoryStream();
-            await JsonSerializer.SerializeAsync(bodyStream, requestBody, JsonSerializerOptions, cancellationToken).ConfigureAwait(false);
-            bodyStream.Position = 0;
-            var bodyContent = new StreamContent(bodyStream);
-            bodyContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
-            requestMessage.Content = bodyContent;
-        }
-
-        using var responseMessage = await httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        using var responseMessage = await _retryPolicy.SendAsync(_httpClientAccessor.CreateClient(), () => CreateRequest(httpMethod, requestUri, body, expectReturn ? "return=representation" : preference), HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
 
         if (!responseMessage.IsSuccessStatusCode)
         {
@@ -945,25 +911,38 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         return await JsonSerializer.DeserializeAsync<T>(bufferStream, JsonSerializerOptions, cancellationToken).ConfigureAwait(false);
     }
 
-    public virtual async Task<bool> ConnectionReferenceExistsAsync(
-        string connectionReferenceLogicalName,
-        CancellationToken cancellationToken)
+    private HttpRequestMessage CreateRequest(HttpMethod httpMethod, Uri requestUri, byte[]? body, string? preference)
     {
-        if (connectionReferenceLogicalName is null) throw new ArgumentNullException(nameof(connectionReferenceLogicalName));
-        var literal = connectionReferenceLogicalName.Replace("'", "''");
-        var filterExpr = $"connectionreferencelogicalname eq '{literal}'";
-        var baseUri = new Uri(new Uri(DataverseUrl), "/api/data/v9.2/connectionreferences");
-        var requestUri = new Uri($"{baseUri}?$select=connectionreferenceid&$top=1&$filter={Uri.EscapeDataString(filterExpr)}");
+        var requestMessage = new HttpRequestMessage(httpMethod, requestUri);
+        requestMessage.Headers.Add("OData-MaxVersion", "4.0");
+        requestMessage.Headers.Add("OData-Version", "4.0");
+        requestMessage.Headers.UserAgent.ParseAdd(_userAgent);
 
-        var queryResponse = await SendAsync<ConnectionReferenceQueryResponse>(
-            HttpMethod.Get,
-            requestUri.ToString(),
-            null,
-            false,
-            cancellationToken
-        ).ConfigureAwait(false);
+        if (preference is not null)
+        {
+            requestMessage.Headers.Add("Prefer", preference);
+        }
 
-        return queryResponse?.Value != null && queryResponse.Value.Length > 0;
+        if (body is not null)
+        {
+            requestMessage.Content = new ByteArrayContent(body);
+            requestMessage.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
+        }
+
+        return requestMessage;
+    }
+
+    public virtual async Task<bool> ConnectionReferenceExistsAsync(string connectionReferenceLogicalName, CancellationToken cancellationToken) =>
+        (await FindConnectionReferencesAsync(connectionReferenceLogicalName, "connectionreferenceid", cancellationToken).ConfigureAwait(false)).Length > 0;
+
+    private async Task<ConnectionReferenceInfo[]> FindConnectionReferencesAsync(string connectionReferenceLogicalName, string columns, CancellationToken cancellationToken)
+    {
+        if (connectionReferenceLogicalName is null)
+        {
+            throw new ArgumentNullException(nameof(connectionReferenceLogicalName));
+        }
+
+        return (await SendAsync<ConnectionReferenceQueryResponse>(HttpMethod.Get, new Uri($"{new Uri(new Uri(DataverseUrl), "/api/data/v9.2/connectionreferences")}?$select={columns}&$top=1&$filter={Uri.EscapeDataString($"connectionreferencelogicalname eq {ODataLiteral.Quote(connectionReferenceLogicalName)}")}").ToString(), null, false, cancellationToken).ConfigureAwait(false))?.Value ?? Array.Empty<ConnectionReferenceInfo>();
     }
 
     public virtual async Task CreateConnectionReferenceAsync(
@@ -1092,7 +1071,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
 
     public virtual async Task EnsureConnectionReferenceExistsAsync(string connectionReferenceLogicalName, string connectorId, CancellationToken cancellationToken, Guid? customConnectorRowId = null)
     {
-        var existing = await GetConnectionReferenceByLogicalNameAsync(connectionReferenceLogicalName, cancellationToken).ConfigureAwait(false);
+        var existing = (await FindConnectionReferencesAsync(connectionReferenceLogicalName, "connectionreferenceid,connectionreferencelogicalname,connectorid,connectionid", cancellationToken).ConfigureAwait(false)).FirstOrDefault();
         if (existing is null)
         {
             await CreateConnectionReferenceAsync(connectionReferenceLogicalName, connectorId, cancellationToken, customConnectorRowId).ConfigureAwait(false);
@@ -1105,30 +1084,6 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         {
             await UpdateConnectionReferenceConnectorAsync(existing.ConnectionReferenceId, connectorId, customConnectorRowId, cancellationToken).ConfigureAwait(false);
         }
-    }
-
-    private async Task<ConnectionReferenceInfo?> GetConnectionReferenceByLogicalNameAsync(string connectionReferenceLogicalName, CancellationToken cancellationToken)
-    {
-        if (connectionReferenceLogicalName is null)
-        {
-            throw new ArgumentNullException(nameof(connectionReferenceLogicalName));
-        }
-
-        var literal = connectionReferenceLogicalName.Replace("'", "''");
-        var filterExpr = $"connectionreferencelogicalname eq '{literal}'";
-        var baseUri = new Uri(new Uri(DataverseUrl), "/api/data/v9.2/connectionreferences");
-        var requestUri = new Uri($"{baseUri}?$select=connectionreferenceid,connectionreferencelogicalname,connectorid,connectionid&$top=1&$filter={Uri.EscapeDataString(filterExpr)}");
-
-        var queryResponse = await SendAsync<ConnectionReferenceQueryResponse>(
-            HttpMethod.Get,
-            requestUri.ToString(),
-            null,
-            false,
-            cancellationToken
-        ).ConfigureAwait(false);
-
-        var existing = queryResponse?.Value;
-        return existing != null && existing.Length > 0 ? existing[0] : null;
     }
 
     private async Task UpdateConnectionReferenceConnectorAsync(Guid connectionReferenceId, string connectorId, Guid? customConnectorRowId, CancellationToken cancellationToken)
@@ -1228,23 +1183,8 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         };
     }
 
-    private async Task<Guid> ResolveConnectionReferenceIdAsync(string connectionReferenceLogicalName, CancellationToken cancellationToken)
-    {
-        var filterExpr = $"connectionreferencelogicalname eq '{connectionReferenceLogicalName.Replace("'", "''")}'";
-        var baseUri = new Uri(new Uri(DataverseUrl), "/api/data/v9.2/connectionreferences");
-        var queryUri = new Uri($"{baseUri}?$select=connectionreferenceid&$top=1&$filter={Uri.EscapeDataString(filterExpr)}");
-
-        var queryResponse = await SendAsync<ConnectionReferenceQueryResponse>(HttpMethod.Get, queryUri.ToString(), null, false, cancellationToken).ConfigureAwait(false);
-
-        var existing = queryResponse?.Value;
-
-        if (existing == null || existing.Length == 0)
-        {
-            throw new InvalidOperationException($"Connection reference '{connectionReferenceLogicalName}' was not found in Dataverse.");
-        }
-
-        return existing[0].ConnectionReferenceId;
-    }
+    private async Task<Guid> ResolveConnectionReferenceIdAsync(string connectionReferenceLogicalName, CancellationToken cancellationToken) =>
+        (await FindConnectionReferencesAsync(connectionReferenceLogicalName, "connectionreferenceid", cancellationToken).ConfigureAwait(false)).FirstOrDefault()?.ConnectionReferenceId ?? throw new InvalidOperationException($"Connection reference '{connectionReferenceLogicalName}' was not found in Dataverse.");
 
     public async Task DownloadKnowledgeFileAsync(string knowledgeFileFolder, BotComponentId botComponentId, string fileName, CancellationToken cancellationToken = default)
     {
@@ -1265,14 +1205,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
     {
         var requestUri = RequireDataverseOrigin(new Uri(new Uri(DataverseUrl), $"/api/data/v9.2/botcomponents({botComponentId})/filedata/$value").ToString());
 
-        var httpClient = _httpClientAccessor.CreateClient();
-
-        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
-        request.Headers.Add("OData-MaxVersion", "4.0");
-        request.Headers.Add("OData-Version", "4.0");
-        request.Headers.UserAgent.ParseAdd(_userAgent);
-
-        using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        using var response = await _retryPolicy.SendAsync(_httpClientAccessor.CreateClient(), () => CreateRequest(HttpMethod.Get, requestUri, null, null), HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
 
         if (!response.IsSuccessStatusCode)
         {
@@ -1333,25 +1266,40 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
     public async Task UploadKnowledgeFileAsync(Stream content, Guid botComponentId, string fileName, CancellationToken cancellationToken = default)
     {
         var requestUri = RequireDataverseOrigin(new Uri(new Uri(DataverseUrl), $"/api/data/v9.2/botcomponents({botComponentId})/filedata/").ToString());
-        var httpClient = _httpClientAccessor.CreateClient();
 
-        using var request = new HttpRequestMessage(HttpMethodHelper.Patch, requestUri)
-        {
-            Content = new StreamContent(new NonDisposingStream(content), bufferSize: 81920)
-        };
+        using var buffered = content.CanSeek ? null : await BufferAsync(content, cancellationToken).ConfigureAwait(false);
+        var body = buffered ?? content;
+        var bodyStart = body.Position;
 
-        request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
-        request.Headers.Add("x-ms-file-name", fileName);
-        request.Headers.Add("Accept", "application/json");
-        request.Headers.UserAgent.ParseAdd(_userAgent);
-
-        using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        using var response = await _retryPolicy.SendAsync(_httpClientAccessor.CreateClient(), () => CreateUploadRequest(requestUri, body, bodyStart, fileName), HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
 
         if (!response.IsSuccessStatusCode)
         {
             var responseText = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             throw new InvalidOperationException($"Dataverse upload failed ({(int)response.StatusCode}): {responseText}");
         }
+    }
+
+    private static async Task<MemoryStream> BufferAsync(Stream content, CancellationToken cancellationToken)
+    {
+        var buffer = new MemoryStream();
+        await content.CopyToAsync(buffer, 81920, cancellationToken).ConfigureAwait(false);
+        buffer.Position = 0;
+
+        return buffer;
+    }
+
+    private HttpRequestMessage CreateUploadRequest(Uri requestUri, Stream body, long bodyStart, string fileName)
+    {
+        body.Position = bodyStart;
+
+        var request = new HttpRequestMessage(HttpMethodHelper.Patch, requestUri) { Content = new StreamContent(new NonDisposingStream(body), bufferSize: 81920) };
+        request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+        request.Headers.Add("x-ms-file-name", fileName);
+        request.Headers.Add("Accept", "application/json");
+        request.Headers.UserAgent.ParseAdd(_userAgent);
+
+        return request;
     }
 
     private static string GetKnowledgeFileLocalPath(string knowledgeFileFolder, string fileName)
@@ -1656,6 +1604,29 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         public ConnectionReferenceInfo[] Value { get; set; } = Array.Empty<ConnectionReferenceInfo>();
     }
 
+    internal class WorkflowComponentStateResponse
+    {
+        [JsonPropertyName("componentstate")]
+        public int? ComponentState { get; set; }
+    }
+
+    internal class WorkflowAgentUseResponse
+    {
+        [JsonPropertyName("botcomponent_workflow")]
+        public WorkflowAgentComponent[] Components { get; set; } = Array.Empty<WorkflowAgentComponent>();
+    }
+
+    internal class WorkflowAgentComponent
+    {
+        [JsonPropertyName("_parentbotid_value@OData.Community.Display.V1.FormattedValue")]
+        public string? AgentName { get; set; }
+
+        [JsonPropertyName("_parentbotcomponentcollectionid_value@OData.Community.Display.V1.FormattedValue")]
+        public string? ComponentCollectionName { get; set; }
+
+        public string? Name => !string.IsNullOrWhiteSpace(AgentName) ? AgentName : !string.IsNullOrWhiteSpace(ComponentCollectionName) ? ComponentCollectionName : null;
+    }
+
 #pragma warning disable CA1034 // Nested types should not be visible - DTO used via 'using static'
     public class ConnectionReferenceInfo
     {
@@ -1808,6 +1779,10 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
 
         [JsonPropertyName("primaryentity")]
         public string? PrimaryEntity { get; set; }
+
+        [McsYamlIgnore]
+        [JsonPropertyName("ismanaged")]
+        public bool? IsManaged { get; set; }
 
         [McsYamlIgnore]
         [JsonPropertyName("clientdata")]

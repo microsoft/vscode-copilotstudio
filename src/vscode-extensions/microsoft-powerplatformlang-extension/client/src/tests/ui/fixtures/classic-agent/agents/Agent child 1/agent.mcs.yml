@@ -1,0 +1,12 @@
+mcs.metadata:
+  componentName: Agent child 1
+  schemaName: ahe2e_MCSClassicAgent.agent.Agent
+kind: AgentDialog
+beginDialog:
+  kind: OnToolSelected
+  id: main
+  description: Agent Child 1 Description
+
+settings: {}
+inputType: {}
+outputType: {}

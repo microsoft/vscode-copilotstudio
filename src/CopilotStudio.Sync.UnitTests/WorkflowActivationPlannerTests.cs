@@ -172,6 +172,14 @@ public class WorkflowActivationPlannerTests
     }
 
     [Fact]
+    public void UnboundReferences_NamesEachUnboundReferenceOnceInTheOrderTheWorkflowUsesThem()
+    {
+        var bound = WorkflowActivationPlanner.BoundReferences([Reference("new_teams", "conn-1"), Reference("new_weather", string.Empty)]);
+
+        Assert.Equal(["new_weather", "new_outlook"], WorkflowActivationPlanner.UnboundReferences(["new_weather", "NEW_TEAMS", "  ", "new_outlook", "New_Weather"], bound));
+    }
+
+    [Fact]
     public async Task ActivateWhenBoundAsync_StartsTheBoundWorkflowAndDraftsTheUnboundOne()
     {
         var bound = Workflow(0, "new_teams");

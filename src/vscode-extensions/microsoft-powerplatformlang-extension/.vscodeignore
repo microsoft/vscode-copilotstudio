@@ -18,3 +18,13 @@ vsc-extension-quickstart.md
 **/*.ts
 **/.vscode-test.*
 **/*.pdb
+.vscode-test-ui-profile/**
+lspe2e.config.json
+client/src/tests/**
+client/out/tests/**
+client/testdriver/**
+scripts/runUiE2E.js
+scripts/cleanUiE2E.js
+scripts/signInUiE2E.js
+scripts/uiE2ELauncher.js
+scripts/processTree.js

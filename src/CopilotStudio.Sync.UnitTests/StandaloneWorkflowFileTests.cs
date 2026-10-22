@@ -78,6 +78,8 @@ public class StandaloneWorkflowFileTests : IDisposable
     [InlineData("a/b:c", "abc")]
     [InlineData("trailing.  ", "trailing")]
     [InlineData(null, "")]
+    [InlineData("CON", "CON")]
+    [InlineData("CON.v1", "CON_.v1")]
     public void FolderNameFor_StripsWhatAFolderNameCannotHold(string? name, string expectedPrefix)
     {
         var workflowId = Guid.NewGuid();
@@ -474,8 +476,8 @@ public class StandaloneWorkflowFileTests : IDisposable
     }
 
     [Fact]
-    public void ResolveProjectFolder_RejectsANameNoFolderCanCarry() =>
-        Assert.Throws<StandaloneWorkflowException>(() => WorkflowWorkspace.ResolveProjectFolder(_root, "///", Guid.NewGuid()));
+    public void ResolveProjectFolder_RejectsANameNoFolderCanCarryAsAnInvalidName() =>
+        Assert.Equal(StandaloneWorkflowFailure.InvalidName, Assert.Throws<StandaloneWorkflowException>(() => WorkflowWorkspace.ResolveProjectFolder(_root, "///", Guid.NewGuid())).Failure);
 
     [Theory]
     [InlineData("")]
@@ -531,9 +533,17 @@ public class StandaloneWorkflowFileTests : IDisposable
     public void ScaffoldProject_RequiresARoot(string root) =>
         Assert.Throws<ArgumentException>(() => WorkflowScaffolder.ScaffoldProject(root, "My Flow", Guid.NewGuid()));
 
-    [Fact]
-    public void ScaffoldProject_RequiresAName() =>
-        Assert.Throws<ArgumentException>(() => WorkflowScaffolder.ScaffoldProject(_root, "  ", Guid.NewGuid()));
+    public static TheoryData<string> InvalidNames => new() { "  ", "tab\tseparated", new string('a', WorkflowNaming.MaximumLength + 1) };
+
+    [Theory]
+    [MemberData(nameof(InvalidNames))]
+    public void ScaffoldProject_RefusesAnInvalidNameBeforeWritingAnything(string name)
+    {
+        var failure = Assert.Throws<StandaloneWorkflowException>(() => WorkflowScaffolder.ScaffoldProject(_root, name, Guid.NewGuid()));
+
+        Assert.Equal(StandaloneWorkflowFailure.InvalidName, failure.Failure);
+        Assert.False(Directory.Exists(_root));
+    }
 
     [Fact]
     public void Format_IndentsTheDefinition() => Assert.Contains("\n", WorkflowDefinitionFile.Format("{\"a\":{\"b\":1}}"), StringComparison.Ordinal);
@@ -1034,7 +1044,15 @@ public class StandaloneWorkflowFileTests : IDisposable
     }
 
     [Fact]
-    public void Scaffold_RequiresAName() => Assert.Throws<ArgumentException>(() => WorkflowScaffolder.Scaffold(_root, "  ", Guid.NewGuid()));
+    public void Scaffold_RefusesAnInvalidNameBeforeWritingAnything()
+    {
+        Directory.CreateDirectory(_root);
+
+        var failure = Assert.Throws<StandaloneWorkflowException>(() => WorkflowScaffolder.Scaffold(_root, new string('a', WorkflowNaming.MaximumLength + 1), Guid.NewGuid()));
+
+        Assert.Equal(StandaloneWorkflowFailure.InvalidName, failure.Failure);
+        Assert.Empty(Directory.EnumerateFileSystemEntries(_root));
+    }
 
     [Fact]
     public void Scaffold_RequiresAWorkspaceRoot() => Assert.Throws<ArgumentException>(() => WorkflowScaffolder.Scaffold("  ", "Flow", Guid.NewGuid()));

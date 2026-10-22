@@ -36,6 +36,16 @@ public enum StandaloneWorkflowFailure
 
     /// <summary>The workspace a download would write over holds a workflow edit the service has not seen.</summary>
     WorkspaceHoldsUnpushedChanges = 9,
+
+    /// <summary>A workflow name is one Dataverse would refuse or no folder name could carry.</summary>
+    InvalidName = 10,
+
+    /// <summary>The workflow is managed.</summary>
+    Managed = 11,
+
+    EnvironmentHoldsUnpulledChanges = 12,
+
+    EnvironmentHoldsUnpublishedDraft = 13,
 }
 
 /// <summary>A standalone workflow could not be read or written.</summary>
@@ -112,10 +122,31 @@ public sealed class StandaloneWorkflowException : Exception
             EnvironmentId = environmentId,
         };
 
-    internal static StandaloneWorkflowException UnusableProjectName(string workflowName) =>
-        new(StandaloneWorkflowFailure.SourceNotFound, $"The workflow name '{workflowName}' holds no character a folder name may use.")
+    internal static StandaloneWorkflowException Managed(Guid workflowId, string? workflowName, string? environmentId)
+    {
+        var subject = workflowName ?? workflowId.ToString();
+
+        return new(StandaloneWorkflowFailure.Managed, string.Format(CultureInfo.InvariantCulture, "The workflow '{0}' ({1}) is managed{2}. A managed flow changes only through the solution that installed it, so it cannot be cloned or pulled.", subject, workflowId, InEnvironment(environmentId)))
+        {
+            Subject = subject,
+            EnvironmentId = environmentId,
+        };
+    }
+
+    internal static StandaloneWorkflowException UnusableProjectName(string workflowName) => InvalidName(workflowName, $"The workflow name '{workflowName}' holds no character a folder name may use.");
+
+    internal static StandaloneWorkflowException InvalidName(string? workflowName, string reason) =>
+        new(StandaloneWorkflowFailure.InvalidName, reason)
         {
             Subject = workflowName,
+            Reason = reason,
+        };
+
+    internal static StandaloneWorkflowException InvalidMetadataName(string metadataPath, string reason) =>
+        new(StandaloneWorkflowFailure.InvalidName, $"{metadataPath} declares a workflow name that cannot be used: {reason}")
+        {
+            Subject = metadataPath,
+            Reason = reason,
         };
 
     internal static StandaloneWorkflowException ProjectFolderOccupied(string projectFolder) =>
@@ -131,10 +162,26 @@ public sealed class StandaloneWorkflowException : Exception
         };
 
     internal static StandaloneWorkflowException WorkspaceHoldsUnpushedChanges(string folderName) =>
-        new(StandaloneWorkflowFailure.WorkspaceHoldsUnpushedChanges, $"'{folderName}' holds changes the environment has not seen, and downloading would replace them. Push or discard them first, or ask for them to be overwritten.")
+        new(StandaloneWorkflowFailure.WorkspaceHoldsUnpushedChanges, $"'{folderName}' has conflict local changes, and a pull would replace them.")
         {
             Subject = folderName,
         };
+
+    internal static StandaloneWorkflowException EnvironmentHoldsUnpulledChanges(string folderName, string? environmentId) =>
+        new(StandaloneWorkflowFailure.EnvironmentHoldsUnpulledChanges, $"'{folderName}' has conflict remote change, and applying changes would replace them. Use Get changes to get them, or Apply changes again and choose Overwrite remote changes to replace them.")
+        {
+            Subject = folderName,
+            EnvironmentId = environmentId,
+        };
+
+    internal static StandaloneWorkflowException EnvironmentHoldsUnpublishedDraft(string workflowName, string? environmentId) =>
+        new(StandaloneWorkflowFailure.EnvironmentHoldsUnpublishedDraft, $"'{workflowName}' has a draft version that was saved in Copilot Studio but not published, and the environment refuses to apply changes while it exists. Publish the draft in Copilot Studio, then use Get changes to get it, or Apply changes again and choose Overwrite remote changes to replace it.")
+        {
+            Subject = workflowName,
+            EnvironmentId = environmentId,
+        };
+
+    internal static string InEnvironment(string? environmentId) => string.IsNullOrWhiteSpace(environmentId) ? string.Empty : $" in {environmentId}";
 
     internal static StandaloneWorkflowException PushFailed(string workflowName, string? environmentId, string reason) =>
         new(StandaloneWorkflowFailure.PushFailed, $"The workflow '{workflowName}' could not be written to {environmentId}: {reason}")

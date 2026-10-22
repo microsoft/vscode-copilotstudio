@@ -11,6 +11,7 @@ import { initializeWorkspaceManager } from './sync/workspaceManager';
 import { initializeWorkspaceScm } from './sync/workspaceScm';
 import { initializeAgentChangesTree } from './sync/agentChangesTreeProvider';
 import { addWorkspaceChangeSubscription, getAllWorkspaces } from './sync/localWorkspaces';
+import { readLocalChanges, readRemoteChanges } from './sync/changeQueries';
 import { initializeVirtualKnowledgeTree } from './knowledgeFiles/virtualKnowledgeFile';
 import { registerCloneAgentCommand } from './commands/cloneAgent';
 import { registerCloneStandaloneWorkflowCommand } from './commands/cloneStandaloneWorkflow';
@@ -111,7 +112,9 @@ export async function activate(context: vscode.ExtensionContext) {
   // expose test-friendly API
   return {
     addWorkspaceChangeSubscription,
-    getAllWorkspaces
+    getAllWorkspaces,
+    readLocalChanges,
+    readRemoteChanges
   };
 }
 
