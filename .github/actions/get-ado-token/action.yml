@@ -28,15 +28,18 @@ runs:
     - id: ADOAuth
       name: Get ADO Access Token
       uses: azure/powershell@1300bbd2b3e1c21c029fe34887d16d2809a1397f # v1.4.0
+      env:
+        ADO_ORGANIZATION: ${{ inputs.organization }}
       with:
         azPSVersion: "latest"
         inlineScript: |
-          function decodeToken([string]$token) { 
-            $t = $token.split('.')[1]
-            while($t.Length % 4 -ne 0) { $t += '=' } 
-            ConvertFrom-Json ([System.Text.Encoding]::Ascii.GetString([System.Convert]::FromBase64String($t)))
+          $accessToken = az account get-access-token `
+            --resource="https://$env:ADO_ORGANIZATION.visualstudio.com" `
+            --query accessToken --output tsv
+
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($accessToken)) {
+            throw "Failed to obtain Azure DevOps access token."
           }
 
-          $accessToken = az account get-access-token --resource="https://${{inputs.organization}}.visualstudio.com" --query accessToken
-          decodeToken($accessToken)
+          Write-Output "::add-mask::$accessToken"
           "token=$accessToken" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
