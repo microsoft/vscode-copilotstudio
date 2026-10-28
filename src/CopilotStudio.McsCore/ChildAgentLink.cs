@@ -34,9 +34,9 @@ namespace Microsoft.CopilotStudio.McsCore
         internal static SchemaLinkData? ReadLink(IFileAccessor fileAccessor, AgentFilePath agentDefinitionPath, string folderName)
         {
             var anchorSchemaName = SkillLayout.ReadMetadata(fileAccessor, agentDefinitionPath).SchemaName;
-            if (!string.IsNullOrEmpty(anchorSchemaName))
+            if (anchorSchemaName is { Length: > 0 })
             {
-                return new SchemaLinkData { SchemaName = anchorSchemaName!, FolderName = folderName };
+                return new SchemaLinkData { SchemaName = anchorSchemaName, FolderName = folderName };
             }
 
             var link = SchemaLink.TryRead(fileAccessor, GetLegacyLinkPath(folderName));

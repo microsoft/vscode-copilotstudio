@@ -29,10 +29,11 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
 
     private static readonly HashSet<string> RequiredWorkflowColumns = new(StringComparer.OrdinalIgnoreCase) { WorkflowPrimaryKeyColumn, "name", "clientdata" };
 
+    // ! The filter retains only properties carrying a JsonPropertyName attribute.
     private static readonly (string Name, System.Reflection.PropertyInfo Property)[] WorkflowColumns = typeof(WorkflowMetadata)
         .GetProperties(BindingFlags.Public | BindingFlags.Instance)
         .Select(property => (Property: property, Json: property.GetCustomAttribute<JsonPropertyNameAttribute>()))
-        .Where(entry => entry.Json is not null && entry.Property.GetCustomAttribute<JsonIgnoreAttribute>() is null && !NonDataverseWorkflowColumns.Contains(entry.Json!.Name))
+        .Where(entry => entry.Json is not null && entry.Property.GetCustomAttribute<JsonIgnoreAttribute>() is null && !NonDataverseWorkflowColumns.Contains(entry.Json.Name))
         .Select(entry => (entry.Json!.Name, entry.Property))
         .ToArray();
 
@@ -287,9 +288,9 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         {
             string? next = $"{DataverseUrl}/api/data/v9.2/connectionreferences?$select=connectionreferenceid,connectionreferencelogicalname,connectorid,connectionid,versionnumber&$filter={Uri.EscapeDataString(string.Join(" or ", batch.Select(logicalName => $"connectionreferencelogicalname eq {ODataLiteral.Quote(logicalName)}")))}";
 
-            while (!string.IsNullOrEmpty(next))
+            while (next is { Length: > 0 })
             {
-                var response = await SendAsync<ODataResponse<ConnectionReferenceInfo>>(HttpMethod.Get, next!, null, false, cancellationToken).ConfigureAwait(false);
+                var response = await SendAsync<ODataResponse<ConnectionReferenceInfo>>(HttpMethod.Get, next, null, false, cancellationToken).ConfigureAwait(false);
                 if (response?.Value != null)
                 {
                     results.AddRange(response.Value);
@@ -304,12 +305,12 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
 
     public static string? ExtractConnectorInternalId(string? connectorIdPath)
     {
-        if (string.IsNullOrWhiteSpace(connectorIdPath))
+        if (connectorIdPath is null || string.IsNullOrWhiteSpace(connectorIdPath))
         {
             return null;
         }
 
-        var slash = connectorIdPath!.LastIndexOf('/');
+        var slash = connectorIdPath.LastIndexOf('/');
         var segment = slash >= 0 ? connectorIdPath.Substring(slash + 1) : connectorIdPath;
         return string.IsNullOrWhiteSpace(segment) ? null : segment;
     }
@@ -362,9 +363,9 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         {
             string? next = firstPageUrl;
 
-            while (!string.IsNullOrEmpty(next))
+            while (next is { Length: > 0 })
             {
-                var page = await SendAsync<JsonElement>(HttpMethod.Get, next!, null, false, cancellationToken).ConfigureAwait(false);
+                var page = await SendAsync<JsonElement>(HttpMethod.Get, next, null, false, cancellationToken).ConfigureAwait(false);
 
                 if (page.TryGetProperty("value", out var values) && values.ValueKind == JsonValueKind.Array)
                 {
@@ -536,7 +537,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
             return Array.Empty<WorkflowSummary>();
         }
 
-        var requestUrl = $"{DataverseUrl}/api/data/v9.2/workflows?$select={string.Join(",", WorkflowSummaryColumns)}&$filter={Uri.EscapeDataString(string.IsNullOrWhiteSpace(nameFilter) ? UnmanagedCloudFlowFilter : $"{UnmanagedCloudFlowFilter} and contains(name,{ODataLiteral.LikePattern(nameFilter!.Trim())})")}";
+        var requestUrl = $"{DataverseUrl}/api/data/v9.2/workflows?$select={string.Join(",", WorkflowSummaryColumns)}&$filter={Uri.EscapeDataString(string.IsNullOrWhiteSpace(nameFilter) ? UnmanagedCloudFlowFilter : $"{UnmanagedCloudFlowFilter} and contains(name,{ODataLiteral.LikePattern((nameFilter ?? string.Empty).Trim())})")}";
 
         if (maximumCount > 0)
         {
@@ -546,9 +547,9 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         var summaries = new List<WorkflowSummary>();
         var nextUrl = requestUrl;
 
-        while (!string.IsNullOrEmpty(nextUrl))
+        while (nextUrl is { Length: > 0 })
         {
-            var response = await SendAsync<ODataResponse<WorkflowSummary>>(HttpMethod.Get, nextUrl!, null, false, cancellationToken).ConfigureAwait(false);
+            var response = await SendAsync<ODataResponse<WorkflowSummary>>(HttpMethod.Get, nextUrl, null, false, cancellationToken).ConfigureAwait(false);
 
             if (response?.Value != null)
             {
@@ -565,7 +566,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
 
         if (maximumCount > 0 && summaries.Count > maximumCount)
         {
-            summaries.RemoveRange(maximumCount!.Value, summaries.Count - maximumCount.Value);
+            summaries.RemoveRange(maximumCount.Value, summaries.Count - maximumCount.Value);
         }
 
         return summaries.ToArray();
@@ -725,10 +726,9 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
             var filterQuery = string.Join(" or ", batch.Select(id => $"botcomponentid eq {id}"));
             nextBotComponentWorkflowUrl += $"&$filter={Uri.EscapeDataString(filterQuery)}";
 
-            while (!string.IsNullOrEmpty(nextBotComponentWorkflowUrl))
+            while (nextBotComponentWorkflowUrl is { Length: > 0 })
             {
-                // ns2.0 BCL's IsNullOrEmpty lacks NotNullWhen annotation; ! is compile-time only.
-                var response = await SendAsync<ODataResponse<BotComponentWorkflowMetadata>>(HttpMethod.Get, nextBotComponentWorkflowUrl!, null, false, cancellationToken).ConfigureAwait(false);
+                var response = await SendAsync<ODataResponse<BotComponentWorkflowMetadata>>(HttpMethod.Get, nextBotComponentWorkflowUrl, null, false, cancellationToken).ConfigureAwait(false);
 
                 if (response?.Value != null)
                 {
@@ -772,7 +772,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
                     break;
                 }
 
-                response = await SendAsync<ODataResponse<WorkflowMetadata>>(HttpMethod.Get, nextWorkflowUrl!, null, false, cancellationToken).ConfigureAwait(false);
+                response = await SendAsync<ODataResponse<WorkflowMetadata>>(HttpMethod.Get, nextWorkflowUrl ?? string.Empty, null, false, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -1128,9 +1128,9 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
             ["connectionid"] = connectionLogicalName
         };
 
-        if (!string.IsNullOrWhiteSpace(connectionReferenceDisplayName))
+        if (connectionReferenceDisplayName is not null && !string.IsNullOrWhiteSpace(connectionReferenceDisplayName))
         {
-            body["connectionreferencedisplayname"] = connectionReferenceDisplayName!;
+            body["connectionreferencedisplayname"] = connectionReferenceDisplayName;
         }
 
         await SendAsync<object>(HttpMethodHelper.Patch, patchUri.ToString(), body, false, cancellationToken).ConfigureAwait(false);
@@ -1365,9 +1365,9 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         var aiModelIds = new HashSet<Guid>();
         string? nextPageUrl = $"{DataverseUrl}/api/data/v9.2/botcomponents?$select=botcomponentid,data&$filter={Uri.EscapeDataString(scopeFilter)}";
 
-        while (!string.IsNullOrEmpty(nextPageUrl))
+        while (nextPageUrl is { Length: > 0 })
         {
-            var page = await SendAsync<JsonElement>(HttpMethod.Get, nextPageUrl!, null, false, cancellationToken).ConfigureAwait(false);
+            var page = await SendAsync<JsonElement>(HttpMethod.Get, nextPageUrl, null, false, cancellationToken).ConfigureAwait(false);
 
             if (page.TryGetProperty("value", out var valueArray) && valueArray.ValueKind == JsonValueKind.Array)
             {
@@ -1384,7 +1384,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
                         continue;
                     }
 
-                    foreach (Match aiModelIdMatch in Regex.Matches(componentYaml!, @"aIModelId\s*:\s*([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"))
+                    foreach (Match aiModelIdMatch in Regex.Matches(componentYaml ?? string.Empty, @"aIModelId\s*:\s*([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"))
                     {
                         if (Guid.TryParse(aiModelIdMatch.Groups[1].Value, out var modelId))
                         {
@@ -1442,9 +1442,9 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
                                    $"&$expand={expand}" +
                                    $"&$filter={Uri.EscapeDataString(idFilter)}";
 
-            while (!string.IsNullOrEmpty(nextPageUrl))
+            while (nextPageUrl is { Length: > 0 })
             {
-                var page = await SendAsync<JsonElement>(HttpMethod.Get, nextPageUrl!, null, false, cancellationToken).ConfigureAwait(false);
+                var page = await SendAsync<JsonElement>(HttpMethod.Get, nextPageUrl, null, false, cancellationToken).ConfigureAwait(false);
                 if (page.TryGetProperty("value", out var valueArray) && valueArray.ValueKind == JsonValueKind.Array)
                 {
                     foreach (var aiModelElement in valueArray.EnumerateArray())

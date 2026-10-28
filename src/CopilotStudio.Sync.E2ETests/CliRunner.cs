@@ -83,7 +83,8 @@ internal sealed class CliRunner
     {
         // Walk from the test assembly directory to find the TestHarness project.
         // Layout: ext/src/CopilotStudio.Sync.E2ETests/bin/Debug/net10.0/ → ext/src/CopilotStudio.Sync.TestHarness/
-        var assemblyDir = Path.GetDirectoryName(typeof(CliRunner).Assembly.Location)!;
+        var assemblyDir = Path.GetDirectoryName(typeof(CliRunner).Assembly.Location)
+            ?? throw new InvalidOperationException("The test assembly has no containing directory.");
         var srcDir = Path.GetFullPath(Path.Combine(assemblyDir, "..", "..", "..", ".."));
         var projectPath = Path.Combine(srcDir, "CopilotStudio.Sync.TestHarness", "CopilotStudio.Sync.TestHarness.csproj");
 

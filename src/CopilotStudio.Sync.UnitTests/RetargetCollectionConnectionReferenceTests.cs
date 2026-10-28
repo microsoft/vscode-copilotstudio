@@ -42,7 +42,7 @@ public class RetargetCollectionConnectionReferenceTests
         var workspace = new DirectoryPath($"c:/test/cc-connref-{Guid.NewGuid():N}/");
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
 
-        var collection = CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_cctest\ndisplayName: CCTest")!;
+        var collection = (CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_cctest\ndisplayName: CCTest") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         WorkspaceSynchronizer.WriteCloudCache(fileAccessor, new BotComponentCollectionDefinition()
             .WithComponentCollection(collection)
             .WithConnectionReferences(new[] { MakeConnectionRef(UnusedLogicalName, "/providers/Microsoft.PowerApps/apis/shared_office365users") }));
@@ -67,7 +67,7 @@ public class RetargetCollectionConnectionReferenceTests
         var workspace = new DirectoryPath($"c:/test/agent-connref-{Guid.NewGuid():N}/");
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
 
-        var entity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr_test")!;
+        var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr_test") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         WorkspaceSynchronizer.WriteCloudCache(fileAccessor, new BotDefinition()
             .WithEntity(entity)
             .WithConnectionReferences(new[] { MakeConnectionRef(UnusedLogicalName, "/providers/Microsoft.PowerApps/apis/shared_office365users") }));

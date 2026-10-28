@@ -89,7 +89,7 @@ public class CliAgentNodeS3AtomicWriteTests
         Assert.NotEmpty(definition.ConnectionReferences);
         foreach (var cr in definition.ConnectionReferences)
         {
-            var p = PerFilePath(cr.ConnectionReferenceLogicalName.Value!);
+            var p = PerFilePath(cr.ConnectionReferenceLogicalName.Value);
             Assert.True(inner.Exists(p),
                 $"Per-file CR '{p}' must be written before the stale-flat removal (D33). " +
                 "Present files:\n" + string.Join("\n", inner.Files.Keys.OrderBy(k => k)));
@@ -111,7 +111,7 @@ public class CliAgentNodeS3AtomicWriteTests
         // Sanity: the per-file set is present from the clone.
         foreach (var cr in definition.ConnectionReferences)
         {
-            Assert.True(accessor.Exists(PerFilePath(cr.ConnectionReferenceLogicalName.Value!)));
+            Assert.True(accessor.Exists(PerFilePath(cr.ConnectionReferenceLogicalName.Value)));
         }
 
         // Re-introduce a stale flat file to simulate the post-WriteAll / pre-flat-removal state.
@@ -119,7 +119,7 @@ public class CliAgentNodeS3AtomicWriteTests
             Encoding.UTF8.GetBytes("# stale classic-shape file\nconnectionReferences:\n  []\n"),
             CancellationToken.None);
 
-        var cloud = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        var cloud = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var local = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None);
 
         var (changeset, _) = synchronizer.GetLocalChanges(local, cloud, accessor, "token-1");

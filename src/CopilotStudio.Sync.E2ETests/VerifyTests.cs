@@ -26,8 +26,8 @@ public sealed class VerifyTests : IDisposable
     public async Task VerifyAfterCloneExitsZeroAndReportsAccepted()
     {
         // Clone first
-        var envUrl = Environment.GetEnvironmentVariable("COPILOT_TEST_ENVIRONMENT_URL")!;
-        var agentSchema = Environment.GetEnvironmentVariable("COPILOT_TEST_AGENT_SCHEMA_NAME")!;
+        var envUrl = Environment.GetEnvironmentVariable("COPILOT_TEST_ENVIRONMENT_URL");
+        var agentSchema = Environment.GetEnvironmentVariable("COPILOT_TEST_AGENT_SCHEMA_NAME");
 
         var cloneResult = await CliRunner.RunAsync(
             $"clone --environment \"{envUrl}\" --agent-schema-name \"{agentSchema}\" --output \"{_workspace.Path}\"");
@@ -50,8 +50,8 @@ public sealed class VerifyTests : IDisposable
     [LiveTenantFact]
     public async Task VerifyOutputShowsPerEntityTypeResults()
     {
-        var envUrl = Environment.GetEnvironmentVariable("COPILOT_TEST_ENVIRONMENT_URL")!;
-        var agentSchema = Environment.GetEnvironmentVariable("COPILOT_TEST_AGENT_SCHEMA_NAME")!;
+        var envUrl = Environment.GetEnvironmentVariable("COPILOT_TEST_ENVIRONMENT_URL");
+        var agentSchema = Environment.GetEnvironmentVariable("COPILOT_TEST_AGENT_SCHEMA_NAME");
 
         var cloneResult = await CliRunner.RunAsync(
             $"clone --environment \"{envUrl}\" --agent-schema-name \"{agentSchema}\" --output \"{_workspace.Path}\"");

@@ -48,7 +48,7 @@ public class NewLocalSkillTests
         definition.Components.OfType<DialogComponent>().Single(c => c.Dialog is InlineAgentSkill);
 
     private static BotDefinition CliCloudDefinition() =>
-        new BotDefinition().WithEntity(CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr123_natest\ntemplate: cliagent-1.0.0\n")!);
+        new BotDefinition().WithEntity((CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr123_natest\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")));
 
     private static DialogComponent CreateCloudSkill(string schemaName, string displayName, Guid? id = null) => new DialogComponent(
         schemaName: schemaName,
@@ -132,7 +132,7 @@ public class NewLocalSkillTests
         Assert.All(files, file =>
         {
             Assert.True(file.ParentBotComponentId.HasValue);
-            Assert.Equal(skill.Id, file.ParentBotComponentId!.Value);
+            Assert.Equal(skill.Id, file.ParentBotComponentId.Value);
         });
         Assert.Contains(files, file => file.DisplayName == "SKILL.md");
         Assert.Contains(files, file => file.DisplayName == "text.md");
@@ -173,7 +173,7 @@ public class NewLocalSkillTests
 
         var read = await sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
 
-        Assert.Single(read.Components.OfType<DialogComponent>().Where(component => component.Dialog is InlineAgentSkill));
+        Assert.Single(read.Components.OfType<DialogComponent>(), component => component.Dialog is InlineAgentSkill);
     }
 
     [Fact]
@@ -215,7 +215,7 @@ public class NewLocalSkillTests
         Assert.All(files, file =>
         {
             Assert.True(file.ParentBotComponentId.HasValue);
-            Assert.Equal(skill.Id, file.ParentBotComponentId!.Value);
+            Assert.Equal(skill.Id, file.ParentBotComponentId.Value);
         });
     }
 
@@ -242,9 +242,9 @@ public class NewLocalSkillTests
         var read = await sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
 
         var skill = SkillOf(read);
-        var knowledge = Assert.Single(read.Components.OfType<FileAttachmentComponent>().Where(file => file.DisplayName == "doc.txt"));
+        var knowledge = Assert.Single(read.Components.OfType<FileAttachmentComponent>(), file => file.DisplayName == "doc.txt");
         Assert.False(knowledge.ParentBotComponentId.HasValue);
-        Assert.All(read.Components.OfType<FileAttachmentComponent>().Where(file => file.DisplayName != "doc.txt"), file => Assert.Equal(skill.Id, file.ParentBotComponentId!.Value));
+        Assert.All(read.Components.OfType<FileAttachmentComponent>().Where(file => file.DisplayName != "doc.txt"), file => Assert.Equal(skill.Id, file.ParentBotComponentId.Value));
     }
 
     [Fact]
@@ -297,7 +297,7 @@ public class NewLocalSkillTests
         // The surfaced payload files are display-only: they must NOT be in the returned changeset,
         // because push-capable callers send it in a single SaveChangesAsync that cannot resolve the
         // not-yet-created (fabricated) parent skill id. The skill anchor itself is a real insert.
-        var insertedSchemaNames = changeSet.BotComponentChanges.OfType<BotComponentInsert>().Select(insert => insert.Component!.SchemaNameString).ToList();
+        var insertedSchemaNames = changeSet.BotComponentChanges.OfType<BotComponentInsert>().Select(insert => (insert.Component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).SchemaNameString).ToList();
         Assert.Contains("cr123_natest.skill.redlining-content", insertedSchemaNames);
         Assert.DoesNotContain("cr123_natest.file.templatedocx", insertedSchemaNames);
         Assert.DoesNotContain("cr123_natest.file.redlinepy", insertedSchemaNames);
@@ -357,7 +357,7 @@ public class NewLocalSkillTests
         Assert.DoesNotContain(changes, change => change.ChangeType == ChangeType.Create && change.SchemaName == "cr123_natest.skill.get-us-temperature");
         var fileInserts = changeSet.BotComponentChanges.OfType<BotComponentInsert>().Where(insert => insert.Component is FileAttachmentComponent).ToList();
         Assert.NotEmpty(fileInserts);
-        Assert.All(fileInserts, insert => Assert.Equal(cloudSkillId, insert.Component!.ParentBotComponentId!.Value));
+        Assert.All(fileInserts, insert => Assert.Equal(cloudSkillId, (insert.Component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ParentBotComponentId.Value));
     }
 
     [Fact]
@@ -424,7 +424,7 @@ public class NewLocalSkillTests
 
         var (changeSet, _) = await sync.GetLocalChangesAsync(workspace, lspModel, new Mock<ISyncDataverseClient>().Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
 
-        var ambiguous = changeSet.BotComponentChanges.OfType<BotComponentInsert>().Select(insert => insert.Component).FirstOrDefault(component => component!.SchemaNameString == "cr123_natest.file.ambiguous");
+        var ambiguous = changeSet.BotComponentChanges.OfType<BotComponentInsert>().Select(insert => insert.Component).FirstOrDefault(component => (component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).SchemaNameString == "cr123_natest.file.ambiguous");
         Assert.True(ambiguous is null || !ambiguous.ParentBotComponentId.HasValue);
     }
 
@@ -442,7 +442,7 @@ public class NewLocalSkillTests
 
         var (changeSet, _) = await sync.GetLocalChangesAsync(workspace, lspModel, new Mock<ISyncDataverseClient>().Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
 
-        var rootKnowledge = changeSet.BotComponentChanges.OfType<BotComponentInsert>().Select(insert => insert.Component).FirstOrDefault(component => component!.SchemaNameString == "cr123_natest.file.rootknowledge");
+        var rootKnowledge = changeSet.BotComponentChanges.OfType<BotComponentInsert>().Select(insert => insert.Component).FirstOrDefault(component => (component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).SchemaNameString == "cr123_natest.file.rootknowledge");
         Assert.True(rootKnowledge is null || !rootKnowledge.ParentBotComponentId.HasValue);
     }
 
@@ -469,8 +469,8 @@ public class NewLocalSkillTests
     [Fact]
     public void SynthesizedSkill_FileAttachmentProjectsUnderSkillFolder_NotKnowledge()
     {
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr123_natest\ntemplate: cliagent-1.0.0\n")!;
-        var dialog = (DialogBase)CodeSerializer.Deserialize<BotElement>("kind: InlineAgentSkill\ncontent: <!-- bic:bundle=cr123_natest.file.getusweather2zip -->\n")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr123_natest\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
+        var dialog = (DialogBase)(CodeSerializer.Deserialize<BotElement>("kind: InlineAgentSkill\ncontent: <!-- bic:bundle=cr123_natest.file.getusweather2zip -->\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var skillId = Guid.NewGuid();
         var skill = new DialogComponent(
             schemaName: "cr123_natest.skill.get-us-weather-2",

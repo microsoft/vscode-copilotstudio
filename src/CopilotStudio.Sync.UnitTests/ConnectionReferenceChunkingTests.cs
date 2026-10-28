@@ -20,7 +20,7 @@ public class ConnectionReferenceChunkingTests
 
         var handler = new StubHandler((request, _) =>
         {
-            var query = Uri.UnescapeDataString(request.RequestUri!.Query);
+            var query = Uri.UnescapeDataString((request.RequestUri ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Query);
             var matched = Regex.Matches(query, @"connectionreferencelogicalname eq '([^']*)'")
                 .Select(m => m.Groups[1].Value)
                 .ToList();
@@ -57,7 +57,7 @@ public class ConnectionReferenceChunkingTests
         var requestUris = new List<string>();
         var handler = new StubHandler((request, _) =>
         {
-            var uri = request.RequestUri!.ToString();
+            var uri = (request.RequestUri ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ToString();
             requestUris.Add(uri);
             var body = uri.Contains("page2", StringComparison.OrdinalIgnoreCase)
                 ? "{\"value\":[{\"connectionreferencelogicalname\":\"cr.b\",\"connectorid\":\"/providers/x/b\",\"connectionid\":\"\"}]}"

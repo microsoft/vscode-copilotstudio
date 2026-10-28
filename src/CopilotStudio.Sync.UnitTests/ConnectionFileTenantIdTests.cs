@@ -86,7 +86,7 @@ public class ConnectionFileTenantIdTests
         var json = JsonSerializer.Serialize(new AccountInfo { AccountId = "id", TenantId = tenantId });
 
         Assert.Contains("\"a30263b9-1caf-4db5-ab53-ed3850c0bd1f\"", json, StringComparison.Ordinal);
-        Assert.Equal(tenantId, JsonSerializer.Deserialize<AccountInfo>(json)!.TenantId);
+        Assert.Equal(tenantId, (JsonSerializer.Deserialize<AccountInfo>(json) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).TenantId);
     }
 
     [Fact]
@@ -94,6 +94,6 @@ public class ConnectionFileTenantIdTests
     {
         var json = JsonSerializer.Serialize(new AccountInfo { AccountId = "id", TenantId = Guid.Empty });
 
-        Assert.Equal(Guid.Empty, JsonSerializer.Deserialize<AccountInfo>(json)!.TenantId);
+        Assert.Equal(Guid.Empty, (JsonSerializer.Deserialize<AccountInfo>(json) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).TenantId);
     }
 }

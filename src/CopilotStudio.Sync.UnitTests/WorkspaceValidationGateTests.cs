@@ -45,14 +45,14 @@ public class WorkspaceValidationGateTests
         var (synchronizer, factory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure(progress);
         var workspace = new DirectoryPath($"c:/test/validation-gate-clone-{Guid.NewGuid():N}/");
 
-        var entity = CodeSerializer.Deserialize<Agents.ObjectModel.BotEntity>("kind: Bot\nschemaName: cr123_gatetest\ndisplayName: Gate Test\n")!;
+        var entity = (CodeSerializer.Deserialize<Agents.ObjectModel.BotEntity>("kind: Bot\nschemaName: cr123_gatetest\ndisplayName: Gate Test\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var component = new Agents.ObjectModel.DialogComponent(
             schemaName: "cr123_gatetest.topic.Broken",
             displayName: "Broken",
             description: string.Empty,
             id: Guid.NewGuid(),
             parentBotComponentId: default,
-            dialog: CodeSerializer.Deserialize<Agents.ObjectModel.AdaptiveDialog>("kind: AdaptiveDialog\n")!);
+            dialog: (CodeSerializer.Deserialize<Agents.ObjectModel.AdaptiveDialog>("kind: AdaptiveDialog\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")));
 
         mockIsland
             .Setup(island => island.GetComponentsAsync(It.IsAny<Agents.Platform.Content.AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
@@ -273,7 +273,7 @@ public class WorkspaceValidationGateTests
         var (sync, accessor, workspace) = await CreateWorkspaceAsync();
         if (cached)
         {
-            var entity = CodeSerializer.Deserialize<BotEntity>(classic ? "schemaName: cr123_gatetest\n" : CliSettings)!;
+            var entity = (CodeSerializer.Deserialize<BotEntity>(classic ? "schemaName: cr123_gatetest\n" : CliSettings) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
             WorkspaceSynchronizer.WriteCloudCache(accessor, new BotDefinition(entity: entity));
         }
 
@@ -321,7 +321,7 @@ public class WorkspaceValidationGateTests
     public async Task ReadWorkspaceDefinition_CachedInvalidSettings_CollectsWithoutChangingCache()
     {
         var (sync, accessor, workspace) = await CreateWorkspaceAsync();
-        var original = new BotDefinition(entity: CodeSerializer.Deserialize<BotEntity>(CliSettings)!);
+        var original = new BotDefinition(entity: (CodeSerializer.Deserialize<BotEntity>(CliSettings) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")));
         WorkspaceSynchronizer.WriteCloudCache(accessor, original);
         var cachePath = new AgentFilePath(".mcs/botdefinition.json");
         var originalCache = await accessor.ReadStringAsync(cachePath, CancellationToken.None);

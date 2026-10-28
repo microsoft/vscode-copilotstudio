@@ -34,8 +34,8 @@ public sealed class PushRoundTripTests : IDisposable
     [LiveTenantFact]
     public async Task EditTopicPushPullVerifyRoundTrip()
     {
-        var envUrl = Environment.GetEnvironmentVariable("COPILOT_TEST_ENVIRONMENT_URL")!;
-        var agentSchema = Environment.GetEnvironmentVariable("COPILOT_TEST_AGENT_SCHEMA_NAME")!;
+        var envUrl = Environment.GetEnvironmentVariable("COPILOT_TEST_ENVIRONMENT_URL");
+        var agentSchema = Environment.GetEnvironmentVariable("COPILOT_TEST_AGENT_SCHEMA_NAME");
 
         // 1. Clone
         var cloneResult = await CliRunner.RunAsync(
@@ -81,9 +81,11 @@ public sealed class PushRoundTripTests : IDisposable
 
         Assert.True(targetTopic != null && editedContent != null,
             "Agent must have a topic with SendActivity text to test push round-trip");
+        Assert.NotNull(targetTopic);
+        Assert.NotNull(editedContent);
 
-        var topicName = Path.GetFileName(targetTopic!);
-        await File.WriteAllTextAsync(targetTopic, editedContent!);
+        var topicName = Path.GetFileName(targetTopic);
+        await File.WriteAllTextAsync(targetTopic, editedContent);
         _output.WriteLine($"Edited topic: {topicName}");
         _output.WriteLine($"Test tag: [{testTag}]");
 

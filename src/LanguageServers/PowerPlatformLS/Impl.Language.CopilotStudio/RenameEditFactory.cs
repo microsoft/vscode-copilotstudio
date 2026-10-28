@@ -5,6 +5,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
     using System;
     using System.Collections.Generic;
+    using System.Diagnostics.CodeAnalysis;
     using System.Linq;
     using System.Text.RegularExpressions;
     using Range = Contracts.Lsp.Models.Range;
@@ -13,7 +14,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
     {
         private static readonly Regex ValidNameRegex = new(@"^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.Compiled);
 
-        public static bool IsValidNewName(string? newName) => !string.IsNullOrEmpty(newName) && ValidNameRegex.IsMatch(newName!);
+        public static bool IsValidNewName([NotNullWhen(true)] string? newName) => newName is { Length: > 0 } && ValidNameRegex.IsMatch(newName);
 
         public static bool RangeContains(Range range, Position position)
         {

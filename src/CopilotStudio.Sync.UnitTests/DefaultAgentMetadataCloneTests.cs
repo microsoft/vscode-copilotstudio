@@ -85,7 +85,7 @@ public class DefaultAgentMetadataCloneTests
         var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/remote-gpt-preview/"));
 
-        var entity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: catmgr_createtest1")!;
+        var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: catmgr_createtest1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var cloudSnapshot = new BotDefinition().WithEntity(entity);
         var remoteComponent = new GptComponent()
             .WithSchemaName("catmgr_createtest1.gpt.default")
@@ -136,7 +136,7 @@ public class DefaultAgentMetadataCloneTests
 
         using (YamlSerializationContext.UseYamlPassThroughSerializationContext())
         {
-            return JsonSerializer.Deserialize<BotEntity>(json, ElementSerializer.CreateOptions())!;
+            return (JsonSerializer.Deserialize<BotEntity>(json, ElementSerializer.CreateOptions()) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         }
     }
 

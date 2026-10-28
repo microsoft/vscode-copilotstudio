@@ -26,6 +26,7 @@
 
             // Find the Dialog element. Cursor | can be anywhere in the value. 
             string search = "dialog: cree9_agent.topic.|EndofConversation";
+            Assert.NotNull(doc);
             var reqCtx = world.GetRequestContext(doc, search);
 
             var handler = world.GetHandler<GoToDefinitionHandler>();
@@ -58,6 +59,7 @@
 
             // Find the Dialog element. Cursor | can be anywhere in the value. 
             string search = "variable: Glob|al.Var1";
+            Assert.NotNull(doc);
             var reqCtx = world.GetRequestContext(doc, search);
 
             var handler = world.GetHandler<GoToDefinitionHandler>();
@@ -90,6 +92,7 @@
 
             // Select an element that is not a "Dialog:" item. 
             string search = "id: dn94|DC";
+            Assert.NotNull(doc);
             var reqCtx = world.GetRequestContext(doc, search);
 
             var handler = world.GetHandler<GoToDefinitionHandler>();

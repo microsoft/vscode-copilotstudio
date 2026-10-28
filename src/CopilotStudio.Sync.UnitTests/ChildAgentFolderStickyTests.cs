@@ -22,7 +22,7 @@ public class ChildAgentFolderStickyTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-sticky-schema-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var childAgentId = Guid.NewGuid();
         var cloudAgent = CreateAgentDialogComponent($"{Bot}.agent.Agent_2qD", "Balance Agent", childAgentId);
@@ -60,7 +60,7 @@ public class ChildAgentFolderStickyTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-sticky-display-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var childAgentId = Guid.NewGuid();
         var cloudAgent = CreateAgentDialogComponent($"{Bot}.agent.Agent_2qD", "Balance Agent", childAgentId);
@@ -96,7 +96,7 @@ public class ChildAgentFolderStickyTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-sticky-del-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var childAgentId = Guid.NewGuid();
         var cloudAgent = CreateAgentDialogComponent($"{Bot}.agent.Agent_2qD", "Balance Agent", childAgentId);
@@ -135,7 +135,7 @@ public class ChildAgentFolderStickyTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-sticky-delagent-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var childAgentId = Guid.NewGuid();
         var cloudAgent = CreateAgentDialogComponent($"{Bot}.agent.Agent_2qD", "Balance Agent", childAgentId);
@@ -176,7 +176,7 @@ public class ChildAgentFolderStickyTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-sticky-reattach-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var childAgentId = Guid.NewGuid();
         var cloudAgent = CreateAgentDialogComponent($"{Bot}.agent.Agent_2qD", "Balance Agent", childAgentId);
@@ -210,7 +210,7 @@ public class ChildAgentFolderStickyTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-sticky-push-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var childAgentId = Guid.NewGuid();
         var cloudAgent = CreateAgentDialogComponent($"{Bot}.agent.Agent_2qD", "Balance Agent", childAgentId);
@@ -251,7 +251,7 @@ public class ChildAgentFolderStickyTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-sticky-uri-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var childAgentId = Guid.NewGuid();
         var cloudAgent = CreateAgentDialogComponent($"{Bot}.agent.Agent_2qD", "Balance Agent", childAgentId);
@@ -284,7 +284,7 @@ public class ChildAgentFolderStickyTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-sticky-rename-schema-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var childAgentId = Guid.NewGuid();
         var cloudAgent = CreateAgentDialogComponent($"{Bot}.agent.Agent_2qD", "Balance Agent", childAgentId);
@@ -323,7 +323,7 @@ public class ChildAgentFolderStickyTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-sticky-rename-display-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var childAgentId = Guid.NewGuid();
         var cloudAgent = CreateAgentDialogComponent($"{Bot}.agent.Agent_2qD", "Balance Agent", childAgentId);
@@ -360,7 +360,7 @@ public class ChildAgentFolderStickyTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-sticky-stalelink-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var childAgentId = Guid.NewGuid();
         var cloudAgent = CreateAgentDialogComponent($"{Bot}.agent.Agent_2qD", "Balance Agent", childAgentId);
@@ -390,7 +390,7 @@ public class ChildAgentFolderStickyTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-sticky-listkf-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var childAgentId = Guid.NewGuid();
         var cloudAgent = CreateAgentDialogComponent($"{Bot}.agent.Agent_2qD", "Balance Agent", childAgentId);
@@ -423,7 +423,7 @@ public class ChildAgentFolderStickyTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-sticky-dlkf-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var childAgentId = Guid.NewGuid();
         var cloudAgent = CreateAgentDialogComponent($"{Bot}.agent.Agent_2qD", "Balance Agent", childAgentId);
@@ -469,8 +469,8 @@ public class ChildAgentFolderStickyTests
         var merged = synchronizer.MergeComponent(schema, original, local, remote, out _);
 
         Assert.NotNull(merged);
-        Assert.True(merged!.ParentBotComponentId.HasValue);
-        Assert.Equal(cloudParentId, merged.ParentBotComponentId!.Value);
+        Assert.True(merged.ParentBotComponentId.HasValue);
+        Assert.Equal(cloudParentId, merged.ParentBotComponentId.Value);
     }
 
     [Fact]
@@ -478,7 +478,7 @@ public class ChildAgentFolderStickyTests
     {
         var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var fileAccessor = fileAccessorFactory.Create(new DirectoryPath($"c:/test/ws-parent-preserve-{Guid.NewGuid():N}/"));
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var childAgentId = new BotComponentId(Guid.NewGuid());
         var cloudAgent = CreateAgentDialogComponent($"{Bot}.agent.Agent_2qD", "Balance Agent", childAgentId.Value);
@@ -491,8 +491,8 @@ public class ChildAgentFolderStickyTests
         var (changeSet, _) = synchronizer.GetLocalChanges(local, cloud, fileAccessor, "token-1");
 
         var update = Assert.Single(changeSet.BotComponentChanges.OfType<BotComponentUpdate>(), c => c.Component?.SchemaNameString == $"{Bot}.topic.Help");
-        Assert.True(update.Component!.ParentBotComponentId.HasValue);
-        Assert.Equal(childAgentId, update.Component.ParentBotComponentId!.Value);
+        Assert.True((update.Component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ParentBotComponentId.HasValue);
+        Assert.Equal(childAgentId, update.Component.ParentBotComponentId.Value);
     }
 
     [Fact]
@@ -500,7 +500,7 @@ public class ChildAgentFolderStickyTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-sticky-newkf-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var childAgentId = Guid.NewGuid();
         var cloudAgent = CreateAgentDialogComponent($"{Bot}.agent.Agent_2qD", "Balance Agent", childAgentId);
@@ -526,7 +526,7 @@ public class ChildAgentFolderStickyTests
 
         var discovered = Assert.Single(definition.Components.OfType<FileAttachmentComponent>(), c => string.Equals(c.DisplayName, "NewDoc.csv", StringComparison.OrdinalIgnoreCase));
         Assert.True(discovered.ParentBotComponentId.HasValue);
-        Assert.Equal(new BotComponentId(childAgentId), discovered.ParentBotComponentId!.Value);
+        Assert.Equal(new BotComponentId(childAgentId), discovered.ParentBotComponentId.Value);
     }
 
     [Fact]
@@ -534,7 +534,7 @@ public class ChildAgentFolderStickyTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-sticky-upload-stale-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var childAgentId = Guid.NewGuid();
         var cloudAgent = CreateAgentDialogComponent($"{Bot}.agent.Agent_2qD", "Balance Agent", childAgentId);
@@ -562,7 +562,7 @@ public class ChildAgentFolderStickyTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-sticky-download-stale-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var childAgentId = Guid.NewGuid();
         var cloudAgent = CreateAgentDialogComponent($"{Bot}.agent.Agent_2qD", "Balance Agent", childAgentId);
@@ -660,7 +660,7 @@ public class ChildAgentFolderStickyTests
         using var stream = fileAccessor.OpenRead(new AgentFilePath(".mcs/botdefinition.json"));
         using (YamlSerializationContext.UseYamlPassThroughSerializationContext())
         {
-            return JsonSerializer.Deserialize<DefinitionBase>(stream, ElementSerializer.CreateOptions())!;
+            return (JsonSerializer.Deserialize<DefinitionBase>(stream, ElementSerializer.CreateOptions()) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         }
     }
 }

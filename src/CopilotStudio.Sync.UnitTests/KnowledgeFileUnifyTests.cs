@@ -260,10 +260,9 @@ public class KnowledgeFileUnifyTests
         var (changeSet, _) = await synchronizer.GetLocalChangesAsync(
             workspace, definition, dataverse.Object, MakeSyncInfo(), CancellationToken.None);
 
-        var insert = Assert.Single(
-            changeSet.BotComponentChanges
+        var insert = Assert.Single(changeSet.BotComponentChanges
                 .OfType<BotComponentInsert>()
-                .Where(i => i.Component is FileAttachmentComponent fac && fac.DisplayName == "NewKb.txt"));
+, i => i.Component is FileAttachmentComponent fac && fac.DisplayName == "NewKb.txt");
         Assert.NotNull(insert);
 
         var metadataAfter = accessor.ListFiles("capabilities/knowledge/files", "*.mcs.yml")

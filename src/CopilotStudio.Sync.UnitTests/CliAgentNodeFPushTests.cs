@@ -52,7 +52,7 @@ public class CliAgentNodeFPushTests
         // synthesize phantom Updates on every push.
         var (entity, _, accessor, synchronizer, workspace) =
             await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
-        var cloud = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        var cloud = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var local = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None);
 
         var (changeset, _) = synchronizer.GetLocalChanges(local, cloud, accessor, "token-1");
@@ -88,16 +88,16 @@ public class CliAgentNodeFPushTests
             $"    connectorId: {newConnectorId}\n",
             CancellationToken.None);
 
-        var cloud = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        var cloud = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var local = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None);
 
         var (changeset, changes) = synchronizer.GetLocalChanges(local, cloud, accessor, "token-1");
 
-        var update = Assert.Single(changeset.ConnectionReferenceChanges!,
+        var update = Assert.Single(changeset.ConnectionReferenceChanges,
             c => c is ConnectionReferenceUpdate);
         var updateCast = (ConnectionReferenceUpdate)update;
         Assert.Equal(target.ConnectionReferenceLogicalName.Value,
-            updateCast.ConnectionReference!.ConnectionReferenceLogicalName.Value);
+            (updateCast.ConnectionReference ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ConnectionReferenceLogicalName.Value);
         Assert.Equal(newConnectorId, updateCast.ConnectionReference.ConnectorId.Value);
         // Id carry-forward (so server applies by Id).
         Assert.Equal(target.Id.Value, updateCast.ConnectionReference.Id.Value);
@@ -118,16 +118,16 @@ public class CliAgentNodeFPushTests
             "    connectorId: /providers/Microsoft.PowerApps/apis/shared_userconnector\n",
             CancellationToken.None);
 
-        var cloud = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        var cloud = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var local = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None);
 
         var (changeset, _) = synchronizer.GetLocalChanges(local, cloud, accessor, "token-1");
 
         var insert = Assert.Single(
-            changeset.ConnectionReferenceChanges!.OfType<ConnectionReferenceInsert>(),
-            c => c.ConnectionReference!.ConnectionReferenceLogicalName.Value == newLogicalName);
+            changeset.ConnectionReferenceChanges.OfType<ConnectionReferenceInsert>(),
+            c => (c.ConnectionReference ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ConnectionReferenceLogicalName.Value == newLogicalName);
         Assert.Equal("/providers/Microsoft.PowerApps/apis/shared_userconnector",
-            insert.ConnectionReference!.ConnectorId.Value);
+            (insert.ConnectionReference ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ConnectorId.Value);
     }
 
     [Fact]
@@ -149,13 +149,13 @@ public class CliAgentNodeFPushTests
         Assert.True(CliAgentBotEntityReader.IsCliLayoutAdopted(accessor),
             "Sanity: PushFixtureAsClone should leave agent.yaml so the delete-gate fires.");
 
-        var cloud = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        var cloud = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var local = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None);
 
         var (changeset, _) = synchronizer.GetLocalChanges(local, cloud, accessor, "token-1");
 
         var delete = Assert.Single(
-            changeset.ConnectionReferenceChanges!.OfType<ConnectionReferenceDelete>());
+            changeset.ConnectionReferenceChanges.OfType<ConnectionReferenceDelete>());
         Assert.Equal(target.Id.Value, delete.ConnectionReferenceId);
     }
 
@@ -180,7 +180,7 @@ public class CliAgentNodeFPushTests
         accessor.Delete(SettingsPath);
         Assert.False(CliAgentBotEntityReader.IsCliLayoutAdopted(accessor));
 
-        var cloud = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        var cloud = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var local = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None);
 
         var (changeset, _) = synchronizer.GetLocalChanges(local, cloud, accessor, "token-1");
@@ -198,7 +198,7 @@ public class CliAgentNodeFPushTests
         // CLI-only gate at the call site doesn't fire for classic.
         var (entity, _, accessor, synchronizer, workspace) =
             await CliAgentRoundTripReadTests.PushFixtureAsClone("HRAgent");
-        var cloud = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        var cloud = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var local = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None);
 
         var (changeset, _) = synchronizer.GetLocalChanges(local, cloud, accessor, "token-1");
@@ -226,7 +226,7 @@ public class CliAgentNodeFPushTests
             $"{CliAgentConnectionsWriter.InfrastructureConnectionsFolder}/{target.ConnectionReferenceLogicalName.Value}{CliAgentConnectionsWriter.FileExtension}");
         accessor.Delete(crPath);
 
-        var cloud = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        var cloud = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var local = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None);
 
         var (changeset, _) = synchronizer.GetLocalChanges(local, cloud, accessor, "token-1");
@@ -250,8 +250,8 @@ public class CliAgentNodeFPushTests
             await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
 
         var toolComponent = definition.Components.OfType<DialogComponent>()
-            .First(d => d.SchemaName.Value!.IndexOf(".tool.", StringComparison.Ordinal) >= 0
-                        && d.SchemaName.Value!.IndexOf(".tool.connected-agent.", StringComparison.Ordinal) < 0);
+            .First(d => d.SchemaName.Value.IndexOf(".tool.", StringComparison.Ordinal) >= 0
+                        && d.SchemaName.Value.IndexOf(".tool.connected-agent.", StringComparison.Ordinal) < 0);
         var toolPath = CliAgentRoundTripReadTests.CliComponentPath(toolComponent, definition);
 
         accessor.Delete(toolPath);
@@ -274,8 +274,8 @@ public class CliAgentNodeFPushTests
             await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
 
         var toolComponent = definition.Components.OfType<DialogComponent>()
-            .First(d => d.SchemaName.Value!.IndexOf(".tool.", StringComparison.Ordinal) >= 0
-                        && d.SchemaName.Value!.IndexOf(".tool.connected-agent.", StringComparison.Ordinal) < 0);
+            .First(d => d.SchemaName.Value.IndexOf(".tool.", StringComparison.Ordinal) >= 0
+                        && d.SchemaName.Value.IndexOf(".tool.connected-agent.", StringComparison.Ordinal) < 0);
         var toolPath = CliAgentRoundTripReadTests.CliComponentPath(toolComponent, definition);
 
         accessor.Delete(toolPath);
@@ -296,7 +296,7 @@ public class CliAgentNodeFPushTests
             await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
 
         var skillComponent = definition.Components.OfType<DialogComponent>()
-            .First(d => d.SchemaName.Value!.IndexOf(".skill.", StringComparison.Ordinal) >= 0);
+            .First(d => d.SchemaName.Value.IndexOf(".skill.", StringComparison.Ordinal) >= 0);
         var skillPath = CliAgentRoundTripReadTests.CliComponentPath(skillComponent, definition);
 
         accessor.Delete(skillPath);
@@ -337,19 +337,19 @@ public class CliAgentNodeFPushTests
             await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
 
         var toolComponent = definition.Components.OfType<DialogComponent>()
-            .First(d => d.SchemaName.Value!.IndexOf(".tool.", StringComparison.Ordinal) >= 0
-                        && d.SchemaName.Value!.IndexOf(".tool.connected-agent.", StringComparison.Ordinal) < 0);
+            .First(d => d.SchemaName.Value.IndexOf(".tool.", StringComparison.Ordinal) >= 0
+                        && d.SchemaName.Value.IndexOf(".tool.connected-agent.", StringComparison.Ordinal) < 0);
         var toolPath = CliAgentRoundTripReadTests.CliComponentPath(toolComponent, definition);
 
         accessor.Delete(toolPath);
 
-        var cloud = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        var cloud = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var local = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None);
 
         var (changeset, _) = synchronizer.GetLocalChanges(local, cloud, accessor, "token-1");
 
         var delete = Assert.Single(
-            changeset.BotComponentChanges!.OfType<BotComponentDelete>(),
+            changeset.BotComponentChanges.OfType<BotComponentDelete>(),
             d => d.BotComponentId == toolComponent.Id);
         Assert.NotNull(delete);
     }
@@ -370,13 +370,13 @@ public class CliAgentNodeFPushTests
             accessor.Delete(contentPath);
         }
 
-        var cloud = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        var cloud = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var local = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None);
 
         var (changeset, _) = synchronizer.GetLocalChanges(local, cloud, accessor, "token-1");
 
         var delete = Assert.Single(
-            changeset.BotComponentChanges!.OfType<BotComponentDelete>(),
+            changeset.BotComponentChanges.OfType<BotComponentDelete>(),
             d => d.BotComponentId == fileComponent.Id);
         Assert.NotNull(delete);
     }
@@ -390,13 +390,13 @@ public class CliAgentNodeFPushTests
         // with no edits produces no component changes either.
         var (entity, _, accessor, synchronizer, workspace) =
             await CliAgentRoundTripReadTests.PushFixtureAsClone("HRAgent");
-        var cloud = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        var cloud = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var local = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None);
 
         var (changeset, _) = synchronizer.GetLocalChanges(local, cloud, accessor, "token-1");
 
         // No Inserts / Updates / Deletes expected from a clean clone.
-        Assert.Empty(changeset.BotComponentChanges!.OfType<BotComponentInsert>());
-        Assert.Empty(changeset.BotComponentChanges!.OfType<BotComponentDelete>());
+        Assert.Empty(changeset.BotComponentChanges.OfType<BotComponentInsert>());
+        Assert.Empty(changeset.BotComponentChanges.OfType<BotComponentDelete>());
     }
 }

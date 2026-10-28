@@ -63,12 +63,12 @@ internal static class PathHelper
     /// </summary>
     internal static string ToInternalCanonicalPath(string? path)
     {
-        if (string.IsNullOrEmpty(path))
+        if (path is null || path.Length == 0)
         {
             return string.Empty;
         }
 
-        return path!.Replace('\\', '/');
+        return path.Replace('\\', '/');
     }
 
 #if NETSTANDARD2_0

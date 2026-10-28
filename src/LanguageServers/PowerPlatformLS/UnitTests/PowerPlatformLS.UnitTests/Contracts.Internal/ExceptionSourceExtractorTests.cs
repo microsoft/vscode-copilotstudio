@@ -82,10 +82,10 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.Internal
         {
             try
             {
-                // Force through System.Convert which will fail and give us a mixed stack
+                // ! Null is intentional to generate a runtime exception and stack trace.
                 int[] arr = null!;
                 _ = arr[0]; // NullReferenceException thrown by runtime
-                return null!; // unreachable
+                throw new InvalidOperationException("The null dereference should have thrown.");
             }
             catch (Exception ex)
             {

@@ -90,14 +90,14 @@ internal static class SkillWorkspaceProjection
 
     private static FileAttachmentComponent? FindCloudManifest(DefinitionBase? cloudSnapshot, DialogComponent skill, McsMetadata metadata)
     {
-        if (!string.IsNullOrEmpty(metadata.ManifestSchemaName))
+        if (metadata.ManifestSchemaName is { Length: > 0 } manifestSchemaName)
         {
-            return cloudSnapshot?.TryGetComponentBySchemaName(metadata.ManifestSchemaName!, out var declared) == true && declared is FileAttachmentComponent declaredManifest
+            return cloudSnapshot?.TryGetComponentBySchemaName(manifestSchemaName, out var declared) == true && declared is FileAttachmentComponent declaredManifest
                 ? declaredManifest
-                : (FileAttachmentComponent)new FileAttachmentComponent().WithSchemaName(metadata.ManifestSchemaName!).WithDisplayName(SkillLayout.ManifestFileName);
+                : (FileAttachmentComponent)new FileAttachmentComponent().WithSchemaName(manifestSchemaName).WithDisplayName(SkillLayout.ManifestFileName);
         }
 
-        return cloudSnapshot == null || string.IsNullOrEmpty(skill.SchemaNameString) || !cloudSnapshot.TryGetComponentBySchemaName(skill.SchemaNameString!, out var cloudSkill)
+        return cloudSnapshot == null || skill.SchemaNameString is not { Length: > 0 } skillSchemaName || !cloudSnapshot.TryGetComponentBySchemaName(skillSchemaName, out var cloudSkill)
             ? null
             : SkillBodyProjection.FindManifestComponent(cloudSnapshot.Components, cloudSkill);
     }

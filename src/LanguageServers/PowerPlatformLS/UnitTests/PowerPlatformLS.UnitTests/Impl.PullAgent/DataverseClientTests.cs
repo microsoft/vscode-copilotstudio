@@ -341,7 +341,7 @@
         [Theory]
         [InlineData(null)]
         [InlineData("00000000-0000-0000-0000-000000000000")]
-        public async Task DownloadAllWorkflowsForAgentWithInvalidAgent(string agentIdStr)
+        public async Task DownloadAllWorkflowsForAgentWithInvalidAgent(string? agentIdStr)
         {
             var client = CreateClientFromHttpClient(new HttpClient());
             Guid? agentId = string.IsNullOrEmpty(agentIdStr) ? null : Guid.Parse(agentIdStr);

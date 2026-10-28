@@ -27,7 +27,7 @@ public class WorkspaceClassifierTests : IDisposable
     {
         var path = Path.Combine(_root, relativePath.Replace('/', Path.DirectorySeparatorChar));
 
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        Directory.CreateDirectory((Path.GetDirectoryName(path) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")));
         File.WriteAllText(path, content);
     }
 
@@ -251,7 +251,7 @@ public class StandaloneWorkflowPromotionTests : IDisposable
     {
         var path = Path.Combine(_root, relativePath.Replace('/', Path.DirectorySeparatorChar));
 
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        Directory.CreateDirectory((Path.GetDirectoryName(path) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")));
         File.WriteAllText(path, content);
     }
 

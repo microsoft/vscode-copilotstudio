@@ -65,7 +65,7 @@ public class StandaloneWorkflowDiscardTests : IDisposable
 
     private void WriteCache(string name, string definition)
     {
-        var metadata = WorkflowMetadataFile.ReadStrict(Metadata(name))!;
+        var metadata = (WorkflowMetadataFile.ReadStrict(Metadata(name)) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         metadata.ClientData = definition;
 
         StandaloneWorkflowCache.Write(Accessor(), metadata);

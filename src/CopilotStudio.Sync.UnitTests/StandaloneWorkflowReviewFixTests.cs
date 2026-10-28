@@ -83,7 +83,7 @@ public class StandaloneWorkflowReviewFixTests
         await Assert.ThrowsAnyAsync<StandaloneWorkflowException>(() =>
             new StandaloneWorkflowSynchronizer(client).UpsertAsync(WorkspaceWith(workflowId, "My Flow", Definition), "env", CancellationToken.None));
 
-        Assert.Equal(0, client.Stored(workflowId)!.StateCode);
+        Assert.Equal(0, (client.Stored(workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StateCode);
         Assert.DoesNotContain("start", client.Calls);
     }
 
@@ -133,7 +133,7 @@ public class StandaloneWorkflowReviewFixTests
 
         var document = await new StandaloneWorkflowSynchronizer(client).GetAsync(workflowId, CancellationToken.None);
 
-        Assert.Equal(stateCode, document!.StateCode);
+        Assert.Equal(stateCode, (document ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StateCode);
         Assert.Equal(stateCode == 1, document.IsActivated);
     }
 
@@ -190,7 +190,7 @@ public class StandaloneWorkflowReviewFixTests
 
         Assert.False(pulled.Deleted);
         Assert.NotNull(pulled.Download);
-        Assert.NotNull(Read(workspace, $"{pulled.Download!.Folder}/{WorkflowWorkspace.DefinitionFileName}"));
+        Assert.NotNull(Read(workspace, $"{pulled.Download.Folder}/{WorkflowWorkspace.DefinitionFileName}"));
     }
 
     [Fact]

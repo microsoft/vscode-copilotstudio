@@ -32,9 +32,9 @@ public class CliAgentNodeQInvariantTests
             await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
 
         var skills = definition.Components.OfType<DialogComponent>()
-            .Where(d => d.SchemaName.Value!.IndexOf(".skill.", StringComparison.Ordinal) >= 0).ToList();
+            .Where(d => d.SchemaName.Value.IndexOf(".skill.", StringComparison.Ordinal) >= 0).ToList();
         var tools = definition.Components.OfType<DialogComponent>()
-            .Where(d => d.SchemaName.Value!.IndexOf(".tool.", StringComparison.Ordinal) >= 0).ToList();
+            .Where(d => d.SchemaName.Value.IndexOf(".tool.", StringComparison.Ordinal) >= 0).ToList();
         var knowledge = definition.Components.OfType<KnowledgeSourceComponent>().ToList();
 
         Assert.NotEmpty(skills);
@@ -73,7 +73,7 @@ public class CliAgentNodeQInvariantTests
         var read = await sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None);
 
         var originalTools = definition.Components.OfType<DialogComponent>()
-            .Where(d => d.SchemaName.Value!.IndexOf(".tool.", StringComparison.Ordinal) >= 0
+            .Where(d => d.SchemaName.Value.IndexOf(".tool.", StringComparison.Ordinal) >= 0
                         && d.Dialog != null)
             .ToList();
         Assert.NotEmpty(originalTools);
@@ -85,7 +85,7 @@ public class CliAgentNodeQInvariantTests
 
             // The discriminatable body kind ($kind) must survive the write->read; a
             // wipe would collapse it to a base/empty type (the Node-L corruption).
-            Assert.Equal(original.Dialog!.GetType(), roundTripped.Dialog?.GetType());
+            Assert.Equal((original.Dialog ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).GetType(), roundTripped.Dialog?.GetType());
         }
     }
 
@@ -98,8 +98,8 @@ public class CliAgentNodeQInvariantTests
             await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
 
         var tool = definition.Components.OfType<DialogComponent>()
-            .First(d => d.SchemaName.Value!.IndexOf(".tool.", StringComparison.Ordinal) >= 0
-                        && d.SchemaName.Value!.IndexOf(".tool.connected-agent.", StringComparison.Ordinal) < 0);
+            .First(d => d.SchemaName.Value.IndexOf(".tool.", StringComparison.Ordinal) >= 0
+                        && d.SchemaName.Value.IndexOf(".tool.connected-agent.", StringComparison.Ordinal) < 0);
         var toolPath = CliAgentRoundTripReadTests.CliComponentPath(tool, definition);
 
         // Direction A: file present -> component survives (no phantom delete).

@@ -63,7 +63,7 @@ public class StandaloneWorkflowDownloadGuardTests
 
     private static void EditInTheEnvironment(FakeStandaloneWorkflowClient client, Guid workflowId, Action<SyncDataverseClient.WorkflowMetadata> edit)
     {
-        var stored = client.Stored(workflowId)!;
+        var stored = (client.Stored(workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         edit(stored);
         client.Seed(stored);
     }
@@ -101,7 +101,7 @@ public class StandaloneWorkflowDownloadGuardTests
         var pulled = await synchronizer.PullAsync(workflowId, workspace, CancellationToken.None, Overwriting);
 
         Assert.NotNull(pulled.Download);
-        Assert.Contains("cloud", Read(workspace, $"{folder}/{WorkflowWorkspace.DefinitionFileName}")!, StringComparison.Ordinal);
+        Assert.Contains("cloud", (Read(workspace, $"{folder}/{WorkflowWorkspace.DefinitionFileName}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -113,14 +113,14 @@ public class StandaloneWorkflowDownloadGuardTests
         client.Seed(Row(workflowId));
 
         var (synchronizer, workspace, folder) = await ClonedAsync(client, workflowId);
-        var moved = client.Stored(workflowId)!;
+        var moved = (client.Stored(workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         moved.ClientData = """{"properties":{"from":"server"}}""";
         client.Seed(moved);
 
         var pulled = await synchronizer.PullAsync(workflowId, workspace, CancellationToken.None);
 
         Assert.NotNull(pulled.Download);
-        Assert.Contains("server", Read(workspace, $"{folder}/{WorkflowWorkspace.DefinitionFileName}")!, StringComparison.Ordinal);
+        Assert.Contains("server", (Read(workspace, $"{folder}/{WorkflowWorkspace.DefinitionFileName}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -294,7 +294,7 @@ public class StandaloneWorkflowDownloadGuardTests
         Assert.Equal("env", failure.EnvironmentId);
         Assert.Equal($"'{failure.Subject}' has conflict remote change, and applying changes would replace them. Use Get changes to get them, or Apply changes again and choose Overwrite remote changes to replace them.", failure.Message);
         Assert.Equal(["get"], client.Calls);
-        Assert.Contains("server", client.Stored(workflowId)!.ClientData!, StringComparison.Ordinal);
+        Assert.Contains("server", ((client.Stored(workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ClientData ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")), StringComparison.Ordinal);
         Assert.Equal("""{"properties":{"from":"local"}}""", Read(workspace, $"{folder}/{WorkflowWorkspace.DefinitionFileName}"));
     }
 
@@ -432,7 +432,7 @@ public class StandaloneWorkflowDownloadGuardTests
 
         await synchronizer.UpsertAsync(workspace, "env", CancellationToken.None);
 
-        Assert.Contains("local", client.Stored(workflowId)!.ClientData!, StringComparison.Ordinal);
+        Assert.Contains("local", ((client.Stored(workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ClientData ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")), StringComparison.Ordinal);
     }
 
     private const string ReferencingDefinition = """{"properties":{"connectionReferences":{"shared_teams":{"api":{"name":"shared_teams"},"connection":{"connectionReferenceLogicalName":"new_teams"}}},"from":"local"}}""";
@@ -463,8 +463,8 @@ public class StandaloneWorkflowDownloadGuardTests
         Assert.Equal(["get"], client.Calls);
         Assert.Equal([workflowId], client.DraftChecks);
         Assert.Empty(client.ConnectionReferences);
-        Assert.Equal(Definition, client.Stored(workflowId)!.ClientData);
-        Assert.Equal(Definition, StandaloneWorkflowCache.Read(workspace, workflowId)!.ClientData);
+        Assert.Equal(Definition, (client.Stored(workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ClientData);
+        Assert.Equal(Definition, (StandaloneWorkflowCache.Read(workspace, workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ClientData);
     }
 
     [Fact]
@@ -522,7 +522,7 @@ public class StandaloneWorkflowDownloadGuardTests
         await synchronizer.UpsertAsync(workspace, "env", CancellationToken.None);
 
         Assert.Equal([workflowId], client.DraftChecks);
-        Assert.Contains("local", client.Stored(workflowId)!.ClientData!, StringComparison.Ordinal);
+        Assert.Contains("local", ((client.Stored(workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ClientData ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -541,7 +541,7 @@ public class StandaloneWorkflowDownloadGuardTests
 
         Assert.Equal(StandaloneWorkflowFailure.EnvironmentHoldsUnpublishedDraft, failure.Failure);
         Assert.Equal("My Flow", failure.Subject);
-        Assert.Equal(Definition, client.Stored(workflowId)!.ClientData);
+        Assert.Equal(Definition, (client.Stored(workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ClientData);
     }
 
     [Theory]

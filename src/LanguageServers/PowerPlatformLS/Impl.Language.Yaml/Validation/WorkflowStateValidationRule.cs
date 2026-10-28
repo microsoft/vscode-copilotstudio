@@ -89,12 +89,12 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.Yaml.Validation
                 foreach (var workflow in parsed.Workflows)
                 {
                     var filePath = workflow?.FilePath;
-                    if (string.IsNullOrEmpty(filePath))
+                    if (filePath is null || filePath.Length == 0)
                     {
                         continue;
                     }
 
-                    var normalizedWorkflowPath = filePath!.Replace('\\', '/');
+                    var normalizedWorkflowPath = filePath.Replace('\\', '/');
                     if (normalizedDocumentPath.EndsWith(normalizedWorkflowPath, StringComparison.OrdinalIgnoreCase))
                     {
                         return workflow;

@@ -45,7 +45,7 @@ internal sealed class FakeStandaloneWorkflowClient : IStandaloneWorkflowDatavers
     {
         Calls.Add("insert");
 
-        if (_rows.ContainsKey(workflowMetadata!.WorkflowId) && RestoreFailure is not null)
+        if (_rows.ContainsKey((workflowMetadata ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).WorkflowId) && RestoreFailure is not null)
         {
             return Task.FromResult(new WorkflowResponse { ErrorMessage = RestoreFailure });
         }
@@ -119,9 +119,9 @@ internal sealed class FakeStandaloneWorkflowClient : IStandaloneWorkflowDatavers
             return Task.FromResult(new WorkflowResponse { ErrorMessage = failure });
         }
 
-        var stored = Normalize(workflowMetadata!);
+        var stored = Normalize((workflowMetadata ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")));
 
-        if (workflowMetadata!.StateCode is null && _rows.TryGetValue(workflowMetadata.WorkflowId, out var previous))
+        if (workflowMetadata.StateCode is null && _rows.TryGetValue(workflowMetadata.WorkflowId, out var previous))
         {
             stored.StateCode = previous.StateCode;
             stored.StatusCode = previous.StatusCode;
@@ -298,7 +298,7 @@ public class StandaloneWorkflowSynchronizerTests
 
         await synchronizer.DownloadAsync(workflowId, workspace, "env", CancellationToken.None);
 
-        Assert.Null(client.Stored(workflowId)!.JsonFileName);
+        Assert.Null((client.Stored(workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).JsonFileName);
         Assert.False((await synchronizer.DownloadAsync(workflowId, workspace, "env", CancellationToken.None)).Changed);
     }
 
@@ -372,10 +372,10 @@ public class StandaloneWorkflowSynchronizerTests
         await new StandaloneWorkflowSynchronizer(client).DownloadAsync(workflowId, workspace, "env", CancellationToken.None);
 
         var cached = StandaloneWorkflowCache.Read(workspace, workflowId);
-        var local = WorkflowMetadataFile.ReadStrict(Read(workspace, $"{folder}/{WorkflowWorkspace.MetadataFileName}")!);
+        var local = WorkflowMetadataFile.ReadStrict((Read(workspace, $"{folder}/{WorkflowWorkspace.MetadataFileName}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")));
 
-        Assert.Equal($"{folder}/{WorkflowWorkspace.DefinitionFileName}", local!.JsonFileName);
-        Assert.Equal(local.JsonFileName, cached!.JsonFileName);
+        Assert.Equal($"{folder}/{WorkflowWorkspace.DefinitionFileName}", (local ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).JsonFileName);
+        Assert.Equal(local.JsonFileName, (cached ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).JsonFileName);
     }
 
     [Fact]
@@ -426,8 +426,8 @@ public class StandaloneWorkflowSynchronizerTests
 
         var result = await new StandaloneWorkflowSynchronizer(client).DownloadAsync(workflowId, workspace, "env", CancellationToken.None);
 
-        Assert.DoesNotContain("ismanaged", Read(workspace, $"{result.Folder}/{WorkflowWorkspace.MetadataFileName}")!, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("ismanaged", Read(workspace, ".mcs/botdefinition.json")!, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ismanaged", (Read(workspace, $"{result.Folder}/{WorkflowWorkspace.MetadataFileName}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ismanaged", (Read(workspace, ".mcs/botdefinition.json") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -637,7 +637,7 @@ public class StandaloneWorkflowSynchronizerTests
         Assert.DoesNotContain("delete", client.Calls);
         Assert.Contains("stop", client.Calls);
         Assert.Contains("draft", result.Warning, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(WorkflowDefinitionFile.Read(DefinitionWithReference).Portable, client.Stored(workflowId)!.ClientData);
+        Assert.Equal(WorkflowDefinitionFile.Read(DefinitionWithReference).Portable, (client.Stored(workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ClientData);
     }
 
     [Fact]
@@ -858,7 +858,7 @@ public class StandaloneWorkflowSynchronizerTests
         var workflow = Assert.Single(WorkflowWorkspace.FindAll(workspace));
 
         Assert.True(workspace.Exists(workflow.DefinitionPath));
-        Assert.Equal("My Flow", WorkflowMetadataFile.ReadStrict(Read(workspace, workflow.MetadataPath.ToString())!)!.Name);
+        Assert.Equal("My Flow", (WorkflowMetadataFile.ReadStrict((Read(workspace, workflow.MetadataPath.ToString()) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Name);
     }
 }
 
@@ -920,7 +920,7 @@ public class StandaloneWorkflowCloudCacheTests
 
         await new StandaloneWorkflowSynchronizer(client).UpsertAsync(workspace, "env", CancellationToken.None);
 
-        Assert.Equal(client.Stored(workflowId)!.ClientData, StandaloneWorkflowCache.Read(workspace, workflowId)!.ClientData);
+        Assert.Equal((client.Stored(workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ClientData, (StandaloneWorkflowCache.Read(workspace, workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ClientData);
     }
 
     [Fact]
@@ -934,7 +934,7 @@ public class StandaloneWorkflowCloudCacheTests
 
         await new StandaloneWorkflowSynchronizer(client).UpsertAsync(workspace, "env", CancellationToken.None);
 
-        Assert.Contains("connectionName", StandaloneWorkflowCache.Read(workspace, workflowId)!.ClientData!, StringComparison.Ordinal);
+        Assert.Contains("connectionName", ((StandaloneWorkflowCache.Read(workspace, workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ClientData ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1005,7 +1005,7 @@ public class StandaloneWorkflowCloudCacheTests
 
         await new StandaloneWorkflowSynchronizer(client).DownloadAsync(workflowId, workspace, "env", CancellationToken.None);
 
-        Assert.Equal(Definition, StandaloneWorkflowCache.Read(workspace, workflowId)!.ClientData);
+        Assert.Equal(Definition, (StandaloneWorkflowCache.Read(workspace, workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ClientData);
     }
 
     [Fact]

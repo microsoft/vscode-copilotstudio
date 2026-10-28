@@ -29,7 +29,7 @@ public class StandaloneWorkflowDataverseTests
         {
             Exchanges.Add(new Exchange(
                 request.Method,
-                request.RequestUri!.ToString(),
+                (request.RequestUri ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ToString(),
                 request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(),
                 request.Headers.TryGetValues("x-ms-client-request-id", out var clientRequestIds) ? string.Join(",", clientRequestIds) : null));
 
@@ -372,7 +372,7 @@ public class StandaloneWorkflowDataverseTests
         var workflow = await client.GetWorkflowAsync(workflowId, CancellationToken.None);
 
         Assert.NotNull(workflow);
-        Assert.Equal(workflowId, workflow!.WorkflowId);
+        Assert.Equal(workflowId, workflow.WorkflowId);
         Assert.Equal("Flow", workflow.Name);
         Assert.Contains($"workflowid eq {workflowId}", Uri.UnescapeDataString(handler.Exchanges[0].Url), StringComparison.OrdinalIgnoreCase);
     }
@@ -385,7 +385,7 @@ public class StandaloneWorkflowDataverseTests
 
         var workflow = await client.GetWorkflowAsync(workflowId, CancellationToken.None);
 
-        Assert.True(workflow!.IsManaged);
+        Assert.True((workflow ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).IsManaged);
         Assert.Contains("ismanaged", Assert.Single(handler.Exchanges).Url, StringComparison.Ordinal);
     }
 
@@ -398,7 +398,7 @@ public class StandaloneWorkflowDataverseTests
 
         var workflow = await client.GetWorkflowAsync(workflowId, CancellationToken.None);
 
-        Assert.Equal(["new_teams"], workflow!.ConnectionReferences);
+        Assert.Equal(["new_teams"], (workflow ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ConnectionReferences);
     }
 
     [Fact]
@@ -407,7 +407,7 @@ public class StandaloneWorkflowDataverseTests
         var workflowId = Guid.NewGuid();
         var (client, _) = Create(_ => Json($"{{\"value\":[{{\"workflowid\":\"{workflowId}\",\"name\":\"Flow\",\"clientdata\":\"{{}}\"}}]}}"));
 
-        Assert.Empty((await client.GetWorkflowAsync(workflowId, CancellationToken.None))!.ConnectionReferences);
+        Assert.Empty(((await client.GetWorkflowAsync(workflowId, CancellationToken.None)) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ConnectionReferences);
     }
 
     [Fact]
@@ -424,8 +424,8 @@ public class StandaloneWorkflowDataverseTests
             .Setup(c => c.GetConnectionReferencesByLogicalNamesAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync([new ConnectionReferenceInfo { ConnectionReferenceLogicalName = "new_teams", ConnectorId = "shared_teams", ConnectionId = string.Empty }]);
 
-        Assert.Single(await WorkflowActivationPlanner.DraftStandaloneUnboundActivationsAsync([workflow!], unbound.Object, CancellationToken.None));
-        Assert.Equal(0, workflow!.StateCode);
+        Assert.Single(await WorkflowActivationPlanner.DraftStandaloneUnboundActivationsAsync([(workflow ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))], unbound.Object, CancellationToken.None));
+        Assert.Equal(0, (workflow ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StateCode);
     }
 
     [Fact]
@@ -635,7 +635,7 @@ public class StandaloneWorkflowDataverseTests
     public async Task ListWorkflowsAsync_FollowsPagingUntilTheServiceStops()
     {
         var first = $"{{\"value\":[{{\"workflowid\":\"{Guid.NewGuid()}\",\"name\":\"One\"}}],\"@odata.nextLink\":\"{DataverseUrl}/page2\"}}";
-        var (client, handler) = Create(request => Json(request.RequestUri!.ToString().EndsWith("/page2", StringComparison.Ordinal)
+        var (client, handler) = Create(request => Json((request.RequestUri ?? throw new Xunit.Sdk.XunitException("Expected a request URI.")).ToString().EndsWith("/page2", StringComparison.Ordinal)
             ? $"{{\"value\":[{{\"workflowid\":\"{Guid.NewGuid()}\",\"name\":\"Two\"}}]}}"
             : first));
 
@@ -912,7 +912,7 @@ public class StandaloneWorkflowDataverseTests
 
         Assert.Equal(["return=representation"], preferences);
         Assert.Contains("$select=", Assert.Single(handler.Exchanges, exchange => exchange.Method.Method == "PATCH").Url, StringComparison.Ordinal);
-        Assert.Equal("Stored", response.StoredWorkflow!.Name);
+        Assert.Equal("Stored", (response.StoredWorkflow ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Name);
     }
 
     [Theory]
@@ -925,14 +925,14 @@ public class StandaloneWorkflowDataverseTests
 
         var response = await client.InsertWorkflowAsync(new WorkflowMetadata { WorkflowId = workflowId, Name = "Flow", ClientData = "{}", StateCode = stateCode, StatusCode = stateCode == 1 ? 2 : 1 }, CancellationToken.None);
 
-        Assert.Equal(stateCode, response.StoredWorkflow!.StateCode);
+        Assert.Equal(stateCode, (response.StoredWorkflow ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StateCode);
     }
 
     [Fact]
     public async Task AWorkflowWrite_StopsAskingForAColumnTheEnvironmentLacks_AndStillReturnsTheRow()
     {
         var workflowId = Guid.NewGuid();
-        var (client, handler) = Create(request => request.RequestUri!.Query.Contains("introducedversion", StringComparison.Ordinal)
+        var (client, handler) = Create(request => (request.RequestUri ?? throw new Xunit.Sdk.XunitException("Expected a request URI.")).Query.Contains("introducedversion", StringComparison.Ordinal)
             ? new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("{\"error\":{\"message\":\"Could not find a property named 'introducedversion' on type 'Microsoft.Dynamics.CRM.workflow'.\"}}", Encoding.UTF8, "application/json") }
             : Json($$"""{"workflowid":"{{workflowId}}","name":"WF"}"""));
 
@@ -940,7 +940,7 @@ public class StandaloneWorkflowDataverseTests
         var patches = handler.Exchanges.Where(exchange => exchange.Method.Method == "PATCH").ToList();
 
         Assert.Empty(response.ErrorMessage);
-        Assert.Equal(workflowId, response.StoredWorkflow!.WorkflowId);
+        Assert.Equal(workflowId, (response.StoredWorkflow ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).WorkflowId);
         Assert.Equal(2, patches.Count);
         Assert.Equal(patches[0].Body, patches[1].Body);
     }

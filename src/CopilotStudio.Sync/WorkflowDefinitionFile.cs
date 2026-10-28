@@ -29,20 +29,20 @@ public static class WorkflowDefinitionFile
     /// <summary>Renders a definition the way it is written to disk, leaving unparseable content alone.</summary>
     public static string Format(string? clientData)
     {
-        if (string.IsNullOrWhiteSpace(clientData))
+        if (clientData is null || string.IsNullOrWhiteSpace(clientData))
         {
             return string.Empty;
         }
 
         try
         {
-            using var document = JsonDocument.Parse(clientData!);
+            using var document = JsonDocument.Parse(clientData);
 
             return JsonSerializer.Serialize(document.RootElement, IndentedJson);
         }
         catch (JsonException)
         {
-            return clientData!;
+            return clientData;
         }
     }
 
@@ -58,14 +58,14 @@ public static class WorkflowDefinitionFile
     {
         declared = Array.Empty<WorkflowConnectionReference>();
 
-        if (string.IsNullOrWhiteSpace(clientData))
+        if (clientData is null || string.IsNullOrWhiteSpace(clientData))
         {
             return false;
         }
 
         try
         {
-            using var document = JsonDocument.Parse(clientData!);
+            using var document = JsonDocument.Parse(clientData);
 
             return TryGetConnectionReferences(document.RootElement, out declared);
         }
@@ -141,7 +141,7 @@ public static class WorkflowDefinitionFile
     /// <returns>The definition without its environment-specific bindings, unchanged when there are none to drop.</returns>
     public static string PortableDefinition(string? clientData)
     {
-        if (string.IsNullOrWhiteSpace(clientData))
+        if (clientData is null || string.IsNullOrWhiteSpace(clientData))
         {
             return string.Empty;
         }
@@ -150,14 +150,14 @@ public static class WorkflowDefinitionFile
 
         try
         {
-            root = JsonNode.Parse(clientData!);
+            root = JsonNode.Parse(clientData);
         }
         catch (JsonException)
         {
-            return clientData!;
+            return clientData;
         }
 
-        return DropEnvironmentBoundConnections(root) ? root!.ToJsonString(IndentedJson) : clientData!;
+        return root is not null && DropEnvironmentBoundConnections(root) ? root.ToJsonString(IndentedJson) : clientData;
     }
 
     private static bool DropEnvironmentBoundConnections(JsonNode? root)
@@ -300,7 +300,8 @@ public static class WorkflowDefinitionFile
             return false;
         }
 
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)
+            ?? throw new ArgumentException("A workflow file path must have a containing directory.", nameof(path)));
         File.WriteAllText(path, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
         return true;

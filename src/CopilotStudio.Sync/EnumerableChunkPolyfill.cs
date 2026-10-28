@@ -29,7 +29,7 @@ internal static class EnumerableChunkPolyfill
         if (count > 0)
         {
             Array.Resize(ref buffer, count);
-            yield return buffer!;
+            yield return buffer;
         }
     }
 }

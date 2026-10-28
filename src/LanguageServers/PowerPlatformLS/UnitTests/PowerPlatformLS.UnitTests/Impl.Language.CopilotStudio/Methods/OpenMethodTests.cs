@@ -25,7 +25,7 @@
             {
                 var documentUri = new Uri("file:///c:/ws/topics/test.mcs.yml");
                 var diagParams = await context.OpenDocumentWithTextAsync(documentUri, "kind: AdaptiveDialog");
-                Assert.Empty(diagParams.Diagnostics.Where(x => x.Severity < DiagnosticSeverity.Warning));
+                Assert.DoesNotContain(diagParams.Diagnostics, x => x.Severity < DiagnosticSeverity.Warning);
                 AssertAgentResolvingEvent(context, "Agent directory initialized with 1 documents tracked for 'c:/ws/topics/'");
                 AssertAgentDirectoryChangeNotification(context);
                 context.Logs.Clear();
@@ -35,7 +35,7 @@
             {
                 var documentUri = new Uri("file:///c:/ws/test.mcs.yml");
                 var diagParams = await context.OpenDocumentWithTextAsync(documentUri, "kind: AdaptiveDialog");
-                Assert.Empty(diagParams.Diagnostics.Where(x => x.Severity < DiagnosticSeverity.Warning));
+                Assert.DoesNotContain(diagParams.Diagnostics, x => x.Severity < DiagnosticSeverity.Warning);
                 AssertAgentResolvingEvent(context, "Agent directory initialized with 1 documents tracked for 'c:/ws/'");
                 AssertAgentDirectoryChangeNotification(context);
                 context.Logs.Clear();
@@ -45,7 +45,7 @@
             {
                 var documentUri = new Uri("file:///c:/ws/topics/test.mcs.yml");
                 var diagParams = await context.OpenDocumentWithTextAsync(documentUri, "kind: AdaptiveDialog");
-                Assert.Empty(diagParams.Diagnostics.Where(x => x.Severity < DiagnosticSeverity.Warning));
+                Assert.DoesNotContain(diagParams.Diagnostics, x => x.Severity < DiagnosticSeverity.Warning);
                 AssertAgentResolvingEvent(context, "Agent Directory selected: 'c:/ws/topics/' (Out of 2 parent directories)");
             }
         }
@@ -85,7 +85,7 @@
             var documentUri = new Uri("file:///c:/parent/topics/test.mcs.yml");
             var diagParams = await context.OpenDocumentWithTextAsync(documentUri, "kind: AdaptiveDialog");
             Assert.Equal(documentUri, diagParams.Uri);
-            Assert.Empty(diagParams.Diagnostics.Where(x => x.Severity == DiagnosticSeverity.Error));
+            Assert.DoesNotContain(diagParams.Diagnostics, x => x.Severity == DiagnosticSeverity.Error);
             Assert.Equal(["Agent file is missing.", "Elements of type 'AdaptiveDialog' are expected in either the 'topics' folder or the 'translations' folder."], diagParams.Diagnostics.Select(x => x.Message));
             AssertAgentResolvingEvent(context, "No valid agent directory detected. Initializing new directory at file location: c:/parent/topics/");
             AssertAgentDirectoryChangeNotification(context);
@@ -106,7 +106,7 @@
             // send a first request with no file on disk
             var diagParams = await context.OpenDocumentWithTextAsync(documentUri, "kind: AdaptiveDialog");
             Assert.Equal(documentUri, diagParams.Uri);
-            Assert.Empty(diagParams.Diagnostics.Where(x => x.Severity == DiagnosticSeverity.Error));
+            Assert.DoesNotContain(diagParams.Diagnostics, x => x.Severity == DiagnosticSeverity.Error);
             Assert.Equal(["Agent file is missing.", "Elements of type 'AdaptiveDialog' are expected in either the 'topics' folder or the 'translations' folder."], diagParams.Diagnostics.Select(x => x.Message));
             AssertAgentResolvingEvent(context, "No valid agent directory detected. Initializing new directory at file location: c:/ws/topics/");
             AssertAgentDirectoryChangeNotification(context);
@@ -454,7 +454,7 @@ beginDialog:
             }
             else
             {
-                Assert.Empty(diagParams.Diagnostics.Where(d => d.Code == "MissingRequiredProperty"));
+                Assert.DoesNotContain(diagParams.Diagnostics, d => d.Code == "MissingRequiredProperty");
             }
         }
 

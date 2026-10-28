@@ -45,10 +45,10 @@ public class CliAgentNodeS2RemotePreviewTests
     {
         var (_, _, accessor, synchronizer, _) =
             await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
-        var cloud = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        var cloud = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var target = cloud.ConnectionReferences.First(cr => cr.Id.Value != Guid.Empty);
-        var targetName = target.ConnectionReferenceLogicalName.Value!;
+        var targetName = target.ConnectionReferenceLogicalName.Value;
 
         // The cloud DELETED this ref: the applied (new cloud) state omits it.
         var appliedRefs = cloud.ConnectionReferences
@@ -74,14 +74,14 @@ public class CliAgentNodeS2RemotePreviewTests
     {
         var (_, _, accessor, synchronizer, _) =
             await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
-        var cloud = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        var cloud = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         // No remote change: the applied (new cloud) state equals the cloud cache.
         var applied = cloud;
 
         // A LOCAL-only edit: the user deleted a CR file on disk.
         var target = cloud.ConnectionReferences.First(cr => cr.Id.Value != Guid.Empty);
-        accessor.Delete(CrPath(target.ConnectionReferenceLogicalName.Value!));
+        accessor.Delete(CrPath(target.ConnectionReferenceLogicalName.Value));
 
         var (_, changes) = synchronizer.GetLocalChanges(applied, cloud, accessor, "token-1", isRemoteChange: true);
 
@@ -95,7 +95,7 @@ public class CliAgentNodeS2RemotePreviewTests
     {
         var (_, _, accessor, synchronizer, _) =
             await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
-        var cloud = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        var cloud = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         const string newName = "remote_added_cr";
         var appliedRefs = cloud.ConnectionReferences
@@ -117,10 +117,10 @@ public class CliAgentNodeS2RemotePreviewTests
     {
         var (_, _, accessor, synchronizer, _) =
             await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
-        var cloud = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        var cloud = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var target = cloud.ConnectionReferences.First(cr => cr.Id.Value != Guid.Empty);
-        var targetName = target.ConnectionReferenceLogicalName.Value!;
+        var targetName = target.ConnectionReferenceLogicalName.Value;
 
         var changed = target.ToBuilder();
         changed.ConnectorId = "/providers/Microsoft.PowerApps/apis/shared_remotechanged";
@@ -153,7 +153,7 @@ public class CliAgentNodeS2RemotePreviewTests
             "    connectorId: /providers/Microsoft.PowerApps/apis/shared_userconnector\n",
             CancellationToken.None);
 
-        var cloud = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        var cloud = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var local = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None);
 
         var (_, changes) = synchronizer.GetLocalChanges(local, cloud, accessor, "token-1");
@@ -171,7 +171,7 @@ public class CliAgentNodeS2RemotePreviewTests
     {
         var (_, _, accessor, synchronizer, _) =
             await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
-        var cloud = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        var cloud = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var fileComponent = cloud.Components.OfType<FileAttachmentComponent>().Single();
         var applied = ((BotDefinition)cloud).WithComponents(
@@ -180,7 +180,7 @@ public class CliAgentNodeS2RemotePreviewTests
         var (changeset, _) = synchronizer.GetLocalChanges(applied, cloud, accessor, "token-1", isRemoteChange: true);
 
         Assert.DoesNotContain(
-            changeset.BotComponentChanges!.OfType<BotComponentDelete>(),
+            changeset.BotComponentChanges.OfType<BotComponentDelete>(),
             d => d.BotComponentId == fileComponent.Id);
     }
 }

@@ -129,9 +129,9 @@ public class ClassicTopicLocalChangeTests
         var topicPath = FindTopicPath(accessor);
         Assert.NotNull(topicPath);
 
-        var original = ReadFile(accessor, topicPath!);
+        var original = ReadFile(accessor, topicPath);
         Assert.Contains(find, original, StringComparison.Ordinal);
-        WriteFile(accessor, topicPath!, original.Replace(find, replace, StringComparison.Ordinal));
+        WriteFile(accessor, topicPath, original.Replace(find, replace, StringComparison.Ordinal));
 
         var localDefinition = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None);
         var (_, changes) = await synchronizer.GetLocalChangesAsync(workspace, localDefinition, CancellationToken.None);
@@ -143,7 +143,7 @@ public class ClassicTopicLocalChangeTests
             $"""
             Scenario '{scenario}': a persisted edit to the topic file was not reported as an update.
             Changes        : {string.Join(", ", changes.Select(c => $"{c.ChangeType} {c.SchemaName} -> {c.Uri}"))}
-            Edited topic   : {Escape(ReadFile(accessor, topicPath!))}
+            Edited topic   : {Escape(ReadFile(accessor, topicPath))}
             """);
     }
 
@@ -180,7 +180,7 @@ public class ClassicTopicLocalChangeTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/classic-topic-{Guid.NewGuid():N}/");
 
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {BotSchemaName}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {BotSchemaName}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var components = CreateCloudComponents(dialogYaml, extraJson);
 
         mockIsland
@@ -230,7 +230,7 @@ public class ClassicTopicLocalChangeTests
 
         using (YamlSerializationContext.UseYamlPassThroughSerializationContext())
         {
-            return JsonSerializer.Deserialize<DefinitionBase>(json, ElementSerializer.CreateOptions())!
+            return (JsonSerializer.Deserialize<DefinitionBase>(json, ElementSerializer.CreateOptions()) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))
                 .Components.ToList();
         }
     }

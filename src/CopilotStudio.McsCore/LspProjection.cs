@@ -631,7 +631,7 @@ internal static class LspProjection
     private static bool TryGetSkillAssetPath(Type elementType, string? botName, BotComponentBase? component, BotDefinition? definition, out string assetPath)
     {
         assetPath = string.Empty;
-        if (component == null || string.IsNullOrEmpty(component.DisplayName) || (!typeof(FileAttachmentComponentMetadata).IsAssignableFrom(elementType) && !typeof(FileAttachmentComponent).IsAssignableFrom(elementType)))
+        if (component == null || component.DisplayName is not { Length: > 0 } displayName || (!typeof(FileAttachmentComponentMetadata).IsAssignableFrom(elementType) && !typeof(FileAttachmentComponent).IsAssignableFrom(elementType)))
         {
             return false;
         }
@@ -642,7 +642,7 @@ internal static class LspProjection
             return false;
         }
 
-        var candidate = SkillLayout.GetAssetSidecarPath(skillFolder, component.DisplayName!);
+        var candidate = SkillLayout.GetAssetSidecarPath(skillFolder, displayName);
         assetPath = candidate.Equals(SkillLayout.GetAnchorPath(skillFolder)) ? SkillLayout.GetAssetSidecarPath(skillFolder, DeriveShortName(component.SchemaNameString, FileAttachmentInfix, botName)).ToString() : candidate.ToString();
         
         return true;
@@ -715,7 +715,7 @@ internal static class LspProjection
     /// </summary>
     internal static bool IsTranslationsPath(string? path)
     {
-        if (string.IsNullOrEmpty(path)) return false;
+        if (path is null || path.Length == 0) return false;
         var normalized = path.Replace('\\', '/').ToLowerInvariant();
         return normalized.Contains("/translations/") || normalized.StartsWith("translations/");
     }
@@ -848,7 +848,7 @@ internal static class LspProjection
 
     internal static bool IsTranslationSchemaName(string? schemaName)
     {
-        if (string.IsNullOrEmpty(schemaName)) return false;
+        if (schemaName is null || schemaName.Length == 0) return false;
         var lastDot = schemaName.LastIndexOf('.');
         if (lastDot < 0 || lastDot == schemaName.Length - 1) return false;
 
@@ -996,7 +996,7 @@ internal static class LspProjection
     /// </summary>
     private static bool StartsWithBotPrefix(string fileName, string? botName)
     {
-        if (string.IsNullOrEmpty(botName) || string.IsNullOrEmpty(fileName))
+        if (botName is null || botName.Length == 0 || string.IsNullOrEmpty(fileName))
         {
             return false;
         }
@@ -1006,18 +1006,18 @@ internal static class LspProjection
             return false;
         }
 
-        var rest = fileName.Substring(botName!.Length + 1);
+        var rest = fileName.Substring(botName.Length + 1);
         return rest.Length > 0 && rest.IndexOf('.') < 0;
     }
 
     private static bool IsBotPrefixedFile(string? pathWithoutExtension, string? botName)
     {
-        if (string.IsNullOrEmpty(pathWithoutExtension) || string.IsNullOrEmpty(botName))
+        if (pathWithoutExtension is null || pathWithoutExtension.Length == 0 || string.IsNullOrEmpty(botName))
         {
             return false;
         }
 
-        var fileName = System.IO.Path.GetFileName(pathWithoutExtension!.Replace('\\', '/'));
+        var fileName = System.IO.Path.GetFileName(pathWithoutExtension.Replace('\\', '/'));
         return StartsWithBotPrefix(fileName, botName);
     }
 
@@ -1069,18 +1069,18 @@ internal static class LspProjection
 
     private static bool FileNameHasTopicPrefix(string? path)
     {
-        if (string.IsNullOrEmpty(path))
+        if (path is null || path.Length == 0)
         {
             return false;
         }
 
-        var fileName = System.IO.Path.GetFileName(path!.Replace('\\', '/'));
+        var fileName = System.IO.Path.GetFileName(path.Replace('\\', '/'));
         return fileName.StartsWith("topic.", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsAlreadyQualifiedPath(Rule rule, string? pathWithoutExtension)
     {
-        if (string.IsNullOrEmpty(pathWithoutExtension))
+        if (pathWithoutExtension is null || pathWithoutExtension.Length == 0)
         {
             return false;
         }
@@ -1102,7 +1102,7 @@ internal static class LspProjection
         bool allowPreserve = true,
         bool preserveQualifiedSchemaName = false)
     {
-        if (string.IsNullOrEmpty(schemaName)) return string.Empty;
+        if (schemaName is null || schemaName.Length == 0) return string.Empty;
 
         // If schema doesn't start with bot name, return unchanged
         if (!string.IsNullOrEmpty(botName) && !schemaName.StartsWith(botName, StringComparison.OrdinalIgnoreCase))
@@ -1116,15 +1116,9 @@ internal static class LspProjection
             return schemaName;
         }
 
-        // Remove bot prefix.
-        // schemaName is guaranteed non-null by the early-return at the top of this
-        // method, but netstandard2.0's BCL lacks the [NotNullWhen(false)] annotation
-        // on string.IsNullOrEmpty that net10 has, so the compiler can't narrow it.
-        // The ! operator is a compile-time-only annotation (no IL emitted), symmetric
-        // across both TFMs.
-        var withoutPrefix = !string.IsNullOrEmpty(botName)
-            ? schemaName!.Substring(botName.Length)
-            : schemaName!;
+        var withoutPrefix = botName is { Length: > 0 }
+            ? schemaName.Substring(botName.Length)
+            : schemaName;
 
         // Find and remove the infix
         var infixIndex = withoutPrefix.IndexOf(infix, StringComparison.OrdinalIgnoreCase);
@@ -1135,8 +1129,7 @@ internal static class LspProjection
             // Reserved filenames should not be shortened.
             if (IsReservedShortName(shortName, infix))
             {
-                // schemaName non-null by early-return; ! is compile-time only.
-                return schemaName!;
+                return schemaName;
             }
 
             return shortName;
@@ -1145,8 +1138,7 @@ internal static class LspProjection
         // Infix not found - schema name doesn't follow expected pattern.
         // Return original schemaName unchanged (e.g., already-qualified names
         // that passed through GetSchemaName without expansion).
-        // schemaName non-null by early-return; ! is compile-time only.
-        return schemaName!;
+        return schemaName;
     }
 
     private static bool TryGetAlternateInfixLeaf(Rule rule, string? schemaName, string? botName, out string leaf)
@@ -1154,7 +1146,7 @@ internal static class LspProjection
         leaf = string.Empty;
 
         var alternates = rule.AlternateInfixes;
-        if (alternates == null || alternates.Length == 0 || string.IsNullOrEmpty(schemaName) || string.IsNullOrEmpty(botName))
+        if (alternates == null || alternates.Length == 0 || schemaName is null || schemaName.Length == 0 || string.IsNullOrEmpty(botName))
         {
             return false;
         }
@@ -1162,7 +1154,7 @@ internal static class LspProjection
         foreach (var alternate in alternates)
         {
             var qualifier = botName + alternate;
-            var index = schemaName!.IndexOf(qualifier, StringComparison.OrdinalIgnoreCase);
+            var index = schemaName.IndexOf(qualifier, StringComparison.OrdinalIgnoreCase);
             if (index < 0)
             {
                 continue;

@@ -45,7 +45,7 @@ public class CollectionKnowledgeFileExclusionTests
         var agentOwnedFile = FileComponent($"{AgentSchema}.file.AgentOwned", "AgentOwned.txt", parentCollectionId: null);
         var collectionOwnedFile = FileComponent($"{AgentSchema}.file.CollectionOwned", "CollectionOwned.txt", parentCollectionId: collectionId);
         var cloudCache = new BotDefinition()
-            .WithEntity(CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {AgentSchema}")!)
+            .WithEntity((CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {AgentSchema}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")))
             .WithComponents(new BotComponentBase[] { agentOwnedFile, collectionOwnedFile });
         WorkspaceSynchronizer.WriteCloudCache(fileAccessorFactory.Create(workspace), cloudCache);
 
@@ -86,7 +86,7 @@ public class CollectionKnowledgeFileExclusionTests
         var agentOwnedFile = FileComponent($"{AgentSchema}.file.AgentOwned", "AgentOwned.txt", parentCollectionId: null);
         var collectionOwnedFile = FileComponent($"{AgentSchema}.file.CollectionOwned", "CollectionOwned.txt", parentCollectionId: collectionId);
         var cloudCache = new BotDefinition()
-            .WithEntity(CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {AgentSchema}")!)
+            .WithEntity((CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {AgentSchema}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")))
             .WithComponents(new BotComponentBase[] { agentOwnedFile, collectionOwnedFile });
         WorkspaceSynchronizer.WriteCloudCache(fileAccessorFactory.Create(workspace), cloudCache);
 

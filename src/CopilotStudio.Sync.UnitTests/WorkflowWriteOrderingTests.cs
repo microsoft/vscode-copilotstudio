@@ -59,7 +59,7 @@ public class WorkflowWriteOrderingTests
         await CreateClient(handler).InsertWorkflowAsync(workflow, CancellationToken.None);
 
         Assert.NotNull(postBody);
-        Assert.Contains("\"clientdata\"", postBody!, StringComparison.Ordinal);
+        Assert.Contains("\"clientdata\"", postBody, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -141,7 +141,7 @@ public class WorkflowWriteOrderingTests
         await CreateClient(handler).UpdateWorkflowAsync(Guid.NewGuid(), workflow, CancellationToken.None);
 
         Assert.NotNull(patchBody);
-        return patchBody!;
+        return patchBody;
     }
 
     private static SyncDataverseClient CreateClient(HttpMessageHandler handler)

@@ -71,7 +71,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Completion
             foreach (var entry in entries)
             {
                 var logicalName = entry.ConnectionReferenceLogicalName;
-                if (string.IsNullOrEmpty(logicalName))
+                if (logicalName is null || logicalName.Length == 0)
                 {
                     continue;
                 }
@@ -81,12 +81,12 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Completion
 
                 var item = new CompletionItem
                 {
-                    Label = logicalName!,
+                    Label = logicalName,
                     Kind = CompletionKind.Reference,
                     Detail = $"{connector} ({status})",
                     FilterText = logicalName,
                     InsertText = logicalName,
-                    TextEdit = new TextEdit { Range = ComputeValueRange(text, lineStart, index), NewText = logicalName! },
+                    TextEdit = new TextEdit { Range = ComputeValueRange(text, lineStart, index), NewText = logicalName },
                     SortText = entry.IsDeclared ? "0" : "1",
                 };
 
@@ -96,7 +96,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Completion
                     {
                         Title = "Declare connection reference",
                         Command = DeclareCommand,
-                        Arguments = new object[] { logicalName! },
+                        Arguments = new object[] { logicalName },
                     };
                 }
 

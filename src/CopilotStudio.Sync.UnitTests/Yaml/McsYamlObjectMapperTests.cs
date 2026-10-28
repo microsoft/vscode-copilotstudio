@@ -86,7 +86,7 @@ public class McsYamlObjectMapperTests
         var restored = McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(McsYamlObjectMapper.Serialize(original));
 
         Assert.NotNull(restored);
-        Assert.Equal(original.JsonFileName, restored!.JsonFileName);
+        Assert.Equal(original.JsonFileName, restored.JsonFileName);
         Assert.Equal(original.WorkflowId, restored.WorkflowId);
         Assert.Equal(original.Name, restored.Name);
         Assert.Equal(original.Type, restored.Type);
@@ -95,7 +95,7 @@ public class McsYamlObjectMapperTests
         Assert.Equal(original.IsTransacted, restored.IsTransacted);
         Assert.Equal(original.IntroducedVersion, restored.IntroducedVersion);
         Assert.Equal(original.ConnectionReferences, restored.ConnectionReferences);
-        Assert.Equal(original.IsCustomizable!.Value, restored.IsCustomizable!.Value);
+        Assert.Equal(original.IsCustomizable.Value, (restored.IsCustomizable ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Value);
         Assert.Equal(original.IsCustomizable.ManagedPropertyLogicalName, restored.IsCustomizable.ManagedPropertyLogicalName);
     }
 
@@ -104,7 +104,7 @@ public class McsYamlObjectMapperTests
     {
         var restored = McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>("introducedVersion: 1.0\r\nname: Flow\r\n");
 
-        Assert.Equal("1.0", restored!.IntroducedVersion);
+        Assert.Equal("1.0", (restored ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).IntroducedVersion);
     }
 
     [Fact]
@@ -112,7 +112,7 @@ public class McsYamlObjectMapperTests
     {
         var restored = McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>("name: Flow\r\nsomeFutureField: value\r\n");
 
-        Assert.Equal("Flow", restored!.Name);
+        Assert.Equal("Flow", (restored ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Name);
     }
 
     [Theory]
@@ -131,9 +131,9 @@ public class McsYamlObjectMapperTests
     {
         var restored = McsYamlObjectMapper.DeserializeStrict<SyncDataverseClient.WorkflowMetadata>("name: Flow\r\nstateCode: 0\r\nisCustomizable:\r\n  value: true\r\n  canBeChanged: false\r\n");
 
-        Assert.Equal("Flow", restored!.Name);
+        Assert.Equal("Flow", (restored ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Name);
         Assert.Equal(0, restored.StateCode);
-        Assert.True(restored.IsCustomizable!.Value);
+        Assert.True((restored.IsCustomizable ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Value);
     }
 
     [Fact]
@@ -149,7 +149,7 @@ public class McsYamlObjectMapperTests
             ConnectionReferences = new List<string> { "shared_a" },
         };
 
-        Assert.Equal("Agent Flow 1", McsYamlObjectMapper.DeserializeStrict<SyncDataverseClient.WorkflowMetadata>(McsYamlObjectMapper.Serialize(original))!.Name);
+        Assert.Equal("Agent Flow 1", (McsYamlObjectMapper.DeserializeStrict<SyncDataverseClient.WorkflowMetadata>(McsYamlObjectMapper.Serialize(original)) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Name);
     }
 
     [Theory]
@@ -184,7 +184,7 @@ public class McsYamlObjectMapperTests
     [InlineData("subprocess: N\r\n", false)]
     public void ReadsEveryBooleanSpelling(string yaml, bool expected)
     {
-        Assert.Equal(expected, McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(yaml)!.Subprocess);
+        Assert.Equal(expected, (McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(yaml) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Subprocess);
     }
 
     [Theory]
@@ -197,7 +197,7 @@ public class McsYamlObjectMapperTests
     [InlineData("type: 1:20\r\n", 80)]
     public void ReadsEveryIntegerSpelling(string yaml, int expected)
     {
-        Assert.Equal(expected, McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(yaml)!.Type);
+        Assert.Equal(expected, (McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(yaml) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Type);
     }
 
     [Theory]
@@ -214,7 +214,7 @@ public class McsYamlObjectMapperTests
     [Fact]
     public void KeepsNullForAbsentValues()
     {
-        var restored = McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>("type:\r\nsubprocess:\r\nname: Flow\r\n")!;
+        var restored = (McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>("type:\r\nsubprocess:\r\nname: Flow\r\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         Assert.Null(restored.Type);
         Assert.Null(restored.Subprocess);
@@ -236,7 +236,7 @@ public class McsYamlObjectMapperTests
     [InlineData("isCustomizable:\r\n  value: ~\r\n")]
     public void KeepsTheDefaultForNonNullableValuesWithNoValue(string yaml)
     {
-        Assert.False(McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(yaml)!.IsCustomizable!.Value);
+        Assert.False(((McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(yaml) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).IsCustomizable ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Value);
     }
 
     [Theory]
@@ -252,7 +252,7 @@ public class McsYamlObjectMapperTests
     [Fact]
     public void KeepsNullForAbsentNullableIdentifiers()
     {
-        Assert.Null(McsYamlObjectMapper.Deserialize<SyncDataverseClient.AIPromptMetadata>("aIModelId: b823f6a0-c344-482f-9cd5-dc3c2e6aa959\r\ntemplateId:\r\n")!.TemplateId);
+        Assert.Null((McsYamlObjectMapper.Deserialize<SyncDataverseClient.AIPromptMetadata>("aIModelId: b823f6a0-c344-482f-9cd5-dc3c2e6aa959\r\ntemplateId:\r\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).TemplateId);
     }
 
     [Theory]
@@ -262,7 +262,7 @@ public class McsYamlObjectMapperTests
     [InlineData("name: !!str plain\r\n", "plain")]
     public void BindsTaggedScalarsToStringProperties(string yaml, string expected)
     {
-        Assert.Equal(expected, McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(yaml)!.Name);
+        Assert.Equal(expected, (McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(yaml) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Name);
     }
 
     [Theory]
@@ -275,7 +275,7 @@ public class McsYamlObjectMapperTests
     [InlineData("type: !!bool false\r\n", 0)]
     public void BindsTaggedScalarsToIntegerProperties(string yaml, int expected)
     {
-        Assert.Equal(expected, McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(yaml)!.Type);
+        Assert.Equal(expected, (McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(yaml) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Type);
     }
 
     [Theory]
@@ -284,7 +284,7 @@ public class McsYamlObjectMapperTests
     [InlineData("subprocess: !!bool yes\r\n", true)]
     public void BindsTaggedScalarsToBooleanProperties(string yaml, bool expected)
     {
-        Assert.Equal(expected, McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(yaml)!.Subprocess);
+        Assert.Equal(expected, (McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(yaml) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Subprocess);
     }
 
     [Fact]
@@ -293,7 +293,7 @@ public class McsYamlObjectMapperTests
         var document = McsYamlReader.Parse("type: !!bool true\r\nsubprocess: !!int 1\r\nstateCode: 1\r\n");
         document["stateCode"] = "0";
 
-        var restored = McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(McsYamlWriter.Write(document))!;
+        var restored = (McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(McsYamlWriter.Write(document)) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         Assert.Equal(1, restored.Type);
         Assert.True(restored.Subprocess);
@@ -319,13 +319,13 @@ public class McsYamlObjectMapperTests
     [Fact]
     public void ReadsNullPropertyAsNull()
     {
-        Assert.Null(McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>("name: null\r\ntype: 1\r\n")!.Name);
+        Assert.Null((McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>("name: null\r\ntype: 1\r\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Name);
     }
 
     [Fact]
     public void ReadsQuotedNullPropertyAsText()
     {
-        Assert.Equal("null", McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>("name: 'null'\r\n")!.Name);
+        Assert.Equal("null", (McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>("name: 'null'\r\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Name);
     }
 
     [Fact]
@@ -334,7 +334,7 @@ public class McsYamlObjectMapperTests
         var original = new SyncDataverseClient.WorkflowMetadata { Name = "null", Description = "~" };
         var restored = McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(McsYamlObjectMapper.Serialize(original));
 
-        Assert.Equal("null", restored!.Name);
+        Assert.Equal("null", (restored ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Name);
         Assert.Equal("~", restored.Description);
     }
 
@@ -362,7 +362,7 @@ public class McsYamlObjectMapperTests
             ConnectionReferences = new List<string> { "shared_office365users" },
         });
 
-        var reference = new YamlDotNet.Serialization.DeserializerBuilder().Build().Deserialize<Dictionary<object, object?>>(yaml)!;
+        var reference = new YamlDotNet.Serialization.DeserializerBuilder().Build().Deserialize<Dictionary<object, object?>>(yaml);
 
         Assert.Equal("Approval Request (v2)", reference["name"]?.ToString());
         Assert.Equal("Sends an approval.\nEscalates after 24h.", reference["description"]?.ToString());

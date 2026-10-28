@@ -242,7 +242,7 @@ public class PullConnectionReferencePruneTests
         using var stream = fileAccessor.OpenRead(new AgentFilePath(".mcs/botdefinition.json"));
         using (YamlSerializationContext.UseYamlPassThroughSerializationContext())
         {
-            return JsonSerializer.Deserialize<DefinitionBase>(stream, ElementSerializer.CreateOptions())!;
+            return (JsonSerializer.Deserialize<DefinitionBase>(stream, ElementSerializer.CreateOptions()) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         }
     }
 }

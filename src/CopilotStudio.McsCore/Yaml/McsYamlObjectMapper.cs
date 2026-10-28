@@ -40,7 +40,8 @@ internal static class McsYamlObjectMapper
 
     private static object FromDictionary(Type type, IDictionary<string, object?> source, bool rejectUnknownProperties)
     {
-        var instance = Activator.CreateInstance(type)!;
+        var instance = Activator.CreateInstance(type)
+            ?? throw new McsYamlFormatException($"Could not create an instance of '{type.Name}'.");
         var bindings = GetBindings(type);
 
         foreach (var binding in bindings.Properties)
@@ -116,7 +117,8 @@ internal static class McsYamlObjectMapper
             }
 
             var elementType = underlying.IsGenericType ? underlying.GetGenericArguments()[0] : typeof(string);
-            var list = (IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(elementType))!;
+            var list = (IList)(Activator.CreateInstance(typeof(List<>).MakeGenericType(elementType))
+                ?? throw new McsYamlFormatException($"Could not create a list for property '{key}'."));
 
             foreach (var item in items)
             {

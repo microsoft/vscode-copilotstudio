@@ -226,8 +226,8 @@ public class CliAgentConnectionsWriterTests
 
         // Good ref written; the bad ref produced no file (only good_name under the folder).
         Assert.True(accessor.Exists(new AgentFilePath("infrastructure/connections/good_name.sync.yaml")));
-        Assert.Single(accessor.Files.Keys.Where(k =>
-            k.StartsWith("infrastructure/connections/", StringComparison.Ordinal)));
+        Assert.Single(accessor.Files.Keys, k =>
+            k.StartsWith("infrastructure/connections/", StringComparison.Ordinal));
         // Warning surfaced for the bad name.
         Assert.Contains(warnings, w => w.Contains(badName, StringComparison.Ordinal));
     }
@@ -498,8 +498,8 @@ public class CliAgentConnectionsWriterTests
         // connectionreferences.mcs.yml AND must NOT produce any
         // infrastructure/ output. This is the R3 ("classic untouched")
         // guard that HRAgent's 0-ref fixture can't provide.
-        var classicEntity = CodeSerializer.Deserialize<BotEntity>(
-            "kind: Bot\nschemaName: ClassicAgentSchema\ntemplate: default-2.1.0\n")!;
+        var classicEntity = (CodeSerializer.Deserialize<BotEntity>(
+            "kind: Bot\nschemaName: ClassicAgentSchema\ntemplate: default-2.1.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var cr = MakeSyntheticConnectionReference(
             logicalName: "classic_dataverse_ref",
             connectorId: "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps");
@@ -618,7 +618,7 @@ public class CliAgentConnectionsWriterTests
         {
             s.Write(bytes, 0, bytes.Length);
         }
-        var def = (BotDefinition)WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        var def = (BotDefinition)(WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         return def.ConnectionReferences.Single();
     }
 
@@ -633,7 +633,7 @@ public class CliAgentConnectionsWriterTests
         var def = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)
                   ?? throw new InvalidOperationException($"ReadCloudCacheSnapshot returned null for {fixtureName}.");
         var botDef = (BotDefinition)def;
-        return (botDef.Entity!, botDef);
+        return ((botDef.Entity ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")), botDef);
     }
 
     private static byte[] LoadFixtureBytes(string fixtureName)

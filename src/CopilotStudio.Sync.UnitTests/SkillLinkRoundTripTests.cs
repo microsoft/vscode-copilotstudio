@@ -108,8 +108,8 @@ public class SkillLinkRoundTripTests
 
     private static BotDefinition CreateDefinitionWithSkill(string skillSchema, string displayName, string description = "")
     {
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: crd1c_agent\ntemplate: cliagent-1.0.0\n")!;
-        var dialog = (DialogBase)CodeSerializer.Deserialize<BotElement>("kind: InlineAgentSkill\ncontent: placeholder\n")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: crd1c_agent\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
+        var dialog = (DialogBase)(CodeSerializer.Deserialize<BotElement>("kind: InlineAgentSkill\ncontent: placeholder\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var component = new DialogComponent(
             schemaName: skillSchema,
             displayName: displayName,
@@ -130,8 +130,8 @@ public class SkillLinkRoundTripTests
         WriteText(fileAccessor, "behaviors/get-us-weather/skillmd_49zNm.mcs.yml", "mcs.metadata:\n  componentName: ./SKILL.md\n");
         WriteText(fileAccessor, "behaviors/get-us-weather/scriptsgetusweatherps1_GNNvS.mcs.yml", "mcs.metadata:\n  componentName: ./scripts/Get-UsWeather.ps1\n");
 
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: crf9a_nagentn3_5pJH_2\ntemplate: cliagent-1.0.0\n")!;
-        var dialog = (DialogBase)CodeSerializer.Deserialize<BotElement>("kind: InlineAgentSkill\ncontent: placeholder\n")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: crf9a_nagentn3_5pJH_2\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
+        var dialog = (DialogBase)(CodeSerializer.Deserialize<BotElement>("kind: InlineAgentSkill\ncontent: placeholder\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var cloudSkillId = Guid.Parse("840d995d-dc92-4260-b4a6-6c295e4fe474");
         var cloudSkill = new DialogComponent(schemaName: "crf9a_nagentn3_5pJH_2.skill.get-us-weather_e1W", displayName: "get-us-weather", description: "Get the current weather.", id: cloudSkillId, parentBotComponentId: default, dialog: dialog);
@@ -187,8 +187,8 @@ public class SkillLinkRoundTripTests
 
     private static (BotDefinition Cloud, BotDefinition Local) CreateSkillWithPayloadDefinitions()
     {
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: crd1c_agent\ntemplate: cliagent-1.0.0\n")!;
-        var dialog = (DialogBase)CodeSerializer.Deserialize<BotElement>("kind: InlineAgentSkill\ncontent: placeholder\n")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: crd1c_agent\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
+        var dialog = (DialogBase)(CodeSerializer.Deserialize<BotElement>("kind: InlineAgentSkill\ncontent: placeholder\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var skillId = Guid.NewGuid();
         var skill = new DialogComponent(
             schemaName: "crd1c_agent.skill.get-us-weather_peu",

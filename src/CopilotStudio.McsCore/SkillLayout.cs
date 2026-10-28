@@ -225,12 +225,12 @@ internal static class SkillLayout
 
     internal static string? TryGetBundleFromMarker(string? content)
     {
-        if (string.IsNullOrEmpty(content))
+        if (content is null || content.Length == 0)
         {
             return null;
         }
 
-        var start = content!.IndexOf(BundleMarkerPrefix, StringComparison.Ordinal);
+        var start = content.IndexOf(BundleMarkerPrefix, StringComparison.Ordinal);
         if (start < 0)
         {
             return null;

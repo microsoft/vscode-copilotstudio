@@ -68,4 +68,32 @@ public sealed class ExitCodeTests
         Assert.Contains("pull", result.Stdout);
         Assert.Contains("verify", result.Stdout);
     }
+
+    [Theory]
+    [InlineData("clone", "--environment")]
+    [InlineData("clone-via-bridge", "--environment")]
+    [InlineData("list-agents", "--environment")]
+    [InlineData("push", "--workspace")]
+    [InlineData("pull", "--workspace")]
+    [InlineData("verify", "--workspace")]
+    public async Task MissingRequiredOptionExitsNonZero(string command, string option)
+    {
+        var result = await CliRunner.RunAsync(command);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains(option, result.Stderr);
+    }
+
+    [Theory]
+    [InlineData("clone")]
+    [InlineData("clone-via-bridge")]
+    public async Task CloneWithInvalidEnvironmentExitsNonZero(string command)
+    {
+        var result = await CliRunner.RunAsync(
+            $"{command} --environment not-an-absolute-uri --environment-id test --agent-schema-name test");
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("Error:", result.Stderr);
+        Assert.Contains("URI", result.Stderr, StringComparison.OrdinalIgnoreCase);
+    }
 }

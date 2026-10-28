@@ -97,7 +97,7 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
             var result = await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None);
 
             Assert.NotNull(captured);
-            Assert.Equal(connectorId, captured!.ConnectorId);
+            Assert.Equal(connectorId, captured.ConnectorId);
             Assert.Equal(connectorId, result.PushedRowIds["folder-internal"]);
         }
 
@@ -191,7 +191,7 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
             await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None);
 
             Assert.NotNull(captured);
-            Assert.NotEqual(secretContents, captured!.OpenApiDefinition);
+            Assert.NotEqual(secretContents, captured.OpenApiDefinition);
             Assert.Equal(traversal, captured.OpenApiDefinition);
         }
 

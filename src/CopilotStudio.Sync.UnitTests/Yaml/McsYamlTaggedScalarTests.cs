@@ -114,7 +114,7 @@ public class McsYamlTaggedScalarTests
     [InlineData("category: 010\n", 8)]
     public void OtherRadixPrefixesStillBind(string yaml, int expected)
     {
-        Assert.Equal(expected, McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(yaml)!.Category);
+        Assert.Equal(expected, (McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(yaml) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Category);
     }
 
     private static McsYamlTaggedScalar Tagged(string yaml)

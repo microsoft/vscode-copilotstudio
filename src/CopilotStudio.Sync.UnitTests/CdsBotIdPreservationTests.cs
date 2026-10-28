@@ -50,7 +50,7 @@ public class CdsBotIdPreservationTests
 
         var previousDefinition = ReadDefinition(fileAccessor);
 
-        var remoteBotWithoutCdsBotId = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr123")!;
+        var remoteBotWithoutCdsBotId = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr123") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         mockIsland
             .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PvaComponentChangeSet(null, remoteBotWithoutCdsBotId, "token-2"));
@@ -104,7 +104,7 @@ public class CdsBotIdPreservationTests
 
             aiPrompts = new[] { new AIPromptMetadata { AIModelId = modelId, Name = "MyPrompt" } };
 
-            var remoteBot = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr123")!;
+            var remoteBot = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr123") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
             mockIsland
                 .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new PvaComponentChangeSet(null, remoteBot, "token-2"));
@@ -141,7 +141,7 @@ public class CdsBotIdPreservationTests
         var syncInfo = new AgentSyncInfo { AgentId = agentId };
 
         // The control-plane Bot entity does not carry cdsBotId (real prompt-agent scenario).
-        var remoteBotWithoutCdsBotId = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentB3")!;
+        var remoteBotWithoutCdsBotId = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentB3") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         mockIsland
             .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PvaComponentChangeSet(null, remoteBotWithoutCdsBotId, "token-1"));
@@ -150,7 +150,7 @@ public class CdsBotIdPreservationTests
 
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
 
-        var snapshotEntity = ((BotDefinition)ReadDefinition(fileAccessor)).Entity!;
+        var snapshotEntity = (((BotDefinition)ReadDefinition(fileAccessor)).Entity ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         Assert.Equal(agentId, snapshotEntity.CdsBotId.Value);
     }
 
@@ -166,7 +166,7 @@ public class CdsBotIdPreservationTests
         using var stream = fileAccessor.OpenRead(new AgentFilePath(".mcs/botdefinition.json"));
         using (YamlSerializationContext.UseYamlPassThroughSerializationContext())
         {
-            return JsonSerializer.Deserialize<DefinitionBase>(stream, ElementSerializer.CreateOptions())!;
+            return (JsonSerializer.Deserialize<DefinitionBase>(stream, ElementSerializer.CreateOptions()) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         }
     }
 }

@@ -55,7 +55,9 @@ public sealed class DataverseRetryHandler : DelegatingHandler
         {
             copy.Content = new ByteArrayContent(content);
 
-            foreach (var header in request.Content!.Headers)
+            var originalContent = request.Content
+                ?? throw new InvalidOperationException("Buffered request content has no original content.");
+            foreach (var header in originalContent.Headers)
             {
                 copy.Content.Headers.TryAddWithoutValidation(header.Key, header.Value);
             }

@@ -183,7 +183,7 @@ public class AIPromptPlaceholderTests
         WorkspaceSynchronizer.WriteCloudCache(fileAccessor, seededCache);
         await fileAccessor.WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "token-1", CancellationToken.None);
 
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: testbot")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: testbot") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var confirmationChangeset = new PvaComponentChangeSet(null, botEntity, "token-2");
         mockIsland
             .Setup(x => x.SaveChangesAsync(

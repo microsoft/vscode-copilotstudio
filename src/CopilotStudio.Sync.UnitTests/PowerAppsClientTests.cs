@@ -47,7 +47,7 @@ public class PowerAppsClientTests
         var requestUris = new List<string>();
         var handler = new StubHandler((request, _) =>
         {
-            var uri = request.RequestUri!.ToString();
+            var uri = (request.RequestUri ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ToString();
             requestUris.Add(uri);
             var body = uri.Contains("page2", StringComparison.OrdinalIgnoreCase) ? page2 : page1;
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)

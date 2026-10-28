@@ -22,7 +22,7 @@ public class IconDeletionTests
 
         await fileAccessor.WriteAsync(iconPath, new byte[] { 0x89, 0x50, 0x4E, 0x47 }, CancellationToken.None);
 
-        var entityWithoutIcon = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1")!;
+        var entityWithoutIcon = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         Assert.Null(entityWithoutIcon.IconBase64);
 
         WorkspaceSynchronizer.WriteCloudCache(fileAccessor, new BotDefinition().WithEntity(entityWithoutIcon));
@@ -50,7 +50,7 @@ public class IconDeletionTests
         var workspace = new DirectoryPath("c:/test/icon-local-delete/");
         var fileAccessor = fileAccessorFactory.Create(workspace);
 
-        var entityBuilder = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1")!.ToBuilder();
+        var entityBuilder = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ToBuilder();
         entityBuilder.IconBase64 = Convert.ToBase64String(new byte[] { 0x89, 0x50, 0x4E, 0x47 });
         var cachedEntityWithIcon = entityBuilder.Build();
 
@@ -61,7 +61,7 @@ public class IconDeletionTests
 
         var botDefinition = Assert.IsType<BotDefinition>(definition);
         Assert.NotNull(botDefinition.Entity);
-        Assert.Null(botDefinition.Entity!.IconBase64);
+        Assert.Null(botDefinition.Entity.IconBase64);
     }
 
     [Fact]
@@ -71,7 +71,7 @@ public class IconDeletionTests
         var workspace = new DirectoryPath("c:/test/icon-local-present/");
         var fileAccessor = fileAccessorFactory.Create(workspace);
 
-        var entity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1")!;
+        var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         WorkspaceSynchronizer.WriteCloudCache(fileAccessor, new BotDefinition().WithEntity(entity));
 
         byte[] iconBytes = [0x89, 0x50, 0x4E, 0x47, 0x0D];
@@ -80,7 +80,7 @@ public class IconDeletionTests
         var definition = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None);
 
         var botDefinition = Assert.IsType<BotDefinition>(definition);
-        Assert.Equal(Convert.ToBase64String(iconBytes), botDefinition.Entity!.IconBase64);
+        Assert.Equal(Convert.ToBase64String(iconBytes), (botDefinition.Entity ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).IconBase64);
     }
 
     private static Mock<ISyncDataverseClient> CreateQuietDataverseMock()

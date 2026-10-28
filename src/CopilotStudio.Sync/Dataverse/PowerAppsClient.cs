@@ -45,10 +45,10 @@ public class PowerAppsClient : IConnectionCatalogClient
         var requestUri = BuildApisRequestUri(context, $"/{normalizedConnector}/connections");
         var result = new List<ConnectionInstance>();
         var pageCount = 0;
-        while (!string.IsNullOrEmpty(requestUri) && pageCount < MaxCatalogPages)
+        while (requestUri is { Length: > 0 } && pageCount < MaxCatalogPages)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var parsed = await SendRequestAsync<ConnectionListResponse>(requestUri!, context.AccessToken, "Connections", cancellationToken).ConfigureAwait(false);
+            var parsed = await SendRequestAsync<ConnectionListResponse>(requestUri, context.AccessToken, "Connections", cancellationToken).ConfigureAwait(false);
             if (parsed?.Value != null)
             {
                 foreach (var item in parsed.Value)
@@ -59,11 +59,11 @@ public class PowerAppsClient : IConnectionCatalogClient
                     }
 
                     var props = item.Properties;
-                    var name = item.Name!;
+                    var name = item.Name ?? string.Empty;
                     result.Add(new ConnectionInstance
                     {
                         Name = name,
-                        DisplayName = string.IsNullOrWhiteSpace(props?.DisplayName) ? name : props!.DisplayName!,
+                        DisplayName = props?.DisplayName is { } displayName && !string.IsNullOrWhiteSpace(displayName) ? displayName : name,
                         Status = ExtractStatus(props),
                         Owner = ExtractOwner(props),
                     });
@@ -92,10 +92,10 @@ public class PowerAppsClient : IConnectionCatalogClient
         var requestUri = BuildApisRequestUri(context, string.Empty);
         var result = new List<ConnectorInfo>();
         var pageCount = 0;
-        while (!string.IsNullOrEmpty(requestUri) && pageCount < MaxCatalogPages)
+        while (requestUri is { Length: > 0 } && pageCount < MaxCatalogPages)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var parsed = await SendRequestAsync<ConnectorListResponse>(requestUri!, context.AccessToken, "Connectors", cancellationToken).ConfigureAwait(false);
+            var parsed = await SendRequestAsync<ConnectorListResponse>(requestUri, context.AccessToken, "Connectors", cancellationToken).ConfigureAwait(false);
             if (parsed?.Value != null)
             {
                 foreach (var item in parsed.Value)
@@ -106,11 +106,11 @@ public class PowerAppsClient : IConnectionCatalogClient
                     }
 
                     var props = item.Properties;
-                    var name = item.Name!;
+                    var name = item.Name ?? string.Empty;
                     result.Add(new ConnectorInfo
                     {
                         InternalId = name,
-                        DisplayName = string.IsNullOrWhiteSpace(props?.DisplayName) ? name : props!.DisplayName!,
+                        DisplayName = props?.DisplayName is { } displayName && !string.IsNullOrWhiteSpace(displayName) ? displayName : name,
                         Publisher = props?.Publisher ?? string.Empty,
                         Tier = props?.Tier ?? string.Empty,
                         IconUri = props?.IconUri ?? string.Empty,
@@ -176,9 +176,9 @@ public class PowerAppsClient : IConnectionCatalogClient
             return string.Empty;
         }
 
-        if (!string.IsNullOrWhiteSpace(createdBy.Email))
+        if (createdBy.Email is { } email && !string.IsNullOrWhiteSpace(email))
         {
-            return createdBy.Email!;
+            return email;
         }
 
         return createdBy.DisplayName ?? string.Empty;
@@ -191,7 +191,7 @@ public class PowerAppsClient : IConnectionCatalogClient
             return string.Empty;
         }
 
-        var trimmed = value!.Trim().TrimEnd('/');
+        var trimmed = (value ?? string.Empty).Trim().TrimEnd('/');
         var slash = trimmed.LastIndexOf('/');
         return slash >= 0 ? trimmed.Substring(slash + 1) : trimmed;
     }

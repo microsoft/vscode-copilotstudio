@@ -17,7 +17,7 @@ public class McsYamlTagTests
     [InlineData("category: !!str -10\n", -10)]
     public void StringTaggedScalarsBindToNumbersWithoutYamlIntegerResolution(string yaml, int expected)
     {
-        Assert.Equal(expected, McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(yaml)!.Category);
+        Assert.Equal(expected, (McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(yaml) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Category);
     }
 
     [Theory]
@@ -27,7 +27,7 @@ public class McsYamlTagTests
     [InlineData("category: 0x10\n", 16)]
     public void UntaggedScalarsStillBindUsingYamlIntegerResolution(string yaml, int expected)
     {
-        Assert.Equal(expected, McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(yaml)!.Category);
+        Assert.Equal(expected, (McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(yaml) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Category);
     }
 
     [Theory]
@@ -46,7 +46,7 @@ public class McsYamlTagTests
     [InlineData("subprocess: !!str 0\n", false)]
     public void StringTaggedScalarsBindToBooleansWithoutYamlBooleanWords(string yaml, bool expected)
     {
-        Assert.Equal(expected, McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(yaml)!.Subprocess);
+        Assert.Equal(expected, (McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(yaml) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Subprocess);
     }
 
     [Theory]
@@ -63,7 +63,7 @@ public class McsYamlTagTests
     [InlineData("subprocess: no\n", false)]
     public void UntaggedYamlBooleanWordsStillBind(string yaml, bool expected)
     {
-        Assert.Equal(expected, McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(yaml)!.Subprocess);
+        Assert.Equal(expected, (McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(yaml) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Subprocess);
     }
 
     [Theory]
@@ -90,7 +90,7 @@ public class McsYamlTagTests
     [Fact]
     public void TaggedNullPropertiesBindAsNullInsteadOfFailing()
     {
-        var metadata = McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>("description: !!str null\nstateCode: !!int null\nsubprocess: !!bool null\n")!;
+        var metadata = (McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>("description: !!str null\nstateCode: !!int null\nsubprocess: !!bool null\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         Assert.Null(metadata.Description);
         Assert.Null(metadata.StateCode);
@@ -164,13 +164,13 @@ public class McsYamlTagTests
     [InlineData("a: !<tag:yaml.org,2002:float> 1.5\n", "1.5")]
     public void VerbatimStandardTagsResolveLikeTheirShorthand(string yaml, string expected)
     {
-        Assert.Equal(expected, McsYamlReader.Parse(yaml)["a"]!.ToString());
+        Assert.Equal(expected, (McsYamlReader.Parse(yaml)["a"] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ToString());
     }
 
     [Fact]
     public void VerbatimTagsAreSupportedInsideFlowSequences()
     {
-        Assert.Equal("8", Assert.IsType<List<object?>>(McsYamlReader.Parse("a: [!<tag:yaml.org,2002:int> 010]\n")["a"]).Single()!.ToString());
+        Assert.Equal("8", (Assert.IsType<List<object?>>(McsYamlReader.Parse("a: [!<tag:yaml.org,2002:int> 010]\n")["a"]).Single() ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ToString());
     }
 
     [Theory]
@@ -179,7 +179,7 @@ public class McsYamlTagTests
     [InlineData("%TAG ! tag:yaml.org,2002:\n---\na: !str hello\n", "hello")]
     public void DeclaredTagHandlesResolveToStandardTags(string yaml, string expected)
     {
-        Assert.Equal(expected, McsYamlReader.Parse(yaml)["a"]!.ToString());
+        Assert.Equal(expected, (McsYamlReader.Parse(yaml)["a"] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ToString());
     }
 
     [Theory]

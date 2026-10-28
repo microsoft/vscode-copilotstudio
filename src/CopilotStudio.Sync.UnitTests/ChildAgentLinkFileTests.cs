@@ -28,7 +28,7 @@ public class ChildAgentLinkFileTests
         var folder = Assert.Single(ChildAgentLinkFile.ListFolders(accessor));
         Assert.Equal("Transfer Funds", folder.FolderName);
         Assert.NotNull(folder.Link);
-        Assert.Equal($"{Bot}.agent.TransferFunds", folder.Link!.SchemaName);
+        Assert.Equal($"{Bot}.agent.TransferFunds", folder.Link.SchemaName);
         Assert.Equal("Transfer Funds", folder.Link.FolderName);
     }
 
@@ -40,7 +40,7 @@ public class ChildAgentLinkFileTests
         WriteText(accessor, "agents/Transfer Funds/.agent.json", $"{{ \"schemaName\": \"{Bot}.agent.TransferFunds\", \"folderName\": \"Transfer Funds\" }}");
 
         var folder = Assert.Single(ChildAgentLinkFile.ListFolders(accessor));
-        Assert.Equal($"{Bot}.agent.TransferFunds", folder.Link!.SchemaName);
+        Assert.Equal($"{Bot}.agent.TransferFunds", (folder.Link ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).SchemaName);
     }
 
     [Fact]
@@ -148,7 +148,7 @@ public class ChildAgentLinkFileTests
 
         Assert.Equal("crd1c_agent.agent.Agent_7_8", SingleChildAgentChange(changes, ChangeType.Create).SchemaName);
         Assert.Equal("crd1c_agent.agent.Agent_Other", SingleChildAgentChange(changes, ChangeType.Delete).SchemaName);
-        Assert.Equal("crd1c_agent.agent.Agent_7_8", Assert.Single(changeSet.BotComponentChanges.OfType<BotComponentInsert>()).Component!.SchemaNameString);
+        Assert.Equal("crd1c_agent.agent.Agent_7_8", (Assert.Single(changeSet.BotComponentChanges.OfType<BotComponentInsert>()).Component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).SchemaNameString);
         Assert.Equal(Assert.Single(cloud.Components).Id, Assert.Single(changeSet.BotComponentChanges.OfType<BotComponentDelete>()).BotComponentId);
         Assert.DoesNotContain(changeSet.BotComponentChanges.OfType<BotComponentUpdate>(), _ => true);
         Assert.False(fileAccessor.Exists(new AgentFilePath(".mcs/botdefinition.json")));
@@ -174,7 +174,7 @@ public class ChildAgentLinkFileTests
 
         Assert.Equal("crd1c_agent.agent.Agent_7_8", SingleChildAgentChange(changes, ChangeType.Create).SchemaName);
         Assert.Contains(changeSet.BotComponentChanges.OfType<BotComponentInsert>(),
-            insert => insert.Component!.SchemaNameString == "crd1c_agent.agent.Agent_7_8");
+            insert => (insert.Component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).SchemaNameString == "crd1c_agent.agent.Agent_7_8");
         Assert.DoesNotContain(changeSet.BotComponentChanges.OfType<BotComponentDelete>(), _ => true);
     }
 
@@ -225,7 +225,7 @@ public class ChildAgentLinkFileTests
         WriteText(fileAccessor, "agents/NewAgent/agent.mcs.yml",
             "mcs.metadata:\n  schemaName: crd1c_agent.agent.Existing\nkind: AgentDialog\n");
 
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: crd1c_agent")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: crd1c_agent") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var existingTopic = new DialogComponent(
             schemaName: "crd1c_agent.agent.Existing",
             displayName: "Existing",
@@ -640,7 +640,7 @@ public class ChildAgentLinkFileTests
 
         Assert.Equal("crd1c_agent.agent.Ghost", SingleChildAgentChange(changes, ChangeType.Create).SchemaName);
         Assert.Contains(changeSet.BotComponentChanges.OfType<BotComponentInsert>(),
-            insert => insert.Component!.SchemaNameString == "crd1c_agent.agent.Ghost");
+            insert => (insert.Component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).SchemaNameString == "crd1c_agent.agent.Ghost");
     }
 
     [Fact]
@@ -663,7 +663,7 @@ public class ChildAgentLinkFileTests
         Assert.Equal("crd1c_agent.agent.Refunds", SingleChildAgentChange(changes, ChangeType.Create).SchemaName);
         Assert.DoesNotContain(changes, c => c.ChangeType == ChangeType.Delete && c.SchemaName.Contains(".agent."));
         Assert.Contains(changeSet.BotComponentChanges.OfType<BotComponentInsert>(),
-            insert => insert.Component!.SchemaNameString == "crd1c_agent.agent.Refunds");
+            insert => (insert.Component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).SchemaNameString == "crd1c_agent.agent.Refunds");
         Assert.False(fileAccessor.Exists(new AgentFilePath(".mcs/botdefinition.json")));
     }
 
@@ -677,7 +677,7 @@ public class ChildAgentLinkFileTests
 
         var cloud = CreateDefinitionWithChildAgents();
         var newAgentId = Guid.NewGuid();
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: crd1c_agent")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: crd1c_agent") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var local = new BotDefinition().WithEntity(botEntity).WithComponents(new BotComponentBase[]
         {
             new DialogComponent(
@@ -755,7 +755,7 @@ public class ChildAgentLinkFileTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-new-push-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var cloudAgent = new DialogComponent(
             schemaName: $"{Bot}.agent.Agent_2qD",
@@ -791,7 +791,7 @@ public class ChildAgentLinkFileTests
                         return change;
                     }
 
-                    pushedInserts.Add(component.SchemaNameString!);
+                    pushedInserts.Add(component.SchemaNameString);
                     var builder = component.ToBuilder();
                     builder.Id = Guid.NewGuid();
                     return new BotComponentInsert(builder.Build());
@@ -821,7 +821,7 @@ public class ChildAgentLinkFileTests
 
         Assert.Equal(new[] { $"{Bot}.agent.Refunds" }, pushedInserts);
 
-        var finalCache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
+        var finalCache = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var cachedAgents = finalCache.Components.OfType<DialogComponent>().Where(c => c.RootElement is AgentDialog).Select(c => c.SchemaNameString).ToList();
         Assert.Contains($"{Bot}.agent.Refunds", cachedAgents);
         Assert.Contains($"{Bot}.agent.Agent_2qD", cachedAgents);
@@ -833,7 +833,7 @@ public class ChildAgentLinkFileTests
         var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/ws-delete-child/"));
 
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: crd1c_agent")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: crd1c_agent") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var childAgentId = Guid.NewGuid();
         var cloud = new BotDefinition().WithEntity(botEntity).WithComponents(new BotComponentBase[]
         {
@@ -870,7 +870,7 @@ public class ChildAgentLinkFileTests
         var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/ws-delete-nested/"));
 
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: crd1c_agent")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: crd1c_agent") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var agentId = Guid.NewGuid();
         var actionId = Guid.NewGuid();
         var fileId = Guid.NewGuid();
@@ -907,7 +907,7 @@ public class ChildAgentLinkFileTests
         var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/ws-delete-deep/"));
 
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: crd1c_agent")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: crd1c_agent") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var chain = new List<BotComponentBase>();
         for (var level = 0; level < 40; level++)
         {
@@ -935,7 +935,7 @@ public class ChildAgentLinkFileTests
         var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/ws-delete-cycle/"));
 
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: crd1c_agent")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: crd1c_agent") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var firstId = Guid.NewGuid();
         var secondId = Guid.NewGuid();
         var cloud = new BotDefinition().WithEntity(botEntity).WithComponents(new BotComponentBase[]
@@ -1007,7 +1007,7 @@ public class ChildAgentLinkFileTests
         var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/ws-delete-cycle-leaf/"));
 
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: crd1c_agent")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: crd1c_agent") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var firstId = Guid.NewGuid();
         var secondId = Guid.NewGuid();
         var cloud = new BotDefinition().WithEntity(botEntity).WithComponents(new BotComponentBase[]
@@ -1042,7 +1042,7 @@ public class ChildAgentLinkFileTests
         var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/ws-delete-flat/"));
 
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: crd1c_agent")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: crd1c_agent") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var topics = Enumerable.Range(0, 4).Select(index => (BotComponentBase)new DialogComponent(
             schemaName: $"crd1c_agent.topic.Flat{index}",
             displayName: $"Flat{index}",
@@ -1068,7 +1068,7 @@ public class ChildAgentLinkFileTests
         WriteText(fileAccessor, "agents/Agent Child 1/agent.mcs.yml",
             "mcs.metadata:\n  schemaName: crd1c_agent.agent.Agentchild1\nkind: AgentDialog\n");
 
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: crd1c_agent")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: crd1c_agent") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var retainedAgent = new DialogComponent(
             schemaName: "crd1c_agent.agent.Agentchild1",
             displayName: "Agent Child 1",
@@ -1101,7 +1101,7 @@ public class ChildAgentLinkFileTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-delete-push-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var childAgentId = Guid.NewGuid();
         var cloudAgent = new DialogComponent(
@@ -1146,8 +1146,8 @@ public class ChildAgentLinkFileTests
 
         Assert.Equal(new[] { cloudAction.Id.Value, childAgentId }, deletedIdsAtService);
 
-        var finalCache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
-        Assert.Empty(finalCache.Components.OfType<DialogComponent>().Where(c => c.RootElement is AgentDialog));
+        var finalCache = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
+        Assert.DoesNotContain(finalCache.Components.OfType<DialogComponent>(), c => c.RootElement is AgentDialog);
         Assert.DoesNotContain(finalCache.Components, c => c.SchemaNameString == $"{Bot}.action.TeamsGetasection");
 
         var (_, remainingChanges) = await synchronizer.GetLocalChangesAsync(workspace, workspaceDefinition, CancellationToken.None);
@@ -1161,7 +1161,7 @@ public class ChildAgentLinkFileTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-two-pass-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var previousAgent = Assert.Single(CreateDefinitionWithChildAgent($"{Bot}.agent.Previous", "Previous").Components);
 
         mockIsland
@@ -1197,7 +1197,7 @@ public class ChildAgentLinkFileTests
                 }
                 else
                 {
-                    var confirmedParent = Assert.Single(WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!.Components);
+                    var confirmedParent = Assert.Single((WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Components);
                     Assert.Equal($"{Bot}.agent.Refunds", confirmedParent.SchemaNameString);
                     Assert.Equal(serverAgentId, confirmedParent.Id.Value);
                 }
@@ -1210,7 +1210,7 @@ public class ChildAgentLinkFileTests
                         return change;
                     }
 
-                    pass.Add((component.SchemaNameString!, component.ParentBotComponentId));
+                    pass.Add((component.SchemaNameString, component.ParentBotComponentId));
                     var builder = component.ToBuilder();
                     builder.Id = component.RootElement is AgentDialog ? serverAgentId : Guid.NewGuid();
                     return new BotComponentInsert(builder.Build());
@@ -1247,7 +1247,7 @@ public class ChildAgentLinkFileTests
         Assert.Equal(new BotComponentId(serverAgentId), childInsert.Parent);
         Assert.Equal(replaceExisting ? new[] { previousAgent.Id } : Array.Empty<BotComponentId>(), deletedIds);
 
-        var finalCache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
+        var finalCache = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         Assert.Equal(2, finalCache.Components.Length);
         Assert.DoesNotContain(finalCache.Components, c => c.Id == previousAgent.Id);
         Assert.Equal(serverAgentId, Assert.Single(finalCache.Components.Where(c => c.SchemaNameString == $"{Bot}.agent.Refunds")).Id.Value);
@@ -1264,7 +1264,7 @@ public class ChildAgentLinkFileTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-preview-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var cloudAgent = new DialogComponent(
             schemaName: $"{Bot}.agent.Agent_2qD",
@@ -1327,7 +1327,7 @@ public class ChildAgentLinkFileTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-failed-push-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var cloudAgent = new DialogComponent(
             schemaName: $"{Bot}.agent.Agent_2qD",
@@ -1391,7 +1391,7 @@ public class ChildAgentLinkFileTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-second-pass-fail-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         mockIsland
             .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
@@ -1456,8 +1456,8 @@ public class ChildAgentLinkFileTests
         Assert.Equal("second pass failed", exception.Message);
         Assert.Equal(2, call);
 
-        var cache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
-        Assert.Equal(serverAgentId, Assert.Single(cache.Components.OfType<DialogComponent>().Where(c => c.RootElement is AgentDialog)).Id.Value);
+        var cache = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
+        Assert.Equal(serverAgentId, Assert.Single(cache.Components.OfType<DialogComponent>(), c => c.RootElement is AgentDialog).Id.Value);
         Assert.DoesNotContain(cache.Components, c => c.SchemaNameString == $"{Bot}.topic.StartRefund");
         Assert.Equal("token-2", ReadFileText(fileAccessor, ".mcs/changetoken.txt"));
     }
@@ -1467,7 +1467,7 @@ public class ChildAgentLinkFileTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-delete-full-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var childAgentId = Guid.NewGuid();
         var cloudAgent = new DialogComponent(
@@ -1519,8 +1519,8 @@ public class ChildAgentLinkFileTests
         Assert.Contains(cloudAction.Id.Value, deletedIdsAtService);
         Assert.Contains(cloudKnowledgeFile.Id.Value, deletedIdsAtService);
 
-        var finalCache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
-        Assert.Empty(finalCache.Components.OfType<DialogComponent>().Where(c => c.RootElement is AgentDialog));
+        var finalCache = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
+        Assert.DoesNotContain(finalCache.Components.OfType<DialogComponent>(), c => c.RootElement is AgentDialog);
     }
 
     [Fact]
@@ -1528,7 +1528,7 @@ public class ChildAgentLinkFileTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-reader-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var cloudAgent = new DialogComponent(
             schemaName: $"{Bot}.agent.Existing",
@@ -1567,7 +1567,7 @@ public class ChildAgentLinkFileTests
         Assert.DoesNotContain(changeSet.BotComponentChanges.OfType<BotComponentDelete>(), _ => true);
         Assert.Single(changeSet.BotComponentChanges.OfType<BotComponentInsert>());
 
-        var cache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
+        var cache = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         Assert.Equal(new[] { $"{Bot}.agent.Existing" }, cache.Components.OfType<DialogComponent>().Where(c => c.RootElement is AgentDialog).Select(c => c.SchemaNameString).ToList());
     }
 
@@ -1576,7 +1576,7 @@ public class ChildAgentLinkFileTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-reader-legacy-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         mockIsland
             .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
@@ -1594,7 +1594,7 @@ public class ChildAgentLinkFileTests
 
         var definition = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None);
 
-        var agent = Assert.Single(definition.Components.OfType<DialogComponent>().Where(c => c.RootElement is AgentDialog));
+        var agent = Assert.Single(definition.Components.OfType<DialogComponent>(), c => c.RootElement is AgentDialog);
         Assert.Equal($"{Bot}.agent.Agent_7_8", agent.SchemaNameString);
     }
 
@@ -1603,7 +1603,7 @@ public class ChildAgentLinkFileTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-display-collision-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var cloudAgent = new DialogComponent(
             schemaName: $"{Bot}.agent.Machine",
@@ -1631,7 +1631,7 @@ public class ChildAgentLinkFileTests
 
         var agentsBySchema = definition.Components.OfType<DialogComponent>()
             .Where(c => c.RootElement is AgentDialog)
-            .ToDictionary(c => c.SchemaNameString!, c => c.DisplayName);
+            .ToDictionary(c => c.SchemaNameString, c => c.DisplayName);
         Assert.Equal("New Agent", agentsBySchema[$"{Bot}.agent.Machine"]);
         Assert.Equal("Brand New", agentsBySchema[$"{Bot}.agent.New"]);
 
@@ -1646,7 +1646,7 @@ public class ChildAgentLinkFileTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-projected-path-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var cloudAgent = new DialogComponent(
             schemaName: $"{Bot}.agent.Machine",
@@ -1724,11 +1724,11 @@ public class ChildAgentLinkFileTests
     }
 
     private static Change SingleChildAgentChange(System.Collections.Generic.IEnumerable<Change> changes, ChangeType changeType)
-        => Assert.Single(changes.Where(c => c.ChangeType == changeType && c.SchemaName.Contains(".agent.")));
+        => Assert.Single(changes, c => c.ChangeType == changeType && c.SchemaName.Contains(".agent."));
 
     private static BotDefinition CreateDefinition()
     {
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         return new BotDefinition().WithEntity(botEntity);
     }
 
@@ -1737,7 +1737,7 @@ public class ChildAgentLinkFileTests
 
     private static BotDefinition CreateDefinitionWithChildAgents(params (string Schema, string DisplayName)[] agents)
     {
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: crd1c_agent")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: crd1c_agent") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var components = agents.Select(a => (BotComponentBase)new DialogComponent(
             schemaName: a.Schema,
             displayName: a.DisplayName,

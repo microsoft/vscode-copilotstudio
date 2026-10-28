@@ -125,7 +125,7 @@ public class ComponentMetadataWriterTests
         => McsComponentBodyWriter.ReplaceBodyPreservingMetadata(CreateComponent(description), Definition(), TopicPath, "kind: ReplacementBody\n");
 
     private static IDictionary<string, object?> ReadMetadata(string yaml)
-        => (IDictionary<string, object?>)McsYamlReader.Parse(yaml)[McsMetadata.PropertyName]!;
+        => (IDictionary<string, object?>)(McsYamlReader.Parse(yaml)[McsMetadata.PropertyName] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
     private static DefinitionBase Definition() => new BotDefinition();
 
@@ -138,6 +138,6 @@ public class ComponentMetadataWriterTests
             Id = new BotComponentId(Guid.NewGuid()),
             DisplayName = "Weather",
             Description = description,
-        }.Build().WithDialog((DialogBase)dialog!);
+        }.Build().WithDialog((DialogBase)(dialog ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")));
     }
 }

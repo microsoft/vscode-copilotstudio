@@ -135,6 +135,7 @@ public class WorkspaceLeaseTests
     {
         IFileAccessorFactory? factory = null;
 
+        // ! Null is intentional to verify the extension method's argument validation.
         Assert.Throws<ArgumentNullException>(() => factory!.LeaseWorkspace(new DirectoryPath("c:/test/null/")));
     }
 

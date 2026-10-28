@@ -21,7 +21,7 @@ internal static class KnowledgeFileTestFixtures
     internal static void WriteBotCloudCache(IFileAccessor fileAccessor, params BotComponentBase[] components)
     {
         var cloudCache = new BotDefinition()
-            .WithEntity(CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1")!)
+            .WithEntity((CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")))
             .WithComponents(components);
         WorkspaceSynchronizer.WriteCloudCache(fileAccessor, cloudCache);
     }

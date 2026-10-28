@@ -28,7 +28,7 @@ namespace Microsoft.CopilotStudio.McsCore
         {
             schemaName = string.Empty;
             cloudSkill = null;
-            var cloudSkills = cloudDefinition?.Components.OfType<DialogComponent>().Where(component => component.Dialog is InlineAgentSkill && !string.IsNullOrEmpty(component.SchemaNameString)).GroupBy(component => component.SchemaNameString!, StringComparer.Ordinal).Select(group => group.Last()).ToList() ?? new List<DialogComponent>();
+            var cloudSkills = cloudDefinition?.Components.OfType<DialogComponent>().Where(component => component.Dialog is InlineAgentSkill && !string.IsNullOrEmpty(component.SchemaNameString)).GroupBy(component => component.SchemaNameString, StringComparer.Ordinal).Select(group => group.Last()).ToList() ?? new List<DialogComponent>();
             var linkedSchemaName = ReadLinkedSchemaName(fileAccessor, skillName, throwOnInvalidLink);
 
             if (linkedSchemaName != null)
@@ -42,9 +42,9 @@ namespace Microsoft.CopilotStudio.McsCore
             }
 
             cloudSkill = MatchCloudSkill(skillName, cloudDefinition, cloudSkills, throwOnInvalidLink);
-            if (cloudSkill != null)
+            if (cloudSkill?.SchemaNameString is { } matchedSchemaName)
             {
-                schemaName = cloudSkill.SchemaNameString!;
+                schemaName = matchedSchemaName;
                 return true;
             }
 
