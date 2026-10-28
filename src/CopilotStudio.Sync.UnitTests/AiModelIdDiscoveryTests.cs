@@ -81,7 +81,7 @@ public class AiModelIdDiscoveryTests
         var workspace = new DirectoryPath("c:/test/aimodel-clone-byid/");
         var modelId = Guid.Parse("3b5436b4-d7b4-4389-96e8-107446c9094a");
 
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr123")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr123") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var dialogComponent = MakeDialogComponentWithModel("cr1_topic.topic.Test", modelId);
         var changeset = new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentInsert(dialogComponent) }, botEntity, "token-1");
         mockIsland
@@ -101,7 +101,7 @@ public class AiModelIdDiscoveryTests
         await synchronizer.CloneChangesAsync(workspace, new ReferenceTracker(), ComponentWriterDefensiveTests.CreateMockOperationContext(), mockDataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
 
         Assert.NotNull(capturedIds);
-        Assert.Contains(modelId, capturedIds!);
+        Assert.Contains(modelId, capturedIds);
         mockDataverse.Verify(x => x.DownloadAllAIPromptsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
@@ -111,7 +111,7 @@ public class AiModelIdDiscoveryTests
         var (synchronizer, _, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath("c:/test/aimodel-clone-fallback/");
 
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr123")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr123") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var changeset = new PvaComponentChangeSet(null, botEntity, "token-1");
         mockIsland
             .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
@@ -174,6 +174,6 @@ public class AiModelIdDiscoveryTests
             stream.Write(bytes, 0, bytes.Length);
         }
 
-        return (BotDefinition)WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        return (BotDefinition)(WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
     }
 }

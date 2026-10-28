@@ -35,6 +35,7 @@
         {
             var botDiag = new ExpressionError.Builder().Build();
             var botElement = CodeSerializer.Deserialize<BotElement>(syntaxData, new Uri("file:///c:/test.yml"));
+            Assert.NotNull(botElement);
             var lspDiag = botDiag.ToLspDiagnostics(botElement, new MarkResolver(TestData)).Single();
             Assert.Equal(Utils.CreateRange(0, errorColumn, 0, errorColumn), lspDiag.Range);
         }

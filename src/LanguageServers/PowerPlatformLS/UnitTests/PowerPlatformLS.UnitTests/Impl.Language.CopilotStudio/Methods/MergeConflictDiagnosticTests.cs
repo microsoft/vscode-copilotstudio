@@ -53,7 +53,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio.Method
         {
             var diagnostics = await GetDiagnosticsAsync("file:///c:/ws/behaviors/skill-1/skill.mcs.yml", SkillAnchorDocumentingAConflict);
 
-            Assert.Empty(diagnostics.Where(diagnostic => diagnostic.Message.Contains("Unresolved merge conflict", StringComparison.Ordinal)));
+            Assert.DoesNotContain(diagnostics, diagnostic => diagnostic.Message.Contains("Unresolved merge conflict", StringComparison.Ordinal));
         }
 
         [Fact]
@@ -80,7 +80,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio.Method
         {
             var diagnostics = await GetDiagnosticsAsync("file:///c:/ws/topics/Goodbye.mcs.yml", "kind: AdaptiveDialog\n");
 
-            Assert.Empty(diagnostics.Where(diagnostic => diagnostic.Message.Contains("Unresolved merge conflict", StringComparison.Ordinal)));
+            Assert.DoesNotContain(diagnostics, diagnostic => diagnostic.Message.Contains("Unresolved merge conflict", StringComparison.Ordinal));
         }
 
         [Theory]
@@ -91,7 +91,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio.Method
         {
             var diagnostics = await GetDiagnosticsAsync("file:///c:/ws/topics/Goodbye.mcs.yml", $"kind: AdaptiveDialog\ndisplayName: \"{text}\"\n");
 
-            Assert.Empty(diagnostics.Where(diagnostic => diagnostic.Message.Contains("Unresolved merge conflict", StringComparison.Ordinal)));
+            Assert.DoesNotContain(diagnostics, diagnostic => diagnostic.Message.Contains("Unresolved merge conflict", StringComparison.Ordinal));
         }
 
         [Fact]

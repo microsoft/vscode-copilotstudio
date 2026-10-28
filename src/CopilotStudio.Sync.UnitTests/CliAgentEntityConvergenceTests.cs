@@ -57,8 +57,8 @@ public class CliAgentEntityConvergenceTests
         var yaml = Encoding.UTF8.GetString(accessor.Files[SettingsPath.ToString()]);
         var roundTripped = CodeSerializer.Deserialize<BotEntity>(yaml);
         Assert.NotNull(roundTripped);
-        Assert.Equal(AuthoringShape.CliCopilot, AgentClassifier.DetectAuthoringShape(roundTripped!));
-        Assert.Equal(entity.SchemaName.Value, roundTripped!.SchemaName.Value);
+        Assert.Equal(AuthoringShape.CliCopilot, AgentClassifier.DetectAuthoringShape(roundTripped));
+        Assert.Equal(entity.SchemaName.Value, roundTripped.SchemaName.Value);
     }
 
     [Fact]

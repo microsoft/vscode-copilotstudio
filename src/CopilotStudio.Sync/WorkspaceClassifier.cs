@@ -32,7 +32,7 @@ public static class WorkspaceClassifier
     /// <param name="workspaceRoot">The workspace root to inspect.</param>
     /// <returns>The kind the workspace holds, or <see cref="WorkspaceKind.Unknown"/> when it holds neither.</returns>
     public static WorkspaceKind DetectKind(string? workspaceRoot) =>
-        string.IsNullOrWhiteSpace(workspaceRoot) ? WorkspaceKind.Unknown : DetectKind(WorkflowWorkspace.OpenWorkspace(workspaceRoot!));
+        workspaceRoot is null || string.IsNullOrWhiteSpace(workspaceRoot) ? WorkspaceKind.Unknown : DetectKind(WorkflowWorkspace.OpenWorkspace(workspaceRoot));
 
     /// <summary>Classifies a workspace, resolving standalone workflow workspaces that carry no agent entity.</summary>
     /// <param name="cloudEntity">The cloud agent the workspace is attached to, when it has one.</param>

@@ -14,11 +14,11 @@ public class ComponentCollectionDedupTests
     private const string CollectionSchema = "bot_componentcollection_component_collection_1";
 
     private static BotComponentCollection Collection() =>
-        CodeSerializer.Deserialize<BotComponentCollection>($"schemaName: {CollectionSchema}\ndisplayName: Collection1")!;
+        (CodeSerializer.Deserialize<BotComponentCollection>($"schemaName: {CollectionSchema}\ndisplayName: Collection1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
     private static BotEntity Entity(Guid agentId)
     {
-        var builder = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentB4CC")!.ToBuilder();
+        var builder = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentB4CC") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ToBuilder();
         builder.CdsBotId = agentId;
         return builder.Build();
     }
@@ -90,7 +90,7 @@ public class ComponentCollectionDedupTests
 
         await synchronizer.PullExistingChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), previousDefinition, mockDataverse.Object, new AgentSyncInfo { AgentId = agentId }, CancellationToken.None);
 
-        var cache = (BotDefinition)WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
+        var cache = (BotDefinition)(WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         Assert.Single(cache.ComponentCollections.Where(collectionEntry => collectionEntry.SchemaName.Value == CollectionSchema));
     }
 
@@ -102,7 +102,7 @@ public class ComponentCollectionDedupTests
         var fileAccessor = fileAccessorFactory.Create(workspace);
         var agentId = Guid.NewGuid();
         var entity = Entity(agentId);
-        var outOfBandCollection = CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_outofband\ndisplayName: OutOfBand")!;
+        var outOfBandCollection = (CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_outofband\ndisplayName: OutOfBand") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         WorkspaceSynchronizer.WriteCloudCache(fileAccessor, new BotDefinition().WithEntity(entity));
         await fileAccessor.WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "token-1", CancellationToken.None);
@@ -177,7 +177,7 @@ public class ComponentCollectionDedupTests
 
         Assert.False(fileAccessor.Exists(new AgentFilePath("references.mcs.yml")));
 
-        var cache = (BotDefinition)WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
+        var cache = (BotDefinition)(WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         Assert.Empty(cache.ComponentCollections.Where(collectionEntry => collectionEntry.SchemaName.Value == CollectionSchema));
     }
 

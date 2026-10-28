@@ -42,7 +42,7 @@ language: 1033
     {
         var bot = CodeSerializer.Deserialize<BotEntity>(yaml);
         Assert.NotNull(bot);
-        return new BotDefinition.Builder { Entity = bot! }.Build();
+        return new BotDefinition.Builder { Entity = bot }.Build();
     }
 
     // ---- Authoring shape (cloud) : the thing we care about ----

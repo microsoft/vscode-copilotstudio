@@ -27,7 +27,8 @@ internal sealed class McsYamlDocument
             throw new McsYamlFormatException("Expected a mapping at the root of the document.", Root.Start.Line, Root.Start.Column);
         }
 
-        return (Dictionary<string, object?>)Root.ToValue()!;
+        return Root.ToValue() as Dictionary<string, object?>
+            ?? throw new McsYamlFormatException("Expected a mapping at the root of the document.", Root.Start.Line, Root.Start.Column);
     }
 
     public IEnumerable<McsYamlProperty> AllProperties() => DescendProperties(Root);

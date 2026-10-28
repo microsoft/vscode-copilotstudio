@@ -54,7 +54,7 @@ public class SettingsMergeCanonicalizationTests
     {
         var (accessor, _) = await InitThenPullAsync(AuthoredSettings);
 
-        var cachedEntity = ((BotDefinition)WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!).Entity!;
+        var cachedEntity = (((BotDefinition)(WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))).Entity ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         Assert.Equal(ProjectSettings(cachedEntity), ReadFile(accessor, SettingsPath));
     }
 
@@ -71,7 +71,7 @@ public class SettingsMergeCanonicalizationTests
     {
         var (accessor, _) = await InitThenPullAsync(AuthoredSettings);
 
-        var cachedEntity = ((BotDefinition)WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!).Entity!;
+        var cachedEntity = (((BotDefinition)(WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))).Entity ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         Assert.Equal(PublishedOn, cachedEntity.PublishedOn?.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffffff'Z'"));
     }
 
@@ -123,7 +123,7 @@ public class SettingsMergeCanonicalizationTests
         Assert.Contains("series: GPT56Reasoning", onDisk, StringComparison.Ordinal);
 
         var cacheJson = ReadFile(accessor, CachePath);
-        var cachedEntity = ((BotDefinition)WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!).Entity!;
+        var cachedEntity = (((BotDefinition)(WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))).Entity ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         Assert.DoesNotContain(localOnlyInstruction, cacheJson, StringComparison.Ordinal);
         Assert.DoesNotContain("GPT56Reasoning", cacheJson, StringComparison.Ordinal);
@@ -261,7 +261,7 @@ public class SettingsMergeCanonicalizationTests
 
         using (YamlSerializationContext.UseYamlPassThroughSerializationContext())
         {
-            return JsonSerializer.Deserialize<BotEntity>(json, ElementSerializer.CreateOptions())!;
+            return (JsonSerializer.Deserialize<BotEntity>(json, ElementSerializer.CreateOptions()) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         }
     }
 

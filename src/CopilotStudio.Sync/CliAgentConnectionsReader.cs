@@ -127,12 +127,11 @@ internal static class CliAgentConnectionsReader
         var cloudByName = new Dictionary<string, ConnectionReference>(StringComparer.OrdinalIgnoreCase);
         foreach (var cr in cloudCacheRefs)
         {
-            var name = cr?.ConnectionReferenceLogicalName.Value;
-            if (string.IsNullOrEmpty(name))
+            if (cr is null || cr.ConnectionReferenceLogicalName.Value is not { Length: > 0 } name)
             {
                 continue;
             }
-            cloudByName[name!] = cr!;
+            cloudByName[name] = cr;
         }
 
         var diskOverlays = new Dictionary<string, ConnectionReference>(StringComparer.OrdinalIgnoreCase);
@@ -241,23 +240,24 @@ internal static class CliAgentConnectionsReader
         foreach (var cr in cloudCacheRefs)
         {
             var name = cr?.ConnectionReferenceLogicalName.Value;
-            if (string.IsNullOrEmpty(name))
+            if (cr is null || name is null || name.Length == 0)
             {
                 // Preserve cloud-cache entries with empty logical names
                 // verbatim (they're already weird, but not our problem here).
+                // ! Preserve legacy cloud-cache entries verbatim, including null entries.
                 result.Add(cr!);
                 continue;
             }
 
-            if (diskOverlays.TryGetValue(name!, out var overlaid))
+            if (diskOverlays.TryGetValue(name, out var overlaid))
             {
                 result.Add(overlaid);
-                emittedNames.Add(name!);
+                emittedNames.Add(name);
             }
             else
             {
-                result.Add(cr!);
-                emittedNames.Add(name!);
+                result.Add(cr);
+                emittedNames.Add(name);
             }
         }
 

@@ -77,6 +77,6 @@ public class McsYamlValidatorTests
     {
         var entity = McsYamlValidator.Deserialize<Agents.ObjectModel.BotEntity>($"displayName: \"{text}\"\n");
 
-        Assert.Equal(text, entity!.DisplayName);
+        Assert.Equal(text, (entity ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).DisplayName);
     }
 }

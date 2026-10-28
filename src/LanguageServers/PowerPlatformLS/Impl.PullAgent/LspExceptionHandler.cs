@@ -140,9 +140,9 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             };
 
         private static string ProtectValue(string message, string? value, string? piiType) =>
-            piiType is null || string.IsNullOrWhiteSpace(value) || !message.Contains(value!, StringComparison.Ordinal)
+            piiType is null || value is null || string.IsNullOrWhiteSpace(value) || !message.Contains(value, StringComparison.Ordinal)
                 ? message
-                : message.Replace(value!, Tag(value!, piiType));
+                : message.Replace(value, Tag(value, piiType));
 
         private static string ProtectUserContent(string value)
             => Tag(value, WorkspaceContentPiiType);

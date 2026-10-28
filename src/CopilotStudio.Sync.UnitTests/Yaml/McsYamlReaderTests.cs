@@ -548,7 +548,7 @@ public class McsYamlReaderTests
     [InlineData("a: !!float 1.5\n", "1.5")]
     public void ResolvesStandardScalarTags(string yaml, string expected)
     {
-        Assert.Equal(expected, McsYamlReader.Parse(yaml)["a"]!.ToString());
+        Assert.Equal(expected, (McsYamlReader.Parse(yaml)["a"] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ToString());
     }
 
     [Theory]
@@ -676,7 +676,7 @@ public class McsYamlReaderTests
     [Fact]
     public void AllowsAnAnchorAndATagOnTheSameNode()
     {
-        Assert.Equal("5", McsYamlReader.Parse("a: &x !!int 5\nb: *x\n")["b"]!.ToString());
+        Assert.Equal("5", (McsYamlReader.Parse("a: &x !!int 5\nb: *x\n")["b"] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ToString());
     }
 
     [Theory]
@@ -691,8 +691,8 @@ public class McsYamlReaderTests
     [Fact]
     public void ResolvesTagsOnQuotedAndFlowScalars()
     {
-        Assert.Equal("16", McsYamlReader.Parse("a: !!int \"0x10\"\n")["a"]!.ToString());
-        Assert.Equal("3", Assert.IsType<List<object?>>(McsYamlReader.Parse("a: [!!int 3]\n")["a"]).Single()!.ToString());
+        Assert.Equal("16", (McsYamlReader.Parse("a: !!int \"0x10\"\n")["a"] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ToString());
+        Assert.Equal("3", (Assert.IsType<List<object?>>(McsYamlReader.Parse("a: [!!int 3]\n")["a"]).Single() ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ToString());
     }
 
     [Theory]
@@ -1253,7 +1253,7 @@ public class McsYamlReaderTests
     [InlineData("name: !!int -9223372036854775808\n", "-9223372036854775808")]
     public void TaggedIntegerAtSixtyFourBitBoundaryIsAccepted(string yaml, string expected)
     {
-        Assert.Equal(expected, McsYamlReader.Parse(yaml)["name"]!.ToString());
+        Assert.Equal(expected, (McsYamlReader.Parse(yaml)["name"] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ToString());
     }
     [Theory]
     [InlineData("a: \"\\UFFFFFFFF\"\n")]

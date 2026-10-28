@@ -78,7 +78,7 @@ public class CliAgentRoundTripReadTests
         var read = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
 
         var bot = Assert.IsType<BotDefinition>(read);
-        Assert.Equal("Cacheless CLI", bot.Entity!.DisplayName);
+        Assert.Equal("Cacheless CLI", (bot.Entity ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).DisplayName);
         Assert.Equal("test_CachelessCli", bot.Entity.SchemaName.Value);
         Assert.NotNull(bot.Entity.Configuration?.AgentSettings);
         Assert.Empty(bot.Components);
@@ -403,7 +403,7 @@ public class CliAgentRoundTripReadTests
         var def = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)
                   ?? throw new InvalidOperationException($"ReadCloudCacheSnapshot returned null for {fixtureName}.");
         var botDef = (BotDefinition)def;
-        return (botDef.Entity!, botDef);
+        return ((botDef.Entity ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")), botDef);
     }
 
     private static byte[] LoadFixtureBytes(string fixtureName)

@@ -57,6 +57,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Validation
 
         private static bool TryCreateDiagnostic(McsLspDocument document, SyntaxToken valueToken, SyntaxToken commentToken, out Diagnostic diagnostic)
         {
+            // ! The out value is read only when the Try method returns true.
             diagnostic = default!;
             if (!IsSupportedStringValue(valueToken))
             {
@@ -134,6 +135,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Validation
 
         private static bool TryGetMappingProperty(SyntaxToken valueToken, out BotElement element, out string propertyName)
         {
+            // ! The out value is read only when the Try method returns true.
             element = default!;
             propertyName = string.Empty;
             if (valueToken.Parent is IMappingKeyValueSyntax keyValueSyntax && keyValueSyntax.Value == valueToken && keyValueSyntax.PropertyName.Value is string name && keyValueSyntax.Parent is MappingObjectSyntax mappingObject)
@@ -148,6 +150,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Validation
 
         private static bool TryGetSequenceItemProperty(SyntaxToken valueToken, out BotElement element, out string propertyName)
         {
+            // ! The out value is read only when the Try method returns true.
             element = default!;
             propertyName = string.Empty;
             if (valueToken.Parent is SequenceElementSyntax sequenceElement && sequenceElement.Parent is MappingSequenceSyntax mappingSequence && mappingSequence.Parent is IMappingKeyValueSyntax keyValueSyntax && keyValueSyntax.PropertyName.Value is string name && keyValueSyntax.Parent is MappingObjectSyntax mappingObject)
@@ -210,6 +213,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Validation
             return true;
         }
 
+        // ! The out value is read only when the lookup succeeds.
         private static bool TryGetPropertyInfo(BotElement element, string propertyName, out SchemaPropertyInfo schemaProperty) => SchemaData.Properties.TryGetValue((element.Kind, propertyName), out schemaProperty!);
 
         private static bool IsFreeFormTextPrimitive(PrimitiveKind primitiveKind) => (primitiveKind == PrimitiveKind.@string || primitiveKind == PrimitiveKind.TemplateLine) && !SchemaData.EnumValues.ContainsKey(primitiveKind);

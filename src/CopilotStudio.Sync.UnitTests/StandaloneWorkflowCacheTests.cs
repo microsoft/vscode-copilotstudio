@@ -71,7 +71,7 @@ public class StandaloneWorkflowCacheTests
         var cached = StandaloneWorkflowCache.Read(workspace, workflowId);
 
         Assert.NotNull(cached);
-        Assert.Equal("Flow", cached!.Name);
+        Assert.Equal("Flow", cached.Name);
         Assert.Equal(Definition, cached.ClientData);
         Assert.Equal(workflowId, cached.WorkflowId);
     }
@@ -84,7 +84,7 @@ public class StandaloneWorkflowCacheTests
 
         StandaloneWorkflowCache.Write(workspace, Row(workflowId, "Flow", Definition));
 
-        Assert.Equal(Definition, StandaloneWorkflowCache.Read(workspace, workflowId)!.ClientData);
+        Assert.Equal(Definition, (StandaloneWorkflowCache.Read(workspace, workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ClientData);
     }
 
     [Fact]
@@ -106,7 +106,7 @@ public class StandaloneWorkflowCacheTests
         StandaloneWorkflowCache.Write(workspace, Row(workflowId, "Flow", Definition));
 
         Assert.True(StandaloneWorkflowCache.Write(workspace, Row(workflowId, "Flow", OtherDefinition)));
-        Assert.Equal(OtherDefinition, StandaloneWorkflowCache.Read(workspace, workflowId)!.ClientData);
+        Assert.Equal(OtherDefinition, (StandaloneWorkflowCache.Read(workspace, workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ClientData);
     }
 
     [Fact]
@@ -120,8 +120,8 @@ public class StandaloneWorkflowCacheTests
         StandaloneWorkflowCache.Write(workspace, Row(second, "Second", OtherDefinition));
 
         Assert.Equal(2, StandaloneWorkflowCache.Flows(workspace).Length);
-        Assert.Equal("First", StandaloneWorkflowCache.Read(workspace, first)!.Name);
-        Assert.Equal("Second", StandaloneWorkflowCache.Read(workspace, second)!.Name);
+        Assert.Equal("First", (StandaloneWorkflowCache.Read(workspace, first) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Name);
+        Assert.Equal("Second", (StandaloneWorkflowCache.Read(workspace, second) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Name);
     }
 
     [Fact]
@@ -170,7 +170,7 @@ public class StandaloneWorkflowCacheTests
 
         Assert.Equal(Definition, WorkspaceSynchronizer.GetRawClientData(flow));
         Assert.NotNull(metadata);
-        Assert.Equal(workflowId, metadata!.WorkflowId);
+        Assert.Equal(workflowId, metadata.WorkflowId);
         Assert.Equal("Flow", metadata.Name);
     }
 
@@ -179,7 +179,7 @@ public class StandaloneWorkflowCacheTests
     {
         var workflowId = Guid.NewGuid();
         var workspace = NewWorkspace();
-        var entity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1\ndisplayName: Agent")!;
+        var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1\ndisplayName: Agent") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         WorkspaceSynchronizer.WriteCloudCache(workspace, new BotDefinition().WithEntity(entity));
         StandaloneWorkflowCache.Write(workspace, Row(workflowId, "Flow", Definition));
@@ -187,7 +187,7 @@ public class StandaloneWorkflowCacheTests
         var snapshot = Assert.IsType<BotDefinition>(WorkspaceSynchronizer.ReadCloudCacheSnapshot(workspace));
 
         Assert.NotNull(snapshot.Entity);
-        Assert.Equal("Agent", snapshot.Entity!.DisplayName);
+        Assert.Equal("Agent", snapshot.Entity.DisplayName);
         Assert.Single(snapshot.Flows);
     }
 
@@ -200,7 +200,7 @@ public class StandaloneWorkflowCacheTests
         WorkspaceSynchronizer.WriteCloudCache(workspace, new BotDefinition());
         StandaloneWorkflowCache.Write(workspace, Row(workflowId, "Flow", Definition));
 
-        var snapshot = WorkspaceSynchronizer.ReadCloudCacheSnapshot(workspace)!;
+        var snapshot = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(workspace) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var flow = Assert.Single(snapshot.Flows);
 
         Assert.Equal(workflowId, flow.WorkflowId.Value);
@@ -298,8 +298,10 @@ public class StandaloneWorkflowCacheTests
     }
 
     [Fact]
+    // ! Null is intentional to verify argument validation.
     public void Write_RejectsNothingToWrite() => Assert.Throws<ArgumentNullException>(() => StandaloneWorkflowCache.Write(NewWorkspace(), null!));
 
     [Fact]
+    // ! Null is intentional to verify argument validation.
     public void Flows_RejectsNoWorkspace() => Assert.Throws<ArgumentNullException>(() => StandaloneWorkflowCache.Flows(null!));
 }

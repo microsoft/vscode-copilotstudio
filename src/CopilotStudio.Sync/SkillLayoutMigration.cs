@@ -16,7 +16,7 @@ internal static class SkillLayoutMigration
 
         var assetsBySkill = definition.Components.OfType<FileAttachmentComponent>()
             .Where(asset => asset.ParentBotComponentId.HasValue && !string.IsNullOrEmpty(asset.DisplayName))
-            .ToLookup(asset => asset.ParentBotComponentId!.Value);
+            .ToLookup(asset => asset.ParentBotComponentId.Value);
 
         foreach (var component in definition.Components)
         {
@@ -89,14 +89,16 @@ internal static class SkillLayoutMigration
         var flattenedSidecars = ReadFlattenedSidecars(fileAccessor, folderName);
         foreach (var asset in assets)
         {
+            var displayName = asset.DisplayName
+                ?? throw new InvalidOperationException("A skill asset must have a display name.");
             var hasSidecar = !SkillLayout.IsManifest(asset.DisplayName);
-            var sidecarPath = hasSidecar ? SkillLayout.GetAssetSidecarPath(folderName, asset.DisplayName!) : default;
+            var sidecarPath = hasSidecar ? SkillLayout.GetAssetSidecarPath(folderName, displayName) : default;
             if (hasSidecar && !fileAccessor.Exists(sidecarPath))
             {
                 writeComponent(asset);
             }
 
-            var assetName = SkillLayout.NormalizeRelativeName(asset.DisplayName!);
+            var assetName = SkillLayout.NormalizeRelativeName(displayName);
             foreach (var stale in flattenedSidecars.Where(entry => string.Equals(entry.ComponentName, assetName, StringComparison.OrdinalIgnoreCase) && !(hasSidecar && entry.Path.Equals(sidecarPath))))
             {
                 fileAccessor.Delete(stale.Path);

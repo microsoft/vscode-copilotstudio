@@ -21,7 +21,7 @@ public static class WorkflowActivationPlanner
     /// <param name="failure">The message the service reported.</param>
     /// <returns><see langword="true"/> when the environment refused the workflow over a connection.</returns>
     public static bool IsConnectionAuthorizationFailure(string? failure) =>
-        !string.IsNullOrEmpty(failure) && ConnectionFailureMarkers.Any(marker => failure!.IndexOf(marker, StringComparison.OrdinalIgnoreCase) >= 0);
+        failure is { Length: > 0 } && ConnectionFailureMarkers.Any(marker => failure.IndexOf(marker, StringComparison.OrdinalIgnoreCase) >= 0);
 
     /// <summary>Whether a failure, or anything it wraps, says a connection the workflow binds cannot be used.</summary>
     /// <param name="failure">The failure the environment raised.</param>

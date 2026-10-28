@@ -12,14 +12,14 @@ internal static class McsYamlComparer
             return true;
         }
 
-        if (string.IsNullOrEmpty(left) || string.IsNullOrEmpty(right))
+        if (left is null || left.Length == 0 || right is null || right.Length == 0)
         {
             return false;
         }
 
         try
         {
-            return AreEquivalent(McsYamlReader.Parse(left!), McsYamlReader.Parse(right!));
+            return AreEquivalent(McsYamlReader.Parse(left), McsYamlReader.Parse(right));
         }
         catch (McsYamlFormatException)
         {

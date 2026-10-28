@@ -66,11 +66,11 @@
             {
                 if (entry.isFiltered)
                 {
-                    Assert.Single(logs.Debug.Where(x => x == $"Client notified 'Changed' event on watched files that has no language definition: {entry.filepath.Split('/')[^1]}. Change won't be tracked."));
+                    Assert.Single(logs.Debug, x => x == $"Client notified 'Changed' event on watched files that has no language definition: {entry.filepath.Split('/')[^1]}. Change won't be tracked.");
                 }
                 else
                 {
-                    Assert.Single(logs.Warning.Where(x => x == $"Can't process 'Changed' event for '{entry.filepath.Split('/')[^1]}': The file does not exist."));
+                    Assert.Single(logs.Warning, x => x == $"Can't process 'Changed' event for '{entry.filepath.Split('/')[^1]}': The file does not exist.");
                 }
             }
         }
@@ -109,7 +109,7 @@
 
             foreach (var entry in testData.Where(x => x.isFiltered))
             {
-                Assert.Single(logs.Debug.Where(x => x == $"Client notified 'Deleted' event on watched files that has no language definition: {entry.filepath.Split('/')[^1]}. Change won't be tracked."));
+                Assert.Single(logs.Debug, x => x == $"Client notified 'Deleted' event on watched files that has no language definition: {entry.filepath.Split('/')[^1]}. Change won't be tracked.");
             }
         }
 
@@ -456,12 +456,12 @@
                 var expectedDiagnostics = expected.Where(x => diagnosticsParams.Uri.ToFilePath().ToString().EndsWith(x.uriEnd));
                 if (!expectedDiagnostics.Any())
                 {
-                    Assert.True(false, $"Received unexpected diagnostic for: {diagnosticsParams.Uri}");
+                    Assert.Fail($"Received unexpected diagnostic for: {diagnosticsParams.Uri}");
                 }
 
                 if (expectedDiagnostics.Count() > 1)
                 {
-                    Assert.True(false, $"{diagnosticsParams.Uri} matches multiple expected values. Review test fixture.");
+                    Assert.Fail($"{diagnosticsParams.Uri} matches multiple expected values. Review test fixture.");
                 }
 
                 Assert.Equal(expectedDiagnostics.Single().count, diagnosticsParams.Diagnostics.Length);

@@ -146,13 +146,13 @@ public class PullMetadataOnlyChangeTests
             description: description,
             id: id,
             parentBotComponentId: default,
-            dialog: dialog!).ToBuilder();
+            dialog: (dialog ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))).ToBuilder();
         builder.Version = version;
         return (DialogComponent)builder.Build();
     }
 
     private static BotEntity CreateCliBotEntity()
-        => CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}\ntemplate: cliagent-1.0.0\n")!;
+        => (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
     private static void SetupChangeset(Mock<IIslandControlPlaneService> mockIsland, BotEntity botEntity, string token, BotComponentBase component)
         => SetupChangeset(mockIsland, botEntity, token, new BotComponentInsert(component));
@@ -196,7 +196,7 @@ public class PullMetadataOnlyChangeTests
         using var stream = fileAccessor.OpenRead(new AgentFilePath(".mcs/botdefinition.json"));
         using (YamlSerializationContext.UseYamlPassThroughSerializationContext())
         {
-            return JsonSerializer.Deserialize<DefinitionBase>(stream, ElementSerializer.CreateOptions())!;
+            return (JsonSerializer.Deserialize<DefinitionBase>(stream, ElementSerializer.CreateOptions()) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         }
     }
 }

@@ -121,7 +121,9 @@ internal static class AiPromptProjection
 
             rawObject["definitions"] = definitions;
 
-            var modelParameters = rootElement.TryGetProperty("modelParameters", out var modelParametersElement) && modelParametersElement.ValueKind == JsonValueKind.Object ? (JsonObject)JsonNode.Parse(modelParametersElement.GetRawText())! : new JsonObject();
+            var modelParameters = rootElement.TryGetProperty("modelParameters", out var modelParametersElement) && modelParametersElement.ValueKind == JsonValueKind.Object
+                ? JsonNode.Parse(modelParametersElement.GetRawText()) as JsonObject ?? new JsonObject()
+                : new JsonObject();
             if (rootElement.TryGetProperty("model", out var modelElement) && modelElement.ValueKind == JsonValueKind.String)
             {
                 modelParameters["modelType"] = modelElement.GetString();
@@ -142,7 +144,7 @@ internal static class AiPromptProjection
 
     internal static (RecordDataType? inputType, RecordDataType? outputType) ExtractAIPromptIO(string? customConfiguration)
     {
-        if (string.IsNullOrWhiteSpace(customConfiguration))
+        if (customConfiguration is null || string.IsNullOrWhiteSpace(customConfiguration))
         {
             return (null, null);
         }
@@ -150,7 +152,7 @@ internal static class AiPromptProjection
         JsonDocument document;
         try
         {
-            document = JsonDocument.Parse(customConfiguration!);
+            document = JsonDocument.Parse(customConfiguration);
         }
         catch (JsonException)
         {
@@ -194,12 +196,12 @@ internal static class AiPromptProjection
                     continue;
                 }
                 var name = (input.TryGetProperty("name", out var nameElement) && nameElement.ValueKind == JsonValueKind.String ? nameElement.GetString() : null) ?? (input.TryGetProperty("id", out var idElement) && idElement.ValueKind == JsonValueKind.String ? idElement.GetString() : null);
-                if (string.IsNullOrWhiteSpace(name))
+                if (name is null || string.IsNullOrWhiteSpace(name))
                 {
                     continue;
                 }
                 var promptInputType = input.TryGetProperty("type", out var promptInputTypeElement) && promptInputTypeElement.ValueKind == JsonValueKind.String ? promptInputTypeElement.GetString() : null;
-                properties[name!] = new PropertyInfo(displayName: name!, description: null, isRequired: false, type: MapAiPromptInputType(promptInputType));
+                properties[name] = new PropertyInfo(displayName: name, description: null, isRequired: false, type: MapAiPromptInputType(promptInputType));
             }
         }
         else if (inputsElement.ValueKind == JsonValueKind.Object)

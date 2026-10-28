@@ -172,9 +172,9 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
             workspace.BuildCompilationModel();
 
             var definition = workspace.Definition;
-            var skill = Assert.Single(definition.Components.OfType<DialogComponent>().Where(component => component.Dialog is InlineAgentSkill));
-            var skillMarkdown = Assert.Single(definition.Components.OfType<FileAttachmentComponent>().Where(component => component.DisplayName == "./SKILL.md"));
-            var script = Assert.Single(definition.Components.OfType<FileAttachmentComponent>().Where(component => component.DisplayName == "./scripts/Get-UsWeather.ps1"));
+            var skill = Assert.Single(definition.Components.OfType<DialogComponent>(), component => component.Dialog is InlineAgentSkill);
+            var skillMarkdown = Assert.Single(definition.Components.OfType<FileAttachmentComponent>(), component => component.DisplayName == "./SKILL.md");
+            var script = Assert.Single(definition.Components.OfType<FileAttachmentComponent>(), component => component.DisplayName == "./scripts/Get-UsWeather.ps1");
 
             Assert.Equal($"{Bot}.skill.get-us-weather", skill.SchemaNameString);
             Assert.Equal($"{Bot}.file.skillmd_dWNAJ", skillMarkdown.SchemaNameString);
@@ -195,9 +195,9 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
             workspace.BuildCompilationModel();
 
             var definition = workspace.Definition;
-            var skill = Assert.Single(definition.Components.OfType<DialogComponent>().Where(component => component.Dialog is InlineAgentSkill));
-            var skillMarkdown = Assert.Single(definition.Components.OfType<FileAttachmentComponent>().Where(component => component.DisplayName == "./SKILL.md"));
-            var script = Assert.Single(definition.Components.OfType<FileAttachmentComponent>().Where(component => component.DisplayName == "./scripts/Get-UsWeather.ps1"));
+            var skill = Assert.Single(definition.Components.OfType<DialogComponent>(), component => component.Dialog is InlineAgentSkill);
+            var skillMarkdown = Assert.Single(definition.Components.OfType<FileAttachmentComponent>(), component => component.DisplayName == "./SKILL.md");
+            var script = Assert.Single(definition.Components.OfType<FileAttachmentComponent>(), component => component.DisplayName == "./scripts/Get-UsWeather.ps1");
 
             Assert.Equal("crf9a_nagentn1_T2U1EY.skill.get-us-weather_e1W", skill.SchemaNameString);
             Assert.True(skillMarkdown.ParentBotComponentId.HasValue);
@@ -216,8 +216,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
             workspace.BuildCompilationModel();
 
             var definition = workspace.Definition;
-            var skill = Assert.Single(definition.Components.OfType<DialogComponent>().Where(component => component.Dialog is InlineAgentSkill));
-            var script = Assert.Single(definition.Components.OfType<FileAttachmentComponent>().Where(component => component.DisplayName == "scripts/Get-UsWeather.ps1"));
+            var skill = Assert.Single(definition.Components.OfType<DialogComponent>(), component => component.Dialog is InlineAgentSkill);
+            var script = Assert.Single(definition.Components.OfType<FileAttachmentComponent>(), component => component.DisplayName == "scripts/Get-UsWeather.ps1");
 
             Assert.Equal($"{Bot}.skill.get-us-weather_e1W", skill.SchemaNameString);
             Assert.Equal($"{Bot}.file.scriptsgetusweatherps1_GNNvS", script.SchemaNameString);

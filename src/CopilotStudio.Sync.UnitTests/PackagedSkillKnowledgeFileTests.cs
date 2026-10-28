@@ -21,7 +21,7 @@ public class PackagedSkillKnowledgeFileTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/packaged-skill-lsp-recompile-{Guid.NewGuid():N}/");
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var skillId = Guid.NewGuid();
         var skill = CreateInlineSkillComponent("cre98_Repro.skill.get-us-weather_e1W", skillId, "get-us-weather");
         var skillMarkdown = CreateFileComponent("cre98_Repro.file.skillmd_49zNm", "./SKILL.md", new BotComponentId(skillId));
@@ -85,7 +85,7 @@ public class PackagedSkillKnowledgeFileTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/packaged-skill-delete-{Guid.NewGuid():N}/");
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var skillId = Guid.NewGuid();
         var skill = CreateInlineSkillComponent("cre98_Repro.skill.pptx_Gev", skillId);
         var skillMarkdown = CreateFileComponent("cre98_Repro.file.skillmd_123", "./SKILL.md", new BotComponentId(skillId));
@@ -101,7 +101,7 @@ public class PackagedSkillKnowledgeFileTests
         await synchronizer.CloneChangesAsync(workspace, new ReferenceTracker(), operationContext, mockDataverse.Object, syncInfo, CancellationToken.None);
         Assert.True(fileAccessor.Exists(new AgentFilePath("behaviors/pptx/skill.mcs.yml")));
 
-        var cachedDefinition = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
+        var cachedDefinition = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         mockIsland.Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>())).ReturnsAsync(new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentDelete(skill.Id, skill.Version), new BotComponentDelete(skillMarkdown.Id, skillMarkdown.Version), new BotComponentDelete(script.Id, script.Version) }, botEntity, "token-2"));
 
         await synchronizer.PullExistingChangesAsync(workspace, operationContext, cachedDefinition, mockDataverse.Object, syncInfo, CancellationToken.None);
@@ -123,7 +123,7 @@ public class PackagedSkillKnowledgeFileTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/packaged-skill-anchor-delete-{Guid.NewGuid():N}/");
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var skillId = Guid.NewGuid();
         var skill = CreateInlineSkillComponent("cre98_Repro.skill.pptx_Gev", skillId);
         var skillMarkdown = CreateFileComponent("cre98_Repro.file.skillmd_123", "./SKILL.md", new BotComponentId(skillId));
@@ -172,7 +172,7 @@ public class PackagedSkillKnowledgeFileTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/packaged-skill-natural-anchor-delete-{Guid.NewGuid():N}/");
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var skillId = Guid.NewGuid();
         var skill = CreateInlineSkillComponent("cre98_Repro.skill.pptx", skillId);
         var skillMarkdown = CreateFileComponent("cre98_Repro.file.skillmd_123", "./SKILL.md", new BotComponentId(skillId));
@@ -219,8 +219,8 @@ public class PackagedSkillKnowledgeFileTests
         var workspace = new DirectoryPath($"c:/test/packaged-skill-clone-{Guid.NewGuid():N}/");
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
 
-        var botEntity = CodeSerializer.Deserialize<BotEntity>(
-            "kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>(
+            "kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var skillId = Guid.NewGuid();
         var skill = CreateInlineSkillComponent("cre98_Repro.skill.pptx_Gev", skillId);
         var skillMarkdown = CreateFileComponent("cre98_Repro.file.skillmd_123", "./SKILL.md", new BotComponentId(skillId));
@@ -294,7 +294,7 @@ public class PackagedSkillKnowledgeFileTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/bare-skill-push-{Guid.NewGuid():N}/");
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         await fileAccessor.WriteAsync(new AgentFilePath(AgentClassifier.WorkspaceLayoutMarkerFileName), "layoutVersion: 1\n", CancellationToken.None);
         await fileAccessor.WriteAsync(
             new AgentFilePath("settings.mcs.yml"),
@@ -318,7 +318,7 @@ public class PackagedSkillKnowledgeFileTests
         var workspaceDefinition = new BotDefinition().WithEntity(botEntity);
 
         await synchronizer.PushLocalChangesAsync(workspace, operationContext, workspaceDefinition, mockDataverse.Object, syncInfo, cloudFlowMetadata: null, ImmutableArray<AIPromptMetadata>.Empty, CancellationToken.None);
-        var finalCache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
+        var finalCache = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var skill = finalCache.Components.OfType<DialogComponent>().SingleOrDefault(component => component.Dialog is InlineAgentSkill);
         Assert.NotNull(skill);
         Assert.True(fileAccessor.Exists(new AgentFilePath("behaviors/get-us-weather-2/skill.mcs.yml")));
@@ -334,7 +334,7 @@ public class PackagedSkillKnowledgeFileTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/bare-skill-nested-push-{Guid.NewGuid():N}/");
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         await fileAccessor.WriteAsync(new AgentFilePath(AgentClassifier.WorkspaceLayoutMarkerFileName), "layoutVersion: 1\n", CancellationToken.None);
         await fileAccessor.WriteAsync(
             new AgentFilePath("settings.mcs.yml"),
@@ -365,7 +365,7 @@ public class PackagedSkillKnowledgeFileTests
         await synchronizer.PushLocalChangesAsync(workspace, operationContext, workspaceDefinition, mockDataverse.Object, syncInfo, cloudFlowMetadata: null, ImmutableArray<AIPromptMetadata>.Empty, CancellationToken.None);
         await synchronizer.UploadKnowledgeFilesAsync(workspace, mockDataverse.Object, CancellationToken.None);
 
-        var finalCache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
+        var finalCache = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var fileComponents = finalCache.Components.OfType<FileAttachmentComponent>().ToList();
         Assert.Equal(2, fileComponents.Count);
         Assert.Single(fileComponents, component => component.DisplayName == "SKILL.md");
@@ -383,7 +383,7 @@ public class PackagedSkillKnowledgeFileTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/prefix-sidecar-{Guid.NewGuid():N}/");
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         await fileAccessor.WriteAsync(new AgentFilePath(AgentClassifier.WorkspaceLayoutMarkerFileName), "layoutVersion: 1\n", CancellationToken.None);
         await fileAccessor.WriteAsync(
             new AgentFilePath("settings.mcs.yml"),
@@ -407,13 +407,13 @@ public class PackagedSkillKnowledgeFileTests
         await fileAccessor.WriteAsync(new AgentFilePath("behaviors/get-us-weather-2/foo_bar"), "bar body\n", CancellationToken.None);
         await synchronizer.PushLocalChangesAsync(workspace, operationContext, new BotDefinition().WithEntity(botEntity), mockDataverse.Object, syncInfo, cloudFlowMetadata: null, ImmutableArray<AIPromptMetadata>.Empty, CancellationToken.None);
 
-        var frozenLspModel = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
+        var frozenLspModel = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var fooBarSchemaAfterFirstPush = frozenLspModel.Components.OfType<FileAttachmentComponent>().Single(component => component.DisplayName == "foo_bar").SchemaNameString;
 
         await fileAccessor.WriteAsync(new AgentFilePath("behaviors/get-us-weather-2/foo"), "foo body\n", CancellationToken.None);
         await synchronizer.PushLocalChangesAsync(workspace, operationContext, frozenLspModel, mockDataverse.Object, syncInfo, cloudFlowMetadata: null, ImmutableArray<AIPromptMetadata>.Empty, CancellationToken.None);
 
-        var finalCache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
+        var finalCache = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var fileComponents = finalCache.Components.OfType<FileAttachmentComponent>().ToList();
 
         Assert.Equal(3, fileComponents.Count);
@@ -430,7 +430,7 @@ public class PackagedSkillKnowledgeFileTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/second-bare-skill-frozen-{Guid.NewGuid():N}/");
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         await fileAccessor.WriteAsync(new AgentFilePath(AgentClassifier.WorkspaceLayoutMarkerFileName), "layoutVersion: 1\n", CancellationToken.None);
         await fileAccessor.WriteAsync(
             new AgentFilePath("settings.mcs.yml"),
@@ -454,14 +454,14 @@ public class PackagedSkillKnowledgeFileTests
         await fileAccessor.WriteAsync(new AgentFilePath("behaviors/get-us-temperature/scripts/Get-UsTemperature.ps1"), "temperature script\n", CancellationToken.None);
         await synchronizer.PushLocalChangesAsync(workspace, operationContext, new BotDefinition().WithEntity(botEntity), mockDataverse.Object, syncInfo, cloudFlowMetadata: null, ImmutableArray<AIPromptMetadata>.Empty, CancellationToken.None);
 
-        var frozenLspModel = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
+        var frozenLspModel = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         await fileAccessor.WriteAsync(new AgentFilePath("behaviors/get-us-weather-2/SKILL.md"), "weather body\n", CancellationToken.None);
         await fileAccessor.WriteAsync(new AgentFilePath("behaviors/get-us-weather-2/scripts/Get-UsWeather.ps1"), "weather script\n", CancellationToken.None);
 
         await synchronizer.PushLocalChangesAsync(workspace, operationContext, frozenLspModel, mockDataverse.Object, syncInfo, cloudFlowMetadata: null, ImmutableArray<AIPromptMetadata>.Empty, CancellationToken.None);
 
-        var finalCache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
+        var finalCache = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         Assert.Contains(finalCache.Components.OfType<DialogComponent>(), component => component.DisplayName == "get-us-weather-2");
         Assert.Single(finalCache.Components.OfType<FileAttachmentComponent>(), component => component.DisplayName == "scripts/Get-UsWeather.ps1");
         Assert.Single(finalCache.Components.OfType<DialogComponent>(), component => component.DisplayName == "get-us-temperature");
@@ -473,7 +473,7 @@ public class PackagedSkillKnowledgeFileTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/bare-skill-push-repeat-{Guid.NewGuid():N}/");
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         await fileAccessor.WriteAsync(new AgentFilePath(AgentClassifier.WorkspaceLayoutMarkerFileName), "layoutVersion: 1\n", CancellationToken.None);
         await fileAccessor.WriteAsync(
             new AgentFilePath("settings.mcs.yml"),
@@ -498,7 +498,7 @@ public class PackagedSkillKnowledgeFileTests
         await synchronizer.PushLocalChangesAsync(workspace, operationContext, workspaceDefinition, mockDataverse.Object, syncInfo, cloudFlowMetadata: null, ImmutableArray<AIPromptMetadata>.Empty, CancellationToken.None);
         await synchronizer.PushLocalChangesAsync(workspace, operationContext, workspaceDefinition, mockDataverse.Object, syncInfo, cloudFlowMetadata: null, ImmutableArray<AIPromptMetadata>.Empty, CancellationToken.None);
 
-        var finalCache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
+        var finalCache = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var skillMdSidecars = fileAccessor.Files.Keys.Where(key => key.Replace('\\', '/').StartsWith("behaviors/get-us-weather-2/SKILL.md", StringComparison.Ordinal) && key.EndsWith(".mcs.yml", StringComparison.Ordinal)).ToList();
         Assert.Empty(skillMdSidecars);
         Assert.Empty(finalCache.Components.OfType<FileAttachmentComponent>());
@@ -510,7 +510,7 @@ public class PackagedSkillKnowledgeFileTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/two-skill-push-{Guid.NewGuid():N}/");
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         await fileAccessor.WriteAsync(new AgentFilePath(AgentClassifier.WorkspaceLayoutMarkerFileName), "layoutVersion: 1\n", CancellationToken.None);
         await fileAccessor.WriteAsync(
             new AgentFilePath("settings.mcs.yml"),
@@ -539,7 +539,7 @@ public class PackagedSkillKnowledgeFileTests
         await synchronizer.PushLocalChangesAsync(workspace, operationContext, workspaceDefinition, mockDataverse.Object, syncInfo, cloudFlowMetadata: null, ImmutableArray<AIPromptMetadata>.Empty, CancellationToken.None);
         await synchronizer.PushLocalChangesAsync(workspace, operationContext, workspaceDefinition, mockDataverse.Object, syncInfo, cloudFlowMetadata: null, ImmutableArray<AIPromptMetadata>.Empty, CancellationToken.None);
 
-        var finalCache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
+        var finalCache = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var skills = finalCache.Components.OfType<DialogComponent>().Where(component => component.Dialog is InlineAgentSkill).ToList();
         Assert.Equal(2, skills.Count);
         var skill1 = skills.Single(component => component.DisplayName == "get-us-temperature");
@@ -555,7 +555,7 @@ public class PackagedSkillKnowledgeFileTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/two-skill-push-caughtup-{Guid.NewGuid():N}/");
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         await fileAccessor.WriteAsync(new AgentFilePath(AgentClassifier.WorkspaceLayoutMarkerFileName), "layoutVersion: 1\n", CancellationToken.None);
         await fileAccessor.WriteAsync(
             new AgentFilePath("settings.mcs.yml"),
@@ -585,7 +585,7 @@ public class PackagedSkillKnowledgeFileTests
         await synchronizer.PushLocalChangesAsync(workspace, operationContext, caughtUpDefinition, mockDataverse.Object, syncInfo, cloudFlowMetadata: null, ImmutableArray<AIPromptMetadata>.Empty, CancellationToken.None);
         await synchronizer.PushLocalChangesAsync(workspace, operationContext, caughtUpDefinition, mockDataverse.Object, syncInfo, cloudFlowMetadata: null, ImmutableArray<AIPromptMetadata>.Empty, CancellationToken.None);
 
-        var finalCache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
+        var finalCache = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var skills = finalCache.Components.OfType<DialogComponent>().Where(component => component.Dialog is InlineAgentSkill).ToList();
         Assert.Equal(2, skills.Count);
         var skill1 = skills.Single(component => component.DisplayName == "get-us-temperature");
@@ -601,7 +601,7 @@ public class PackagedSkillKnowledgeFileTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/two-new-skills-single-push-{Guid.NewGuid():N}/");
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         await fileAccessor.WriteAsync(new AgentFilePath(AgentClassifier.WorkspaceLayoutMarkerFileName), "layoutVersion: 1\n", CancellationToken.None);
         await fileAccessor.WriteAsync(
             new AgentFilePath("settings.mcs.yml"),
@@ -626,7 +626,7 @@ public class PackagedSkillKnowledgeFileTests
 
         await synchronizer.PushLocalChangesAsync(workspace, operationContext, workspaceDefinition, mockDataverse.Object, syncInfo, cloudFlowMetadata: null, ImmutableArray<AIPromptMetadata>.Empty, CancellationToken.None);
 
-        var finalCache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
+        var finalCache = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var skills = finalCache.Components.OfType<DialogComponent>().Where(component => component.Dialog is InlineAgentSkill).ToList();
         Assert.Equal(2, skills.Count);
 
@@ -649,7 +649,7 @@ public class PackagedSkillKnowledgeFileTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/bare-skill-cloud-suffix-{Guid.NewGuid():N}/");
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         await fileAccessor.WriteAsync(new AgentFilePath(AgentClassifier.WorkspaceLayoutMarkerFileName), "layoutVersion: 1\n", CancellationToken.None);
         await fileAccessor.WriteAsync(
             new AgentFilePath("settings.mcs.yml"),
@@ -674,7 +674,7 @@ public class PackagedSkillKnowledgeFileTests
 
         await synchronizer.PushLocalChangesAsync(workspace, operationContext, workspaceDefinition, mockDataverse.Object, syncInfo, cloudFlowMetadata: null, ImmutableArray<AIPromptMetadata>.Empty, CancellationToken.None);
 
-        var finalCache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
+        var finalCache = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         Assert.Single(finalCache.Components.OfType<DialogComponent>(), component => component.Dialog is InlineAgentSkill);
         Assert.Single(finalCache.Components.OfType<FileAttachmentComponent>(), component => component.DisplayName == "scripts/Get-UsWeather.ps1");
         Assert.Single(finalCache.Components.OfType<FileAttachmentComponent>(), component => component.DisplayName == "SKILL.md");
@@ -686,7 +686,7 @@ public class PackagedSkillKnowledgeFileTests
         var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/stale-link-preview-{Guid.NewGuid():N}/");
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         WorkspaceSynchronizer.WriteCloudCache(fileAccessor, new BotDefinition().WithEntity(botEntity).WithComponents(new BotComponentBase[] { CreateInlineSkillComponent("cre98_Repro.skill.get-us-temperature", Guid.NewGuid(), "get-us-temperature") }));
         await fileAccessor.WriteAsync(new AgentFilePath(AgentClassifier.WorkspaceLayoutMarkerFileName), "layoutVersion: 1\n", CancellationToken.None);
         await fileAccessor.WriteAsync(
@@ -712,7 +712,7 @@ public class PackagedSkillKnowledgeFileTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/stale-link-push-{Guid.NewGuid():N}/");
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         WorkspaceSynchronizer.WriteCloudCache(fileAccessor, new BotDefinition().WithEntity(botEntity).WithComponents(new BotComponentBase[] { CreateInlineSkillComponent("cre98_Repro.skill.get-us-temperature", Guid.NewGuid(), "get-us-temperature") }));
         await fileAccessor.WriteAsync(new AgentFilePath(AgentClassifier.WorkspaceLayoutMarkerFileName), "layoutVersion: 1\n", CancellationToken.None);
         await fileAccessor.WriteAsync(
@@ -745,7 +745,7 @@ public class PackagedSkillKnowledgeFileTests
 
         await synchronizer.PushLocalChangesAsync(workspace, operationContext, localDefinition, mockDataverse.Object, syncInfo, cloudFlowMetadata: null, ImmutableArray<AIPromptMetadata>.Empty, CancellationToken.None);
 
-        var finalCache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
+        var finalCache = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         Assert.Single(finalCache.Components.OfType<DialogComponent>(), component => component.Dialog is InlineAgentSkill && component.DisplayName == "get-us-weather-2");
         Assert.Single(finalCache.Components.OfType<FileAttachmentComponent>(), component => component.DisplayName == "SKILL.md");
         Assert.Single(finalCache.Components.OfType<FileAttachmentComponent>(), component => component.DisplayName == "scripts/Get-UsWeather.ps1");
@@ -766,7 +766,7 @@ public class PackagedSkillKnowledgeFileTests
             .ToBuilder();
         rootKnowledgeBuilder.Id = Guid.NewGuid();
         var cloudCache = new BotDefinition()
-            .WithEntity(CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n")!)
+            .WithEntity((CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")))
             .WithComponents(new BotComponentBase[] { skill, skillPayload, rootKnowledgeBuilder.Build() });
         WorkspaceSynchronizer.WriteCloudCache(fileAccessorFactory.Create(workspace), cloudCache);
 
@@ -783,7 +783,7 @@ public class PackagedSkillKnowledgeFileTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/bare-skill-punct-push-{Guid.NewGuid():N}/");
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         await fileAccessor.WriteAsync(new AgentFilePath(AgentClassifier.WorkspaceLayoutMarkerFileName), "layoutVersion: 1\n", CancellationToken.None);
         await fileAccessor.WriteAsync(
             new AgentFilePath("settings.mcs.yml"),
@@ -808,7 +808,7 @@ public class PackagedSkillKnowledgeFileTests
 
         await synchronizer.PushLocalChangesAsync(workspace, operationContext, workspaceDefinition, mockDataverse.Object, syncInfo, cloudFlowMetadata: null, ImmutableArray<AIPromptMetadata>.Empty, CancellationToken.None);
 
-        var finalCache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
+        var finalCache = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var fileComponents = finalCache.Components.OfType<FileAttachmentComponent>().ToList();
         Assert.Single(fileComponents);
         Assert.DoesNotContain(fileComponents, component => component.DisplayName == "SKILL.md");
@@ -824,7 +824,7 @@ public class PackagedSkillKnowledgeFileTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/bare-skill-postpush-changes-{Guid.NewGuid():N}/");
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         await fileAccessor.WriteAsync(new AgentFilePath(AgentClassifier.WorkspaceLayoutMarkerFileName), "layoutVersion: 1\n", CancellationToken.None);
         await fileAccessor.WriteAsync(
             new AgentFilePath("settings.mcs.yml"),
@@ -860,7 +860,7 @@ public class PackagedSkillKnowledgeFileTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/bare-skill-punct-cloudsuffix-{Guid.NewGuid():N}/");
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         await fileAccessor.WriteAsync(new AgentFilePath(AgentClassifier.WorkspaceLayoutMarkerFileName), "layoutVersion: 1\n", CancellationToken.None);
         await fileAccessor.WriteAsync(
             new AgentFilePath("settings.mcs.yml"),
@@ -885,7 +885,7 @@ public class PackagedSkillKnowledgeFileTests
 
         await synchronizer.PushLocalChangesAsync(workspace, operationContext, workspaceDefinition, mockDataverse.Object, syncInfo, cloudFlowMetadata: null, ImmutableArray<AIPromptMetadata>.Empty, CancellationToken.None);
 
-        var finalCache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!;
+        var finalCache = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var cloudSkill = Assert.Single(finalCache.Components.OfType<DialogComponent>(), component => component.Dialog is InlineAgentSkill);
         Assert.EndsWith("_cLd", cloudSkill.SchemaNameString, StringComparison.Ordinal);
         Assert.Equal(1, finalCache.Components.OfType<FileAttachmentComponent>().Count(component => component.ParentBotComponentId == cloudSkill.Id));
@@ -904,7 +904,7 @@ public class PackagedSkillKnowledgeFileTests
         var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/classic-bare-skill-{Guid.NewGuid():N}/");
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr123_classic\n")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr123_classic\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         WorkspaceSynchronizer.WriteCloudCache(fileAccessor, new BotDefinition().WithEntity(botEntity));
         await fileAccessor.WriteAsync(new AgentFilePath("behaviors/foo/SKILL.md"), "skill body\n", CancellationToken.None);
 
@@ -923,7 +923,7 @@ public class PackagedSkillKnowledgeFileTests
         var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/bare-skill-bundle-collision-{Guid.NewGuid():N}/");
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         await fileAccessor.WriteAsync(new AgentFilePath(AgentClassifier.WorkspaceLayoutMarkerFileName), "layoutVersion: 1\n", CancellationToken.None);
         await fileAccessor.WriteAsync(
             new AgentFilePath("settings.mcs.yml"),
@@ -976,8 +976,8 @@ public class PackagedSkillKnowledgeFileTests
 
     private static DialogComponent CreateInlineSkillComponent(string schemaName, Guid id, string displayName = "pptx")
     {
-        var dialog = (DialogBase)CodeSerializer.Deserialize<BotElement>(
-            "kind: InlineAgentSkill\ncontent: <!-- bic:bundle=cre98_Repro.file.pptxzip_Aq-pc -->\n")!;
+        var dialog = (DialogBase)(CodeSerializer.Deserialize<BotElement>(
+            "kind: InlineAgentSkill\ncontent: <!-- bic:bundle=cre98_Repro.file.pptxzip_Aq-pc -->\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         return new DialogComponent(
             schemaName: schemaName,

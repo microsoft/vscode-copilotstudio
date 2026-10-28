@@ -84,7 +84,7 @@ public class WorkflowDraftPushTests : IDisposable
         dataverse
             .Setup(c => c.UpdateWorkflowAsync(It.IsAny<Guid?>(), It.IsAny<WorkflowMetadata>(), It.IsAny<CancellationToken>()))
             .Callback<Guid?, WorkflowMetadata?, CancellationToken>((_, m, _) => captured[0] = m)
-            .ReturnsAsync((Guid? _, WorkflowMetadata? workflow, CancellationToken _) => new WorkflowResponse { WorkflowId = workflow!.WorkflowId, StoredWorkflow = workflow });
+            .ReturnsAsync((Guid? _, WorkflowMetadata? workflow, CancellationToken _) => new WorkflowResponse { WorkflowId = (workflow ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).WorkflowId, StoredWorkflow = workflow });
 
         dataverse
             .Setup(c => c.GetConnectionReferencesByLogicalNamesAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
@@ -119,7 +119,7 @@ public class WorkflowDraftPushTests : IDisposable
         var synchronizer = CreateSynchronizer();
         WriteWorkflowFiles("{}");
         File.WriteAllText(Path.Combine(_workflowFolder, "metadata.yml"), yaml);
-        var definition = new BotDefinition(entity: CodeSerializer.Deserialize<BotEntity>("schemaName: testbot\n")!);
+        var definition = new BotDefinition(entity: (CodeSerializer.Deserialize<BotEntity>("schemaName: testbot\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")));
         var accessor = new FileAccessorFactory().Create(_workspace);
         WorkspaceSynchronizer.WriteCloudCache(accessor, definition);
         var dataverse = new Mock<ISyncDataverseClient>(MockBehavior.Strict);
@@ -161,8 +161,8 @@ public class WorkflowDraftPushTests : IDisposable
         await synchronizer.UpsertWorkflowForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None, WorkflowActivationMode.ActivateWhenConnectionsBound);
 
         Assert.NotNull(captured[0]);
-        Assert.Equal(0, captured[0]!.StateCode);
-        Assert.Equal(1, captured[0]!.StatusCode);
+        Assert.Equal(0, (captured[0] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StateCode);
+        Assert.Equal(1, (captured[0] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StatusCode);
     }
 
     [Fact]
@@ -185,8 +185,8 @@ public class WorkflowDraftPushTests : IDisposable
         await synchronizer.UpsertWorkflowForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None, WorkflowActivationMode.ActivateWhenConnectionsBound);
 
         Assert.NotNull(captured[0]);
-        Assert.Equal(1, captured[0]!.StateCode);
-        Assert.Equal(2, captured[0]!.StatusCode);
+        Assert.Equal(1, (captured[0] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StateCode);
+        Assert.Equal(2, (captured[0] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StatusCode);
     }
 
     [Fact]
@@ -201,8 +201,8 @@ public class WorkflowDraftPushTests : IDisposable
         await synchronizer.UpsertWorkflowForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None, WorkflowActivationMode.ActivateWhenConnectionsBound);
 
         Assert.NotNull(captured[0]);
-        Assert.Equal(1, captured[0]!.StateCode);
-        Assert.Equal(2, captured[0]!.StatusCode);
+        Assert.Equal(1, (captured[0] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StateCode);
+        Assert.Equal(2, (captured[0] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StatusCode);
     }
 
     [Fact]
@@ -225,8 +225,8 @@ public class WorkflowDraftPushTests : IDisposable
         await synchronizer.UpsertWorkflowForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None, WorkflowActivationMode.DraftWhenConnectionReferencesExist);
 
         Assert.NotNull(captured[0]);
-        Assert.Equal(0, captured[0]!.StateCode);
-        Assert.Equal(1, captured[0]!.StatusCode);
+        Assert.Equal(0, (captured[0] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StateCode);
+        Assert.Equal(1, (captured[0] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StatusCode);
     }
 
     [Fact]
@@ -241,8 +241,8 @@ public class WorkflowDraftPushTests : IDisposable
         await synchronizer.UpsertWorkflowForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None, WorkflowActivationMode.DraftWhenConnectionReferencesExist);
 
         Assert.NotNull(captured[0]);
-        Assert.Equal(1, captured[0]!.StateCode);
-        Assert.Equal(2, captured[0]!.StatusCode);
+        Assert.Equal(1, (captured[0] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StateCode);
+        Assert.Equal(2, (captured[0] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StatusCode);
         dataverse.Verify(
             c => c.GetConnectionReferencesByLogicalNamesAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()),
             Times.Never);
@@ -260,8 +260,8 @@ public class WorkflowDraftPushTests : IDisposable
         await synchronizer.UpsertWorkflowForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None);
 
         Assert.NotNull(captured[0]);
-        Assert.Equal(1, captured[0]!.StateCode);
-        Assert.Equal(2, captured[0]!.StatusCode);
+        Assert.Equal(1, (captured[0] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StateCode);
+        Assert.Equal(2, (captured[0] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StatusCode);
     }
 
     [Fact]
@@ -284,8 +284,8 @@ public class WorkflowDraftPushTests : IDisposable
         await synchronizer.UpsertWorkflowForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None, WorkflowActivationMode.DraftWhenConnectionsUnbound);
 
         Assert.NotNull(captured[0]);
-        Assert.Equal(0, captured[0]!.StateCode);
-        Assert.Equal(1, captured[0]!.StatusCode);
+        Assert.Equal(0, (captured[0] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StateCode);
+        Assert.Equal(1, (captured[0] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StatusCode);
     }
 
     [Fact]
@@ -308,8 +308,8 @@ public class WorkflowDraftPushTests : IDisposable
         await synchronizer.UpsertWorkflowForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None, WorkflowActivationMode.DraftWhenConnectionsUnbound);
 
         Assert.NotNull(captured[0]);
-        Assert.Equal(1, captured[0]!.StateCode);
-        Assert.Equal(2, captured[0]!.StatusCode);
+        Assert.Equal(1, (captured[0] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StateCode);
+        Assert.Equal(2, (captured[0] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StatusCode);
     }
 
     [Fact]
@@ -332,8 +332,8 @@ public class WorkflowDraftPushTests : IDisposable
         await synchronizer.UpsertWorkflowForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None, WorkflowActivationMode.DraftWhenConnectionsUnbound);
 
         Assert.NotNull(captured[0]);
-        Assert.Equal(0, captured[0]!.StateCode);
-        Assert.Equal(1, captured[0]!.StatusCode);
+        Assert.Equal(0, (captured[0] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StateCode);
+        Assert.Equal(1, (captured[0] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StatusCode);
     }
 
     [Fact]
@@ -354,7 +354,7 @@ public class WorkflowDraftPushTests : IDisposable
         });
 
         var (_, cloudFlowMetadata) = await synchronizer.UpsertWorkflowForAgentAsync(_workspace, boundDataverse.Object, Guid.NewGuid(), CancellationToken.None, WorkflowActivationMode.DraftWhenConnectionsUnbound);
-        Assert.Equal(1, capturedBound[0]!.StateCode);
+        Assert.Equal(1, (capturedBound[0] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StateCode);
 
         var fileAccessor = new FileAccessorFactory().Create(_workspace);
         WorkspaceSynchronizer.WriteCloudCache(fileAccessor, new BotDefinition().WithFlows(cloudFlowMetadata.Workflows));
@@ -463,7 +463,7 @@ public class WorkflowDraftPushTests : IDisposable
 
         var (_, cloudFlowMetadata) = await synchronizer.UpsertWorkflowForAgentAsync(_workspace, firstDataverse.Object, Guid.NewGuid(), CancellationToken.None, WorkflowActivationMode.DraftWhenConnectionsUnbound);
 
-        Assert.Equal(0, capturedFirst[0]!.StateCode);
+        Assert.Equal(0, (capturedFirst[0] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StateCode);
         Assert.Contains("stateCode: 0", File.ReadAllText(Path.Combine(_workflowFolder, "metadata.yml")));
 
         var fileAccessor = new FileAccessorFactory().Create(_workspace);
@@ -655,7 +655,7 @@ public class WorkflowDraftPushTests : IDisposable
 
         var (_, metadata) = await synchronizer.UpsertWorkflowForAgentAsync(_workspace, CreateDataverse(captured).Object, agentId: null, CancellationToken.None, WorkflowActivationMode.DraftWhenConnectionsUnbound);
 
-        Assert.Equal(_workflowId, captured[0]!.WorkflowId);
+        Assert.Equal(_workflowId, (captured[0] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).WorkflowId);
         Assert.Equal(_workflowId, Assert.Single(metadata.Workflows).WorkflowId.Value);
     }
 
@@ -701,7 +701,7 @@ public class WorkflowDraftPushTests : IDisposable
             ImmutableArray<AIPromptMetadata>.Empty,
             CancellationToken.None);
 
-        var cached = Assert.Single(WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!.Flows);
+        var cached = Assert.Single((WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Flows);
         Assert.Equal(stored.ClientData, WorkspaceSynchronizer.GetRawClientData(cached));
     }
 

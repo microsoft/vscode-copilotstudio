@@ -98,7 +98,7 @@ public class RemoteChildAgentPullTests
 
     private static BotDefinition CreateDefinition(IEnumerable<BotComponentBase> components)
     {
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         return new BotDefinition().WithEntity(botEntity).WithComponents(components);
     }
 

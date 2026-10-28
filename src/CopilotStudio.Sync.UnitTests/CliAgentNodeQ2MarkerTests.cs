@@ -188,7 +188,7 @@ public class CliAgentNodeQ2MarkerTests
 
         var entity = CodeSerializer.Deserialize<BotEntity>(yaml);
         Assert.NotNull(entity);
-        Assert.Equal("Test_fwd_compat", entity!.SchemaName.Value);
+        Assert.Equal("Test_fwd_compat", entity.SchemaName.Value);
 
         var reserialized = CodeSerializer.Serialize(entity);
         Assert.Contains("authoringModel", reserialized);

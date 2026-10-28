@@ -130,7 +130,7 @@ public class SubAgentDisplayNameProjectionTests
     {
         var result = SubAgentFolderNaming.FromDisplayName(new string('a', 500));
         Assert.NotNull(result);
-        Assert.Equal(100, result!.Length);
+        Assert.Equal(100, result.Length);
     }
 
     [Fact]
@@ -232,7 +232,7 @@ public class SubAgentDisplayNameProjectionTests
 
     private static BotDefinition CreateDefinition(IEnumerable<BotComponentBase> components)
     {
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         return new BotDefinition().WithEntity(botEntity).WithComponents(components);
     }
 

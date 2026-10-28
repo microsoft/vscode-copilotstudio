@@ -152,7 +152,7 @@ public sealed class InMemoryFileAccessor : IFileAccessor
 
     public IEnumerable<AgentFilePath> ListFiles(string? relativeFolder = null, string filePattern = "*.*")
     {
-        var folderPrefix = string.IsNullOrEmpty(relativeFolder) ? null : relativeFolder!.TrimEnd('/') + "/";
+        var folderPrefix = relativeFolder is null || relativeFolder.Length == 0 ? null : relativeFolder.TrimEnd('/') + "/";
         foreach (var key in this.files.Keys)
         {
             if (folderPrefix != null && !key.StartsWith(folderPrefix, StringComparison.OrdinalIgnoreCase))

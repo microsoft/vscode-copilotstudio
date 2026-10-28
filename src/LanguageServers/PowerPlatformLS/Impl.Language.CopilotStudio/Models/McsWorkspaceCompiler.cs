@@ -250,12 +250,13 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models
             result = result.WithEnvironmentVariables(workspaceEnvironmentVariables);
 
             var workspaceSchemaNames = components
-                .Where(component => !string.IsNullOrEmpty(component.SchemaNameString))
-                .Select(component => component.SchemaNameString!)
+                .Select(component => component.SchemaNameString)
+                .OfType<string>()
+                .Where(schemaName => schemaName.Length > 0)
                 .ToHashSet(StringComparer.Ordinal);
             var additionalComponentsNotInWorkspace = result.Components
                 .Where(IsReusableOrNonCustomizableComponent)
-                .Where(component => string.IsNullOrEmpty(component.SchemaNameString) || !workspaceSchemaNames.Contains(component.SchemaNameString!));
+                .Where(component => component.SchemaNameString is not { Length: > 0 } schemaName || !workspaceSchemaNames.Contains(schemaName));
             var workspaceComponents = additionalComponentsNotInWorkspace.Concat(components);
             result = result.WithComponents(workspaceComponents);
             

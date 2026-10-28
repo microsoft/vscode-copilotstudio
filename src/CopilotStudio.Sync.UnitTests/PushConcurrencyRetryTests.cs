@@ -16,6 +16,7 @@ public class PushConcurrencyRetryTests
 {
     private const string AgentSchema = "cre98_AgentC1";
 
+    // ! The concurrency fixture does not need an inner exception.
     private static DataversePreconditionFailedException MakeConcurrencyException() =>
         new DataversePreconditionFailedException(
             "0x80060882",
@@ -234,7 +235,7 @@ public class PushConcurrencyRetryTests
         Assert.All(sentChangesets, changes =>
         {
             var insert = Assert.IsType<BotComponentInsert>(Assert.Single(changes.BotComponentChanges));
-            Assert.Equal($"{AgentSchema}.topic.Greeting", insert.Component!.SchemaNameString);
+            Assert.Equal($"{AgentSchema}.topic.Greeting", (insert.Component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).SchemaNameString);
         });
         mockIsland.Verify(
             x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), "token-1", It.IsAny<CancellationToken>()),
@@ -273,7 +274,7 @@ public class PushConcurrencyRetryTests
                 }
                 var confirmed = incoming.BotComponentChanges.Select(change =>
                     change is BotComponentInsert insert
-                        ? new BotComponentInsert(insert.Component!.WithId(serverAgentId))
+                        ? new BotComponentInsert((insert.Component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).WithId(serverAgentId))
                         : change);
                 return new PvaComponentChangeSet(confirmed, incoming.Bot, "token-3");
             });
@@ -294,11 +295,11 @@ public class PushConcurrencyRetryTests
         Assert.Equal(2, sentChangesets.Count);
         Assert.All(sentChangesets, changes =>
         {
-            Assert.Equal(newAgent.SchemaNameString, Assert.Single(changes.BotComponentChanges.OfType<BotComponentInsert>()).Component!.SchemaNameString);
+            Assert.Equal(newAgent.SchemaNameString, (Assert.Single(changes.BotComponentChanges.OfType<BotComponentInsert>()).Component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).SchemaNameString);
             Assert.Equal(previousAgent.Id, Assert.Single(changes.BotComponentChanges.OfType<BotComponentDelete>()).BotComponentId);
             Assert.Equal(2, changes.BotComponentChanges.Length);
         });
-        var confirmedAgent = Assert.Single(WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!.Components);
+        var confirmedAgent = Assert.Single((WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Components);
         Assert.Equal(newAgent.SchemaNameString, confirmedAgent.SchemaNameString);
         Assert.Equal(serverAgentId, confirmedAgent.Id.Value);
         Assert.Equal("token-3", await fileAccessor.ReadStringAsync(new AgentFilePath(".mcs/changetoken.txt"), CancellationToken.None));

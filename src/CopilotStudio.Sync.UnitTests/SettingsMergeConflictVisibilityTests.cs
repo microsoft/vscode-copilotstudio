@@ -33,7 +33,7 @@ public class SettingsMergeConflictVisibilityTests
 
         Assert.NotNull(reparsed);
         Assert.True(
-            string.IsNullOrEmpty(InstructionOf(reparsed!)),
+            string.IsNullOrEmpty(InstructionOf(reparsed)),
             "This test documents why marker detection is required: a conflicted merge parses cleanly "
             + "while silently dropping the conflicting value, so a null check alone cannot detect it.");
     }
@@ -50,9 +50,9 @@ public class SettingsMergeConflictVisibilityTests
             out var conflictedSettingsYaml);
 
         Assert.NotNull(conflictedSettingsYaml);
-        Assert.Contains(LocalOnlyInstruction, conflictedSettingsYaml!, StringComparison.Ordinal);
-        Assert.Contains(RemoteOnlyInstruction, conflictedSettingsYaml!, StringComparison.Ordinal);
-        Assert.True(WorkspaceSynchronizer.ContainsConflictMarkers(conflictedSettingsYaml!));
+        Assert.Contains(LocalOnlyInstruction, conflictedSettingsYaml, StringComparison.Ordinal);
+        Assert.Contains(RemoteOnlyInstruction, conflictedSettingsYaml, StringComparison.Ordinal);
+        Assert.True(WorkspaceSynchronizer.ContainsConflictMarkers(conflictedSettingsYaml));
         Assert.Equal(LocalOnlyInstruction, InstructionOf(merged));
     }
 
@@ -84,7 +84,7 @@ public class SettingsMergeConflictVisibilityTests
 
         Assert.NotNull(conflictedSettingsYaml);
         Assert.NotNull(merged.Bot);
-        Assert.Equal(LocalOnlyInstruction, InstructionOf(merged.Bot!));
+        Assert.Equal(LocalOnlyInstruction, InstructionOf(merged.Bot));
     }
 
     [Fact]
@@ -135,7 +135,7 @@ public class SettingsMergeConflictVisibilityTests
             MakeEntity(version: 100, instruction: BaseInstruction, series: "Sonnet46"),
             out var settingsYaml);
 
-        Assert.False(WorkspaceSynchronizer.ContainsConflictMarkers(settingsYaml!));
+        Assert.False(WorkspaceSynchronizer.ContainsConflictMarkers((settingsYaml ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))));
         Assert.False(WorkspaceSynchronizer.ContainsConflictMarkers(string.Empty));
     }
 
@@ -247,7 +247,7 @@ public class SettingsMergeConflictVisibilityTests
           }
         }
         """;
-        return ReadDefinition(json).Entity!;
+        return (ReadDefinition(json).Entity ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
     }
 
     private static BotDefinition ReadDefinition(string botDefinitionJson)
@@ -259,6 +259,6 @@ public class SettingsMergeConflictVisibilityTests
             stream.Write(bytes, 0, bytes.Length);
         }
 
-        return (BotDefinition)WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        return (BotDefinition)(WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
     }
 }

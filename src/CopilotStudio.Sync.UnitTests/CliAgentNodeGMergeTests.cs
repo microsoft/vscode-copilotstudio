@@ -235,7 +235,7 @@ public class CliAgentNodeGMergeTests
 
         Assert.Null(conflict.Yaml);
         Assert.NotNull(merged);
-        var mergedYaml = SerializeRoot(merged!);
+        var mergedYaml = SerializeRoot(merged);
         Assert.Contains("mcp_LOCAL_EDIT", mergedYaml);
         Assert.Contains("shared_REMOTE_EDIT", mergedYaml);
         Assert.DoesNotContain("<<<<<<<", mergedYaml);
@@ -256,10 +256,10 @@ public class CliAgentNodeGMergeTests
         var merged = sync.MergeComponent(schema, baseComp, localComp, remoteComp, out var conflict);
 
         Assert.NotNull(conflict.Yaml);
-        Assert.Contains("<<<<<<<", conflict.Yaml!, StringComparison.Ordinal);
-        Assert.Contains(">>>>>>>", conflict.Yaml!, StringComparison.Ordinal);
-        Assert.Contains("mcp_LOCAL", conflict.Yaml!, StringComparison.Ordinal);
-        Assert.Contains("mcp_REMOTE", conflict.Yaml!, StringComparison.Ordinal);
+        Assert.Contains("<<<<<<<", conflict.Yaml, StringComparison.Ordinal);
+        Assert.Contains(">>>>>>>", conflict.Yaml, StringComparison.Ordinal);
+        Assert.Contains("mcp_LOCAL", conflict.Yaml, StringComparison.Ordinal);
+        Assert.Contains("mcp_REMOTE", conflict.Yaml, StringComparison.Ordinal);
         Assert.NotNull(merged);
     }
 
@@ -277,7 +277,7 @@ public class CliAgentNodeGMergeTests
 
         var merged = sync.MergeComponent(schema, baseComp, localComp, remoteComp, out _);
 
-        Assert.Equal(SerializeRoot(localComp), SerializeRoot(merged!));
+        Assert.Equal(SerializeRoot(localComp), SerializeRoot((merged ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))));
     }
 
     // --- mcs.metadata three-way merge ------------------------------------------------
@@ -299,7 +299,7 @@ public class CliAgentNodeGMergeTests
         Assert.False(McsConflictMarkers.Contains(conflict.Yaml));
         Assert.NotNull(merged);
         Assert.Equal(new McsMetadataConflict("LOCAL description", "REMOTE description"), conflict.Description);
-        Assert.Equal("LOCAL description", merged!.Description);
+        Assert.Equal("LOCAL description", merged.Description);
     }
 
     [Fact]
@@ -323,7 +323,7 @@ public class CliAgentNodeGMergeTests
         Assert.Contains("mcp_LOCAL", conflict.Value.Yaml);
         Assert.Contains("shared_REMOTE", conflict.Value.Yaml);
         Assert.False(McsConflictMarkers.Contains(conflict.Value.Yaml));
-        var component = Assert.Single(merged.BotComponentChanges.OfType<BotComponentUpsert>()).Component!;
+        var component = (Assert.Single(merged.BotComponentChanges.OfType<BotComponentUpsert>()).Component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         Assert.Equal(conflict.Value.Component, component);
         Assert.Contains("mcp_LOCAL", SerializeRoot(component));
         Assert.Contains("shared_REMOTE", SerializeRoot(component));
@@ -346,7 +346,7 @@ public class CliAgentNodeGMergeTests
             MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 2, "NAgent N1", "REMOTE description"),
             out _);
 
-        Assert.Contains("LOCAL description", merged!.Description!, StringComparison.Ordinal);
+        Assert.Contains("LOCAL description", ((merged ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Description ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -361,7 +361,7 @@ public class CliAgentNodeGMergeTests
             MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 2, "Remote Name", "same"),
             out _);
 
-        Assert.Equal("Local Name", merged!.DisplayName);
+        Assert.Equal("Local Name", (merged ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).DisplayName);
         Assert.False(McsConflictMarkers.Contains(merged.DisplayName));
     }
 
@@ -377,7 +377,7 @@ public class CliAgentNodeGMergeTests
             MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 2, "NAgent N1", "REMOTE description"),
             out _);
 
-        Assert.Equal("REMOTE description", merged!.Description);
+        Assert.Equal("REMOTE description", (merged ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Description);
     }
 
     [Fact]
@@ -392,7 +392,7 @@ public class CliAgentNodeGMergeTests
             MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 2, "NAgent N1", "base description"),
             out _);
 
-        Assert.Equal("LOCAL description", merged!.Description);
+        Assert.Equal("LOCAL description", (merged ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Description);
     }
 
     [Fact]
@@ -409,7 +409,7 @@ public class CliAgentNodeGMergeTests
 
         Assert.False(conflict.Conflicted);
         Assert.Null(conflict.Yaml);
-        Assert.Equal("SAME edit", merged!.Description);
+        Assert.Equal("SAME edit", (merged ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Description);
     }
 
     [Fact]
@@ -424,7 +424,7 @@ public class CliAgentNodeGMergeTests
             MakeDialogComponent(MetadataSchema, ConnectedAgentToolBody, null, 2, "NAgent N1", "REMOTE description"),
             out _);
 
-        Assert.Equal("REMOTE description", merged!.Description);
+        Assert.Equal("REMOTE description", (merged ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Description);
         Assert.False(McsConflictMarkers.Contains(merged.Description));
     }
 
@@ -449,8 +449,8 @@ public class CliAgentNodeGMergeTests
 
         var merged = sync.ApplyThreeWayMerge(localChanges, remoteChanges, cloud);
 
-        var mergedComp = merged.BotComponentChanges.OfType<BotComponentUpsert>()
-            .Single(c => c.Component?.SchemaNameString == schema).Component!;
+        var mergedComp = (merged.BotComponentChanges.OfType<BotComponentUpsert>()
+            .Single(c => c.Component?.SchemaNameString == schema).Component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var mergedYaml = SerializeRoot(mergedComp);
         Assert.Contains("mcp_LOCAL_EDIT", mergedYaml);
         Assert.Contains("shared_REMOTE_EDIT", mergedYaml);
@@ -476,8 +476,8 @@ public class CliAgentNodeGMergeTests
 
         var merged = sync.ApplyThreeWayMerge(localChanges, remoteChanges, cloud);
 
-        var mergedComp = merged.BotComponentChanges.OfType<BotComponentUpsert>()
-            .Single(c => c.Component?.SchemaNameString == schema).Component!;
+        var mergedComp = (merged.BotComponentChanges.OfType<BotComponentUpsert>()
+            .Single(c => c.Component?.SchemaNameString == schema).Component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         Assert.Contains("mcp_REMOTE_ONLY", SerializeRoot(mergedComp));
     }
 
@@ -505,7 +505,7 @@ public class CliAgentNodeGMergeTests
         Assert.DoesNotContain(
             merged.BotComponentChanges.OfType<BotComponentUpsert>(),
             c => c.Component?.SchemaNameString == schema
-                 && SerializeRoot(c.Component!).Contains("mcp_SharePointRemoteServer"));
+                 && SerializeRoot(c.Component).Contains("mcp_SharePointRemoteServer"));
     }
 
     [Fact]
@@ -532,7 +532,7 @@ public class CliAgentNodeGMergeTests
         var merged = sync.ApplyThreeWayMerge(localChanges, remoteChanges, cloud);
 
         Assert.NotNull(merged.Bot);
-        var mergedEntityYaml = CodeSerializer.Serialize(merged.Bot!);
+        var mergedEntityYaml = CodeSerializer.Serialize(merged.Bot);
         Assert.Contains("REMOTE_INSTR", mergedEntityYaml);
         Assert.Contains("LOCAL_SERIES", mergedEntityYaml);
     }
@@ -544,10 +544,10 @@ public class CliAgentNodeGMergeTests
     {
         var (entity, definition, accessor, sync, workspace) =
             await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
-        var cloud = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        var cloud = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var tool = definition.Components.OfType<DialogComponent>()
-            .Single(d => d.SchemaName.Value!.Contains("WorkIQSharePointPreview"));
+            .Single(d => d.SchemaName.Value.Contains("WorkIQSharePointPreview"));
         var toolPath = CliAgentRoundTripReadTests.CliComponentPath(tool, definition);
         var body = ReadAll(accessor, toolPath);
 
@@ -562,7 +562,7 @@ public class CliAgentNodeGMergeTests
         // the connectionReference line carries `cr.shared_workiqsharepoint`) so the
         // edit lands regardless of the file's CRLF line endings.
         var remoteTool = MakeDialogComponent(
-            tool.SchemaName.Value!,
+            tool.SchemaName.Value,
             body.Replace("apis/shared_workiqsharepoint", "apis/shared_REMOTE"),
             tool.Id.Value,
             tool.Version);
@@ -573,16 +573,16 @@ public class CliAgentNodeGMergeTests
             ImmutableArray.Create(new Change
             {
                 ChangeType = ChangeType.Update,
-                Name = tool.SchemaName.Value!,
+                Name = tool.SchemaName.Value,
                 Uri = toolPath.ToString(),
-                SchemaName = tool.SchemaName.Value!,
+                SchemaName = tool.SchemaName.Value,
                 ChangeKind = tool.Kind.ToString(),
             }));
 
         var merged = sync.ApplyThreeWayMerge(localChanges, remoteChanges, cloud);
 
-        var mergedComp = merged.BotComponentChanges.OfType<BotComponentUpsert>()
-            .Single(c => c.Component?.SchemaNameString == tool.SchemaName.Value).Component!;
+        var mergedComp = (merged.BotComponentChanges.OfType<BotComponentUpsert>()
+            .Single(c => c.Component?.SchemaNameString == tool.SchemaName.Value).Component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var mergedYaml = SerializeRoot(mergedComp);
         Assert.Contains("operationId: mcp_LOCAL", mergedYaml);
         Assert.Contains("apis/shared_REMOTE", mergedYaml);
@@ -610,7 +610,7 @@ public class CliAgentNodeGMergeTests
         var mergedComp = merged.BotComponentChanges.OfType<BotComponentUpsert>()
             .SingleOrDefault(c => c.Component?.SchemaNameString == schema)?.Component;
         Assert.NotNull(mergedComp);
-        Assert.Equal("connect agent n1 Cloud 5", mergedComp!.Description);
+        Assert.Equal("connect agent n1 Cloud 5", mergedComp.Description);
     }
 
     [Fact]
@@ -634,7 +634,7 @@ public class CliAgentNodeGMergeTests
         var mergedComp = merged.BotComponentChanges.OfType<BotComponentUpsert>()
             .SingleOrDefault(c => c.Component?.SchemaNameString == schema)?.Component;
         Assert.NotNull(mergedComp);
-        Assert.Equal("NAgent N1 renamed", mergedComp!.DisplayName);
+        Assert.Equal("NAgent N1 renamed", mergedComp.DisplayName);
     }
 
     [Fact]
@@ -779,7 +779,7 @@ public class CliAgentNodeGMergeTests
         // entry passes through unchanged (remote/cloud authoritative on pull),
         // matching the classic shape. The local edit is NOT applied.
         var update = Assert.Single(merged.ConnectionReferenceChanges.OfType<ConnectionReferenceUpdate>());
-        Assert.Equal("/providers/.../shared_REMOTE", update.ConnectionReference!.ConnectorId.Value);
+        Assert.Equal("/providers/.../shared_REMOTE", (update.ConnectionReference ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ConnectorId.Value);
     }
 
     [Fact]
@@ -910,7 +910,7 @@ public class CliAgentNodeGMergeTests
           }
         }
         """;
-        return ReadDefinition(json).Entity!;
+        return (ReadDefinition(json).Entity ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
     }
 
     private static ConnectionReference MakeConnectionRef(string logicalName, string connectorId)
@@ -931,7 +931,7 @@ public class CliAgentNodeGMergeTests
         {
             s.Write(bytes, 0, bytes.Length);
         }
-        return (BotDefinition)WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        return (BotDefinition)(WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
     }
 
     private static string SerializeRoot(BotComponentBase component)

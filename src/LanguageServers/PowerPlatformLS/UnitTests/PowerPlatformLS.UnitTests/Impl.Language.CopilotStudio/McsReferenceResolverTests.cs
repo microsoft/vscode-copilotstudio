@@ -40,7 +40,7 @@
         [InlineData("")]  // empty
         [InlineData(null)]  // empty
         [InlineData("../Agent 111")]  // exists, but not a CC
-        public void FailToResolve(string dir)
+        public void FailToResolve(string? dir)
         {
             // Success case. 
             var ccRef = new ReferenceItemSourceFile(

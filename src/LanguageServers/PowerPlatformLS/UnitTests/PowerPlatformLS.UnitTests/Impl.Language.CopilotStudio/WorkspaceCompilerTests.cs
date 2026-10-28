@@ -66,7 +66,8 @@
             var reader = new SolutionFileReader(new PhysicalFileProvider(Path.Combine(workspaceParentDirectory, "SolutionExport")));
             var bots = reader.FindBotsInFolder();
             var bot = Assert.Single(bots);
-            var botDef = reader.GetBotDefinition(bot.SchemaName.Value) ?? throw new Xunit.Sdk.NotNullException();
+            var botDef = reader.GetBotDefinition(bot.SchemaName.Value);
+            Assert.NotNull(botDef);
 
             // Manually compare the structure instead of using BotDefinition.Equals(other, NodeComparison.Structural) to improve debuggability.
             // We can generate better insights on test failures by comparing children one by one

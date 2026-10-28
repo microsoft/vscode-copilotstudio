@@ -157,7 +157,7 @@ public class MergeConflictPreservationTests
             snapshot);
 
         var kept = merged.BotComponentChanges.OfType<BotComponentUpsert>().Single(change => change.Component?.SchemaNameString == SkillSchema);
-        Assert.Contains("local instructions", ((InlineAgentSkill)((DialogComponent)kept.Component!).Dialog!).Content, StringComparison.Ordinal);
+        Assert.Contains("local instructions", ((InlineAgentSkill)(((DialogComponent)(kept.Component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))).Dialog ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))).Content, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -215,7 +215,7 @@ public class MergeConflictPreservationTests
         Assert.Contains("local description", text, StringComparison.Ordinal);
         Assert.Contains("remote description", text, StringComparison.Ordinal);
         Assert.Contains(remoteBody, text, StringComparison.Ordinal);
-        Assert.Single(text.Split('\n').Where(line => line.TrimEnd('\r') == "mcs.metadata:"));
+        Assert.Single(text.Split('\n'), line => line.TrimEnd('\r') == "mcs.metadata:");
         var component = Assert.Single(pulled.Components.Where(component => component.SchemaNameString == ToolSchema));
         Assert.Contains(remoteBody, CodeSerializer.Serialize(Assert.IsAssignableFrom<DialogBase>(component.RootElement)), StringComparison.Ordinal);
         var cached = Assert.Single(ReadCache(context).Components.Where(component => component.SchemaNameString == ToolSchema));
@@ -344,7 +344,7 @@ public class MergeConflictPreservationTests
         Assert.Equal(1, diagnostic.Column);
         Assert.Contains("Renamed Locally", text, StringComparison.Ordinal);
         Assert.Contains("Renamed Remotely", text, StringComparison.Ordinal);
-        Assert.Single(text.Split('\n').Where(line => line.TrimEnd('\r') == "mcs.metadata:"));
+        Assert.Single(text.Split('\n'), line => line.TrimEnd('\r') == "mcs.metadata:");
         var cached = Assert.Single(ReadCache(context).Components.Where(component => component.SchemaNameString == ToolSchema));
         Assert.Equal("Renamed Remotely", cached.DisplayName);
         Assert.DoesNotContain("Renamed Locally", ReadFile(context, ".mcs/botdefinition.json"), StringComparison.Ordinal);
@@ -431,11 +431,11 @@ public class MergeConflictPreservationTests
     private static void SetupChangeset(PullContext context, BotComponentChange change)
         => context.Island
             .Setup(island => island.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new PvaComponentChangeSet(new[] { change }, CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}\ntemplate: cliagent-1.0.0\n")!, Guid.NewGuid().ToString("N")));
+            .ReturnsAsync(new PvaComponentChangeSet(new[] { change }, (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")), Guid.NewGuid().ToString("N")));
 
     private static void SetupSettingsChangeset(PullContext context, string displayName)
     {
-        var builder = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}\ndisplayName: {displayName}\ntemplate: cliagent-1.0.0\n")!.ToBuilder();
+        var builder = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}\ndisplayName: {displayName}\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ToBuilder();
         builder.Version = 2;
         context.Island
             .Setup(island => island.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
@@ -460,7 +460,7 @@ public class MergeConflictPreservationTests
             description: description,
             id: id,
             parentBotComponentId: default,
-            dialog: dialog!).ToBuilder();
+            dialog: (dialog ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))).ToBuilder();
         builder.Version = version;
         return (DialogComponent)builder.Build();
     }
@@ -505,7 +505,7 @@ public class MergeConflictPreservationTests
         using var stream = context.Accessor.OpenRead(new AgentFilePath(".mcs/botdefinition.json"));
         using (YamlSerializationContext.UseYamlPassThroughSerializationContext())
         {
-            return JsonSerializer.Deserialize<DefinitionBase>(stream, ElementSerializer.CreateOptions())!;
+            return (JsonSerializer.Deserialize<DefinitionBase>(stream, ElementSerializer.CreateOptions()) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         }
     }
 }

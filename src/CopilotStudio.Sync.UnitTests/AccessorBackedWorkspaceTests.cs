@@ -44,7 +44,7 @@ public class AccessorBackedWorkspaceTests
             ConnectionReferences = ImmutableArray.Create(connectionReference),
         };
 
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         mockIsland
             .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PvaComponentChangeSet(null, botEntity, "token-1"));
@@ -104,7 +104,7 @@ public class AccessorBackedWorkspaceTests
             ConnectionReferences = ImmutableArray.Create(connectionReference),
         };
 
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         mockIsland
             .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PvaComponentChangeSet(null, botEntity, "token-1"));
@@ -149,7 +149,7 @@ public class AccessorBackedWorkspaceTests
         var componentId = Guid.NewGuid();
         var fileComponent = CreateFileComponent("cr1.file.Doc", "Doc.txt", componentId);
         var cloudCache = new BotDefinition()
-            .WithEntity(CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1")!)
+            .WithEntity((CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")))
             .WithComponents(new BotComponentBase[] { fileComponent });
         WorkspaceSynchronizer.WriteCloudCache(fileAccessor, cloudCache);
 
@@ -180,7 +180,7 @@ public class AccessorBackedWorkspaceTests
 
         var fileComponent = CreateFileComponent("cr1.file.Doc", "Doc.txt", Guid.NewGuid());
         var cloudCache = new BotDefinition()
-            .WithEntity(CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1")!)
+            .WithEntity((CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")))
             .WithComponents(new BotComponentBase[] { fileComponent });
         WorkspaceSynchronizer.WriteCloudCache(fileAccessor, cloudCache);
 
@@ -279,7 +279,7 @@ public class AccessorBackedWorkspaceTests
         var workspace = new DirectoryPath("c:/test/pull-all-knowledge-inmemory/");
         var fileAccessor = fileAccessorFactory.Create(workspace);
 
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var fileComponent = CreateFileComponent("cr1.file.Doc", "Doc.txt", Guid.NewGuid());
 
         WorkspaceSynchronizer.WriteCloudCache(fileAccessor, new BotDefinition().WithEntity(botEntity));

@@ -35,7 +35,7 @@ public class DataverseRetryPolicyTests
         {
             Requests.Add(new SentRequest(
                 request.Method,
-                request.RequestUri!.ToString(),
+                (request.RequestUri ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ToString(),
                 request.Headers.TryGetValues("x-ms-client-request-id", out var clientRequestIds) ? string.Join(",", clientRequestIds) : null,
                 request.Headers.Authorization?.ToString(),
                 request.Options.TryGetValue(TraceOption, out var trace) ? trace : null,

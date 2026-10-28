@@ -26,7 +26,7 @@ public class ChildAgentFolderPruneTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-prune-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         // Clone an agent that has one child agent projected under a display-name folder.
         var cloudAgent = CreateAgentDialogComponent($"{Bot}.agent.Agent_2qD", "Balance Agent", Guid.NewGuid());
@@ -78,7 +78,7 @@ public class ChildAgentFolderPruneTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-agent-know-prune-{Guid.NewGuid():N}/");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         // Clone an agent with one child agent that owns a knowledge file.
         var childAgentId = Guid.NewGuid();
@@ -165,7 +165,7 @@ public class ChildAgentFolderPruneTests
         using var stream = fileAccessor.OpenRead(new AgentFilePath(".mcs/botdefinition.json"));
         using (YamlSerializationContext.UseYamlPassThroughSerializationContext())
         {
-            return JsonSerializer.Deserialize<DefinitionBase>(stream, ElementSerializer.CreateOptions())!;
+            return (JsonSerializer.Deserialize<DefinitionBase>(stream, ElementSerializer.CreateOptions()) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         }
     }
 

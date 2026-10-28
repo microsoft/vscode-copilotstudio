@@ -69,11 +69,11 @@ public class CliFileParserTests
         var ctx = new ProjectionContext(BotName: Bot);
         var relativePath = new AgentFilePath(filePath);
 
-        var (component, error) = parser.CompileFile(relativePath, model!, ctx, AuthoringShape.CliCopilot);
+        var (component, error) = parser.CompileFile(relativePath, model, ctx, AuthoringShape.CliCopilot);
 
         Assert.Null(error);
         Assert.NotNull(component);
-        Assert.Equal(expectedSchemaName, component!.SchemaNameString);
+        Assert.Equal(expectedSchemaName, component.SchemaNameString);
     }
 
     [Theory]
@@ -100,7 +100,7 @@ public class CliFileParserTests
             Id = new BotComponentId(Guid.NewGuid()),
             DisplayName = displayName,
             Description = description,
-        }.Build().WithDialog((DialogBase)dialog!);
+        }.Build().WithDialog((DialogBase)dialog);
 
         using var sw = new StringWriter();
         CodeSerializer.SerializeAsMcsYml(sw, component);
@@ -134,14 +134,14 @@ public class CliFileParserTests
             Id = new BotComponentId(Guid.NewGuid()),
             DisplayName = displayName,
             Description = description,
-        }.Build().WithDialog((DialogBase)dialog!);
+        }.Build().WithDialog((DialogBase)dialog);
 
         var bot = new BotDefinition().WithComponents(System.Collections.Immutable.ImmutableArray.Create((BotComponentBase)component));
         var plainJson = System.Text.Json.JsonSerializer.Serialize<DefinitionBase>(bot, ElementSerializer.CreateOptions());
         var plainRoundTripped = System.Text.Json.JsonSerializer.Deserialize<DefinitionBase>(plainJson, ElementSerializer.CreateOptions());
         using (var swPlain = new StringWriter())
         {
-            CodeSerializer.SerializeAsMcsYml(swPlain, plainRoundTripped!.Components.Single());
+            CodeSerializer.SerializeAsMcsYml(swPlain, (plainRoundTripped ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Components.Single());
             Assert.DoesNotContain("mcs.metadata:", swPlain.ToString());
         }
 
@@ -156,7 +156,7 @@ public class CliFileParserTests
             roundTripped = System.Text.Json.JsonSerializer.Deserialize<DefinitionBase>(json, ElementSerializer.CreateOptions());
         }
         Assert.NotNull(roundTripped);
-        var rtComponent = roundTripped!.Components.Single();
+        var rtComponent = roundTripped.Components.Single();
 
         using var sw = new StringWriter();
         CodeSerializer.SerializeAsMcsYml(sw, rtComponent);
@@ -176,11 +176,11 @@ public class CliFileParserTests
         DefinitionBase? definition;
         using (YamlSerializationContext.UseYamlPassThroughSerializationContext())
         {
-            definition = System.Text.Json.JsonSerializer.Deserialize<DefinitionBase>(stream!, ElementSerializer.CreateOptions());
+            definition = System.Text.Json.JsonSerializer.Deserialize<DefinitionBase>(stream, ElementSerializer.CreateOptions());
         }
         Assert.NotNull(definition);
 
-        var skill = definition!.Components
+        var skill = definition.Components
             .OfType<DialogComponent>()
             .Single(dc => dc.Dialog is InlineAgentSkill);
 
@@ -190,8 +190,8 @@ public class CliFileParserTests
         var structuredJson = System.Text.Json.JsonSerializer.Serialize<DefinitionBase>(
             new BotDefinition().WithComponents(System.Collections.Immutable.ImmutableArray.Create((BotComponentBase)skill)),
             ElementSerializer.CreateOptions());
-        var cloudSkill = System.Text.Json.JsonSerializer
-            .Deserialize<DefinitionBase>(structuredJson, ElementSerializer.CreateOptions())!
+        var cloudSkill = (System.Text.Json.JsonSerializer
+            .Deserialize<DefinitionBase>(structuredJson, ElementSerializer.CreateOptions()) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))
             .Components.OfType<DialogComponent>().Single();
 
         // The structured (non-pass-through) round-trip strips mcs.metadata: this probe
@@ -211,7 +211,7 @@ public class CliFileParserTests
         // The cloud component is the pass-through-loaded skill (carries mcs.metadata in
         // ExtensionData, exactly as a real Island clone delivers it), so the converged
         // SerializeAsMcsYml writer re-emits mcs.metadata at the behaviors/ path.
-        var botEntity = ((BotDefinition)definition!).Entity!;
+        var botEntity = (((BotDefinition)definition).Entity ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         Assert.Equal(AuthoringShape.CliCopilot, AgentClassifier.DetectAuthoringShape(botEntity));
         var changeset = new PvaComponentChangeSet(
             new System.Collections.Generic.List<BotComponentChange> { new BotComponentInsert(skill) },
@@ -239,9 +239,9 @@ public class CliFileParserTests
         var skillFile = allFiles.FirstOrDefault(f => f.StartsWith("behaviors/", StringComparison.OrdinalIgnoreCase) && f.EndsWith(".mcs.yml", StringComparison.OrdinalIgnoreCase));
         Assert.True(skillFile is not null, "Expected a behaviors/*.mcs.yml file. Written files:\n" + string.Join("\n", allFiles));
 
-        var written = await fileAccessor.ReadStringAsync(new AgentFilePath(skillFile!), System.Threading.CancellationToken.None);
+        var written = await fileAccessor.ReadStringAsync(new AgentFilePath(skillFile), System.Threading.CancellationToken.None);
         Assert.True(written.Contains("mcs.metadata:"), "WRITTEN FILE (" + skillFile + "):\n" + written);
-        Assert.Contains(skill.DisplayName!, written);
+        Assert.Contains(skill.DisplayName, written);
         Assert.Contains("kind: InlineAgentSkill", written);
     }
 }

@@ -528,8 +528,8 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
 
             return botDefinition.DescendantsAndSelf().OfType<GlobalVariableComponent>()
                 .Select(component => GlobalVariableReferenceService.GetVariableName(component.SchemaNameString))
+                .OfType<string>()
                 .Where(candidate => !string.IsNullOrEmpty(candidate) && !string.Equals(candidate, variableName, StringComparison.Ordinal))
-                .Select(candidate => candidate!)
                 .Distinct()
                 .Select(candidate => (Name: candidate, Distance: LevenshteinDistance(candidate, variableName)))
                 .Where(candidate => candidate.Distance <= 3 && candidate.Distance < variableName.Length)

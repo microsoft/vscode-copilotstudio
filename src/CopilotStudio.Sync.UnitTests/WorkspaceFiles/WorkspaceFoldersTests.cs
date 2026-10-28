@@ -108,7 +108,7 @@ public class WorkspaceFoldersTests : IDisposable
 
         var pulled = await synchronizer.PullAsync(workflowId, workspace, CancellationToken.None);
 
-        Assert.Equal(WorkflowWorkspace.RelativeFolderFor("Before", workflowId), pulled.Download!.PreviousFolder);
+        Assert.Equal(WorkflowWorkspace.RelativeFolderFor("Before", workflowId), (pulled.Download ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).PreviousFolder);
         Assert.Equal([WorkflowWorkspace.FolderNameFor("After", workflowId)], Directory.GetDirectories(WorkflowWorkspace.WorkflowsDirectory(_root)).Select(Path.GetFileName));
     }
 

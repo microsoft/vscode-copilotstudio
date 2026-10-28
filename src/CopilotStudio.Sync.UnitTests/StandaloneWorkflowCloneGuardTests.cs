@@ -72,7 +72,7 @@ public class StandaloneWorkflowCloneGuardTests : IDisposable
 
         var first = await CloneAsync(client, workflowId);
         var metadataPath = WorkflowWorkspace.FindAll(first.ProjectRoot).Single().MetadataPath;
-        var metadata = WorkflowMetadataFile.ReadStrict(File.ReadAllText(metadataPath))!;
+        var metadata = (WorkflowMetadataFile.ReadStrict(File.ReadAllText(metadataPath)) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         metadata.Name = "Renamed Locally";
 
         File.WriteAllText(metadataPath, WorkflowMetadataFile.Write(metadata));

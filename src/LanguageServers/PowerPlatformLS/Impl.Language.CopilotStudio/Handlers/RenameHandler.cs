@@ -45,7 +45,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Handlers
             }
 
             var definitionUri = _referenceService.TryGetDefinitionUri(context, identity, out var resolvedUri) ? resolvedUri : null;
-            return Task.FromResult<WorkspaceEdit?>(RenameEditFactory.Build(references, newName!, definitionUri));
+            return Task.FromResult<WorkspaceEdit?>(RenameEditFactory.Build(references, newName, definitionUri));
         }
     }
 }

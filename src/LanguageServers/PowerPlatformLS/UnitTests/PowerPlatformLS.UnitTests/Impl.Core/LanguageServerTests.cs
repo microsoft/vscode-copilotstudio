@@ -70,14 +70,14 @@
             // Open a valid document, expect no diagnostics.
             {
                 var openResult = await context.OpenFileAsync();
-                Assert.Empty(openResult.Diagnostics.Where(x => x.Severity < DiagnosticSeverity.Warning));
+                Assert.DoesNotContain(openResult.Diagnostics, x => x.Severity < DiagnosticSeverity.Warning);
             }
 
             // Introduce an error, expect diagnostics on change.
             var change = ChangeEvents.InsertTextAt("2", 14, 24);
             var changeResponse = await context.ChangeFileAsync(change) as LspJsonRpcMessage;
             var changeResult = JsonRpc.GetValidParams<DiagnosticsParams>(changeResponse);
-            var diag = Assert.Single(changeResult.Diagnostics.Where(x => x.Severity < DiagnosticSeverity.Warning));
+            var diag = Assert.Single(changeResult.Diagnostics, x => x.Severity < DiagnosticSeverity.Warning);
             Assert.Equal(DiagnosticSeverity.Error, diag.Severity);
             Assert.Equal("Node is unknown to the system", diag.Message);
 
@@ -85,7 +85,7 @@
             change = ChangeEvents.EraseCharacterAt(14, 24);
             changeResponse = await context.ChangeFileAsync(change) as LspJsonRpcMessage;
             changeResult = JsonRpc.GetValidParams<DiagnosticsParams>(changeResponse);
-            Assert.Empty(changeResult.Diagnostics.Where(x => x.Severity < DiagnosticSeverity.Warning));
+            Assert.DoesNotContain(changeResult.Diagnostics, x => x.Severity < DiagnosticSeverity.Warning);
         }
 
         [Fact]

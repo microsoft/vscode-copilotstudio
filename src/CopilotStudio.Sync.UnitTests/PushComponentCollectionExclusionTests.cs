@@ -31,7 +31,7 @@ public class PushComponentCollectionExclusionTests
         var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/cc-remote/"));
 
-        var entity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!;
+        var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var collectionOwnedTopic = CollectionOwnedTopic("cre98_AgentC1.topic.Shared", "Shared", Guid.NewGuid());
         var appliedDefinition = new BotDefinition()
             .WithEntity(entity)
@@ -40,7 +40,7 @@ public class PushComponentCollectionExclusionTests
 
         var (changeSet, _) = synchronizer.GetLocalChanges(appliedDefinition, cloudSnapshot, fileAccessor, "token-1", isRemoteChange: true);
 
-        var inserts = changeSet.BotComponentChanges.OfType<BotComponentInsert>().Select(insert => insert.Component!.SchemaNameString).ToList();
+        var inserts = changeSet.BotComponentChanges.OfType<BotComponentInsert>().Select(insert => (insert.Component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).SchemaNameString).ToList();
         Assert.Contains("cre98_AgentC1.topic.NewAgentOwned", inserts);
         Assert.DoesNotContain("cre98_AgentC1.topic.Shared", inserts);
     }
@@ -51,7 +51,7 @@ public class PushComponentCollectionExclusionTests
         var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/cc-skip/"));
 
-        var entity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!;
+        var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var localDefinition = new BotDefinition()
             .WithEntity(entity)
             .WithComponents(new[] { Topic("cre98_AgentC1.topic.Own", "Own"), Topic("cre98_AgentC1.topic.Shared", "Shared") });
@@ -60,7 +60,7 @@ public class PushComponentCollectionExclusionTests
         var collectionOwned = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "cre98_AgentC1.topic.Shared" };
         var (changeSet, _) = synchronizer.GetLocalChanges(localDefinition, cloudSnapshot, fileAccessor, "token-1", isRemoteChange: false, deferMissingParents: false, out _, collectionOwned);
 
-        var inserts = changeSet.BotComponentChanges.OfType<BotComponentInsert>().Select(insert => insert.Component!.SchemaNameString).ToList();
+        var inserts = changeSet.BotComponentChanges.OfType<BotComponentInsert>().Select(insert => (insert.Component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).SchemaNameString).ToList();
         Assert.Contains("cre98_AgentC1.topic.Own", inserts);
         Assert.DoesNotContain("cre98_AgentC1.topic.Shared", inserts);
     }
@@ -75,11 +75,11 @@ public class PushComponentCollectionExclusionTests
 
         var sharedComponent = Topic("cre98_AgentC1.topic.Shared", "Shared");
         var collectionAccessor = fileAccessorFactory.Create(collectionFolder);
-        var collection = CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_cc\ndisplayName: CC")!;
+        var collection = (CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_cc\ndisplayName: CC") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         WorkspaceSynchronizer.WriteCloudCache(collectionAccessor, new BotComponentCollectionDefinition().WithComponentCollection(collection).WithComponents(new[] { sharedComponent }));
         await collectionAccessor.WriteAsync(new AgentFilePath("topics/cre98_AgentC1.topic.Shared.mcs.yml"), "mcs.metadata:\n  componentName: Shared\nkind: AdaptiveDialog\n", CancellationToken.None);
 
-        var cloudEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!.ToBuilder();
+        var cloudEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ToBuilder();
         cloudEntity.CdsBotId = agentId;
         var agentAccessor = fileAccessorFactory.Create(agentFolder);
         WorkspaceSynchronizer.WriteCloudCache(agentAccessor, new BotDefinition().WithEntity(cloudEntity.Build()));
@@ -91,7 +91,7 @@ public class PushComponentCollectionExclusionTests
 
         var (changeSet, _) = await synchronizer.GetLocalChangesAsync(agentFolder, localDefinition, new Mock<ISyncDataverseClient>().Object, new AgentSyncInfo { AgentId = agentId }, CancellationToken.None);
 
-        var inserts = changeSet.BotComponentChanges.OfType<BotComponentInsert>().Select(insert => insert.Component!.SchemaNameString).ToList();
+        var inserts = changeSet.BotComponentChanges.OfType<BotComponentInsert>().Select(insert => (insert.Component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).SchemaNameString).ToList();
         Assert.Contains("cre98_AgentC1.topic.Own", inserts);
         Assert.DoesNotContain("cre98_AgentC1.topic.Shared", inserts);
     }
@@ -105,14 +105,14 @@ public class PushComponentCollectionExclusionTests
         var agentId = Guid.NewGuid();
 
         var collectionAccessor = fileAccessorFactory.Create(collectionFolder);
-        var collection = CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_cc\ndisplayName: CC")!;
+        var collection = (CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_cc\ndisplayName: CC") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         WorkspaceSynchronizer.WriteCloudCache(collectionAccessor, new BotComponentCollectionDefinition().WithComponentCollection(collection));
         await collectionAccessor.WriteAsync(
             new AgentFilePath("topics/cre98_AgentB4CC.topic.Shared.mcs.yml"),
             "mcs.metadata:\n  componentName: Shared\nkind: AdaptiveDialog\n",
             CancellationToken.None);
 
-        var cloudEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!.ToBuilder();
+        var cloudEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ToBuilder();
         cloudEntity.CdsBotId = agentId;
         var agentAccessor = fileAccessorFactory.Create(agentFolder);
         WorkspaceSynchronizer.WriteCloudCache(agentAccessor, new BotDefinition().WithEntity(cloudEntity.Build()));
@@ -124,7 +124,7 @@ public class PushComponentCollectionExclusionTests
 
         var (changeSet, _) = await synchronizer.GetLocalChangesAsync(agentFolder, localDefinition, new Mock<ISyncDataverseClient>().Object, new AgentSyncInfo { AgentId = agentId }, CancellationToken.None);
 
-        var inserts = changeSet.BotComponentChanges.OfType<BotComponentInsert>().Select(insert => insert.Component!.SchemaNameString).ToList();
+        var inserts = changeSet.BotComponentChanges.OfType<BotComponentInsert>().Select(insert => (insert.Component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).SchemaNameString).ToList();
         Assert.Contains("cre98_AgentC1.topic.Own", inserts);
         Assert.DoesNotContain("cre98_AgentB4CC.topic.Shared", inserts);
     }
@@ -135,7 +135,7 @@ public class PushComponentCollectionExclusionTests
         var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/cc-none/"));
 
-        var entity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!;
+        var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var localDefinition = new BotDefinition()
             .WithEntity(entity)
             .WithComponents(new[] { Topic("cre98_AgentC1.topic.One", "One"), Topic("cre98_AgentC1.topic.Two", "Two") });
@@ -143,7 +143,7 @@ public class PushComponentCollectionExclusionTests
 
         var (changeSet, _) = synchronizer.GetLocalChanges(localDefinition, cloudSnapshot, fileAccessor, "token-1", isRemoteChange: false, deferMissingParents: false, out _, null);
 
-        var inserts = changeSet.BotComponentChanges.OfType<BotComponentInsert>().Select(insert => insert.Component!.SchemaNameString).ToList();
+        var inserts = changeSet.BotComponentChanges.OfType<BotComponentInsert>().Select(insert => (insert.Component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).SchemaNameString).ToList();
         Assert.Contains("cre98_AgentC1.topic.One", inserts);
         Assert.Contains("cre98_AgentC1.topic.Two", inserts);
     }

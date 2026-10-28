@@ -96,7 +96,7 @@ public class StandaloneWorkflowSafetyFixTests : IDisposable
 
         Assert.Equal(StandaloneWorkflowFailure.ConnectionsNotReady, failure.Failure);
         Assert.DoesNotContain("delete", client.Calls);
-        Assert.Equal("""{"properties":{"a":1}}""", client.Stored(workflowId)!.ClientData);
+        Assert.Equal("""{"properties":{"a":1}}""", (client.Stored(workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ClientData);
     }
 
     [Fact]
@@ -114,7 +114,7 @@ public class StandaloneWorkflowSafetyFixTests : IDisposable
 
         Assert.DoesNotContain("delete", client.Calls);
         Assert.Contains("start", client.Calls);
-        Assert.Equal(1, client.Stored(workflowId)!.StateCode);
+        Assert.Equal(1, (client.Stored(workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StateCode);
     }
 
     [Fact]
@@ -194,7 +194,7 @@ public class StandaloneWorkflowSafetyFixTests : IDisposable
         var result = await new StandaloneWorkflowSynchronizer(client).UpsertAsync(WorkspaceWith(workflowId, "Flow", DefinitionWithReference, stateCode: 1), "env", CancellationToken.None, Retargeting);
 
         Assert.Contains("stop", client.Calls);
-        Assert.Equal(0, client.Stored(workflowId)!.StateCode);
+        Assert.Equal(0, (client.Stored(workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StateCode);
         Assert.False(result.Workflow.IsActivated);
     }
 
@@ -283,7 +283,7 @@ public class StandaloneWorkflowSafetyFixTests : IDisposable
 
         await synchronizer.DownloadAsync(workflowId, workspace, "env", CancellationToken.None);
 
-        var renamed = client.Stored(workflowId)!;
+        var renamed = (client.Stored(workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         renamed.Name = "flow";
         renamed.ClientData = """{"properties":{"a":2}}""";
         client.Seed(renamed);
@@ -292,7 +292,7 @@ public class StandaloneWorkflowSafetyFixTests : IDisposable
 
         Assert.Equal(WorkflowWorkspace.RelativeFolderFor("flow", workflowId), download.Folder);
         Assert.Equal(workflowId, Assert.Single(WorkflowWorkspace.FindAll(workspace)).WorkflowId);
-        Assert.Contains("\"a\": 2", Read(workspace, $"{download.Folder}/{WorkflowWorkspace.DefinitionFileName}")!, StringComparison.Ordinal);
+        Assert.Contains("\"a\": 2", (Read(workspace, $"{download.Folder}/{WorkflowWorkspace.DefinitionFileName}") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")), StringComparison.Ordinal);
         Assert.Equal(
             Read(workspace, $"{download.Folder}/{WorkflowWorkspace.DefinitionFileName}"),
             Read(workspace, $"{WorkflowWorkspace.RelativeFolderFor("Flow", workflowId)}/{WorkflowWorkspace.DefinitionFileName}"));
@@ -318,7 +318,7 @@ public class StandaloneWorkflowSafetyFixTests : IDisposable
 
         await synchronizer.DownloadAsync(workflowId, workspace, "env", CancellationToken.None);
 
-        var renamed = client.Stored(workflowId)!;
+        var renamed = (client.Stored(workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         renamed.Name = "flow";
         client.Seed(renamed);
 
@@ -343,7 +343,7 @@ public class StandaloneWorkflowSafetyFixTests : IDisposable
 
         await synchronizer.DownloadAsync(workflowId, workspace, "env", CancellationToken.None);
 
-        var renamed = client.Stored(workflowId)!;
+        var renamed = (client.Stored(workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         renamed.Name = "Other";
         client.Seed(renamed);
 
@@ -389,7 +389,7 @@ public class StandaloneWorkflowSafetyFixTests : IDisposable
 
         await synchronizer.DownloadAsync(workflowId, workspace, "env", CancellationToken.None);
 
-        var renamed = client.Stored(workflowId)!;
+        var renamed = (client.Stored(workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         renamed.Name = "flow";
         renamed.ClientData = """{"properties":{"a":2}}""";
         client.Seed(renamed);

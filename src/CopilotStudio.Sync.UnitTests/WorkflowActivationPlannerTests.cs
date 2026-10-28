@@ -227,7 +227,9 @@ public class WorkflowActivationPlannerTests
     [Fact]
     public async Task ActivateWhenBoundAsync_RejectsMissingArguments()
     {
+        // ! Null is intentional to verify argument validation.
         await Assert.ThrowsAsync<ArgumentNullException>(() => WorkflowActivationPlanner.ActivateWhenBoundAsync(null!, ClientReturning(), CancellationToken.None));
+        // ! Null is intentional to verify argument validation.
         await Assert.ThrowsAsync<ArgumentNullException>(() => WorkflowActivationPlanner.ActivateWhenBoundAsync([], null!, CancellationToken.None));
     }
 
@@ -380,15 +382,20 @@ public class WorkflowActivationPlannerTests
     [Fact]
     public async Task TryStartAsync_RejectsMissingArguments()
     {
+        // ! Null is intentional to verify argument validation.
         await Assert.ThrowsAsync<ArgumentNullException>(() => WorkflowActivationPlanner.TryStartAsync(null!, new Mock<IStandaloneWorkflowDataverseClient>().Object, CancellationToken.None));
+        // ! Null is intentional to verify argument validation.
         await Assert.ThrowsAsync<ArgumentNullException>(() => WorkflowActivationPlanner.TryStartAsync(Workflow(1), null!, CancellationToken.None));
     }
 
     [Fact]
     public async Task DraftUnboundActivationsAsync_RejectsMissingArguments()
     {
+        // ! Null is intentional to verify argument validation.
         await Assert.ThrowsAsync<ArgumentNullException>(() => WorkflowActivationPlanner.DraftUnboundActivationsAsync(null!, ClientReturning(), CancellationToken.None));
+        // ! Null is intentional to verify argument validation.
         await Assert.ThrowsAsync<ArgumentNullException>(() => WorkflowActivationPlanner.DraftUnboundActivationsAsync([], (ISyncDataverseClient)null!, CancellationToken.None));
+        // ! Null is intentional to verify argument validation.
         await Assert.ThrowsAsync<ArgumentNullException>(() => WorkflowActivationPlanner.DraftStandaloneUnboundActivationsAsync([], null!, CancellationToken.None));
     }
 

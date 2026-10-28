@@ -61,7 +61,7 @@
         [InlineData("Workspace/LocalWorkspace/trigger/Whenanewemailarrives.23ef.mcs.yml", typeof(ExternalTriggerComponent), "When a new email arrives (V3)", "This is a trigger description.\nTriggered when a new email arrives in a specified folder.")]
         //[InlineData("Workspace/LocalWorkspace/skills/CopilotStudioEchoSkill.mcs.yml", typeof(SkillComponent), "CopilotStudioEchoSkill", "This is a sample Agent that can be called by Copilot Studio.\nCopilot Studio echo skill.")]
         [InlineData("Workspace/LocalWorkspace/translations/Greeting.pt-BR.mcs.yml", typeof(TranslationsComponent), "Greeting (pt-BR)", "Greeting topic in Brazilian Portuguese")]
-        public void CompileFileWithSupportedFile(string fileName, Type expectedComponentType, string expectedDisplayName, string expectedDescription)
+        public void CompileFileWithSupportedFile(string fileName, Type expectedComponentType, string expectedDisplayName, string? expectedDescription)
         {
             var world = new World();
             var doc = world.AddFile(fileName, elementCheck: true);
@@ -162,7 +162,7 @@
         [Theory]
         [InlineData("ElementWithValidMetadata.mcs.yml", "Book 1.xlsx", "This knowledge source provides information found in SharePoint.\nThe information is retrieved by performing a search.", "Note: This is comment note for source")]
         [InlineData("ElementWithInvalidField.mcs.yml", "Book1.xlsx", "This knowledge source provides information found in Book1.xlsx SharePoint.", null)]
-        public void TestElementWithMetadata(string fileName, string expectedDisplayName, string expectedDescription, string expectedComment)
+        public void TestElementWithMetadata(string fileName, string expectedDisplayName, string expectedDescription, string? expectedComment)
         {
             var world = new World();
             var doc = world.AddFile(fileName);
@@ -223,7 +223,7 @@
             }
             else
             {
-                Assert.True(false, "mcs.metadata not found in extensionData");
+                Assert.Fail("mcs.metadata not found in extensionData");
             }
         }
     }

@@ -375,7 +375,7 @@ public class CliAgentConnectionsReaderTests
         var def = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)
                   ?? throw new InvalidOperationException($"ReadCloudCacheSnapshot returned null for {fixtureName}.");
         var botDef = (BotDefinition)def;
-        return (botDef.Entity!, botDef);
+        return ((botDef.Entity ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")), botDef);
     }
 
     private static byte[] LoadFixtureBytes(string fixtureName)
@@ -425,7 +425,7 @@ public class CliAgentConnectionsReaderTests
         {
             s.Write(bytes, 0, bytes.Length);
         }
-        var def = (BotDefinition)WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        var def = (BotDefinition)(WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         return def.ConnectionReferences.Single();
     }
 }
