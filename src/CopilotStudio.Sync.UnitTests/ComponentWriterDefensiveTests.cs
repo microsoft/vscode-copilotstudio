@@ -113,6 +113,8 @@ public class ComponentWriterDefensiveTests
         return new AuthoringOperationContext(principal, orgInfo, botRef, null, false);
     }
 
+    internal static BotDefinition CreateAgentDefinition() => new BotDefinition().WithEntity(CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: testbot")!);
+
     internal static (WorkspaceSynchronizer sync, InMemoryFileAccessorFactory factory, Mock<IIslandControlPlaneService> island) CreateSyncInfrastructure(ISyncProgress? progress = null)
     {
         progress ??= new TestSyncProgress(new List<string>());

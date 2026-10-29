@@ -1,8 +1,8 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Threading;
-using System.Threading.Tasks;
+// Copyright (C) Microsoft Corporation. All rights reserved.
+
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using Microsoft.Agents.ObjectModel;
 using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Moq;
@@ -48,6 +48,18 @@ public class CustomConnectorPushTests : IDisposable
         return new WorkspaceSynchronizer(fileParser, fileAccessorFactory, island.Object, progress, pathResolver);
     }
 
+    private static Mock<ISyncDataverseClient> CreateDataverse(Func<CustomConnectorMetadata, CustomConnectorMetadata>? storeConnector = null)
+    {
+        var dataverse = new Mock<ISyncDataverseClient>();
+        dataverse
+            .Setup(c => c.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((CustomConnectorMetadata connector, bool _, CancellationToken _) => storeConnector?.Invoke(connector) ?? connector);
+        return dataverse;
+    }
+
+    private static CustomConnectorMetadata Clone(CustomConnectorMetadata connector) =>
+        JsonSerializer.Deserialize<CustomConnectorMetadata>(JsonSerializer.Serialize(connector))!;
+
     private void WriteConnectorFiles(string openApiJson)
     {
         var metadata =
@@ -61,67 +73,167 @@ public class CustomConnectorPushTests : IDisposable
             "}";
 
         File.WriteAllText(Path.Combine(_connectorFolder, "metadata.yml"), metadata);
+        WriteOpenApiDefinition(openApiJson);
+    }
+
+    private void WriteOpenApiDefinition(string openApiJson) =>
         File.WriteAllText(Path.Combine(_connectorFolder, "openapidefinition.json"), openApiJson);
+
+    private Dictionary<string, string> ReadBaseline(string fileName) =>
+        JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(Path.Combine(_root, ".mcs", fileName)))!;
+
+    private string? ReadCloudCopy(string fileSuffix = "") => SyncedAssetKind.ReadCloudCopy(new FileAccessorFactory().Create(_workspace), $"Mcs.Connector.{_connectorId}{fileSuffix}");
+
+    private async Task<IReadOnlyList<Change>> LocalConnectorChangesAsync(WorkspaceSynchronizer synchronizer)
+    {
+        WorkspaceSynchronizer.WriteCloudCache(new FileAccessorFactory().Create(_workspace), ComponentWriterDefensiveTests.CreateAgentDefinition());
+        var (_, changes) = await synchronizer.GetLocalChangesAsync(_workspace, ComponentWriterDefensiveTests.CreateAgentDefinition(), CancellationToken.None);
+        return changes.Where(change => change.ChangeKind == CustomConnectorLayout.ChangeKind).ToList();
     }
 
     [Fact]
-    public async Task PushCustomConnectorsAsync_UnchangedSinceLastPush_SkipsUpsert()
+    public async Task LocalChanges_OpenApiEditedAfterPush_ReportsTheOpenApiFileAndKeepsTheServerCloudCopy()
+    {
+        var synchronizer = CreateSynchronizer();
+        WriteConnectorFiles("{\"swagger\":\"2.0\"}");
+        await synchronizer.PushCustomConnectorsAsync(_workspace, CreateDataverse().Object, CancellationToken.None);
+        var cloudCopy = ReadCloudCopy(".openapidefinition");
+
+        WriteOpenApiDefinition("{\"swagger\":\"2.0\",\"host\":\"local.example.com\"}");
+        var change = Assert.Single(await LocalConnectorChangesAsync(synchronizer));
+
+        Assert.Equal(ChangeType.Update, change.ChangeType);
+        Assert.Equal($"connectors/MyConnector-{_connectorId}/openapidefinition.json", change.Uri);
+        Assert.Equal($"Mcs.Connector.{_connectorId}.openapidefinition", change.SchemaName);
+        Assert.Equal(cloudCopy, ReadCloudCopy(".openapidefinition"));
+    }
+
+    [Fact]
+    public async Task LocalChanges_WorkspaceSyncedWithoutCloudCopies_ReportsTheConnectorOnItsMetadataFile()
+    {
+        var synchronizer = CreateSynchronizer();
+        WriteConnectorFiles("{\"swagger\":\"2.0\"}");
+        await synchronizer.PushCustomConnectorsAsync(_workspace, CreateDataverse().Object, CancellationToken.None);
+        File.Delete(Path.Combine(_root, ".mcs", ".connectors-cache.json"));
+
+        WriteOpenApiDefinition("{\"swagger\":\"2.0\",\"host\":\"local.example.com\"}");
+        var change = Assert.Single(await LocalConnectorChangesAsync(synchronizer));
+
+        Assert.Equal($"connectors/MyConnector-{_connectorId}/metadata.yml", change.Uri);
+        Assert.Equal($"Mcs.Connector.{_connectorId}", change.SchemaName);
+    }
+
+    [Fact]
+    public async Task PushCustomConnectorsAsync_UnchangedSinceLastPush_MakesNoCall()
     {
         var synchronizer = CreateSynchronizer();
         WriteConnectorFiles("{\n  \"swagger\": \"2.0\"\n}");
-
-        var dataverse = new Mock<ISyncDataverseClient>();
-        dataverse
-            .Setup(c => c.UpsertConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(false);
+        var dataverse = CreateDataverse();
 
         await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
         await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
 
         dataverse.Verify(
-            c => c.UpsertConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<CancellationToken>()),
+            c => c.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+        dataverse.Verify(
+            c => c.GetConnectorVersionsByIdsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
     [Fact]
-    public async Task PushCustomConnectorsAsync_ContentChanged_ReUpserts()
+    public async Task PushCustomConnectorsAsync_ContentChanged_SavesAgain()
     {
         var synchronizer = CreateSynchronizer();
         WriteConnectorFiles("{\n  \"swagger\": \"2.0\"\n}");
-
-        var dataverse = new Mock<ISyncDataverseClient>();
-        dataverse
-            .Setup(c => c.UpsertConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(false);
+        var dataverse = CreateDataverse();
 
         await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
 
-        WriteConnectorFiles("{\n  \"swagger\": \"2.0\",\n  \"host\": \"example.com\"\n}");
+        WriteOpenApiDefinition("{\n  \"swagger\": \"2.0\",\n  \"host\": \"example.com\"\n}");
         await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
 
         dataverse.Verify(
-            c => c.UpsertConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<CancellationToken>()),
+            c => c.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Exactly(2));
     }
 
     [Fact]
-    public async Task PushCustomConnectorsAsync_WhitespaceOnlyJsonChange_SkipsUpsert()
+    public async Task PushCustomConnectorsAsync_WhitespaceOnlyJsonChange_SkipsSave()
     {
         var synchronizer = CreateSynchronizer();
         WriteConnectorFiles("{\"swagger\":\"2.0\",\"host\":\"example.com\"}");
-
-        var dataverse = new Mock<ISyncDataverseClient>();
-        dataverse
-            .Setup(c => c.UpsertConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(false);
+        var dataverse = CreateDataverse();
 
         await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
 
-        WriteConnectorFiles("{\n  \"swagger\": \"2.0\",\n  \"host\": \"example.com\"\n}");
+        WriteOpenApiDefinition("{\"swagger\":   \"2.0\",\n\"host\":\"example.com\"}");
         await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
 
         dataverse.Verify(
-            c => c.UpsertConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<CancellationToken>()),
+            c => c.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    [Fact]
+    public async Task PushCustomConnectorsAsync_ServerCopyDiffersFromSent_WorkspaceAndBaselinesFollowTheServer()
+    {
+        var synchronizer = CreateSynchronizer();
+        WriteConnectorFiles("{\"swagger\":\"2.0\"}");
+        var dataverse = CreateDataverse(sent => new CustomConnectorMetadata
+        {
+            ConnectorId = sent.ConnectorId,
+            Name = sent.Name,
+            DisplayName = sent.DisplayName,
+            ConnectorInternalId = sent.ConnectorInternalId,
+            ConnectorType = sent.ConnectorType,
+            Description = "Normalized by the server",
+            OpenApiDefinition = "{\"swagger\":\"2.0\",\"info\":{\"title\":\"server\"}}",
+            VersionNumber = 7,
+        });
+
+        var result = await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
+
+        var metadata = JsonNode.Parse(File.ReadAllText(Path.Combine(_connectorFolder, "metadata.yml")))!;
+        Assert.Equal("Normalized by the server", metadata["description"]!.GetValue<string>());
+        Assert.Equal(7, metadata["versionnumber"]!.GetValue<long>());
+        Assert.Contains("\"title\": \"server\"", File.ReadAllText(Path.Combine(_connectorFolder, "openapidefinition.json")), StringComparison.Ordinal);
+        Assert.Equal("{}", File.ReadAllText(Path.Combine(_connectorFolder, "connectionparameters.json")));
+        Assert.Equal("{}", File.ReadAllText(Path.Combine(_connectorFolder, "policytemplateinstances.json")));
+        Assert.Equal(File.ReadAllText(Path.Combine(_connectorFolder, "metadata.yml")), ReadCloudCopy());
+        Assert.Equal(File.ReadAllText(Path.Combine(_connectorFolder, "openapidefinition.json")), ReadCloudCopy(".openapidefinition"));
+        Assert.Equal("7", ReadBaseline(".connectors-download.json")[_connectorId.ToString("N")]);
+        Assert.True(ReadBaseline(".connectors-sync.json").ContainsKey(_connectorId.ToString("N")));
+        var created = Assert.Single(result.Created);
+        Assert.Equal($"Mcs.Connector.{_connectorId}", created.SchemaName);
+        Assert.Empty(result.Updated);
+        Assert.Empty(result.Failed);
+
+        WorkspaceSynchronizer.WriteCloudCache(new FileAccessorFactory().Create(_workspace), ComponentWriterDefensiveTests.CreateAgentDefinition());
+        var (_, changes) = await synchronizer.GetLocalChangesAsync(_workspace, ComponentWriterDefensiveTests.CreateAgentDefinition(), CancellationToken.None);
+        await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
+
+        Assert.Empty(changes);
+        dataverse.Verify(
+            c => c.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task PushCustomConnectorsAsync_ServerRenamesConnector_ReusesTheExistingFolder()
+    {
+        var synchronizer = CreateSynchronizer();
+        WriteConnectorFiles("{\"swagger\":\"2.0\"}");
+        var dataverse = CreateDataverse(sent =>
+        {
+            var stored = Clone(sent);
+            stored.Name = "shared_renamed";
+            return stored;
+        });
+
+        await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
+
+        Assert.Equal(new[] { _connectorFolder }, Directory.GetDirectories(Path.Combine(_root, "connectors")));
+        Assert.Equal("shared_renamed", JsonNode.Parse(File.ReadAllText(Path.Combine(_connectorFolder, "metadata.yml")))!["name"]!.GetValue<string>());
     }
 }

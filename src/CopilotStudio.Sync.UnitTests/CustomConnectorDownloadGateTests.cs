@@ -143,6 +143,158 @@ public class CustomConnectorDownloadGateTests
     }
 
     [Fact]
+    public async Task SyncWorkspace_VersionBumpWithSameContent_RewritesOnlyMetadataAndReportsNoLocalChange()
+    {
+        var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath("c:/test/conn-gate-stable-" + Guid.NewGuid().ToString("N") + "/");
+        var files = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
+        var connectorRowId = Guid.NewGuid();
+        var cloudFlowMetadata = new CloudFlowMetadata
+        {
+            Workflows = ImmutableArray<CloudFlowDefinition>.Empty,
+            ConnectionReferences = ImmutableArray.Create(new ConnectionReference(
+                connectionReferenceLogicalName: "cr1.shared_test." + Guid.NewGuid().ToString("N"),
+                connectionId: string.Empty,
+                connectorId: "/providers/Microsoft.PowerApps/apis/shared_test")),
+        };
+
+        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1")!;
+        mockIsland
+            .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PvaComponentChangeSet(null, botEntity, "token-1"));
+
+        var probeVersion = 5L;
+        var mockDataverse = new Mock<ISyncDataverseClient>();
+        mockDataverse
+            .Setup(x => x.GetConnectorVersionsByInternalIdsAsync(It.IsAny<IEnumerable<string>>(), false, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new[] { new CustomConnectorMetadata { ConnectorId = connectorRowId, ConnectorInternalId = "shared_test", VersionNumber = probeVersion } });
+        mockDataverse
+            .Setup(x => x.DownloadConnectorsByInternalIdsAsync(It.IsAny<IEnumerable<string>>(), false, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new[]
+            {
+                new CustomConnectorMetadata
+                {
+                    ConnectorId = connectorRowId,
+                    ConnectorInternalId = "shared_test",
+                    Name = "TestConnector",
+                    OpenApiDefinition = "{\"swagger\":\"2.0\"}",
+                    IconBlobBase64 = Convert.ToBase64String(new byte[] { 1, 2, 3 }),
+                    VersionNumber = probeVersion,
+                },
+            });
+
+        var opContext = ComponentWriterDefensiveTests.CreateMockOperationContext();
+        var syncInfo = new AgentSyncInfo { AgentId = Guid.NewGuid() };
+        await synchronizer.SyncWorkspaceAsync(workspace, opContext, null, false, mockDataverse.Object, syncInfo, cloudFlowMetadata, CancellationToken.None);
+
+        var connectorFolder = $"connectors/TestConnector-{connectorRowId}";
+        var untouched = new[] { "openapidefinition.json", "connectionparameters.json", "policytemplateinstances.json", "iconblob.png" }.ToDictionary(fileName => $"{connectorFolder}/{fileName}", fileName => files.Files[$"{connectorFolder}/{fileName}"]);
+
+        probeVersion = 6L;
+        await synchronizer.SyncWorkspaceAsync(workspace, opContext, null, false, mockDataverse.Object, syncInfo, cloudFlowMetadata, CancellationToken.None);
+        var (_, localChanges) = await synchronizer.GetLocalChangesAsync(workspace, new BotDefinition().WithEntity(botEntity), CancellationToken.None);
+
+        Assert.All(untouched, file => Assert.Same(file.Value, files.Files[file.Key]));
+        Assert.Contains("\"versionnumber\": 6", await files.ReadStringAsync(new AgentFilePath($"{connectorFolder}/metadata.yml"), CancellationToken.None), StringComparison.Ordinal);
+        Assert.Contains("\"6\"", await files.ReadStringAsync(new AgentFilePath(".mcs/.connectors-download.json"), CancellationToken.None), StringComparison.Ordinal);
+        Assert.DoesNotContain(localChanges, change => change.ChangeKind == CustomConnectorLayout.ChangeKind);
+    }
+
+    [Fact]
+    public async Task SyncWorkspace_UnchangedConnectorWithoutCloudCopy_SeedsTheCloudCopyFromTheServerAndKeepsLocalEdits()
+    {
+        var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath("c:/test/conn-gate-seed-" + Guid.NewGuid().ToString("N") + "/");
+        var files = fileAccessorFactory.Create(workspace);
+        var connectorRowId = Guid.NewGuid();
+        var cloudFlowMetadata = new CloudFlowMetadata
+        {
+            Workflows = ImmutableArray<CloudFlowDefinition>.Empty,
+            ConnectionReferences = ImmutableArray.Create(new ConnectionReference(
+                connectionReferenceLogicalName: "cr1.shared_test." + Guid.NewGuid().ToString("N"),
+                connectionId: string.Empty,
+                connectorId: "/providers/Microsoft.PowerApps/apis/shared_test")),
+        };
+
+        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1")!;
+        mockIsland
+            .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PvaComponentChangeSet(null, botEntity, "token-1"));
+
+        var mockDataverse = new Mock<ISyncDataverseClient>();
+        mockDataverse
+            .Setup(x => x.GetConnectorVersionsByInternalIdsAsync(It.IsAny<IEnumerable<string>>(), false, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new[] { new CustomConnectorMetadata { ConnectorId = connectorRowId, ConnectorInternalId = "shared_test", VersionNumber = 5L } });
+        mockDataverse
+            .Setup(x => x.DownloadConnectorsByInternalIdsAsync(It.IsAny<IEnumerable<string>>(), false, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new[] { new CustomConnectorMetadata { ConnectorId = connectorRowId, ConnectorInternalId = "shared_test", Name = "TestConnector", OpenApiDefinition = "{\"swagger\":\"2.0\"}", VersionNumber = 5L } });
+
+        var opContext = ComponentWriterDefensiveTests.CreateMockOperationContext();
+        var syncInfo = new AgentSyncInfo { AgentId = Guid.NewGuid() };
+        await synchronizer.SyncWorkspaceAsync(workspace, opContext, null, false, mockDataverse.Object, syncInfo, cloudFlowMetadata, CancellationToken.None);
+
+        var openApiPath = new AgentFilePath($"connectors/TestConnector-{connectorRowId}/openapidefinition.json");
+        var localOpenApi = "{\"swagger\":\"2.0\",\"host\":\"local.example.com\"}";
+        await files.WriteAsync(openApiPath, localOpenApi, CancellationToken.None);
+        files.Delete(SyncedAssetKind.CustomConnector.CloudCopyPath);
+
+        await synchronizer.SyncWorkspaceAsync(workspace, opContext, null, false, mockDataverse.Object, syncInfo, cloudFlowMetadata, CancellationToken.None);
+        var (_, localChanges) = await synchronizer.GetLocalChangesAsync(workspace, new BotDefinition().WithEntity(botEntity), CancellationToken.None);
+
+        mockDataverse.Verify(x => x.DownloadConnectorsByInternalIdsAsync(It.IsAny<IEnumerable<string>>(), false, It.IsAny<CancellationToken>()), Times.Exactly(2));
+        Assert.Equal(localOpenApi, await files.ReadStringAsync(openApiPath, CancellationToken.None));
+        Assert.DoesNotContain("local.example.com", SyncedAssetKind.ReadCloudCopy(files, $"Mcs.Connector.{connectorRowId}.openapidefinition"), StringComparison.Ordinal);
+        Assert.Equal($"Mcs.Connector.{connectorRowId}.openapidefinition", Assert.Single(localChanges, change => change.ChangeKind == CustomConnectorLayout.ChangeKind).SchemaName);
+    }
+
+    [Fact]
+    public async Task SyncWorkspace_RestoredOlderConnectorFolder_IsReplacedByTheCloudCopy()
+    {
+        var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath("c:/test/conn-gate-restored-" + Guid.NewGuid().ToString("N") + "/");
+        var files = fileAccessorFactory.Create(workspace);
+        var connectorRowId = Guid.NewGuid();
+        var cloudFlowMetadata = new CloudFlowMetadata
+        {
+            Workflows = ImmutableArray<CloudFlowDefinition>.Empty,
+            ConnectionReferences = ImmutableArray.Create(new ConnectionReference(
+                connectionReferenceLogicalName: "cr1.shared_test." + Guid.NewGuid().ToString("N"),
+                connectionId: string.Empty,
+                connectorId: "/providers/Microsoft.PowerApps/apis/shared_test")),
+        };
+
+        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1")!;
+        mockIsland
+            .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PvaComponentChangeSet(null, botEntity, "token-1"));
+
+        var mockDataverse = new Mock<ISyncDataverseClient>();
+        mockDataverse
+            .Setup(x => x.GetConnectorVersionsByInternalIdsAsync(It.IsAny<IEnumerable<string>>(), false, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new[] { new CustomConnectorMetadata { ConnectorId = connectorRowId, ConnectorInternalId = "shared_test", VersionNumber = 5L } });
+        mockDataverse
+            .Setup(x => x.DownloadConnectorsByInternalIdsAsync(It.IsAny<IEnumerable<string>>(), false, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new[] { new CustomConnectorMetadata { ConnectorId = connectorRowId, ConnectorInternalId = "shared_test", Name = "TestConnector", OpenApiDefinition = "{\"host\":\"current.example.com\"}", VersionNumber = 5L } });
+
+        var opContext = ComponentWriterDefensiveTests.CreateMockOperationContext();
+        var syncInfo = new AgentSyncInfo { AgentId = Guid.NewGuid() };
+        await synchronizer.SyncWorkspaceAsync(workspace, opContext, null, false, mockDataverse.Object, syncInfo, cloudFlowMetadata, CancellationToken.None);
+
+        var metadataPath = new AgentFilePath($"connectors/TestConnector-{connectorRowId}/metadata.yml");
+        var openApiPath = new AgentFilePath($"connectors/TestConnector-{connectorRowId}/openapidefinition.json");
+        await files.WriteAsync(metadataPath, (await files.ReadStringAsync(metadataPath, CancellationToken.None)).Replace("\"versionnumber\": 5", "\"versionnumber\": 4"), CancellationToken.None);
+        await files.WriteAsync(openApiPath, "{\"host\":\"restored.example.com\"}", CancellationToken.None);
+
+        await synchronizer.SyncWorkspaceAsync(workspace, opContext, null, false, mockDataverse.Object, syncInfo, cloudFlowMetadata, CancellationToken.None);
+        var (_, localChanges) = await synchronizer.GetLocalChangesAsync(workspace, new BotDefinition().WithEntity(botEntity), CancellationToken.None);
+
+        mockDataverse.Verify(x => x.DownloadConnectorsByInternalIdsAsync(It.IsAny<IEnumerable<string>>(), false, It.IsAny<CancellationToken>()), Times.Exactly(2));
+        Assert.Contains("current.example.com", await files.ReadStringAsync(openApiPath, CancellationToken.None), StringComparison.Ordinal);
+        Assert.Contains("\"versionnumber\": 5", await files.ReadStringAsync(metadataPath, CancellationToken.None), StringComparison.Ordinal);
+        Assert.DoesNotContain(localChanges, change => change.ChangeKind == CustomConnectorLayout.ChangeKind);
+    }
+
+    [Fact]
     public async Task SyncWorkspace_PrunesStaleConnectorFolder_WhenProbeFailsButDownloadSucceeds()
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();

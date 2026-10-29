@@ -33,7 +33,7 @@ public sealed class InMemoryFileAccessorFactory : IFileAccessorFactory, IDisposa
         if (this.requireSession && !WorkspaceHoldRegistry.HasActiveSession())
         {
             throw new InvalidOperationException(
-                $"An in-memory workspace was opened outside a workspace session. Wrap the operation in {nameof(FileAccessorFactoryExtensions.LeaseTemporaryWorkspace)} or {nameof(FileAccessorFactoryExtensions.LeaseWorkspace)} and dispose the lease when the operation ends, so the workspace is not retained for the life of the process.");
+                $"An in-memory workspace was opened outside a workspace session. Wrap the operation in {nameof(FileAccessorFactoryExtensions.LeaseWorkspace)} and dispose the lease when the operation ends, so the workspace is not retained for the life of the process.");
         }
 
         var accessor = this.accessors.GetOrAdd(root.ToString(), _ => new InMemoryFileAccessor());

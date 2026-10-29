@@ -15,7 +15,7 @@ namespace Microsoft.CopilotStudio.McsCore
 
             foreach (var skillName in skillFolders ?? SkillLayout.ListSkillFolders(fileAccessor))
             {
-                if (TryResolveSchemaName(fileAccessor, skillName, cloudDefinition, throwOnInvalidLink, out var schemaName, out _))
+                if (TryResolveSchemaName(fileAccessor, skillName, SkillLayout.ReadAnchorMetadata(fileAccessor, skillName).SchemaName, cloudDefinition, throwOnInvalidLink, out var schemaName, out _))
                 {
                     links[skillName] = schemaName;
                 }
@@ -24,12 +24,12 @@ namespace Microsoft.CopilotStudio.McsCore
             return links;
         }
 
-        internal static bool TryResolveSchemaName(IFileAccessor fileAccessor, string skillName, BotDefinition? cloudDefinition, bool throwOnInvalidLink, out string schemaName, out DialogComponent? cloudSkill)
+        internal static bool TryResolveSchemaName(IFileAccessor fileAccessor, string skillName, string? anchorSchemaName, BotDefinition? cloudDefinition, bool throwOnInvalidLink, out string schemaName, out DialogComponent? cloudSkill)
         {
             schemaName = string.Empty;
             cloudSkill = null;
             var cloudSkills = cloudDefinition?.Components.OfType<DialogComponent>().Where(component => component.Dialog is InlineAgentSkill && !string.IsNullOrEmpty(component.SchemaNameString)).GroupBy(component => component.SchemaNameString!, StringComparer.Ordinal).Select(group => group.Last()).ToList() ?? new List<DialogComponent>();
-            var linkedSchemaName = ReadLinkedSchemaName(fileAccessor, skillName, throwOnInvalidLink);
+            var linkedSchemaName = ReadLinkedSchemaName(fileAccessor, skillName, anchorSchemaName, throwOnInvalidLink);
 
             if (linkedSchemaName != null)
             {
@@ -56,9 +56,8 @@ namespace Microsoft.CopilotStudio.McsCore
             return false;
         }
 
-        private static string? ReadLinkedSchemaName(IFileAccessor fileAccessor, string skillName, bool throwOnInvalidLink)
+        private static string? ReadLinkedSchemaName(IFileAccessor fileAccessor, string skillName, string? anchorSchemaName, bool throwOnInvalidLink)
         {
-            var anchorSchemaName = SkillLayout.ReadAnchorMetadata(fileAccessor, skillName).SchemaName;
             if (!string.IsNullOrEmpty(anchorSchemaName))
             {
                 return anchorSchemaName;

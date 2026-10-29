@@ -64,44 +64,6 @@ public class WorkspaceLeaseTests
     }
 
     [Fact]
-    public void LeaseTemporaryWorkspace_MemoryBacked_DoesNotTouchTheFileSystem()
-    {
-        using var factory = new ProductionFileAccessorFactory();
-
-        using var lease = factory.LeaseTemporaryWorkspace("mcs-test-");
-
-        Assert.StartsWith("/mcs-test-", lease.Root.ToString(), StringComparison.Ordinal);
-        Assert.False(Directory.Exists(lease.Root.ToString()));
-    }
-
-    [Fact]
-    public void LeaseTemporaryWorkspace_Physical_CreatesAndRemovesTheDirectory()
-    {
-        var factory = new FileAccessorFactory();
-        string rootPath;
-
-        using (var lease = factory.LeaseTemporaryWorkspace("mcs-test-"))
-        {
-            rootPath = lease.Root.ToString();
-            Assert.True(Directory.Exists(rootPath));
-            Write(lease.Accessor, "settings.mcs.yml", "content");
-        }
-
-        Assert.False(Directory.Exists(rootPath));
-    }
-
-    [Fact]
-    public void LeaseTemporaryWorkspace_IssuesDistinctRoots()
-    {
-        using var factory = new ProductionFileAccessorFactory();
-
-        using var first = factory.LeaseTemporaryWorkspace("mcs-test-");
-        using var second = factory.LeaseTemporaryWorkspace("mcs-test-");
-
-        Assert.NotEqual(first.Root.ToString(), second.Root.ToString());
-    }
-
-    [Fact]
     public void LeaseWorkspace_OnPhysicalFactory_DoesNotDeleteCallerContent()
     {
         var rootPath = Path.Combine(Path.GetTempPath(), "mcs-lease-" + Guid.NewGuid().ToString("N").Substring(0, 8));
@@ -254,22 +216,6 @@ public class WorkspaceLeaseTests
     }
 
     [Fact]
-    public void TemporaryWorkspaceDirectory_IsRemovedByWhicheverLeaseIsDisposedLast()
-    {
-        var factory = new FileAccessorFactory();
-
-        var temporary = factory.LeaseTemporaryWorkspace("mcs-test-");
-        var rootPath = temporary.Root.ToString();
-        var second = factory.LeaseWorkspace(temporary.Root);
-
-        temporary.Dispose();
-        Assert.True(Directory.Exists(rootPath));
-
-        second.Dispose();
-        Assert.False(Directory.Exists(rootPath));
-    }
-
-    [Fact]
     public void ConcurrentDisposeOfOneLease_DoesNotReleaseAnotherHold()
     {
         using var factory = new ProductionFileAccessorFactory();
@@ -341,7 +287,7 @@ public class WorkspaceLeaseTests
     {
         using var factory = new ProductionFileAccessorFactory(requireSession: true);
 
-        using var session = factory.LeaseTemporaryWorkspace("mcs-op-");
+        using var session = factory.LeaseWorkspace(new DirectoryPath("c:/test/session-open/"));
         var nested = factory.Create(session.Root.GetChildDirectoryPath("Agent One"));
 
         Assert.NotNull(nested);
@@ -351,12 +297,9 @@ public class WorkspaceLeaseTests
     public void SessionRequiredFactory_RejectsWorkspaceUseAfterTheSessionEnds()
     {
         using var factory = new ProductionFileAccessorFactory(requireSession: true);
-        DirectoryPath root;
+        var root = new DirectoryPath("c:/test/session-ended/");
 
-        using (var session = factory.LeaseTemporaryWorkspace("mcs-op-"))
-        {
-            root = session.Root;
-        }
+        factory.LeaseWorkspace(root).Dispose();
 
         Assert.Throws<InvalidOperationException>(() => factory.Create(root));
     }
@@ -371,7 +314,7 @@ public class WorkspaceLeaseTests
 
         Assert.Throws<InvalidOperationException>(() => factory.Create(new DirectoryPath("c:/test/ams-no-session/")));
 
-        using var session = factory.LeaseTemporaryWorkspace("mcs-op-");
+        using var session = factory.LeaseWorkspace(new DirectoryPath("c:/test/ams-session/"));
         Assert.NotNull(session.Accessor);
     }
 

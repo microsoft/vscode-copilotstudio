@@ -31,6 +31,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
     {
         private const string CloudCacheRelativePath = ".mcs/botdefinition.json";
 
+        private static readonly string[] RemoteContentSchemaNamePrefixes = new[] { WorkflowLayout.SchemaNamePrefix, CustomConnectorLayout.SchemaNamePrefix, AiPromptLayout.SchemaNamePrefix };
+
         private readonly ITokenManager _dataverseTokenManager;
         private readonly CopilotStudio.Sync.IOperationContextProvider _operationContextProvider;
         private readonly ILspLogger _logger;
@@ -111,11 +113,11 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 };
             }
 
-            return schemaName.StartsWith(WorkflowLayout.SchemaNamePrefix, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(change.RemoteWorkflowContent)
+            return RemoteContentSchemaNamePrefixes.Any(prefix => schemaName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) && !string.IsNullOrWhiteSpace(change.RemoteContent)
                 ? new GetFileResponse
                 {
                     Code = 200,
-                    Content = change.RemoteWorkflowContent,
+                    Content = change.RemoteContent,
                 }
                 : null;
         }

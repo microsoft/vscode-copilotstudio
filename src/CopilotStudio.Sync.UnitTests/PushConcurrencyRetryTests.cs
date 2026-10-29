@@ -1,6 +1,7 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 
 using Microsoft.Agents.ObjectModel;
+using Microsoft.Agents.ObjectModel.Yaml;
 using Microsoft.Agents.Platform.Content;
 using Microsoft.Agents.Platform.Content.Exceptions;
 using Microsoft.CopilotStudio.McsCore;
@@ -486,6 +487,250 @@ public class PushConcurrencyRetryTests
             x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
             Times.Once);
     }
+
+    [Fact]
+    public async Task PushLocalChanges_WhenRetryingAfterARefresh_KeepsAComponentChangedOnlyInTheCloud()
+    {
+        var agentId = Guid.NewGuid();
+        var farewellId = Guid.NewGuid();
+        var farewell = CreateTopic("Farewell", "farewellOriginal", farewellId);
+
+        var (fileAccessor, sentChangesets) = await PushAfterRemoteRefreshAsync(
+            new BotDefinition().WithEntity(BuildBot(agentId, "Agent", version: 1)).WithComponents(new[] { farewell }),
+            new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentUpdate(CreateTopic("Farewell", "farewellCloud", farewellId)) }, BuildBot(agentId, "Agent", version: 2, publishedOn: new DateTime(2026, 10, 8, 11, 0, 0, DateTimeKind.Utc)), "token-2"),
+            new BotDefinition().WithEntity(BuildBot(agentId, "Renamed locally", version: 1)).WithComponents(new[] { farewell }));
+
+        Assert.Equal(2, sentChangesets.Count);
+        Assert.Equal("Renamed locally", sentChangesets[1].Bot!.DisplayName);
+        Assert.Empty(sentChangesets[1].BotComponentChanges);
+        Assert.Contains("farewellCloud", await ReadAsync(fileAccessor, "topics/Farewell.mcs.yml"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PushLocalChanges_WhenRetryingAfterARefresh_KeepsAgentSettingsChangedOnlyInTheCloud()
+    {
+        var agentId = Guid.NewGuid();
+        var bot = BuildBot(agentId, "Agent", version: 1);
+
+        var (fileAccessor, sentChangesets) = await PushAfterRemoteRefreshAsync(
+            new BotDefinition().WithEntity(bot),
+            new PvaComponentChangeSet(null, BuildBot(agentId, "Renamed in the cloud", version: 2), "token-2"),
+            new BotDefinition().WithEntity(bot).WithComponents(new[] { CreateTopic("Greeting", "greetingLocal", Guid.NewGuid()) }));
+
+        Assert.Equal(2, sentChangesets.Count);
+        Assert.Null(sentChangesets[1].Bot);
+        Assert.IsType<BotComponentInsert>(Assert.Single(sentChangesets[1].BotComponentChanges));
+        Assert.Contains("Renamed in the cloud", await ReadAsync(fileAccessor, "settings.mcs.yml"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PushLocalChanges_WithOverwrite_ReplacesTheConflictingComponentAndKeepsTheCloudOnlyOne()
+    {
+        var bot = BuildBot(Guid.NewGuid(), "Agent", version: 1);
+        var greetingId = Guid.NewGuid();
+        var farewellId = Guid.NewGuid();
+        var farewell = CreateTopic("Farewell", "farewellOriginal", farewellId);
+
+        var (fileAccessor, sentChangesets) = await PushAfterRemoteRefreshAsync(
+            new BotDefinition().WithEntity(bot).WithComponents(new[] { CreateTopic("Greeting", "greetingOriginal", greetingId), farewell }),
+            new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentUpdate(CreateTopic("Greeting", "greetingCloud", greetingId)), new BotComponentUpdate(CreateTopic("Farewell", "farewellCloud", farewellId)) }, null, "token-2"),
+            new BotDefinition().WithEntity(bot).WithComponents(new[] { CreateTopic("Greeting", "greetingLocal", greetingId), farewell }),
+            overwriteRemoteChanges: true);
+
+        Assert.Equal(2, sentChangesets.Count);
+        Assert.Equal($"{AgentSchema}.topic.Greeting", Assert.IsType<BotComponentUpdate>(Assert.Single(sentChangesets[1].BotComponentChanges)).Component!.SchemaNameString);
+        Assert.Contains("greetingLocal", await ReadAsync(fileAccessor, "topics/Greeting.mcs.yml"), StringComparison.Ordinal);
+        Assert.Contains("farewellCloud", await ReadAsync(fileAccessor, "topics/Farewell.mcs.yml"), StringComparison.Ordinal);
+        var cache = await ReadAsync(fileAccessor, ".mcs/botdefinition.json");
+        Assert.Contains("greetingLocal", cache, StringComparison.Ordinal);
+        Assert.Contains("farewellCloud", cache, StringComparison.Ordinal);
+        Assert.DoesNotContain("greetingCloud", cache, StringComparison.Ordinal);
+        Assert.Equal("token-3", await ReadAsync(fileAccessor, ".mcs/changetoken.txt"));
+    }
+
+    [Fact]
+    public async Task PushLocalChanges_WhenRetryingAfterARefresh_DownloadsAKnowledgeFileAddedOnlyInTheCloud()
+    {
+        var bot = BuildBot(Guid.NewGuid(), "Agent", version: 1);
+
+        var (fileAccessor, sentChangesets) = await PushAfterRemoteRefreshAsync(
+            new BotDefinition().WithEntity(bot),
+            new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentInsert(KnowledgeFileTestFixtures.CreateFileComponent($"{AgentSchema}.file.Notes", "Notes.txt", Guid.NewGuid())) }, null, "token-2"),
+            new BotDefinition().WithEntity(bot).WithComponents(new[] { CreateTopic("Greeting", "greetingLocal", Guid.NewGuid()) }),
+            dataverseClient: KnowledgeFileTestFixtures.CreateStreamingMock(destination => KnowledgeFileTestFixtures.SeedContent(destination, "cloud notes")).Object);
+
+        Assert.IsType<BotComponentInsert>(Assert.Single(sentChangesets[1].BotComponentChanges));
+        Assert.Equal("cloud notes", await ReadAsync(fileAccessor, "knowledge/files/Notes.txt"));
+    }
+
+    [Fact]
+    public async Task PushLocalChanges_WhenRetryingAfterARefresh_KeepsEnvironmentVariablesChangedOnlyInTheCloud()
+    {
+        var bot = BuildBot(Guid.NewGuid(), "Agent", version: 1);
+        var endpointId = Guid.NewGuid();
+        var endpoint = CreateEnvironmentVariable("Endpoint", "https://original", endpointId);
+
+        var (fileAccessor, sentChangesets) = await PushAfterRemoteRefreshAsync(
+            new BotDefinition().WithEntity(bot).WithEnvironmentVariables(new[] { endpoint }),
+            new PvaComponentChangeSet.Builder { ChangeToken = "token-2", EnvironmentVariableChanges = { new EnvironmentVariableUpdate(CreateEnvironmentVariable("Endpoint", "https://cloud", endpointId)), new EnvironmentVariableInsert(CreateEnvironmentVariable("Region", "westus", Guid.NewGuid())) } }.Build(),
+            new BotDefinition().WithEntity(bot).WithEnvironmentVariables(new[] { endpoint }).WithComponents(new[] { CreateTopic("Greeting", "greetingLocal", Guid.NewGuid()) }));
+
+        Assert.Equal(2, sentChangesets.Count);
+        Assert.Empty(sentChangesets[1].EnvironmentVariableChanges);
+        Assert.IsType<BotComponentInsert>(Assert.Single(sentChangesets[1].BotComponentChanges));
+        Assert.Contains("https://cloud", await ReadAsync(fileAccessor, $"environmentvariables/{AgentSchema}.Endpoint.mcs.yml"), StringComparison.Ordinal);
+        Assert.Contains("westus", await ReadAsync(fileAccessor, $"environmentvariables/{AgentSchema}.Region.mcs.yml"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PushLocalChanges_WhenRemoteChangedTheSameEnvironmentVariable_AbortsWithoutOverwrite()
+    {
+        var bot = BuildBot(Guid.NewGuid(), "Agent", version: 1);
+        var endpointId = Guid.NewGuid();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => PushAfterRemoteRefreshAsync(
+            new BotDefinition().WithEntity(bot).WithEnvironmentVariables(new[] { CreateEnvironmentVariable("Endpoint", "https://original", endpointId) }),
+            new PvaComponentChangeSet.Builder { ChangeToken = "token-2", EnvironmentVariableChanges = { new EnvironmentVariableUpdate(CreateEnvironmentVariable("Endpoint", "https://cloud", endpointId)) } }.Build(),
+            new BotDefinition().WithEntity(bot).WithEnvironmentVariables(new[] { CreateEnvironmentVariable("Endpoint", "https://local", endpointId) })));
+
+        Assert.Contains("Get the latest changes", exception.Message);
+    }
+
+    [Fact]
+    public async Task PushLocalChanges_WithOverwrite_ReplacesTheConflictingEnvironmentVariable()
+    {
+        var bot = BuildBot(Guid.NewGuid(), "Agent", version: 1);
+        var endpointId = Guid.NewGuid();
+
+        var (fileAccessor, sentChangesets) = await PushAfterRemoteRefreshAsync(
+            new BotDefinition().WithEntity(bot).WithEnvironmentVariables(new[] { CreateEnvironmentVariable("Endpoint", "https://original", endpointId) }),
+            new PvaComponentChangeSet.Builder { ChangeToken = "token-2", EnvironmentVariableChanges = { new EnvironmentVariableUpdate(CreateEnvironmentVariable("Endpoint", "https://cloud", endpointId)) } }.Build(),
+            new BotDefinition().WithEntity(bot).WithEnvironmentVariables(new[] { CreateEnvironmentVariable("Endpoint", "https://local", endpointId) }),
+            overwriteRemoteChanges: true);
+
+        Assert.Equal(2, sentChangesets.Count);
+        Assert.Equal("https://local", Assert.IsType<EnvironmentVariableUpdate>(Assert.Single(sentChangesets[1].EnvironmentVariableChanges)).EnvironmentVariable!.DefaultValue);
+        Assert.Contains("https://local", await ReadAsync(fileAccessor, $"environmentvariables/{AgentSchema}.Endpoint.mcs.yml"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PushLocalChanges_WhenRetryingAfterARefresh_KeepsConnectionReferencesChangedInTheCloudOrOnDisk()
+    {
+        var bot = new BotEntity.Builder { SchemaName = new BotEntitySchemaName(AgentSchema), CdsBotId = Guid.NewGuid(), Template = "cliagent-1.0.0" }.Build();
+        var edited = CreateConnectionReference("cre98_edited", "shared_office365");
+        var deleted = CreateConnectionReference("cre98_deleted", "shared_office365");
+        var cloudDefinition = new BotDefinition().WithEntity(bot).WithConnectionReferences(new[] { edited, deleted });
+
+        var (fileAccessor, sentChangesets) = await PushAfterRemoteRefreshAsync(
+            cloudDefinition,
+            new PvaComponentChangeSet.Builder { ChangeToken = "token-2", ConnectionReferenceChanges = { new ConnectionReferenceInsert(CreateConnectionReference("cre98_added", "shared_teams")) } }.Build(),
+            cloudDefinition,
+            workspaceFiles: new Dictionary<string, string>
+            {
+                ["settings.mcs.yml"] = CodeSerializer.Serialize(bot),
+                [GetConnectionReferencePath("cre98_edited")] = "connectionReferences:\n  - connectionReferenceLogicalName: cre98_edited\n    connectorId: /providers/Microsoft.PowerApps/apis/shared_sharepointonline\n",
+            });
+
+        Assert.Equal(2, sentChangesets.Count);
+        var changes = sentChangesets[1].ConnectionReferenceChanges;
+        Assert.Equal(2, changes.Length);
+        Assert.Equal("/providers/Microsoft.PowerApps/apis/shared_sharepointonline", Assert.IsType<ConnectionReferenceUpdate>(Assert.Single(changes, change => change is ConnectionReferenceUpsert)).ConnectionReference!.ConnectorId.Value);
+        Assert.Equal(deleted.Id.Value, Assert.IsType<ConnectionReferenceDelete>(Assert.Single(changes, change => change is ConnectionReferenceDelete)).ConnectionReferenceId.Value);
+        Assert.Contains("shared_sharepointonline", await ReadAsync(fileAccessor, GetConnectionReferencePath("cre98_edited")), StringComparison.Ordinal);
+        Assert.Contains("shared_teams", await ReadAsync(fileAccessor, GetConnectionReferencePath("cre98_added")), StringComparison.Ordinal);
+        Assert.False(fileAccessor.Exists(new AgentFilePath(GetConnectionReferencePath("cre98_deleted"))));
+    }
+
+    [Fact]
+    public async Task PushLocalChanges_WhenRetryingAfterARefresh_KeepsAComponentCollectionAddedOnlyInTheCloud()
+    {
+        var bot = BuildBot(Guid.NewGuid(), "Agent", version: 1);
+        var dataverse = new Mock<ISyncDataverseClient>();
+        var componentCollections = dataverse.As<ISyncComponentCollectionDataverseClient>();
+
+        var (fileAccessor, sentChangesets) = await PushAfterRemoteRefreshAsync(
+            new BotDefinition().WithEntity(bot),
+            new PvaComponentChangeSet.Builder { ChangeToken = "token-2", ComponentCollectionChanges = { new BotComponentCollectionInsert(CodeSerializer.Deserialize<BotComponentCollection>("schemaName: cre98_shared\ndisplayName: Shared")!.WithId(new BotComponentCollectionId(Guid.NewGuid()))) } }.Build(),
+            new BotDefinition().WithEntity(bot).WithComponents(new[] { CreateTopic("Greeting", "greetingLocal", Guid.NewGuid()) }),
+            dataverseClient: dataverse.Object);
+
+        Assert.Equal(2, sentChangesets.Count);
+        componentCollections.Verify(client => client.UninstallComponentCollectionFromAgentAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        Assert.Contains("cre98_shared", await ReadAsync(fileAccessor, "references.mcs.yml"), StringComparison.Ordinal);
+    }
+
+    private static async Task<(IFileAccessor FileAccessor, List<PvaComponentChangeSet> SentChangesets)> PushAfterRemoteRefreshAsync(BotDefinition cloudCache, PvaComponentChangeSet remoteChangeset, BotDefinition localDefinition, bool overwriteRemoteChanges = false, ISyncDataverseClient? dataverseClient = null, IReadOnlyDictionary<string, string>? workspaceFiles = null)
+    {
+        var (synchronizer, fileAccessorFactory, island) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath($"c:/test/push-refresh-{Guid.NewGuid():N}/");
+        var fileAccessor = fileAccessorFactory.Create(workspace);
+        WorkspaceSynchronizer.WriteCloudCache(fileAccessor, cloudCache);
+        await fileAccessor.WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "token-1", CancellationToken.None);
+        foreach (var environmentVariable in localDefinition.EnvironmentVariables)
+        {
+            await fileAccessor.WriteAsync(WorkspaceSynchronizer.GetEnvironmentVariablePath(environmentVariable), CodeSerializer.Serialize(environmentVariable), CancellationToken.None);
+        }
+
+        foreach (var file in workspaceFiles ?? new Dictionary<string, string>())
+        {
+            await fileAccessor.WriteAsync(new AgentFilePath(file.Key), file.Value, CancellationToken.None);
+        }
+
+        var sentChangesets = new List<PvaComponentChangeSet>();
+        island
+            .Setup(x => x.SaveChangesAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<PvaComponentChangeSet>(), It.IsAny<CancellationToken>()))
+            .Returns<AuthoringOperationContextBase, PvaComponentChangeSet, CancellationToken>((_, incoming, _) =>
+            {
+                sentChangesets.Add(incoming);
+                return sentChangesets.Count == 1 ? throw MakeConcurrencyException() : Task.FromResult(new PvaComponentChangeSet.Builder(incoming) { ChangeToken = "token-3" }.Build());
+            });
+        island
+            .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(remoteChangeset);
+
+        await synchronizer.PushLocalChangesAsync(
+            workspace,
+            ComponentWriterDefensiveTests.CreateMockOperationContext(),
+            localDefinition,
+            dataverseClient ?? new Mock<ISyncDataverseClient>().Object,
+            new AgentSyncInfo { AgentId = localDefinition.Entity!.CdsBotId.Value },
+            cloudFlowMetadata: null,
+            aiPrompts: ImmutableArray<AIPromptMetadata>.Empty,
+            CancellationToken.None,
+            overwriteRemoteChanges: overwriteRemoteChanges);
+
+        return (fileAccessor, sentChangesets);
+    }
+
+    private static Task<string> ReadAsync(IFileAccessor fileAccessor, string path) => fileAccessor.ReadStringAsync(new AgentFilePath(path), CancellationToken.None);
+
+    private static EnvironmentVariableDefinition CreateEnvironmentVariable(string name, string value, Guid id)
+        => new EnvironmentVariableDefinition.Builder
+        {
+            SchemaName = new EnvironmentVariableDefinitionSchemaName($"{AgentSchema}.{name}"),
+            DisplayName = name,
+            Id = new EnvironmentVariableDefinitionId(id),
+            DefaultValue = value,
+            ValueComponent = new EnvironmentVariableValue.Builder { Id = new EnvironmentVariableValueId(id), DefinitionId = new EnvironmentVariableDefinitionId(id), Value = value },
+        }.Build();
+
+    private static ConnectionReference CreateConnectionReference(string logicalName, string connector)
+        => new ConnectionReference.Builder
+        {
+            Id = new ConnectionReferenceId(Guid.NewGuid()),
+            ConnectionReferenceLogicalName = new ConnectionReferenceLogicalName(logicalName),
+            ConnectorId = new ConnectorId($"/providers/Microsoft.PowerApps/apis/{connector}"),
+        }.Build();
+
+    private static string GetConnectionReferencePath(string logicalName) => $"{CliAgentConnectionsWriter.InfrastructureConnectionsFolder}/{logicalName}{CliAgentConnectionsWriter.FileExtension}";
+    private static DialogComponent CreateTopic(string name, string triggerId, Guid id)
+        => new(
+            schemaName: $"{AgentSchema}.topic.{name}",
+            displayName: name,
+            description: string.Empty,
+            id: id,
+            parentBotComponentId: default,
+            dialog: (DialogBase)CodeSerializer.Deserialize<BotElement>($"kind: AdaptiveDialog\nbeginDialog:\n  kind: OnRecognizedIntent\n  id: {triggerId}\n")!);
 
     private static DialogComponent CreateChildAgent(string schemaSuffix, string displayName)
         => new(

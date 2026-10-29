@@ -19,16 +19,6 @@ internal static class AiPromptProjection
         return new AIModelDefinition(id: new AIModelId(aiModelId), name: name, inputType: inputType, outputType: outputType);
     }
 
-    internal static Guid? ExtractTrailingGuidFromFileName(string fileName)
-    {
-        var match = System.Text.RegularExpressions.Regex.Match(fileName, @"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$");
-        if (match.Success && Guid.TryParse(match.Value, out var parsedGuid))
-        {
-            return parsedGuid;
-        }
-        return null;
-    }
-
     internal static string? TryReadPromptName(string promptJsonText)
     {
         try

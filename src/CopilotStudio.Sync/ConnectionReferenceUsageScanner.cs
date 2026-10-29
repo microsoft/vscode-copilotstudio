@@ -38,7 +38,6 @@ public sealed class ConnectionReferenceUsageScanner
     private const string ConnectionReferencesFileName = "connectionreferences.mcs.yml";
     private const string ConnectionReferencesFileNameLong = "connectionreferences.mcs.yaml";
     private const string WorkflowsFolder = "workflows";
-    private const string ConnectorsFolder = "connectors";
     private const string HiddenFolder = ".mcs";
 
     /// <summary>
@@ -187,7 +186,7 @@ public sealed class ConnectionReferenceUsageScanner
             list.Add(pair.Key);
         }
 
-        foreach (var (path, content) in EnumerateMetadataFiles(fileAccessor, allFiles, ConnectorsFolder, cancellationToken))
+        foreach (var (path, content) in EnumerateMetadataFiles(fileAccessor, allFiles, CustomConnectorLayout.FolderName, cancellationToken))
         {
             CustomConnectorMetadata? connector;
             try

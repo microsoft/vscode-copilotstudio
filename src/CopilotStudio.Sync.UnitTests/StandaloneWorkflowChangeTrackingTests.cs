@@ -321,7 +321,7 @@ public class StandaloneWorkflowChangeTrackingTests : IDisposable
         var change = Assert.Single(changes);
 
         Assert.Equal($"Mcs.Workflow.{_workflowId}", change.SchemaName);
-        Assert.Contains("ServerEdited", change.RemoteWorkflowContent!, StringComparison.Ordinal);
+        Assert.Contains("ServerEdited", change.RemoteContent!, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -338,7 +338,7 @@ public class StandaloneWorkflowChangeTrackingTests : IDisposable
         var change = Assert.Single(changes);
 
         Assert.Equal($"Mcs.Workflow.{_workflowId}.metadata", change.SchemaName);
-        Assert.Contains("Renamed Flow", change.RemoteWorkflowContent!, StringComparison.Ordinal);
+        Assert.Contains("Renamed Flow", change.RemoteContent!, StringComparison.Ordinal);
     }
 
     [Fact]

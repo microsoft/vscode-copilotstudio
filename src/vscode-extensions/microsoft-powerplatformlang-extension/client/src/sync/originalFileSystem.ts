@@ -4,6 +4,7 @@ import { getWorkspaceByUri } from "./localWorkspaces";
 import { lspClient } from "../services/lspClient";
 import { LspMethods, TelemetryEventsKeys } from "../constants";
 import logger, { formatPii, PiiRedactionType } from "../services/logger";
+import { toFileBytes, toSchemaName } from "./virtualFilePath";
 
 export const LOCAL_STATE_SCHEME = "mcs";
 
@@ -35,15 +36,12 @@ export class OriginalFileSystem implements FileSystemProvider {
             agentName = workspace.displayName;
 
             const { workspaceUri } = workspace;
-            let schemaName = uri.path.substring(1); // remove leading slash
-            if (schemaName.startsWith("Local Cache: ")) {
-                schemaName = schemaName.substring("Local Cache: ".length);
-            }
+            const schemaName = toSchemaName("Local Cache", uri.path);
 
             const request: GetFileRequest = { workspaceUri, schemaName };
             const result = await lspClient.sendRequest<GetFileResponse>(LspMethods.GET_CACHED_FILE, request);
 
-            return Buffer.from(result.content ?? '', 'utf8');
+            return toFileBytes(schemaName, result.content);
         } catch (error) {
             logger.logError(TelemetryEventsKeys.GetLocalFileError, 'Error fetching file', { error });
             return new Uint8Array();

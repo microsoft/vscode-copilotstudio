@@ -4,7 +4,6 @@ namespace Microsoft.CopilotStudio.McsCore;
 
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading;
 
@@ -22,30 +21,7 @@ public static class FileAccessorFactoryExtensions
             throw new ArgumentNullException(nameof(factory));
         }
 
-        return new WorkspaceLease(factory, root, temporaryDirectory: null);
-    }
-
-    /// <summary>
-    /// Takes a hold on a new scratch workspace.
-    /// </summary>
-    /// <param name="factory">The factory to create the workspace in.</param>
-    /// <param name="prefix">A short prefix identifying the operation that owns the workspace.</param>
-    public static IWorkspaceLease LeaseTemporaryWorkspace(this IFileAccessorFactory factory, string prefix)
-    {
-        if (factory == null)
-        {
-            throw new ArgumentNullException(nameof(factory));
-        }
-
-        var name = prefix + Guid.NewGuid().ToString("N");
-        if (factory.IsMemoryBacked)
-        {
-            return new WorkspaceLease(factory, new DirectoryPath("/" + name), temporaryDirectory: null);
-        }
-
-        var temporaryDirectory = Path.Combine(Path.GetTempPath(), name);
-        Directory.CreateDirectory(temporaryDirectory);
-        return new WorkspaceLease(factory, new DirectoryPath(temporaryDirectory.Replace('\\', '/')), temporaryDirectory);
+        return new WorkspaceLease(factory, root);
     }
 
     private sealed class WorkspaceLease : IWorkspaceLease
@@ -53,11 +29,11 @@ public static class FileAccessorFactoryExtensions
         private readonly IFileAccessorFactory factory;
         private int released;
 
-        public WorkspaceLease(IFileAccessorFactory factory, DirectoryPath root, string? temporaryDirectory)
+        public WorkspaceLease(IFileAccessorFactory factory, DirectoryPath root)
         {
             this.factory = factory;
             this.Root = root;
-            this.Accessor = WorkspaceHoldRegistry.Acquire(factory, root, temporaryDirectory);
+            this.Accessor = WorkspaceHoldRegistry.Acquire(factory, root);
         }
 
         public DirectoryPath Root { get; }
@@ -83,12 +59,12 @@ internal static class WorkspaceHoldRegistry
 
     private static readonly AsyncLocal<OperationScope?> CurrentOperation = new AsyncLocal<OperationScope?>();
 
-    internal static IFileAccessor Acquire(IFileAccessorFactory factory, DirectoryPath root, string? temporaryDirectory)
+    internal static IFileAccessor Acquire(IFileAccessorFactory factory, DirectoryPath root)
     {
         var operation = WorkspaceHoldRegistry.EnterOperation();
         try
         {
-            return Tables.GetOrCreateValue(factory).AcquireLease(factory, root, operation, temporaryDirectory);
+            return Tables.GetOrCreateValue(factory).AcquireLease(factory, root, operation);
         }
         catch
         {
@@ -196,7 +172,7 @@ internal static class WorkspaceHoldRegistry
     {
         private readonly Dictionary<string, RootRecord> roots = new Dictionary<string, RootRecord>(StringComparer.OrdinalIgnoreCase);
 
-        public IFileAccessor AcquireLease(IFileAccessorFactory factory, DirectoryPath root, OperationScope operation, string? temporaryDirectory)
+        public IFileAccessor AcquireLease(IFileAccessorFactory factory, DirectoryPath root, OperationScope operation)
         {
             lock (this.roots)
             {
@@ -205,14 +181,13 @@ internal static class WorkspaceHoldRegistry
                 {
                     WorkspaceHoldTable.AssertSameOperation(existing.Operation, operation);
                     existing.LeaseCount++;
-                    existing.TemporaryDirectory ??= temporaryDirectory;
                     return existing.Accessor;
                 }
 
                 this.AssertNoOverlappingOperation(key, operation);
 
                 var accessor = factory.Create(root);
-                var record = new RootRecord(accessor, operation, temporaryDirectory);
+                var record = new RootRecord(accessor, operation);
                 record.LeaseCount = 1;
                 this.roots[key] = record;
                 operation.TrackParticipant(factory, this);
@@ -232,7 +207,7 @@ internal static class WorkspaceHoldRegistry
                 }
 
                 this.AssertNoOverlappingOperation(key, operation);
-                this.roots[key] = new RootRecord(accessor, operation, temporaryDirectory: null);
+                this.roots[key] = new RootRecord(accessor, operation);
                 operation.TrackParticipant(factory, this);
             }
         }
@@ -250,7 +225,6 @@ internal static class WorkspaceHoldRegistry
 
         public void ReleaseOperation(IFileAccessorFactory factory, OperationScope operation)
         {
-            var temporaryDirectories = new List<string>();
             lock (this.roots)
             {
                 var owned = new List<string>();
@@ -264,20 +238,9 @@ internal static class WorkspaceHoldRegistry
 
                 foreach (var key in owned)
                 {
-                    var record = this.roots[key];
                     this.roots.Remove(key);
-                    if (record.TemporaryDirectory != null)
-                    {
-                        temporaryDirectories.Add(record.TemporaryDirectory);
-                    }
-
                     factory.Release(new DirectoryPath(key));
                 }
-            }
-
-            foreach (var temporaryDirectory in temporaryDirectories)
-            {
-                WorkspaceHoldTable.DeleteTemporaryDirectory(temporaryDirectory);
             }
         }
 
@@ -307,25 +270,6 @@ internal static class WorkspaceHoldRegistry
             return first.StartsWith(second.TrimEnd('/') + "/", StringComparison.OrdinalIgnoreCase) || second.StartsWith(first.TrimEnd('/') + "/", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static void DeleteTemporaryDirectory(string? temporaryDirectory)
-        {
-            if (temporaryDirectory == null)
-            {
-                return;
-            }
-
-            try
-            {
-                if (Directory.Exists(temporaryDirectory))
-                {
-                    Directory.Delete(temporaryDirectory, recursive: true);
-                }
-            }
-            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
-            {
-            }
-        }
-
         private void AssertNoOverlappingOperation(string key, OperationScope operation)
         {
             foreach (var pair in this.roots)
@@ -339,11 +283,10 @@ internal static class WorkspaceHoldRegistry
 
         private sealed class RootRecord
         {
-            public RootRecord(IFileAccessor accessor, OperationScope operation, string? temporaryDirectory)
+            public RootRecord(IFileAccessor accessor, OperationScope operation)
             {
                 this.Accessor = accessor;
                 this.Operation = operation;
-                this.TemporaryDirectory = temporaryDirectory;
             }
 
             public IFileAccessor Accessor { get; }
@@ -351,8 +294,6 @@ internal static class WorkspaceHoldRegistry
             public OperationScope Operation { get; }
 
             public int LeaseCount { get; set; }
-
-            public string? TemporaryDirectory { get; set; }
         }
     }
 }

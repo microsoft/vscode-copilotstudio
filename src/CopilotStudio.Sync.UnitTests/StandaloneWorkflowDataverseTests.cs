@@ -489,6 +489,105 @@ public class StandaloneWorkflowDataverseTests
     }
 
     [Fact]
+    public async Task GetConnectorVersionsByIdsAsync_BatchesDistinctIdsAndSelectsOnlyVersionColumns()
+    {
+        var (client, handler) = Create(_ => Json("{\"value\":[]}"));
+        var connectorIds = Enumerable.Range(0, 51).Select(_ => Guid.NewGuid()).ToList();
+
+        await client.GetConnectorVersionsByIdsAsync(connectorIds.Concat(new[] { connectorIds[0], Guid.Empty }).ToList(), CancellationToken.None);
+
+        Assert.Equal(2, handler.Exchanges.Count);
+        Assert.All(handler.Exchanges, exchange =>
+        {
+            Assert.Equal(HttpMethod.Get, exchange.Method);
+            Assert.Contains("/connectors?$select=connectorid,connectorinternalid,ismanaged,modifiedon,versionnumber&", Uri.UnescapeDataString(exchange.Url), StringComparison.Ordinal);
+            Assert.DoesNotContain("ismanaged eq false", Uri.UnescapeDataString(exchange.Url), StringComparison.Ordinal);
+            Assert.DoesNotContain(Guid.Empty.ToString(), exchange.Url, StringComparison.Ordinal);
+        });
+        Assert.All(connectorIds, connectorId => Assert.Single(handler.Exchanges, exchange => Uri.UnescapeDataString(exchange.Url).Contains($"connectorid eq {connectorId}", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task GetConnectorVersionsByIdsAsync_NoIds_SendsNoRequest()
+    {
+        var (client, handler) = Create(_ => Json("{\"value\":[]}"));
+
+        var connectors = await client.GetConnectorVersionsByIdsAsync(Array.Empty<Guid>(), CancellationToken.None);
+
+        Assert.Empty(connectors);
+        Assert.Empty(handler.Exchanges);
+    }
+
+    [Fact]
+    public async Task SaveConnectorAsync_NewConnector_PostsCreateOnlyFieldsAndReturnsTheStoredConnector()
+    {
+        var connectorId = Guid.NewGuid();
+        var preferences = new List<string>();
+        var (client, handler) = Create(request =>
+        {
+            preferences.Add(string.Join(",", request.Headers.TryGetValues("Prefer", out var values) ? values : Array.Empty<string>()));
+
+            return Json($"{{\"connectorid\":\"{connectorId}\",\"name\":\"shared_contoso\",\"description\":\"Stored by the server\",\"versionnumber\":42}}");
+        });
+
+        var stored = await client.SaveConnectorAsync(
+            new CustomConnectorMetadata { ConnectorId = connectorId, Name = "shared_contoso", ConnectorInternalId = "shared_contoso-5f", ConnectorType = 1, Description = "Sent by the client" },
+            exists: false,
+            CancellationToken.None);
+
+        var exchange = Assert.Single(handler.Exchanges);
+        Assert.Equal(HttpMethod.Post, exchange.Method);
+        Assert.Equal($"{DataverseUrl}/api/data/v9.2/connectors?$select=connectorid,name,displayname,description,connectorinternalid,openapidefinition,connectionparameters,connectionparametersets,policytemplateinstances,iconbrandcolor,iconblob,connectortype,statecode,statuscode,ismanaged,componentstate,createdon,modifiedon,versionnumber", Uri.UnescapeDataString(exchange.Url));
+        Assert.Equal("return=representation", Assert.Single(preferences));
+        using var body = JsonDocument.Parse(exchange.Body);
+        Assert.Equal(connectorId, body.RootElement.GetProperty("connectorid").GetGuid());
+        Assert.Equal("shared_contoso-5f", body.RootElement.GetProperty("connectorinternalid").GetString());
+        Assert.Equal(1, body.RootElement.GetProperty("connectortype").GetInt32());
+        Assert.False(body.RootElement.TryGetProperty("openapidefinition", out _));
+        Assert.Equal("Stored by the server", stored.Description);
+        Assert.Equal(42, stored.VersionNumber);
+    }
+
+    [Fact]
+    public async Task SaveConnectorAsync_ExistingConnector_PatchesWithoutCreateOnlyFields()
+    {
+        var connectorId = Guid.NewGuid();
+        var (client, handler) = Create(_ => Json($"{{\"connectorid\":\"{connectorId}\",\"versionnumber\":7}}"));
+
+        var stored = await client.SaveConnectorAsync(
+            new CustomConnectorMetadata { ConnectorId = connectorId, Name = "shared_contoso", ConnectorInternalId = "shared_contoso-5f", ConnectorType = 1, IconBrandColor = "#007ee5" },
+            exists: true,
+            CancellationToken.None);
+
+        var exchange = Assert.Single(handler.Exchanges);
+        Assert.Equal("PATCH", exchange.Method.Method);
+        Assert.StartsWith($"{DataverseUrl}/api/data/v9.2/connectors({connectorId})?$select=connectorid,", Uri.UnescapeDataString(exchange.Url), StringComparison.Ordinal);
+        using var body = JsonDocument.Parse(exchange.Body);
+        Assert.Equal("#007ee5", body.RootElement.GetProperty("iconbrandcolor").GetString());
+        Assert.False(body.RootElement.TryGetProperty("connectorid", out _));
+        Assert.False(body.RootElement.TryGetProperty("connectorinternalid", out _));
+        Assert.False(body.RootElement.TryGetProperty("connectortype", out _));
+        Assert.Equal(7, stored.VersionNumber);
+    }
+
+    [Fact]
+    public async Task SaveConnectorAsync_EmptyResponse_ReadsTheStoredConnectorOnce()
+    {
+        var connectorId = Guid.NewGuid();
+        var (client, handler) = Create(request => request.Method == HttpMethod.Get
+            ? Json($"{{\"connectorid\":\"{connectorId}\",\"description\":\"Read back\",\"versionnumber\":9}}")
+            : new HttpResponseMessage(HttpStatusCode.NoContent));
+
+        var stored = await client.SaveConnectorAsync(new CustomConnectorMetadata { ConnectorId = connectorId, Name = "shared_contoso" }, exists: true, CancellationToken.None);
+
+        Assert.Equal(2, handler.Exchanges.Count);
+        Assert.Equal(HttpMethod.Get, handler.Exchanges[1].Method);
+        Assert.StartsWith($"{DataverseUrl}/api/data/v9.2/connectors({connectorId})?$select=connectorid,", Uri.UnescapeDataString(handler.Exchanges[1].Url), StringComparison.Ordinal);
+        Assert.Equal("Read back", stored.Description);
+        Assert.Equal(9, stored.VersionNumber);
+    }
+
+    [Fact]
     public async Task ListWorkflowsAsync_ListsEveryUnmanagedCloudFlowIncludingTheOnesAgentsUseInOneRequest()
     {
         var preferences = new List<bool>();

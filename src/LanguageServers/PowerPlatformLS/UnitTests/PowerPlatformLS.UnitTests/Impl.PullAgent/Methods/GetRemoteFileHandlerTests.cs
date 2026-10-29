@@ -137,7 +137,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
         public void ResolveChange_WhenTheWorkflowWasDeletedRemotely_ReturnsEmptyContent()
         {
             var schemaName = "Mcs.Workflow." + WorkflowId;
-            var changes = ImmutableArray.Create(new Change { SchemaName = schemaName, ChangeType = ChangeType.Delete, RemoteWorkflowContent = "ignored" });
+            var changes = ImmutableArray.Create(new Change { SchemaName = schemaName, ChangeType = ChangeType.Delete, RemoteContent = "ignored" });
 
             var response = GetRemoteFileHandler.ResolveChange(changes, schemaName);
 
@@ -150,7 +150,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
         public void ResolveChange_ForAWorkflow_ReturnsTheRemoteContent()
         {
             var schemaName = "Mcs.Workflow." + WorkflowId + ".metadata";
-            var changes = ImmutableArray.Create(new Change { SchemaName = schemaName, ChangeType = ChangeType.Update, RemoteWorkflowContent = "name: Flow\n" });
+            var changes = ImmutableArray.Create(new Change { SchemaName = schemaName, ChangeType = ChangeType.Update, RemoteContent = "name: Flow\n" });
 
             var response = GetRemoteFileHandler.ResolveChange(changes, schemaName);
 
@@ -162,7 +162,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
         [Fact]
         public void ResolveChange_MatchesTheSchemaNameCaseInsensitively()
         {
-            var changes = ImmutableArray.Create(new Change { SchemaName = "Mcs.Workflow." + WorkflowId, ChangeType = ChangeType.Update, RemoteWorkflowContent = "{}" });
+            var changes = ImmutableArray.Create(new Change { SchemaName = "Mcs.Workflow." + WorkflowId, ChangeType = ChangeType.Update, RemoteContent = "{}" });
 
             var response = GetRemoteFileHandler.ResolveChange(changes, "mcs.workflow." + WorkflowId.ToString().ToUpperInvariant());
 
@@ -181,9 +181,24 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
         [Fact]
         public void ResolveChange_ForAComponentCarryingWorkflowContent_StillFallsThroughToSerialization()
         {
-            var changes = ImmutableArray.Create(new Change { SchemaName = SkillSchema, ChangeType = ChangeType.Update, RemoteWorkflowContent = "{}" });
+            var changes = ImmutableArray.Create(new Change { SchemaName = SkillSchema, ChangeType = ChangeType.Update, RemoteContent = "{}" });
 
             Assert.Null(GetRemoteFileHandler.ResolveChange(changes, SkillSchema));
+        }
+
+        [Theory]
+        [InlineData(CustomConnectorLayout.SchemaNamePrefix, "description: changed in the cloud\n")]
+        [InlineData(AiPromptLayout.SchemaNamePrefix, "{ \"name\": \"Summarize\" }")]
+        public void ResolveChange_ForAConnectorOrPrompt_ReturnsTheRemoteContent(string schemaNamePrefix, string remoteContent)
+        {
+            var schemaName = schemaNamePrefix + WorkflowId;
+            var changes = ImmutableArray.Create(new Change { SchemaName = schemaName, ChangeType = ChangeType.Update, RemoteContent = remoteContent });
+
+            var response = GetRemoteFileHandler.ResolveChange(changes, schemaName);
+
+            Assert.NotNull(response);
+            Assert.Equal(200, response!.Code);
+            Assert.Equal(remoteContent, response.Content);
         }
 
         private static DefinitionBase ReadCachedDefinition(McsWorkspace workspace)

@@ -1,7 +1,9 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 
+using System.Collections.Immutable;
 using System.Text;
 using Microsoft.Agents.ObjectModel;
+using Microsoft.Agents.Platform.Content;
 using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Moq;
@@ -27,14 +29,30 @@ public class NewLocalSkillTests
         "template: cliagent-1.0.0\n" +
         "language: 1033\n";
 
+    private const string NewSkillDescription = "Use when asked to run the pac-desc-test check.";
+
+    private const string NewSkillDescriptionLine = "  description: " + NewSkillDescription + "\n";
+
     private static async Task<(WorkspaceSynchronizer Sync, InMemoryFileAccessor Accessor, DirectoryPath Workspace)> CreateWorkspaceAsync()
     {
-        var (synchronizer, factory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var (synchronizer, accessor, workspace, _) = await CreateWorkspaceWithIslandAsync();
+        return (synchronizer, accessor, workspace);
+    }
+
+    private static async Task<(WorkspaceSynchronizer Sync, InMemoryFileAccessor Accessor, DirectoryPath Workspace, Mock<IIslandControlPlaneService> Island)> CreateWorkspaceWithIslandAsync()
+    {
+        var (synchronizer, factory, island) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/new-local-skill-{Guid.NewGuid():N}/");
         var accessor = (InMemoryFileAccessor)factory.Create(workspace);
         await accessor.WriteAsync(new AgentFilePath(AgentClassifier.WorkspaceLayoutMarkerFileName), "layoutVersion: 1\n", CancellationToken.None);
         await accessor.WriteAsync(new AgentFilePath("settings.mcs.yml"), CliSettings, CancellationToken.None);
-        return (synchronizer, accessor, workspace);
+        return (synchronizer, accessor, workspace, island);
+    }
+
+    private static void WriteNewSkill(InMemoryFileAccessor accessor, string folderName, string anchorDescriptionLine)
+    {
+        Write(accessor, $"behaviors/{folderName}/skill.mcs.yml", $"mcs.metadata:\n  componentName: {folderName}\n{anchorDescriptionLine}kind: InlineAgentSkill\n");
+        Write(accessor, $"behaviors/{folderName}/SKILL.md", $"---\nname: {folderName}\ndescription: {NewSkillDescription}\n---\nBody\n");
     }
 
     private static void Write(InMemoryFileAccessor accessor, string path, string content)
@@ -71,6 +89,52 @@ public class NewLocalSkillTests
         Assert.Equal(string.Empty, skill.Description);
         Assert.NotEqual(Guid.Empty, skill.Id.Value);
         Assert.Equal("cr123_natest.skill.get-us-temperature", skill.SchemaNameString);
+    }
+
+    [Theory]
+    [InlineData(NewSkillDescriptionLine, NewSkillDescription)]
+    [InlineData("", "")]
+    public async Task ReadWorkspaceDefinition_NewSkillAnchor_SynthesizedSkillTakesAnchorDescription(string anchorDescriptionLine, string expectedDescription)
+    {
+        var (sync, accessor, workspace) = await CreateWorkspaceAsync();
+        WriteNewSkill(accessor, "pac-desc-test", anchorDescriptionLine);
+
+        var skill = SkillOf(await sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true));
+
+        Assert.Equal(expectedDescription, skill.Description);
+        Assert.Equal("pac-desc-test", skill.DisplayName);
+        Assert.Equal("cr123_natest.skill.pac-desc-test", skill.SchemaNameString);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PushLocalChangesAsync_NewSkillAnchorDescription_CreatesSkillWithDescriptionAndKeepsItLocally(bool isMultiFileSkill)
+    {
+        var (sync, accessor, workspace, island) = await CreateWorkspaceWithIslandAsync();
+        WorkspaceSynchronizer.WriteCloudCache(accessor, CliCloudDefinition());
+        WriteNewSkill(accessor, "pac-desc-test", NewSkillDescriptionLine);
+        if (isMultiFileSkill)
+        {
+            Write(accessor, "behaviors/pac-desc-test/notes.md", "Notes\n");
+        }
+
+        var insertedSkills = new List<DialogComponent>();
+        island
+            .Setup(islandService => islandService.SaveChangesAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<PvaComponentChangeSet>(), It.IsAny<CancellationToken>()))
+            .Returns<AuthoringOperationContextBase, PvaComponentChangeSet, CancellationToken>((_, incoming, _) =>
+            {
+                insertedSkills.AddRange(incoming.BotComponentChanges.OfType<BotComponentInsert>().Select(insert => insert.Component).OfType<DialogComponent>().Where(component => component.Dialog is InlineAgentSkill));
+                return Task.FromResult(new PvaComponentChangeSet(incoming.BotComponentChanges.Select(change => change is BotComponentInsert { Component: { } component } ? new BotComponentInsert(PackagedSkillKnowledgeFileTests.AssignNewId(component)) : change), incoming.Bot, Guid.NewGuid().ToString("N")));
+            });
+
+        await sync.PushLocalChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), await sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true), new Mock<ISyncDataverseClient>().Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, cloudFlowMetadata: null, ImmutableArray<SyncDataverseClient.AIPromptMetadata>.Empty, CancellationToken.None);
+
+        Assert.Equal(NewSkillDescription, Assert.Single(insertedSkills).Description);
+        Assert.Equal(NewSkillDescription, SkillOf(WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!).Description);
+        var anchor = SkillLayout.ReadAnchorMetadata(accessor, "pac-desc-test");
+        Assert.Equal(NewSkillDescription, anchor.Description);
+        Assert.Equal("cr123_natest.skill.pac-desc-test", anchor.SchemaName);
     }
 
     [Fact]

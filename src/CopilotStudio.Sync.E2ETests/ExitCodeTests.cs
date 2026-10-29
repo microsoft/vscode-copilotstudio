@@ -44,18 +44,6 @@ public sealed class ExitCodeTests
     }
 
     [Fact]
-    public async Task VerifyWithMissingWorkspaceExitsNonZero()
-    {
-        var result = await CliRunner.RunAsync("verify --workspace /nonexistent/path");
-
-        _output.WriteLine("STDOUT:\n" + result.Stdout);
-        _output.WriteLine("STDERR:\n" + result.Stderr);
-
-        Assert.NotEqual(0, result.ExitCode);
-        Assert.Contains(".mcs/conn.json", result.Stderr);
-    }
-
-    [Fact]
     public async Task HelpExitsZero()
     {
         var result = await CliRunner.RunAsync("--help");
@@ -66,6 +54,5 @@ public sealed class ExitCodeTests
         Assert.Contains("clone", result.Stdout);
         Assert.Contains("push", result.Stdout);
         Assert.Contains("pull", result.Stdout);
-        Assert.Contains("verify", result.Stdout);
     }
 }

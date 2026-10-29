@@ -45,7 +45,9 @@ internal sealed class BaselineSyncDataverseClient : ISyncDataverseClient
 
     Task<CustomConnectorMetadata[]> ISyncDataverseClient.GetConnectorsByInternalIdPrefixAsync(string connectorInternalIdPrefix, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-    Task<bool> ISyncDataverseClient.UpsertConnectorAsync(CustomConnectorMetadata connector, CancellationToken cancellationToken) => throw new NotSupportedException();
+    Task<CustomConnectorMetadata[]> ISyncDataverseClient.GetConnectorVersionsByIdsAsync(IReadOnlyCollection<Guid> connectorIds, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+    Task<CustomConnectorMetadata> ISyncDataverseClient.SaveConnectorAsync(CustomConnectorMetadata connector, bool exists, CancellationToken cancellationToken) => throw new NotSupportedException();
 
     Task<SolutionInfo> ISyncDataverseClient.GetSolutionVersionsAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
 

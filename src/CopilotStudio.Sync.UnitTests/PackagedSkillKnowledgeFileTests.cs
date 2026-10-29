@@ -954,7 +954,7 @@ public class PackagedSkillKnowledgeFileTests
         Assert.Equal(2, skillContents.Distinct(StringComparer.Ordinal).Count());
     }
 
-    private static BotComponentBase AssignNewId(BotComponentBase component)
+    internal static BotComponentBase AssignNewId(BotComponentBase component)
     {
         var builder = component.ToBuilder();
         builder.Id = Guid.NewGuid();

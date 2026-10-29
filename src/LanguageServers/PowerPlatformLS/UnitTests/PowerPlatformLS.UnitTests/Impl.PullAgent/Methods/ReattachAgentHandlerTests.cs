@@ -1002,8 +1002,11 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             CancellationToken cancellationToken)
             => Task.FromResult(Array.Empty<CustomConnectorMetadata>());
 
-        public virtual Task<bool> UpsertConnectorAsync(CustomConnectorMetadata connector, CancellationToken cancellationToken)
-            => Task.FromResult(false);
+        public virtual Task<CustomConnectorMetadata[]> GetConnectorVersionsByIdsAsync(IReadOnlyCollection<Guid> connectorIds, CancellationToken cancellationToken)
+            => Task.FromResult(Array.Empty<CustomConnectorMetadata>());
+
+        public virtual Task<CustomConnectorMetadata> SaveConnectorAsync(CustomConnectorMetadata connector, bool exists, CancellationToken cancellationToken)
+            => Task.FromResult(connector);
 
         public virtual Task<AIPromptMetadata[]> DownloadAllAIPromptsForAgentAsync(AgentSyncInfo syncInfo, CancellationToken cancellationToken)
             => Task.FromResult(Array.Empty<AIPromptMetadata>());
@@ -1183,7 +1186,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             return Task.CompletedTask;
         }
 
-        public Task PushLocalChangesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, DefinitionBase workspaceDefinition, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CloudFlowMetadata? cloudFlowMetadata, ImmutableArray<AIPromptMetadata> aiPrompts, CancellationToken cancellationToken, AuthoringOperationContextBase? contentSaveContextOverride = null)
+        public Task PushLocalChangesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, DefinitionBase workspaceDefinition, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CloudFlowMetadata? cloudFlowMetadata, ImmutableArray<AIPromptMetadata> aiPrompts, CancellationToken cancellationToken, AuthoringOperationContextBase? contentSaveContextOverride = null, bool overwriteRemoteChanges = false)
             => Task.CompletedTask;
 
         public Task<ImmutableArray<KnowledgeFileInfo>> ListKnowledgeFilesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, CancellationToken cancellationToken)
@@ -1264,9 +1267,6 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
 
         public Task<(DefinitionBase Definition, ImmutableArray<Change> UnreadableChanges)> ReadWorkspaceDefinitionForDiscardAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, CancellationToken cancellationToken)
             => Task.FromResult(((DefinitionBase)new BotDefinition(), ImmutableArray<Change>.Empty));
-
-        public Task<PushVerificationResult> VerifyPushAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CancellationToken cancellationToken)
-            => Task.FromResult(new PushVerificationResult { IsFullyAccepted = true });
 
         public Task<ImmutableArray<Microsoft.CopilotStudio.McsCore.DirectoryPath>> CloneAllAssetsAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath rootFolder, AgentSyncInfo syncInfo, AssetsToClone assetsToClone, AgentInfo agentInfo, IOperationContextProvider operationContextProvider, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
             => Task.FromResult(ImmutableArray<Microsoft.CopilotStudio.McsCore.DirectoryPath>.Empty);
