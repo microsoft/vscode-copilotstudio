@@ -36,7 +36,7 @@ jobs:
           dotnet test ${{ env.BuildProjectFile }} --no-build --no-restore --configuration ${{ env.BuildConfiguration }} --logger trx --collect "Code coverage" --results-directory ${{ github.workspace }}/TestResults --blame
 
       - name: Publish test results
-        uses: dorny/test-reporter@314489e487ddee6222e16a61677dfb5c5a530b52 # v3.2.0
+        uses: dorny/test-reporter@d1b5dff021aa968b288b02285a8bf47471c5928a # v3.2.0
         if: always()
         with:
           name: .NET Test Results
