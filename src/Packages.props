@@ -29,7 +29,7 @@
     <PackageReference Update="Microsoft.PowerFx.Interpreter" Version="$(PowerFxPackageVersion)" />
     <PackageReference Update="Microsoft.PowerFx.LanguageServerProtocol" Version="$(PowerFxPackageVersion)" />
     <PackageReference Update="Microsoft.VisualStudio.Threading" Version="17.14.15" />
-    <PackageReference Update="Nullable.Extended.Analyzer" Version="1.18.2" />
+    <PackageReference Update="Nullable.Extended.Analyzer" Version="1.17.0" />
     <PackageReference Update="System.Collections.Immutable" Version="$(AspNetCoreVersion)" />
     <PackageReference Update="System.CommandLine" Version="2.0.14" />
     <PackageReference Update="System.Text.Json" Version="$(AspNetCoreVersion)" />
