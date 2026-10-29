@@ -53,9 +53,9 @@ internal static class McsComponentBodyWriter
 
     private static void AddValue(IDictionary<string, string> values, string key, string? value)
     {
-        if (!string.IsNullOrEmpty(value))
+        if (value is { Length: > 0 })
         {
-            values[key] = value!;
+            values[key] = value;
         }
     }
 

@@ -73,7 +73,7 @@ internal static class McsFileParserCore
     {
         string? displayName = null;
         string? description = null;
-        var fallbackName = !string.IsNullOrWhiteSpace(schemaName) ? schemaName.Split('.').Last() : string.Empty;
+        var fallbackName = schemaName is not null && !string.IsNullOrWhiteSpace(schemaName) ? schemaName.Split('.').Last() : string.Empty;
 
         try
         {

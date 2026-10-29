@@ -130,7 +130,7 @@ public class SettingsLocalChangeTests
 
         var onDisk = ReadFile(accessor, SettingsPath);
 
-        var cachedEntity = ((BotDefinition)ReadCache(accessor)).Entity!;
+        var cachedEntity = (((BotDefinition)ReadCache(accessor)).Entity ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         using var writer = new StringWriter();
         CodeSerializer.SerializeWithoutKind(writer, cachedEntity.WithOnlySettingsYamlProperties());
 
@@ -191,7 +191,7 @@ public class SettingsLocalChangeTests
         var (_, accessor, _) = await CloneAsync(CreateAgentSettingsJson(instructionValue));
 
         var onDisk = ReadFile(accessor, SettingsPath);
-        var cachedProjection = SerializeSettingsProjection(((BotDefinition)ReadCache(accessor)).Entity!);
+        var cachedProjection = SerializeSettingsProjection((((BotDefinition)ReadCache(accessor)).Entity ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")));
 
         Assert.True(
             string.Equals(cachedProjection, onDisk, StringComparison.Ordinal),
@@ -350,7 +350,7 @@ public class SettingsLocalChangeTests
 
         using (YamlSerializationContext.UseYamlPassThroughSerializationContext())
         {
-            return JsonSerializer.Deserialize<BotEntity>(json, ElementSerializer.CreateOptions())!;
+            return (JsonSerializer.Deserialize<BotEntity>(json, ElementSerializer.CreateOptions()) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         }
     }
 
@@ -385,7 +385,7 @@ public class SettingsLocalChangeTests
         using var stream = fileAccessor.OpenRead(new AgentFilePath(".mcs/botdefinition.json"));
         using (YamlSerializationContext.UseYamlPassThroughSerializationContext())
         {
-            return JsonSerializer.Deserialize<DefinitionBase>(stream, ElementSerializer.CreateOptions())!;
+            return (JsonSerializer.Deserialize<DefinitionBase>(stream, ElementSerializer.CreateOptions()) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         }
     }
 }

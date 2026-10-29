@@ -3,6 +3,9 @@
 using Microsoft.CopilotStudio.McsCore.Yaml;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Xunit;
+using YamlDotNet.Core;
+using YamlDotNet.Serialization;
+using YamlDotNet.Serialization.Converters;
 
 namespace Microsoft.CopilotStudio.Sync.UnitTests.Yaml;
 
@@ -150,6 +153,7 @@ public class McsYamlCorpusTests
     [Fact]
     public void MatchesReferenceObjectMapperRoundTripForRealWorkflowMetadata()
     {
+        // ! These expressions select property metadata and are never evaluated.
         AssertObjectMapperMatchesReference<SyncDataverseClient.WorkflowMetadata>(
             "workflows",
             builder => builder
@@ -161,6 +165,7 @@ public class McsYamlCorpusTests
     [Fact]
     public void MatchesReferenceObjectMapperRoundTripForRealPromptMetadata()
     {
+        // ! This expression selects property metadata and is never evaluated.
         AssertObjectMapperMatchesReference<SyncDataverseClient.AIPromptMetadata>(
             "prompts",
             builder => builder
@@ -179,7 +184,11 @@ public class McsYamlCorpusTests
             .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention.Instance)
             .IgnoreUnmatchedProperties()
             .Build();
+        // YamlDotNet 18's nullable GUID converter writes null as an empty string.
+        // Keep the reference serializer aligned with the historical workspace format.
         var referenceSerializer = configureReference(new YamlDotNet.Serialization.SerializerBuilder()
+            .WithoutTypeConverter<GuidConverter>()
+            .WithTypeConverter(new NonNullableGuidConverter())
             .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention.Instance)).Build();
         var failures = new List<string>();
         var checkedFiles = 0;
@@ -220,7 +229,7 @@ public class McsYamlCorpusTests
                 Assert.NotNull(actual);
 
                 var referenceText = referenceSerializer.Serialize(reference).Replace("\r\n", "\n");
-                var actualText = McsYamlObjectMapper.Serialize(actual!).Replace("\r\n", "\n");
+                var actualText = McsYamlObjectMapper.Serialize(actual).Replace("\r\n", "\n");
                 if (string.Equals(referenceText, actualText, StringComparison.Ordinal))
                 {
                     continue;
@@ -248,6 +257,19 @@ public class McsYamlCorpusTests
         Assert.True(checkedFiles > 0, $"The corpus contained no '{folderName}' metadata documents.");
     }
 
+    private sealed class NonNullableGuidConverter : IYamlTypeConverter
+    {
+        private readonly GuidConverter _converter = new(jsonCompatible: false);
+
+        public bool Accepts(Type type) => type == typeof(Guid);
+
+        public object? ReadYaml(IParser parser, Type type, ObjectDeserializer rootDeserializer)
+            => _converter.ReadYaml(parser, type, rootDeserializer);
+
+        public void WriteYaml(IEmitter emitter, object? value, Type type, ObjectSerializer serializer)
+            => _converter.WriteYaml(emitter, value, type, serializer);
+    }
+
     private static string DescribeFirstDifference(string expected, string actual)
     {
         var expectedLines = expected.Split('\n');
@@ -270,7 +292,7 @@ public class McsYamlCorpusTests
     {
         foreach (var fixture in Fixtures())
         {
-            yield return ((string)fixture[0]!, LineEndings.ToPlatform((string)fixture[1]!));
+            yield return ((string)fixture[0], LineEndings.ToPlatform((string)fixture[1]));
         }
 
         foreach (var file in EnumerateCorpusFiles())
@@ -412,7 +434,16 @@ public class McsYamlCorpusTests
             "name: prompt child 2\r\n" +
             "templateId: \r\n"
         },
+        {
+            "prompts/prompt-missing-template",
+            "aIModelId: 3b5436b4-d7b4-4389-96e8-107446c9094a\r\n" +
+            "name: prompt without a template\r\n"
+        },
+        {
+            "prompts/prompt-empty-guid-template",
+            "aIModelId: 3b5436b4-d7b4-4389-96e8-107446c9094a\r\n" +
+            "name: prompt with an empty identifier\r\n" +
+            "templateId: 00000000-0000-0000-0000-000000000000\r\n"
+        },
     };
 }
-
-

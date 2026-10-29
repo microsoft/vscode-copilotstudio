@@ -17,6 +17,7 @@ public class PushConcurrencyRetryTests
 {
     private const string AgentSchema = "cre98_AgentC1";
 
+    // ! The concurrency fixture does not need an inner exception.
     private static DataversePreconditionFailedException MakeConcurrencyException() =>
         new DataversePreconditionFailedException(
             "0x80060882",
@@ -235,7 +236,7 @@ public class PushConcurrencyRetryTests
         Assert.All(sentChangesets, changes =>
         {
             var insert = Assert.IsType<BotComponentInsert>(Assert.Single(changes.BotComponentChanges));
-            Assert.Equal($"{AgentSchema}.topic.Greeting", insert.Component!.SchemaNameString);
+            Assert.Equal($"{AgentSchema}.topic.Greeting", (insert.Component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).SchemaNameString);
         });
         mockIsland.Verify(
             x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), "token-1", It.IsAny<CancellationToken>()),
@@ -274,7 +275,7 @@ public class PushConcurrencyRetryTests
                 }
                 var confirmed = incoming.BotComponentChanges.Select(change =>
                     change is BotComponentInsert insert
-                        ? new BotComponentInsert(insert.Component!.WithId(serverAgentId))
+                        ? new BotComponentInsert((insert.Component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).WithId(serverAgentId))
                         : change);
                 return new PvaComponentChangeSet(confirmed, incoming.Bot, "token-3");
             });
@@ -295,11 +296,11 @@ public class PushConcurrencyRetryTests
         Assert.Equal(2, sentChangesets.Count);
         Assert.All(sentChangesets, changes =>
         {
-            Assert.Equal(newAgent.SchemaNameString, Assert.Single(changes.BotComponentChanges.OfType<BotComponentInsert>()).Component!.SchemaNameString);
+            Assert.Equal(newAgent.SchemaNameString, (Assert.Single(changes.BotComponentChanges.OfType<BotComponentInsert>()).Component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).SchemaNameString);
             Assert.Equal(previousAgent.Id, Assert.Single(changes.BotComponentChanges.OfType<BotComponentDelete>()).BotComponentId);
             Assert.Equal(2, changes.BotComponentChanges.Length);
         });
-        var confirmedAgent = Assert.Single(WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!.Components);
+        var confirmedAgent = Assert.Single((WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Components);
         Assert.Equal(newAgent.SchemaNameString, confirmedAgent.SchemaNameString);
         Assert.Equal(serverAgentId, confirmedAgent.Id.Value);
         Assert.Equal("token-3", await fileAccessor.ReadStringAsync(new AgentFilePath(".mcs/changetoken.txt"), CancellationToken.None));
@@ -501,7 +502,7 @@ public class PushConcurrencyRetryTests
             new BotDefinition().WithEntity(BuildBot(agentId, "Renamed locally", version: 1)).WithComponents(new[] { farewell }));
 
         Assert.Equal(2, sentChangesets.Count);
-        Assert.Equal("Renamed locally", sentChangesets[1].Bot!.DisplayName);
+        Assert.Equal("Renamed locally", (sentChangesets[1].Bot ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).DisplayName);
         Assert.Empty(sentChangesets[1].BotComponentChanges);
         Assert.Contains("farewellCloud", await ReadAsync(fileAccessor, "topics/Farewell.mcs.yml"), StringComparison.Ordinal);
     }
@@ -538,7 +539,7 @@ public class PushConcurrencyRetryTests
             overwriteRemoteChanges: true);
 
         Assert.Equal(2, sentChangesets.Count);
-        Assert.Equal($"{AgentSchema}.topic.Greeting", Assert.IsType<BotComponentUpdate>(Assert.Single(sentChangesets[1].BotComponentChanges)).Component!.SchemaNameString);
+        Assert.Equal($"{AgentSchema}.topic.Greeting", (Assert.IsType<BotComponentUpdate>(Assert.Single(sentChangesets[1].BotComponentChanges)).Component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).SchemaNameString);
         Assert.Contains("greetingLocal", await ReadAsync(fileAccessor, "topics/Greeting.mcs.yml"), StringComparison.Ordinal);
         Assert.Contains("farewellCloud", await ReadAsync(fileAccessor, "topics/Farewell.mcs.yml"), StringComparison.Ordinal);
         var cache = await ReadAsync(fileAccessor, ".mcs/botdefinition.json");
@@ -609,7 +610,7 @@ public class PushConcurrencyRetryTests
             overwriteRemoteChanges: true);
 
         Assert.Equal(2, sentChangesets.Count);
-        Assert.Equal("https://local", Assert.IsType<EnvironmentVariableUpdate>(Assert.Single(sentChangesets[1].EnvironmentVariableChanges)).EnvironmentVariable!.DefaultValue);
+        Assert.Equal("https://local", (Assert.IsType<EnvironmentVariableUpdate>(Assert.Single(sentChangesets[1].EnvironmentVariableChanges)).EnvironmentVariable ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).DefaultValue);
         Assert.Contains("https://local", await ReadAsync(fileAccessor, $"environmentvariables/{AgentSchema}.Endpoint.mcs.yml"), StringComparison.Ordinal);
     }
 
@@ -634,7 +635,7 @@ public class PushConcurrencyRetryTests
         Assert.Equal(2, sentChangesets.Count);
         var changes = sentChangesets[1].ConnectionReferenceChanges;
         Assert.Equal(2, changes.Length);
-        Assert.Equal("/providers/Microsoft.PowerApps/apis/shared_sharepointonline", Assert.IsType<ConnectionReferenceUpdate>(Assert.Single(changes, change => change is ConnectionReferenceUpsert)).ConnectionReference!.ConnectorId.Value);
+        Assert.Equal("/providers/Microsoft.PowerApps/apis/shared_sharepointonline", (Assert.IsType<ConnectionReferenceUpdate>(Assert.Single(changes, change => change is ConnectionReferenceUpsert)).ConnectionReference ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ConnectorId.Value);
         Assert.Equal(deleted.Id.Value, Assert.IsType<ConnectionReferenceDelete>(Assert.Single(changes, change => change is ConnectionReferenceDelete)).ConnectionReferenceId.Value);
         Assert.Contains("shared_sharepointonline", await ReadAsync(fileAccessor, GetConnectionReferencePath("cre98_edited")), StringComparison.Ordinal);
         Assert.Contains("shared_teams", await ReadAsync(fileAccessor, GetConnectionReferencePath("cre98_added")), StringComparison.Ordinal);
@@ -650,7 +651,7 @@ public class PushConcurrencyRetryTests
 
         var (fileAccessor, sentChangesets) = await PushAfterRemoteRefreshAsync(
             new BotDefinition().WithEntity(bot),
-            new PvaComponentChangeSet.Builder { ChangeToken = "token-2", ComponentCollectionChanges = { new BotComponentCollectionInsert(CodeSerializer.Deserialize<BotComponentCollection>("schemaName: cre98_shared\ndisplayName: Shared")!.WithId(new BotComponentCollectionId(Guid.NewGuid()))) } }.Build(),
+            new PvaComponentChangeSet.Builder { ChangeToken = "token-2", ComponentCollectionChanges = { new BotComponentCollectionInsert((CodeSerializer.Deserialize<BotComponentCollection>("schemaName: cre98_shared\ndisplayName: Shared") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).WithId(new BotComponentCollectionId(Guid.NewGuid()))) } }.Build(),
             new BotDefinition().WithEntity(bot).WithComponents(new[] { CreateTopic("Greeting", "greetingLocal", Guid.NewGuid()) }),
             dataverseClient: dataverse.Object);
 
@@ -693,7 +694,7 @@ public class PushConcurrencyRetryTests
             ComponentWriterDefensiveTests.CreateMockOperationContext(),
             localDefinition,
             dataverseClient ?? new Mock<ISyncDataverseClient>().Object,
-            new AgentSyncInfo { AgentId = localDefinition.Entity!.CdsBotId.Value },
+            new AgentSyncInfo { AgentId = (localDefinition.Entity ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).CdsBotId.Value },
             cloudFlowMetadata: null,
             aiPrompts: ImmutableArray<AIPromptMetadata>.Empty,
             CancellationToken.None,
@@ -730,7 +731,7 @@ public class PushConcurrencyRetryTests
             description: string.Empty,
             id: id,
             parentBotComponentId: default,
-            dialog: (DialogBase)CodeSerializer.Deserialize<BotElement>($"kind: AdaptiveDialog\nbeginDialog:\n  kind: OnRecognizedIntent\n  id: {triggerId}\n")!);
+            dialog: (DialogBase)(CodeSerializer.Deserialize<BotElement>($"kind: AdaptiveDialog\nbeginDialog:\n  kind: OnRecognizedIntent\n  id: {triggerId}\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")));
 
     private static DialogComponent CreateChildAgent(string schemaSuffix, string displayName)
         => new(

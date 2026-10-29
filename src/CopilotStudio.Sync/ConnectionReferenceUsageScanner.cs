@@ -15,7 +15,7 @@ internal static class ConnectionReferenceText
 
     public static IEnumerable<string> ExtractConnectionReferenceNames(string? yamlText)
     {
-        if (string.IsNullOrEmpty(yamlText) || yamlText!.IndexOf("connectionReference:", StringComparison.OrdinalIgnoreCase) < 0)
+        if (yamlText is null || yamlText.Length == 0 || yamlText.IndexOf("connectionReference:", StringComparison.OrdinalIgnoreCase) < 0)
         {
             yield break;
         }
@@ -125,7 +125,7 @@ public sealed class ConnectionReferenceUsageScanner
                 connectionNames = ReadWorkflowJsonConnectionReferences(fileAccessor, path, cancellationToken);
             }
 
-            var displayName = !string.IsNullOrWhiteSpace(metadata.Name) ? metadata.Name! : GetFileDisplayName(path);
+            var displayName = metadata.Name is { } workflowName && !string.IsNullOrWhiteSpace(workflowName) ? workflowName : GetFileDisplayName(path);
 
             workflows.Add(new ScannedWorkflow
             {
@@ -198,12 +198,12 @@ public sealed class ConnectionReferenceUsageScanner
                 continue;
             }
 
-            if (connector == null || string.IsNullOrWhiteSpace(connector.ConnectorInternalId))
+            if (connector == null || connector.ConnectorInternalId is not { } connectorId || string.IsNullOrWhiteSpace(connectorId))
             {
                 continue;
             }
 
-            if (!logicalNamesByInternalId.TryGetValue(connector.ConnectorInternalId!, out var logicalNames))
+            if (!logicalNamesByInternalId.TryGetValue(connectorId, out var logicalNames))
             {
                 continue;
             }
@@ -215,7 +215,9 @@ public sealed class ConnectionReferenceUsageScanner
                     LogicalName = logicalName,
                     FilePath = path,
                     Kind = UsageKind.Connector,
-                    DisplayName = !string.IsNullOrWhiteSpace(connector.DisplayName) ? connector.DisplayName! : (!string.IsNullOrWhiteSpace(connector.Name) ? connector.Name! : GetFileDisplayName(path)),
+                    DisplayName = connector.DisplayName is { } displayName && !string.IsNullOrWhiteSpace(displayName)
+                        ? displayName
+                        : connector.Name is { } name && !string.IsNullOrWhiteSpace(name) ? name : GetFileDisplayName(path),
                 });
             }
         }
@@ -302,12 +304,12 @@ public sealed class ConnectionReferenceUsageScanner
             }
 
             var content = ReadText(fileAccessor, file);
-            if (string.IsNullOrWhiteSpace(content))
+            if (content is null || string.IsNullOrWhiteSpace(content))
             {
                 continue;
             }
 
-            yield return (path, content!);
+            yield return (path, content);
         }
     }
 

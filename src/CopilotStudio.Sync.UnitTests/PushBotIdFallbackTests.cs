@@ -19,11 +19,11 @@ public class PushBotIdFallbackTests
         var fileAccessor = fileAccessorFactory.Create(workspace);
 
         var targetAgentId = Guid.NewGuid();
-        var cloudEntityBuilder = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!.ToBuilder();
+        var cloudEntityBuilder = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ToBuilder();
         cloudEntityBuilder.CdsBotId = targetAgentId;
         var cloudSnapshot = new BotDefinition().WithEntity(cloudEntityBuilder.Build());
 
-        var localEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!;
+        var localEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var topic = new DialogComponent(
             schemaName: "cre98_AgentC1.topic.Greeting",
             displayName: "Greeting",
@@ -36,7 +36,7 @@ public class PushBotIdFallbackTests
         var (changeSet, _) = synchronizer.GetLocalChanges(localDefinition, cloudSnapshot, fileAccessor, "token-1");
 
         var insert = Assert.Single(changeSet.BotComponentChanges.OfType<BotComponentInsert>());
-        Assert.Equal(targetAgentId, insert.Component!.ParentBotId.Value);
+        Assert.Equal(targetAgentId, (insert.Component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ParentBotId.Value);
     }
 
     [Fact]
@@ -49,11 +49,11 @@ public class PushBotIdFallbackTests
         var sourceAgentId = Guid.NewGuid();
         var targetAgentId = Guid.NewGuid();
 
-        var cloudEntityBuilder = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!.ToBuilder();
+        var cloudEntityBuilder = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ToBuilder();
         cloudEntityBuilder.CdsBotId = targetAgentId;
         var cloudSnapshot = new BotDefinition().WithEntity(cloudEntityBuilder.Build());
 
-        var localEntityBuilder = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!.ToBuilder();
+        var localEntityBuilder = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ToBuilder();
         localEntityBuilder.CdsBotId = sourceAgentId;
         var topic = new DialogComponent(
             schemaName: "cre98_AgentC1.topic.Greeting",
@@ -67,8 +67,8 @@ public class PushBotIdFallbackTests
         var (changeSet, _) = synchronizer.GetLocalChanges(localDefinition, cloudSnapshot, fileAccessor, "token-1");
 
         var insert = Assert.Single(changeSet.BotComponentChanges.OfType<BotComponentInsert>());
-        Assert.Equal(targetAgentId, insert.Component!.ParentBotId.Value);
-        Assert.NotEqual(sourceAgentId, insert.Component!.ParentBotId.Value);
+        Assert.Equal(targetAgentId, (insert.Component ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ParentBotId.Value);
+        Assert.NotEqual(sourceAgentId, insert.Component.ParentBotId.Value);
     }
 
     [Fact]
@@ -77,9 +77,9 @@ public class PushBotIdFallbackTests
         var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/workspace-collection-link/"));
         var localDefinition = new BotDefinition()
-            .WithEntity(CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!)
-            .WithComponentCollections(new[] { CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_my_cc_333\ndisplayName: MyCC333")! });
-        var cloudSnapshot = new BotDefinition().WithEntity(CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!);
+            .WithEntity((CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")))
+            .WithComponentCollections(new[] { (CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_my_cc_333\ndisplayName: MyCC333") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")) });
+        var cloudSnapshot = new BotDefinition().WithEntity((CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")));
 
         var (changeSet, changes) = synchronizer.GetLocalChanges(localDefinition, cloudSnapshot, fileAccessor, "token-1");
 
@@ -93,11 +93,11 @@ public class PushBotIdFallbackTests
         var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/workspace-collection-noupdate/"));
         var localDefinition = new BotDefinition()
-            .WithEntity(CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!)
-            .WithComponentCollections(new[] { CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_my_cc_333\ndisplayName: LocallyEditedName")! });
+            .WithEntity((CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")))
+            .WithComponentCollections(new[] { (CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_my_cc_333\ndisplayName: LocallyEditedName") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")) });
         var cloudSnapshot = new BotDefinition()
-            .WithEntity(CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!)
-            .WithComponentCollections(new[] { CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_my_cc_333\ndisplayName: CloudName")! });
+            .WithEntity((CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")))
+            .WithComponentCollections(new[] { (CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_my_cc_333\ndisplayName: CloudName") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")) });
 
         var (changeSet, changes) = synchronizer.GetLocalChanges(localDefinition, cloudSnapshot, fileAccessor, "token-1");
 
@@ -115,7 +115,7 @@ public class PushBotIdFallbackTests
         var dataverse = new Mock<ISyncDataverseClient>();
         dataverse.As<ISyncComponentCollectionDataverseClient>().Setup(client => client.GetComponentCollectionIdBySchemaNameAsync("bot_componentcollection_my_cc_333", It.IsAny<CancellationToken>())).ReturnsAsync(collectionId);
         dataverse.As<ISyncComponentCollectionDataverseClient>().Setup(client => client.InstallComponentCollectionOnAgentAsync(agentId, collectionId, It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        WorkspaceSynchronizer.WriteCloudCache(fileAccessorFactory.Create(workspace), new BotDefinition().WithEntity(CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!));
+        WorkspaceSynchronizer.WriteCloudCache(fileAccessorFactory.Create(workspace), new BotDefinition().WithEntity((CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))));
 
         await synchronizer.PushChangesetAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), new PvaComponentChangeSet(
             botComponentChanges: null,
@@ -123,7 +123,7 @@ public class PushBotIdFallbackTests
             environmentVariableChanges: null,
             connectionReferenceChanges: null,
             aIPluginOperationChanges: null,
-            componentCollectionChanges: new BotComponentCollectionChange[] { new BotComponentCollectionInsert(CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_my_cc_333\ndisplayName: MyCC333")!) },
+            componentCollectionChanges: new BotComponentCollectionChange[] { new BotComponentCollectionInsert((CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_my_cc_333\ndisplayName: MyCC333") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))) },
             dataverseTableSearchChanges: null,
             dataverseTableSearchEntityConfigurationChanges: null,
             connectedAgentDefinitionChanges: null,
@@ -143,7 +143,7 @@ public class PushBotIdFallbackTests
         var dataverse = new Mock<ISyncDataverseClient>();
         var componentCollectionDataverse = dataverse.As<ISyncComponentCollectionDataverseClient>();
         componentCollectionDataverse.Setup(client => client.GetComponentCollectionIdBySchemaNameAsync("bot_componentcollection_a", It.IsAny<CancellationToken>())).ReturnsAsync(Guid.NewGuid());
-        WorkspaceSynchronizer.WriteCloudCache(fileAccessorFactory.Create(workspace), new BotDefinition().WithEntity(CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!));
+        WorkspaceSynchronizer.WriteCloudCache(fileAccessorFactory.Create(workspace), new BotDefinition().WithEntity((CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))));
 
         var changeset = new PvaComponentChangeSet(
             botComponentChanges: null,
@@ -153,7 +153,7 @@ public class PushBotIdFallbackTests
             aIPluginOperationChanges: null,
             componentCollectionChanges: new BotComponentCollectionChange[]
             {
-                new BotComponentCollectionInsert(CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_a\ndisplayName: A")!),
+                new BotComponentCollectionInsert((CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_a\ndisplayName: A") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))),
                 new BotComponentCollectionDelete(new BotComponentCollectionId(Guid.Empty), 1),
             },
             dataverseTableSearchChanges: null,
@@ -166,7 +166,7 @@ public class PushBotIdFallbackTests
 
         componentCollectionDataverse.Verify(client => client.InstallComponentCollectionOnAgentAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
         componentCollectionDataverse.Verify(client => client.UninstallComponentCollectionFromAgentAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
-        Assert.Empty(((BotDefinition)WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessorFactory.Create(workspace))!).ComponentCollections);
+        Assert.Empty(((BotDefinition)(WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessorFactory.Create(workspace)) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))).ComponentCollections);
     }
 
     [Fact]
@@ -179,7 +179,7 @@ public class PushBotIdFallbackTests
         var componentCollectionDataverse = dataverse.As<ISyncComponentCollectionDataverseClient>();
         componentCollectionDataverse.Setup(client => client.GetComponentCollectionIdBySchemaNameAsync("bot_componentcollection_a", It.IsAny<CancellationToken>())).ReturnsAsync(Guid.NewGuid());
         componentCollectionDataverse.Setup(client => client.GetComponentCollectionIdBySchemaNameAsync("bot_componentcollection_b", It.IsAny<CancellationToken>())).ThrowsAsync(new InvalidOperationException("resolve failed"));
-        WorkspaceSynchronizer.WriteCloudCache(fileAccessorFactory.Create(workspace), new BotDefinition().WithEntity(CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!));
+        WorkspaceSynchronizer.WriteCloudCache(fileAccessorFactory.Create(workspace), new BotDefinition().WithEntity((CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))));
 
         var changeset = new PvaComponentChangeSet(
             botComponentChanges: null,
@@ -189,8 +189,8 @@ public class PushBotIdFallbackTests
             aIPluginOperationChanges: null,
             componentCollectionChanges: new BotComponentCollectionChange[]
             {
-                new BotComponentCollectionInsert(CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_a\ndisplayName: A")!),
-                new BotComponentCollectionInsert(CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_b\ndisplayName: B")!),
+                new BotComponentCollectionInsert((CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_a\ndisplayName: A") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))),
+                new BotComponentCollectionInsert((CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_b\ndisplayName: B") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))),
             },
             dataverseTableSearchChanges: null,
             dataverseTableSearchEntityConfigurationChanges: null,
@@ -218,7 +218,7 @@ public class PushBotIdFallbackTests
         componentCollectionDataverse.Setup(client => client.GetComponentCollectionIdBySchemaNameAsync("bot_componentcollection_b", It.IsAny<CancellationToken>())).ReturnsAsync(collectionIdB);
         componentCollectionDataverse.Setup(client => client.InstallComponentCollectionOnAgentAsync(agentId, collectionIdA, It.IsAny<CancellationToken>())).ThrowsAsync(new InvalidOperationException("install failed"));
         componentCollectionDataverse.Setup(client => client.InstallComponentCollectionOnAgentAsync(agentId, collectionIdB, It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        WorkspaceSynchronizer.WriteCloudCache(fileAccessor, new BotDefinition().WithEntity(CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!));
+        WorkspaceSynchronizer.WriteCloudCache(fileAccessor, new BotDefinition().WithEntity((CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))));
 
         var changeset = new PvaComponentChangeSet(
             botComponentChanges: null,
@@ -228,8 +228,8 @@ public class PushBotIdFallbackTests
             aIPluginOperationChanges: null,
             componentCollectionChanges: new BotComponentCollectionChange[]
             {
-                new BotComponentCollectionInsert(CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_a\ndisplayName: A")!),
-                new BotComponentCollectionInsert(CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_b\ndisplayName: B")!),
+                new BotComponentCollectionInsert((CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_a\ndisplayName: A") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))),
+                new BotComponentCollectionInsert((CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_b\ndisplayName: B") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))),
             },
             dataverseTableSearchChanges: null,
             dataverseTableSearchEntityConfigurationChanges: null,
@@ -240,7 +240,7 @@ public class PushBotIdFallbackTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => synchronizer.PushChangesetAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), changeset, dataverse.Object, agentId, null, default, CancellationToken.None));
 
         componentCollectionDataverse.Verify(client => client.InstallComponentCollectionOnAgentAsync(agentId, collectionIdB, It.IsAny<CancellationToken>()), Times.Once);
-        Assert.Empty(((BotDefinition)WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!).ComponentCollections);
+        Assert.Empty(((BotDefinition)(WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))).ComponentCollections);
     }
 
     [Fact]
@@ -255,9 +255,9 @@ public class PushBotIdFallbackTests
         var componentCollectionDataverse = dataverse.As<ISyncComponentCollectionDataverseClient>();
         componentCollectionDataverse.Setup(client => client.GetComponentCollectionIdBySchemaNameAsync("bot_componentcollection_a", It.IsAny<CancellationToken>())).ReturnsAsync(collectionId);
         componentCollectionDataverse.Setup(client => client.InstallComponentCollectionOnAgentAsync(agentId, collectionId, It.IsAny<CancellationToken>())).ThrowsAsync(new InvalidOperationException("install failed"));
-        WorkspaceSynchronizer.WriteCloudCache(fileAccessor, new BotDefinition().WithEntity(CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!));
+        WorkspaceSynchronizer.WriteCloudCache(fileAccessor, new BotDefinition().WithEntity((CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))));
         await fileAccessor.WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "token-1", CancellationToken.None);
-        mockIsland.Setup(island => island.SaveChangesAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<PvaComponentChangeSet>(), It.IsAny<CancellationToken>())).ReturnsAsync(new PvaComponentChangeSet(null, CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!, "token-2"));
+        mockIsland.Setup(island => island.SaveChangesAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<PvaComponentChangeSet>(), It.IsAny<CancellationToken>())).ReturnsAsync(new PvaComponentChangeSet(null, (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")), "token-2"));
 
         var changeset = new PvaComponentChangeSet(
             botComponentChanges: null,
@@ -267,19 +267,19 @@ public class PushBotIdFallbackTests
             aIPluginOperationChanges: null,
             componentCollectionChanges: new BotComponentCollectionChange[]
             {
-                new BotComponentCollectionInsert(CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_a\ndisplayName: A")!),
+                new BotComponentCollectionInsert((CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_a\ndisplayName: A") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))),
             },
             dataverseTableSearchChanges: null,
             dataverseTableSearchEntityConfigurationChanges: null,
             connectedAgentDefinitionChanges: null,
-            bot: CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!,
+            bot: (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")),
             changeToken: "token-1");
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => synchronizer.PushChangesetAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), changeset, dataverse.Object, agentId, null, default, CancellationToken.None));
 
         Assert.Equal("token-2", await fileAccessor.ReadStringAsync(new AgentFilePath(".mcs/changetoken.txt"), CancellationToken.None));
         Assert.True(fileAccessor.Exists(new AgentFilePath("settings.mcs.yml")));
-        Assert.Empty(((BotDefinition)WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!).ComponentCollections);
+        Assert.Empty(((BotDefinition)(WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))).ComponentCollections);
     }
 
     [Fact]
@@ -293,7 +293,7 @@ public class PushBotIdFallbackTests
         var dataverse = new Mock<ISyncDataverseClient>();
         dataverse.As<ISyncComponentCollectionDataverseClient>().Setup(client => client.GetComponentCollectionIdBySchemaNameAsync("bot_componentcollection_my_cc_333", It.IsAny<CancellationToken>())).ReturnsAsync(collectionId);
         dataverse.As<ISyncComponentCollectionDataverseClient>().Setup(client => client.InstallComponentCollectionOnAgentAsync(agentId, collectionId, It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        WorkspaceSynchronizer.WriteCloudCache(fileAccessor, new BotDefinition().WithEntity(CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!));
+        WorkspaceSynchronizer.WriteCloudCache(fileAccessor, new BotDefinition().WithEntity((CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))));
 
         await synchronizer.PushChangesetAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), new PvaComponentChangeSet(
             botComponentChanges: null,
@@ -301,14 +301,14 @@ public class PushBotIdFallbackTests
             environmentVariableChanges: null,
             connectionReferenceChanges: null,
             aIPluginOperationChanges: null,
-            componentCollectionChanges: new BotComponentCollectionChange[] { new BotComponentCollectionInsert(CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_my_cc_333\ndisplayName: MyCC333")!) },
+            componentCollectionChanges: new BotComponentCollectionChange[] { new BotComponentCollectionInsert((CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_my_cc_333\ndisplayName: MyCC333") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))) },
             dataverseTableSearchChanges: null,
             dataverseTableSearchEntityConfigurationChanges: null,
             connectedAgentDefinitionChanges: null,
             bot: null,
             changeToken: "token-1"), dataverse.Object, agentId, null, default, CancellationToken.None);
 
-        var cachedCollection = Assert.Single(((BotDefinition)WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor)!).ComponentCollections);
+        var cachedCollection = Assert.Single(((BotDefinition)(WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))).ComponentCollections);
         Assert.Equal(collectionId, cachedCollection.Id.Value);
         Assert.NotEqual(Guid.Empty, cachedCollection.Id.Value);
         Assert.NotEqual("MyCC333", cachedCollection.DisplayName);
@@ -325,7 +325,7 @@ public class PushBotIdFallbackTests
         var dataverse = new Mock<ISyncDataverseClient>();
         dataverse.As<ISyncComponentCollectionDataverseClient>().Setup(client => client.GetComponentCollectionIdBySchemaNameAsync("bot_componentcollection_my_cc_333", It.IsAny<CancellationToken>())).ReturnsAsync(collectionId);
         dataverse.As<ISyncComponentCollectionDataverseClient>().Setup(client => client.InstallComponentCollectionOnAgentAsync(agentId, collectionId, It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        WorkspaceSynchronizer.WriteCloudCache(fileAccessor, new BotDefinition().WithEntity(CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!));
+        WorkspaceSynchronizer.WriteCloudCache(fileAccessor, new BotDefinition().WithEntity((CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))));
 
         var resolvedReferences = "componentCollections:\n  - schemaName:\n    directory: ../ComponentCollection1/\n";
         await fileAccessor.WriteAsync(new AgentFilePath("references.mcs.yml"), resolvedReferences, CancellationToken.None);
@@ -336,7 +336,7 @@ public class PushBotIdFallbackTests
             environmentVariableChanges: null,
             connectionReferenceChanges: null,
             aIPluginOperationChanges: null,
-            componentCollectionChanges: new BotComponentCollectionChange[] { new BotComponentCollectionInsert(CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_my_cc_333\ndisplayName: MyCC333")!) },
+            componentCollectionChanges: new BotComponentCollectionChange[] { new BotComponentCollectionInsert((CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_my_cc_333\ndisplayName: MyCC333") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))) },
             dataverseTableSearchChanges: null,
             dataverseTableSearchEntityConfigurationChanges: null,
             connectedAgentDefinitionChanges: null,
@@ -356,11 +356,11 @@ public class PushBotIdFallbackTests
         var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/workspace-collection-remove/"));
         var collectionId = Guid.NewGuid();
-        var cachedCollection = CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_my_cc_333\ndisplayName: MyCC333")!.WithId(new BotComponentCollectionId(collectionId));
+        var cachedCollection = (CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_my_cc_333\ndisplayName: MyCC333") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).WithId(new BotComponentCollectionId(collectionId));
         var cloudSnapshot = new BotDefinition()
-            .WithEntity(CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!)
+            .WithEntity((CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")))
             .WithComponentCollections(new[] { cachedCollection });
-        var localWithoutCollection = new BotDefinition().WithEntity(CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!);
+        var localWithoutCollection = new BotDefinition().WithEntity((CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")));
 
         var (changeSet, _) = synchronizer.GetLocalChanges(localWithoutCollection, cloudSnapshot, fileAccessor, "token-1");
 
@@ -375,11 +375,11 @@ public class PushBotIdFallbackTests
         var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var fileAccessor = fileAccessorFactory.Create(new DirectoryPath("c:/test/workspace-collection-schemaonly/"));
         var collectionId = Guid.NewGuid();
-        var cachedCollection = CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_my_cc_333\ndisplayName: MyCC333")!.WithId(new BotComponentCollectionId(collectionId));
+        var cachedCollection = (CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_my_cc_333\ndisplayName: MyCC333") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).WithId(new BotComponentCollectionId(collectionId));
         var cloudSnapshot = new BotDefinition()
-            .WithEntity(CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!)
+            .WithEntity((CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")))
             .WithComponentCollections(new[] { cachedCollection });
-        var localWithoutCollection = new BotDefinition().WithEntity(CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!);
+        var localWithoutCollection = new BotDefinition().WithEntity((CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")));
 
         await fileAccessor.WriteAsync(new AgentFilePath("references.mcs.yml"), "componentCollections:\n  - schemaName: bot_componentcollection_my_cc_333\n", CancellationToken.None);
 

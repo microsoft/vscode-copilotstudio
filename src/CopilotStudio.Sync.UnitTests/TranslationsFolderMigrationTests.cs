@@ -134,7 +134,7 @@ public class TranslationsFolderMigrationTests
             dataverse,
             ComponentWriterDefensiveTests.CreateMockOperationContext(),
             new AgentSyncInfo { AgentId = Guid.NewGuid() },
-            CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}\n" + (isCliAgent ? "template: cliagent-1.0.0\n" : string.Empty))!,
+            (CodeSerializer.Deserialize<BotEntity>($"kind: Bot\nschemaName: {Bot}\n" + (isCliAgent ? "template: cliagent-1.0.0\n" : string.Empty)) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")),
             Guid.NewGuid(),
             messages);
 

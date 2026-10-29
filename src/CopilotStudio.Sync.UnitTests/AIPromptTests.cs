@@ -193,23 +193,23 @@ public class AIPromptTests
         var (_, outputType) = AiPromptProjection.ExtractAIPromptIO(raw);
         Assert.NotNull(outputType);
 
-        AssertPathExists(outputType!,
+        AssertPathExists(outputType,
             "predictionOutput", "finishReason");
-        AssertPathExists(outputType!,
+        AssertPathExists(outputType,
             "predictionOutput", "structuredOutput", "current_date");
-        AssertPathExists(outputType!,
+        AssertPathExists(outputType,
             "predictionOutput", "structuredOutput", "extracted_data",
             "Containe2e5985a0512b7b685a45b21ef6350c0d");
-        AssertPathExists(outputType!,
+        AssertPathExists(outputType,
             "predictionOutput", "structuredOutput", "extracted_data",
             "Containe2e5985a0512b7b685a45b21ef6350c0d", "type");
-        AssertPathExists(outputType!,
+        AssertPathExists(outputType,
             "predictionOutput", "structuredOutput", "extracted_data",
             "Containe2030b08f6814c27546e77f3d00838c46", "value");
-        AssertPathExists(outputType!,
+        AssertPathExists(outputType,
             "predictionOutput", "structuredOutput", "extracted_data",
             "Containedb50d462a3a8737c30046a70698b7708", "value");
-        AssertPathExists(outputType!,
+        AssertPathExists(outputType,
             "predictionOutput", "structuredOutput", "extracted_data",
             "Containec5acaadababe6c22161a0f793cbf7dfc", "value");
     }
@@ -235,10 +235,10 @@ public class AIPromptTests
         var (_, outputType) = AiPromptProjection.ExtractAIPromptIO(raw);
         Assert.NotNull(outputType);
 
-        AssertPathExists(outputType!,
+        AssertPathExists(outputType,
             "predictionOutput", "structuredOutput", "success");
 
-        var summaryResult = WalkPath(outputType!,
+        var summaryResult = WalkPath(outputType,
             "predictionOutput", "structuredOutput", "summaryResult");
         var table = Assert.IsType<TableDataType>(summaryResult);
 
@@ -296,7 +296,7 @@ public class AIPromptTests
         var (inputType, _) = AiPromptProjection.ExtractAIPromptIO(raw);
 
         Assert.NotNull(inputType);
-        Assert.Equal(DataType.Any, inputType!.Properties["invoice"].Type);
+        Assert.Equal(DataType.Any, inputType.Properties["invoice"].Type);
         Assert.Equal(DataType.String, inputType.Properties["due_20date"].Type);
     }
 
@@ -308,7 +308,7 @@ public class AIPromptTests
         var (inputType, _) = AiPromptProjection.ExtractAIPromptIO(raw);
 
         Assert.NotNull(inputType);
-        Assert.Equal(DataType.Any, inputType!.Properties["invoice"].Type);
+        Assert.Equal(DataType.Any, inputType.Properties["invoice"].Type);
         Assert.Equal(DataType.String, inputType.Properties["due_20date"].Type);
     }
 
@@ -328,19 +328,19 @@ public class AIPromptTests
             {
                 Assert.True(record.Properties.ContainsKey(segment),
                     $"Missing property '{segment}' at path '{string.Join(".", path, 0, i + 1)}'");
-                current = record.Properties[segment].Type!;
+                current = (record.Properties[segment].Type ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
             }
             else if (current is TableDataType table)
             {
                 Assert.True(table.Properties.ContainsKey(segment),
                     $"Missing column '{segment}' at path '{string.Join(".", path, 0, i + 1)}'");
-                current = table.Properties[segment].Type!;
+                current = (table.Properties[segment].Type ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
             }
             else
             {
                 Assert.Fail($"Cannot descend into non-record/table at path '{string.Join(".", path, 0, i)}'");
             }
         }
-        return current!;
+        return (current ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
     }
 }

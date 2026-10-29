@@ -14,7 +14,19 @@ internal sealed record SyncedAssetKind(string ChangeKind, string SchemaNamePrefi
 
     internal static string? ReadCloudCopy(IFileAccessor fileAccessor, string schemaName) => Kinds.FirstOrDefault(candidate => schemaName.StartsWith(candidate.SchemaNamePrefix, StringComparison.OrdinalIgnoreCase)) is { } kind && kind.ReadCloudCopies(fileAccessor).TryGetValue(schemaName, out var content) ? content : null;
 
-    internal static IReadOnlyDictionary<string, string> ToFiles(IEnumerable<(string FileName, string? Content)> files) => files.Where(file => file.Content != null).ToDictionary(file => file.FileName, file => file.Content!, StringComparer.OrdinalIgnoreCase);
+    internal static IReadOnlyDictionary<string, string> ToFiles(IEnumerable<(string FileName, string? Content)> files)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (fileName, content) in files)
+        {
+            if (content != null)
+            {
+                result.Add(fileName, content);
+            }
+        }
+
+        return result;
+    }
 
     internal string GetFileSchemaName(Guid id, string fileName) => fileName == PrimaryFileName ? $"{SchemaNamePrefix}{id}" : $"{SchemaNamePrefix}{id}.{Path.GetFileNameWithoutExtension(fileName)}";
 

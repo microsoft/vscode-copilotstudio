@@ -384,14 +384,17 @@ public class ConnectionReferenceStoreTests
     public void Deduplicate_OfNothing_IsEmpty() => Assert.Empty(ConnectionReferenceStore.Deduplicate(null));
 
     [Fact]
+    // ! Null is intentional to verify argument validation.
     public void Write_RequiresAWorkspace() =>
         Assert.Throws<ArgumentNullException>(() => ConnectionReferenceStore.Write(null!, [], ConnectionReferenceLayout.Layered, null, CancellationToken.None));
 
     [Fact]
+    // ! Null is intentional to verify argument validation.
     public void Read_RequiresAWorkspace() =>
         Assert.Throws<ArgumentNullException>(() => ConnectionReferenceStore.Read(null!, null, CancellationToken.None));
 
     [Fact]
+    // ! Null is intentional to verify argument validation.
     public void Detect_RequiresAWorkspace() =>
         Assert.Throws<ArgumentNullException>(() => ConnectionReferenceStore.Detect(null!, ConnectionReferenceLayout.Layered));
 }

@@ -65,15 +65,15 @@ internal static class SkillBodyProjection
 
         if (!IsSkillAnchor(component, path)
             || component is not DialogComponent { Dialog: InlineAgentSkill skill }
-            || string.IsNullOrEmpty(skill.Content)
-            || SkillLayout.TryGetBundleFromMarker(skill.Content) != null
+            || skill.Content is not { Length: > 0 } content
+            || SkillLayout.TryGetBundleFromMarker(content) != null
             || !SkillLink.TryGetSkillName(path, out var folderName))
         {
             return false;
         }
 
         manifestPath = SkillLayout.GetManifestPath(folderName);
-        manifestText = skill.Content!;
+        manifestText = content;
         return true;
     }
 

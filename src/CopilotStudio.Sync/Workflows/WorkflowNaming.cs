@@ -15,7 +15,7 @@ public static class WorkflowNaming
     {
         var length = name?.Trim().Length ?? 0;
 
-        if (length == 0)
+        if (name is null || length == 0)
         {
             return "A workflow name is required.";
         }
@@ -25,6 +25,6 @@ public static class WorkflowNaming
             return $"A workflow name can hold at most {MaximumLength} characters, and this one holds {length}.";
         }
 
-        return name!.Any(char.IsControl) ? "A workflow name cannot hold control characters such as tabs or line breaks." : null;
+        return name.Any(char.IsControl) ? "A workflow name cannot hold control characters such as tabs or line breaks." : null;
     }
 }

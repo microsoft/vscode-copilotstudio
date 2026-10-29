@@ -116,17 +116,17 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 {
                     thisSchema = collection.GetRootSchemaName();
                     isComponentCollectionWorkspace = true;
-                    if (!string.IsNullOrEmpty(collection.ComponentCollection?.DisplayName))
+                    if (collection.ComponentCollection?.DisplayName is { Length: > 0 } displayName)
                     {
-                        agentDisplayName = collection.ComponentCollection!.DisplayName!;
+                        agentDisplayName = displayName;
                     }
                 }
                 else if (workspace.Definition is BotDefinition bot)
                 {
                     thisSchema = bot.GetRootSchemaName();
-                    if (!string.IsNullOrEmpty(bot.Entity?.DisplayName))
+                    if (bot.Entity?.DisplayName is { Length: > 0 } displayName)
                     {
-                        agentDisplayName = bot.Entity!.DisplayName!;
+                        agentDisplayName = displayName;
                     }
                 }
 
@@ -235,7 +235,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 }
                 catch when (bindingSnapshot != null)
                 {
-                    _retargetService.RestoreRemoteBindingState(workspaceFolder, bindingSnapshot!);
+                    _retargetService.RestoreRemoteBindingState(workspaceFolder, bindingSnapshot);
                     _retargetService.ClearRetargetBackup(workspaceFolder);
                     throw;
                 }
@@ -316,7 +316,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             }
             catch when (bindingSnapshot != null)
             {
-                _retargetService.RestoreRemoteBindingState(workspaceFolder, bindingSnapshot!);
+                _retargetService.RestoreRemoteBindingState(workspaceFolder, bindingSnapshot);
                 _retargetService.ClearRetargetBackup(workspaceFolder);
                 throw;
             }

@@ -772,6 +772,7 @@ public class StandaloneWorkflowFileTests : IDisposable
     [InlineData(null)]
     [InlineData("")]
     [InlineData("  ")]
+    // ! Null is intentional to verify argument validation.
     public void WriteConnectionReferenceDeclaration_RequiresAWorkspaceRoot(string? workspaceRoot) =>
         Assert.Throws<ArgumentException>(() => WorkflowDefinitionFile.WriteConnectionReferenceDeclaration(workspaceRoot!));
 
@@ -888,14 +889,14 @@ public class StandaloneWorkflowFileTests : IDisposable
         var restored = WorkflowMetadataFile.ReadStrict(WorkflowMetadataFile.Write(original));
 
         Assert.NotNull(restored);
-        Assert.Equal(original.WorkflowId, restored!.WorkflowId);
+        Assert.Equal(original.WorkflowId, restored.WorkflowId);
         Assert.Equal(original.Name, restored.Name);
         Assert.Equal(original.Description, restored.Description);
         Assert.Equal(original.StateCode, restored.StateCode);
         Assert.Equal(original.StatusCode, restored.StatusCode);
         Assert.Equal(original.JsonFileName, restored.JsonFileName);
         Assert.Equal(original.PrimaryEntity, restored.PrimaryEntity);
-        Assert.Equal(original.IsCustomizable!.ManagedPropertyLogicalName, restored.IsCustomizable!.ManagedPropertyLogicalName);
+        Assert.Equal((original.IsCustomizable ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ManagedPropertyLogicalName, (restored.IsCustomizable ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ManagedPropertyLogicalName);
     }
 
     [Fact]
@@ -906,7 +907,7 @@ public class StandaloneWorkflowFileTests : IDisposable
 
         var restored = WorkflowMetadataFile.ReadStrict(WorkflowMetadataFile.Write(metadata));
 
-        Assert.Equal($"{WorkflowWorkspace.RelativeFolderFor("NB Workflow1", workflowId)}/{WorkflowWorkspace.DefinitionFileName}", restored!.JsonFileName);
+        Assert.Equal($"{WorkflowWorkspace.RelativeFolderFor("NB Workflow1", workflowId)}/{WorkflowWorkspace.DefinitionFileName}", (restored ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).JsonFileName);
         Assert.Null(metadata.JsonFileName);
     }
 
@@ -918,6 +919,7 @@ public class StandaloneWorkflowFileTests : IDisposable
     public void MetadataFile_ReadStrict_OfAnEmptyDocument_IsNull() => Assert.Null(WorkflowMetadataFile.ReadStrict(string.Empty));
 
     [Fact]
+    // ! Null is intentional to verify argument validation.
     public void MetadataFile_Write_RejectsNothingToWrite() => Assert.Throws<ArgumentNullException>(() => WorkflowMetadataFile.Write(null!));
 
     [Fact]
@@ -934,7 +936,7 @@ public class StandaloneWorkflowFileTests : IDisposable
         var found = Assert.Single(WorkflowWorkspace.FindAll(_root));
 
         Assert.Equal(workflowId, found.WorkflowId);
-        Assert.Equal(workflowId, WorkflowMetadataFile.ReadStrict(File.ReadAllText(found.MetadataPath))!.WorkflowId);
+        Assert.Equal(workflowId, (WorkflowMetadataFile.ReadStrict(File.ReadAllText(found.MetadataPath)) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).WorkflowId);
         Assert.Equal(AgentClassifier.BuildWorkspaceLayoutMarker(), File.ReadAllText(Path.Combine(_root, "agent.sync.yaml")));
     }
 

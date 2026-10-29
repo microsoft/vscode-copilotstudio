@@ -88,10 +88,10 @@ public class ConnectionManagementTests
         }
 
         Assert.NotNull(sent);
-        var change = Assert.Single(sent!.ConnectionReferenceChanges);
+        var change = Assert.Single(sent.ConnectionReferenceChanges);
         if (alreadyExists)
         {
-            var update = Assert.IsType<ConnectionReferenceUpdate>(change).ConnectionReference!;
+            var update = (Assert.IsType<ConnectionReferenceUpdate>(change).ConnectionReference ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
             Assert.Equal(referenceId, update.Id.Value);
             Assert.Equal(734, update.Version);
             Assert.Equal("existing-authenticated-connection", update.ConnectionId);
@@ -191,7 +191,7 @@ public class ConnectionManagementTests
         Assert.False(wrote);
         var cache = synchronizer.ReadConnectionsCache(Workspace);
         Assert.NotNull(cache);
-        var view = Assert.Single(cache!.Connections);
+        var view = Assert.Single(cache.Connections);
         Assert.Equal("cr_fresh", view.ConnectionReferenceLogicalName);
     }
 
@@ -213,7 +213,7 @@ public class ConnectionManagementTests
         Assert.NotEqual(generation, synchronizer.GetConnectionsCacheGeneration(Workspace));
         var cache = synchronizer.ReadConnectionsCache(Workspace);
         Assert.NotNull(cache);
-        Assert.Equal("cr_office365", Assert.Single(cache!.Connections).ConnectionReferenceLogicalName);
+        Assert.Equal("cr_office365", Assert.Single(cache.Connections).ConnectionReferenceLogicalName);
     }
 
     [Fact]
@@ -305,7 +305,7 @@ public class ConnectionManagementTests
 
         Assert.False(result.Succeeded);
         Assert.False(string.IsNullOrEmpty(result.Message));
-        Assert.Contains("draft", result.Message!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("draft", result.Message, StringComparison.OrdinalIgnoreCase);
         var workflow = Assert.Single(result.Workflows);
         Assert.Equal(workflowId.ToString(), workflow.WorkflowId);
         Assert.Equal(WorkflowState.Draft, workflow.State);
@@ -335,7 +335,7 @@ public class ConnectionManagementTests
 
         Assert.False(result.Succeeded);
         Assert.False(string.IsNullOrEmpty(result.Message));
-        Assert.Contains("draft", result.Message!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("draft", result.Message, StringComparison.OrdinalIgnoreCase);
         var workflow = Assert.Single(result.Workflows);
         Assert.Equal(workflowId.ToString(), workflow.WorkflowId);
         Assert.Equal(WorkflowState.Draft, workflow.State);
@@ -613,7 +613,7 @@ public class ConnectionManagementTests
             CancellationToken.None);
 
         Assert.True(result.Succeeded);
-        Assert.Equal(1, StandaloneWorkflowCache.Read(accessor, workflowId)!.StateCode);
+        Assert.Equal(1, (StandaloneWorkflowCache.Read(accessor, workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StateCode);
     }
 
     [Fact]
@@ -647,7 +647,7 @@ public class ConnectionManagementTests
             CancellationToken.None);
 
         Assert.False(result.Succeeded);
-        Assert.Equal(1, StandaloneWorkflowCache.Read(accessor, workflowId)!.StateCode);
+        Assert.Equal(1, (StandaloneWorkflowCache.Read(accessor, workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).StateCode);
     }
 
     [Fact]

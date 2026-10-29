@@ -13,18 +13,26 @@ var rootCommand = new RootCommand("CopilotStudio.Sync test harness — exercises
 
 // ── clone ──────────────────────────────────────────────────────────────
 var cloneCommand = new Command("clone", "Clone an agent from a live tenant");
-var environmentOption = new Option<string>("--environment", "Dataverse org URL (e.g., https://org.crm.dynamics.com)") { IsRequired = true };
-var environmentIdOption = new Option<string?>("--environment-id", () => Environment.GetEnvironmentVariable("COPILOT_TEST_ENVIRONMENT_ID"), "Power Platform environment ID (falls back to COPILOT_TEST_ENVIRONMENT_ID env var)");
-var agentSchemaNameOption = new Option<string>("--agent-schema-name", "Schema name of the agent to clone") { IsRequired = true };
-var outputOption = new Option<string>("--output", () => "./workspace", "Output workspace directory");
-
-cloneCommand.AddOption(environmentOption);
-cloneCommand.AddOption(environmentIdOption);
-cloneCommand.AddOption(agentSchemaNameOption);
-cloneCommand.AddOption(outputOption);
-
-cloneCommand.SetHandler(async (string environment, string? environmentId, string agentSchemaName, string output) =>
+var environmentOption = new Option<string>("--environment") { Description = "Dataverse org URL (e.g., https://org.crm.dynamics.com)", Required = true };
+var environmentIdOption = new Option<string?>("--environment-id")
 {
+    Description = "Power Platform environment ID (falls back to COPILOT_TEST_ENVIRONMENT_ID env var)",
+    DefaultValueFactory = _ => Environment.GetEnvironmentVariable("COPILOT_TEST_ENVIRONMENT_ID"),
+};
+var agentSchemaNameOption = new Option<string>("--agent-schema-name") { Description = "Schema name of the agent to clone", Required = true };
+var outputOption = new Option<string>("--output") { Description = "Output workspace directory", DefaultValueFactory = _ => "./workspace" };
+
+cloneCommand.Options.Add(environmentOption);
+cloneCommand.Options.Add(environmentIdOption);
+cloneCommand.Options.Add(agentSchemaNameOption);
+cloneCommand.Options.Add(outputOption);
+
+cloneCommand.SetAction(async parseResult =>
+{
+    var environment = parseResult.GetRequiredValue(environmentOption);
+    var environmentId = parseResult.GetValue(environmentIdOption);
+    var agentSchemaName = parseResult.GetRequiredValue(agentSchemaNameOption);
+    var output = parseResult.GetRequiredValue(outputOption);
     var sw = Stopwatch.StartNew();
     try
     {
@@ -101,15 +109,16 @@ cloneCommand.SetHandler(async (string environment, string? environmentId, string
         Console.WriteLine($"Elapsed: {sw.Elapsed.TotalSeconds:F1}s");
     }
 
-}, environmentOption, environmentIdOption, agentSchemaNameOption, outputOption);
+});
 
 // ── push ───────────────────────────────────────────────────────────────
 var pushCommand = new Command("push", "Push local workspace changes to the cloud");
-var pushWorkspaceOption = new Option<string>("--workspace", "Workspace directory (must contain .mcs/conn.json)") { IsRequired = true };
-pushCommand.AddOption(pushWorkspaceOption);
+var pushWorkspaceOption = new Option<string>("--workspace") { Description = "Workspace directory (must contain .mcs/conn.json)", Required = true };
+pushCommand.Options.Add(pushWorkspaceOption);
 
-pushCommand.SetHandler(async (string workspace) =>
+pushCommand.SetAction(async parseResult =>
 {
+    var workspace = parseResult.GetRequiredValue(pushWorkspaceOption);
     var sw = Stopwatch.StartNew();
     try
     {
@@ -199,15 +208,16 @@ pushCommand.SetHandler(async (string workspace) =>
         Console.WriteLine($"Elapsed: {sw.Elapsed.TotalSeconds:F1}s");
     }
 
-}, pushWorkspaceOption);
+});
 
 // ── pull ───────────────────────────────────────────────────────────────
 var pullCommand = new Command("pull", "Pull remote changes to workspace");
-var pullWorkspaceOption = new Option<string>("--workspace", "Workspace directory (must contain .mcs/conn.json)") { IsRequired = true };
-pullCommand.AddOption(pullWorkspaceOption);
+var pullWorkspaceOption = new Option<string>("--workspace") { Description = "Workspace directory (must contain .mcs/conn.json)", Required = true };
+pullCommand.Options.Add(pullWorkspaceOption);
 
-pullCommand.SetHandler(async (string workspace) =>
+pullCommand.SetAction(async parseResult =>
 {
+    var workspace = parseResult.GetRequiredValue(pullWorkspaceOption);
     var sw = Stopwatch.StartNew();
     try
     {
@@ -279,17 +289,19 @@ pullCommand.SetHandler(async (string workspace) =>
         Console.WriteLine($"Elapsed: {sw.Elapsed.TotalSeconds:F1}s");
     }
 
-}, pullWorkspaceOption);
+});
 
 // ── list-agents ───────────────────────────────────────────────────────
 var listAgentsCommand = new Command("list-agents", "List agents in an environment (for discovering schema names)");
-var listEnvOption = new Option<string>("--environment", "Dataverse org URL") { IsRequired = true };
-var listFilterOption = new Option<string?>("--filter", "Optional display name substring filter");
-listAgentsCommand.AddOption(listEnvOption);
-listAgentsCommand.AddOption(listFilterOption);
+var listEnvOption = new Option<string>("--environment") { Description = "Dataverse org URL", Required = true };
+var listFilterOption = new Option<string?>("--filter") { Description = "Optional display name substring filter" };
+listAgentsCommand.Options.Add(listEnvOption);
+listAgentsCommand.Options.Add(listFilterOption);
 
-listAgentsCommand.SetHandler(async (string environment, string? filter) =>
+listAgentsCommand.SetAction(async parseResult =>
 {
+    var environment = parseResult.GetRequiredValue(listEnvOption);
+    var filter = parseResult.GetValue(listFilterOption);
     try
     {
         var environmentUrl = new Uri(environment.TrimEnd('/') + "/");
@@ -327,25 +339,33 @@ listAgentsCommand.SetHandler(async (string environment, string? filter) =>
         Console.Error.WriteLine($"Error: {ex.Message}");
         Environment.ExitCode = 1;
     }
-}, listEnvOption, listFilterOption);
+});
 
 // ── clone-via-bridge ──────────────────────────────────────────────────
 // Exercises the extension's actual bridge types (TokenManager, LspSyncAuthProvider,
 // LspDataverseHttpClientAccessor) with real tokens against a live tenant.
 // Used by E2E tests to compare extension-path clone output against direct CLI clone.
 var cloneViaBridgeCommand = new Command("clone-via-bridge", "Clone via extension bridge types (F3 validation)");
-var bridgeEnvOption = new Option<string>("--environment", "Dataverse org URL") { IsRequired = true };
-var bridgeEnvIdOption = new Option<string?>("--environment-id", () => Environment.GetEnvironmentVariable("COPILOT_TEST_ENVIRONMENT_ID"), "Power Platform environment ID");
-var bridgeAgentOption = new Option<string>("--agent-schema-name", "Schema name of the agent") { IsRequired = true };
-var bridgeOutputOption = new Option<string>("--output", () => "./workspace-bridge", "Output workspace directory");
-
-cloneViaBridgeCommand.AddOption(bridgeEnvOption);
-cloneViaBridgeCommand.AddOption(bridgeEnvIdOption);
-cloneViaBridgeCommand.AddOption(bridgeAgentOption);
-cloneViaBridgeCommand.AddOption(bridgeOutputOption);
-
-cloneViaBridgeCommand.SetHandler(async (string environment, string? environmentId, string agentSchemaName, string output) =>
+var bridgeEnvOption = new Option<string>("--environment") { Description = "Dataverse org URL", Required = true };
+var bridgeEnvIdOption = new Option<string?>("--environment-id")
 {
+    Description = "Power Platform environment ID",
+    DefaultValueFactory = _ => Environment.GetEnvironmentVariable("COPILOT_TEST_ENVIRONMENT_ID"),
+};
+var bridgeAgentOption = new Option<string>("--agent-schema-name") { Description = "Schema name of the agent", Required = true };
+var bridgeOutputOption = new Option<string>("--output") { Description = "Output workspace directory", DefaultValueFactory = _ => "./workspace-bridge" };
+
+cloneViaBridgeCommand.Options.Add(bridgeEnvOption);
+cloneViaBridgeCommand.Options.Add(bridgeEnvIdOption);
+cloneViaBridgeCommand.Options.Add(bridgeAgentOption);
+cloneViaBridgeCommand.Options.Add(bridgeOutputOption);
+
+cloneViaBridgeCommand.SetAction(async parseResult =>
+{
+    var environment = parseResult.GetRequiredValue(bridgeEnvOption);
+    var environmentId = parseResult.GetValue(bridgeEnvIdOption);
+    var agentSchemaName = parseResult.GetRequiredValue(bridgeAgentOption);
+    var output = parseResult.GetRequiredValue(bridgeOutputOption);
     var sw = Stopwatch.StartNew();
     try
     {
@@ -430,16 +450,16 @@ cloneViaBridgeCommand.SetHandler(async (string environment, string? environmentI
         Console.WriteLine($"Elapsed: {sw.Elapsed.TotalSeconds:F1}s");
     }
 
-}, bridgeEnvOption, bridgeEnvIdOption, bridgeAgentOption, bridgeOutputOption);
+});
 
 // ── root ───────────────────────────────────────────────────────────────
-rootCommand.AddCommand(cloneCommand);
-rootCommand.AddCommand(pushCommand);
-rootCommand.AddCommand(pullCommand);
-rootCommand.AddCommand(listAgentsCommand);
-rootCommand.AddCommand(cloneViaBridgeCommand);
+rootCommand.Subcommands.Add(cloneCommand);
+rootCommand.Subcommands.Add(pushCommand);
+rootCommand.Subcommands.Add(pullCommand);
+rootCommand.Subcommands.Add(listAgentsCommand);
+rootCommand.Subcommands.Add(cloneViaBridgeCommand);
 
-var result = await rootCommand.InvokeAsync(args);
+var result = await rootCommand.Parse(args).InvokeAsync();
 // InvokeAsync returns 0 on successful dispatch regardless of Environment.ExitCode.
 // Since top-level Main returns int, the return value overrides Environment.ExitCode.
 // Propagate the handler's exit code if it signaled failure.

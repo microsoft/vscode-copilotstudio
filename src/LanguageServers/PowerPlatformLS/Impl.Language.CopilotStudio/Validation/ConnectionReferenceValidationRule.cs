@@ -120,9 +120,9 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Validation
             foreach (var entry in entries)
             {
                 var logicalName = entry?.ConnectionReferenceLogicalName;
-                if (!string.IsNullOrEmpty(logicalName))
+                if (entry is not null && logicalName is { Length: > 0 })
                 {
-                    result[logicalName!] = entry!;
+                    result[logicalName] = entry;
                 }
             }
 

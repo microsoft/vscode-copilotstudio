@@ -255,7 +255,7 @@ public static class WorkflowWorkspace
     /// <summary>Whether a directory holds an agent project of its own.</summary>
     /// <param name="directory">The directory to test.</param>
     public static bool HasAgentProject(string? directory) =>
-        !string.IsNullOrWhiteSpace(directory) && HasAgentProject(OpenWorkspace(directory!));
+        directory is not null && !string.IsNullOrWhiteSpace(directory) && HasAgentProject(OpenWorkspace(directory));
 
     /// <summary>Whether a workspace holds an agent project of its own.</summary>
     /// <param name="fileAccessor">The workspace to test.</param>
@@ -265,7 +265,7 @@ public static class WorkflowWorkspace
     /// <summary>Whether a directory holds workflows and no agent project of its own.</summary>
     /// <param name="directory">The directory to test.</param>
     public static bool IsStandaloneWorkspace(string? directory) =>
-        !string.IsNullOrWhiteSpace(directory) && IsStandaloneWorkspace(OpenWorkspace(directory!));
+        directory is not null && !string.IsNullOrWhiteSpace(directory) && IsStandaloneWorkspace(OpenWorkspace(directory));
 
     /// <summary>Whether a workspace holds workflows and no agent project of its own.</summary>
     /// <param name="fileAccessor">The workspace to test.</param>

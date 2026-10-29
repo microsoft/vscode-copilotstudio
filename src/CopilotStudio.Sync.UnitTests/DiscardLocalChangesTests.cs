@@ -94,11 +94,11 @@ public class DiscardLocalChangesTests
         var accessor = factory.Create(workspace);
         var collectionAccessor = factory.Create(collectionWorkspace);
         const string collectionSchema = "bot_componentcollection_directory";
-        var collection = CodeSerializer.Deserialize<BotComponentCollection>(
-            $"schemaName: {collectionSchema}\ndisplayName: Directory Collection\n")!;
+        var collection = (CodeSerializer.Deserialize<BotComponentCollection>(
+            $"schemaName: {collectionSchema}\ndisplayName: Directory Collection\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var agentId = Guid.NewGuid();
-        var entityBuilder = CodeSerializer.Deserialize<BotEntity>(
-            "kind: Bot\nschemaName: directory_reference_agent\n")!.ToBuilder();
+        var entityBuilder = (CodeSerializer.Deserialize<BotEntity>(
+            "kind: Bot\nschemaName: directory_reference_agent\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ToBuilder();
         entityBuilder.CdsBotId = agentId;
         var entity = entityBuilder.Build();
         var cloudDefinition = new BotDefinition()
@@ -150,8 +150,8 @@ public class DiscardLocalChangesTests
 
         var result = synchronizer.DiscardLocalChanges(workspace, localDefinition, [referenceChange]);
 
-        var references = CodeSerializer.Deserialize<ReferencesSourceFile>(
-            ReadText(accessor, "references.mcs.yml"))!;
+        var references = (CodeSerializer.Deserialize<ReferencesSourceFile>(
+            ReadText(accessor, "references.mcs.yml")) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var restored = Assert.Single(references.ComponentCollections);
         Assert.Equal("../Collection/", restored.Directory);
         Assert.True(!restored.SchemaName.HasValue || string.IsNullOrEmpty(restored.SchemaName.Value));
@@ -169,12 +169,12 @@ public class DiscardLocalChangesTests
             workspace.ResolveRelativeRef(new RelativeDirectoryPath("../Collection/")));
         const string collectionSchema = "bot_componentcollection_same_schema";
         var agentId = Guid.NewGuid();
-        var entityBuilder = CodeSerializer.Deserialize<BotEntity>(
-            "kind: Bot\nschemaName: same_schema_agent\n")!.ToBuilder();
+        var entityBuilder = (CodeSerializer.Deserialize<BotEntity>(
+            "kind: Bot\nschemaName: same_schema_agent\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ToBuilder();
         entityBuilder.CdsBotId = agentId;
         var entity = entityBuilder.Build();
-        var collection = CodeSerializer.Deserialize<BotComponentCollection>(
-            $"schemaName: {collectionSchema}\ndisplayName: Same Schema Collection\n")!;
+        var collection = (CodeSerializer.Deserialize<BotComponentCollection>(
+            $"schemaName: {collectionSchema}\ndisplayName: Same Schema Collection\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         await accessor.WriteAsync(
             new AgentFilePath("references.mcs.yml"),
             "componentCollections:\n  - schemaName:\n    directory: ../Collection/\n",
@@ -228,8 +228,8 @@ public class DiscardLocalChangesTests
                 }
             ]);
 
-        var references = CodeSerializer.Deserialize<ReferencesSourceFile>(
-            ReadText(accessor, "references.mcs.yml"))!;
+        var references = (CodeSerializer.Deserialize<ReferencesSourceFile>(
+            ReadText(accessor, "references.mcs.yml")) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         Assert.Equal("../Collection/", Assert.Single(references.ComponentCollections).Directory);
         Assert.Equal(1, result.Restored);
         Assert.Empty(result.Skipped);
@@ -244,8 +244,8 @@ public class DiscardLocalChangesTests
         var accessor = factory.Create(workspace);
         var collectionAccessor = factory.Create(collectionWorkspace);
         const string collectionSchema = "bot_componentcollection_replaced";
-        var collection = CodeSerializer.Deserialize<BotComponentCollection>(
-            $"schemaName: {collectionSchema}\ndisplayName: Replaced Collection\n")!;
+        var collection = (CodeSerializer.Deserialize<BotComponentCollection>(
+            $"schemaName: {collectionSchema}\ndisplayName: Replaced Collection\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         WorkspaceSynchronizer.WriteCloudCache(
             accessor,
             new BotDefinition().WithComponentCollections([collection]));
@@ -278,8 +278,8 @@ public class DiscardLocalChangesTests
                 }
             ]);
 
-        var references = CodeSerializer.Deserialize<ReferencesSourceFile>(
-            ReadText(accessor, "references.mcs.yml"))!;
+        var references = (CodeSerializer.Deserialize<ReferencesSourceFile>(
+            ReadText(accessor, "references.mcs.yml")) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var restored = Assert.Single(references.ComponentCollections);
         Assert.Equal("../Collection/", restored.Directory);
         Assert.DoesNotContain("Missing", ReadText(accessor, "references.mcs.yml"));
@@ -401,7 +401,7 @@ public class DiscardLocalChangesTests
         var (synchronizer, factory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath("c:/test/discard-parent/");
         var accessor = factory.Create(workspace);
-        var entity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: restored_agent\n")!;
+        var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: restored_agent\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         WorkspaceSynchronizer.WriteCloudCache(accessor, new BotDefinition().WithEntity(entity));
 
@@ -584,7 +584,7 @@ public class DiscardLocalChangesTests
         var (synchronizer, factory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/discard-asset-file-{Guid.NewGuid():N}/");
         var accessor = factory.Create(workspace);
-        var assetKind = SyncedAssetKind.Find(changeKind)!;
+        var assetKind = (SyncedAssetKind.Find(changeKind) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var assetId = Guid.NewGuid();
         WorkspaceSynchronizer.WriteCloudCache(accessor, new BotDefinition());
         assetKind.WriteCloudCopies(accessor, new Dictionary<string, string> { [assetKind.GetFileSchemaName(assetId, cachedFile)] = "cloud" });
@@ -723,14 +723,14 @@ public class DiscardLocalChangesTests
         Assert.Equal("settings.mcs.yml", change.Uri);
         Assert.Equal("Settings", change.Name);
         Assert.Equal("entity", change.SchemaName);
-        var entity = Assert.IsType<BotDefinition>(definition).Entity!;
+        var entity = (Assert.IsType<BotDefinition>(definition).Entity ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         Assert.Equal(entity.Kind.ToString(), change.ChangeKind);
         Assert.Equal("Cached agent", entity.DisplayName);
         Assert.Equal(text, ReadText(accessor, "settings.mcs.yml"));
         Assert.Equal(cache, ReadText(accessor, ".mcs/botdefinition.json"));
         Assert.Equal(token, ReadText(accessor, ".mcs/changetoken.txt"));
         var (_, changes) = synchronizer.GetLocalChanges(
-            definition, WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!, accessor, token);
+            definition, WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a cloud cache snapshot."), accessor, token);
         Assert.DoesNotContain(changes, candidate => candidate.SchemaName == "entity");
 
         var result = synchronizer.DiscardLocalChanges(workspace, definition, unreadable);
@@ -738,7 +738,7 @@ public class DiscardLocalChangesTests
         Assert.Equal(1, result.Restored);
         Assert.Equal(0, result.Deleted);
         Assert.Empty(result.Skipped);
-        var restored = McsYamlValidator.Deserialize<BotEntity>(ReadText(accessor, "settings.mcs.yml"))!;
+        var restored = (McsYamlValidator.Deserialize<BotEntity>(ReadText(accessor, "settings.mcs.yml")) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         Assert.Equal("Cached agent", restored.DisplayName);
         Assert.Equal("discard_settings_agent", restored.SchemaName.Value);
         Assert.Equal(template, restored.Template);
@@ -792,7 +792,7 @@ public class DiscardLocalChangesTests
         Assert.Equal(malformed, ReadText(accessor, path));
         Assert.Equal(conflicted, ReadText(accessor, otherPath));
         var (_, detectedChanges) = synchronizer.GetLocalChanges(
-            definition, WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!, accessor, token);
+            definition, WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a cloud cache snapshot."), accessor, token);
         Assert.Empty(detectedChanges);
 
         var result = synchronizer.DiscardLocalChanges(workspace, definition, unreadable);
@@ -853,7 +853,7 @@ public class DiscardLocalChangesTests
         var workspace = new DirectoryPath($"c:/test/discard-settings-{Guid.NewGuid():N}/");
         var accessor = factory.Create(workspace);
         var settings = $"schemaName: discard_settings_agent\ndisplayName: Cached agent\ntemplate: {template}\n";
-        var entity = CodeSerializer.Deserialize<BotEntity>(settings)!;
+        var entity = (CodeSerializer.Deserialize<BotEntity>(settings) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         WorkspaceSynchronizer.WriteCloudCache(accessor, new BotDefinition().WithEntity(entity));
         await accessor.WriteAsync(new AgentFilePath("settings.mcs.yml"), settings, CancellationToken.None);
         await accessor.WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "cached-token", CancellationToken.None);
@@ -875,7 +875,7 @@ public class DiscardLocalChangesTests
             description: string.Empty,
             id: Guid.NewGuid(),
             parentBotComponentId: default,
-            dialog: topic!);
+            dialog: (topic ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")));
 
         WorkspaceSynchronizer.WriteCloudCache(accessor, new BotDefinition().WithComponents(new BotComponentBase[] { component }));
         await accessor.WriteAsync(

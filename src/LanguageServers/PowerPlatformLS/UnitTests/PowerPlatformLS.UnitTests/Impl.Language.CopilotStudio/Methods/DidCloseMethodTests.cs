@@ -35,6 +35,7 @@
                     Uri = doc!.Uri
                 }
             };
+            Assert.NotNull(doc);
             var requestContext = world.GetRequestContext(doc, 0);
 
             // GetRequestContext triggers agent directory change notification
@@ -92,6 +93,7 @@
                 }
             };
 
+            Assert.NotNull(doc);
             var requestContext = world.GetRequestContext(doc, 0);
             await handler.HandleNotificationAsync(request, requestContext, default);
 
@@ -143,6 +145,7 @@
                 }
             };
 
+            Assert.NotNull(doc);
             await handler.HandleNotificationAsync(request, world.GetRequestContext(doc, 0), default);
 
             // A sync that rewrites a component's files can raise a delete event for a folder that is

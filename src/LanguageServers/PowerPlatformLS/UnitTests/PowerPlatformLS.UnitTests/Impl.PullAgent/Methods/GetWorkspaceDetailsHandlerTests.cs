@@ -32,6 +32,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             var workspacePath = Path.GetFullPath(Path.Combine(TestDataPath, WorkspacePath));
             var world = new World(workspacePath);
             var doc = world.GetDocument(Path.Combine(workspacePath, TopicsPath));
+            Assert.NotNull(doc);
             var requestContext = world.GetRequestContext(doc, 0);
 
             // Mock synchronizer: no sync info available (no conn.json)
@@ -65,6 +66,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             var workspacePath = Path.GetFullPath(Path.Combine(TestDataPath, WorkspacePath));
             var world = new World(workspacePath);
             var doc = world.GetDocument(Path.Combine(workspacePath, TopicsPath));
+            Assert.NotNull(doc);
             var requestContext = world.GetRequestContext(doc, 0);
 
             var expectedSyncInfo = new AgentSyncInfo

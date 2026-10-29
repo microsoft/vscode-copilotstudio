@@ -62,12 +62,12 @@ internal static class SubAgentFolderNaming
     /// </summary>
     public static string? FromDisplayName(string? displayName, bool keepSpaces)
     {
-        if (string.IsNullOrWhiteSpace(displayName))
+        if (displayName is null || string.IsNullOrWhiteSpace(displayName))
         {
             return null;
         }
 
-        var builder = new StringBuilder(displayName!.Length);
+        var builder = new StringBuilder(displayName.Length);
         foreach (var c in displayName)
         {
             if (keepSpaces && c == ' ')

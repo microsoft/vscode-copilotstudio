@@ -124,7 +124,7 @@ internal static class CliAgentConnectionsWriter
 
         try
         {
-            leaf = ComputeConnectionFileName(logicalName);
+            leaf = ComputeConnectionFileName(logicalName ?? string.Empty);
             path = new AgentFilePath($"{InfrastructureConnectionsFolder}/{leaf}");
 
             return true;

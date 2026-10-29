@@ -66,7 +66,7 @@ public class StandaloneWorkflowChangeTrackingTests : IDisposable
 
     private void WriteCache(string definition)
     {
-        var metadata = WorkflowMetadataFile.ReadStrict(Metadata())!;
+        var metadata = (WorkflowMetadataFile.ReadStrict(Metadata()) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         metadata.ClientData = definition;
 
         StandaloneWorkflowCache.Write(Accessor(), metadata);
@@ -321,7 +321,7 @@ public class StandaloneWorkflowChangeTrackingTests : IDisposable
         var change = Assert.Single(changes);
 
         Assert.Equal($"Mcs.Workflow.{_workflowId}", change.SchemaName);
-        Assert.Contains("ServerEdited", change.RemoteContent!, StringComparison.Ordinal);
+        Assert.Contains("ServerEdited", (change.RemoteContent ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -338,7 +338,7 @@ public class StandaloneWorkflowChangeTrackingTests : IDisposable
         var change = Assert.Single(changes);
 
         Assert.Equal($"Mcs.Workflow.{_workflowId}.metadata", change.SchemaName);
-        Assert.Contains("Renamed Flow", change.RemoteContent!, StringComparison.Ordinal);
+        Assert.Contains("Renamed Flow", (change.RemoteContent ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")), StringComparison.Ordinal);
     }
 
     [Fact]

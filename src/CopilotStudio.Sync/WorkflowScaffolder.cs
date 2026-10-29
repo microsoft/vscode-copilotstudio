@@ -127,7 +127,8 @@ public static class WorkflowScaffolder
         var resource = assembly.GetManifestResourceNames().FirstOrDefault(candidate => candidate.Replace('\\', '/') == DefinitionResource)
             ?? throw new InvalidOperationException($"The workflow template '{DefinitionResource}' is missing from {assembly.GetName().Name}.");
 
-        using var stream = assembly.GetManifestResourceStream(resource)!;
+        using var stream = assembly.GetManifestResourceStream(resource)
+            ?? throw new InvalidOperationException($"The workflow template '{resource}' could not be opened.");
         using var reader = new StreamReader(stream, Encoding.UTF8);
 
         return reader.ReadToEnd()

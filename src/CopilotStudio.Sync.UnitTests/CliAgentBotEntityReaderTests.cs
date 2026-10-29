@@ -48,6 +48,7 @@ public class CliAgentBotEntityReaderTests
     [Fact]
     public void IsCliLayoutAdopted_NullAccessor_ReturnsFalse()
     {
+        // ! Null is intentional to exercise the missing-accessor case.
         Assert.False(CliAgentBotEntityReader.IsCliLayoutAdopted(null!));
     }
 

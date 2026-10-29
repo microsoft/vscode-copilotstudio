@@ -25,8 +25,8 @@ public sealed class CloneTests : IDisposable
     [LiveTenantFact]
     public async Task CloneExitsZeroAndProducesExpectedLayout()
     {
-        var envUrl = Environment.GetEnvironmentVariable("COPILOT_TEST_ENVIRONMENT_URL")!;
-        var agentSchema = Environment.GetEnvironmentVariable("COPILOT_TEST_AGENT_SCHEMA_NAME")!;
+        var envUrl = Environment.GetEnvironmentVariable("COPILOT_TEST_ENVIRONMENT_URL");
+        var agentSchema = Environment.GetEnvironmentVariable("COPILOT_TEST_AGENT_SCHEMA_NAME");
 
         var result = await CliRunner.RunAsync(
             $"clone --environment \"{envUrl}\" --agent-schema-name \"{agentSchema}\" --output \"{_workspace.Path}\"");
@@ -48,8 +48,8 @@ public sealed class CloneTests : IDisposable
     [LiveTenantFact]
     public async Task CloneOutputIncludesEntityTypeInventory()
     {
-        var envUrl = Environment.GetEnvironmentVariable("COPILOT_TEST_ENVIRONMENT_URL")!;
-        var agentSchema = Environment.GetEnvironmentVariable("COPILOT_TEST_AGENT_SCHEMA_NAME")!;
+        var envUrl = Environment.GetEnvironmentVariable("COPILOT_TEST_ENVIRONMENT_URL");
+        var agentSchema = Environment.GetEnvironmentVariable("COPILOT_TEST_AGENT_SCHEMA_NAME");
 
         var result = await CliRunner.RunAsync(
             $"clone --environment \"{envUrl}\" --agent-schema-name \"{agentSchema}\" --output \"{_workspace.Path}\"");
@@ -66,8 +66,8 @@ public sealed class CloneTests : IDisposable
     [LiveTenantFact]
     public async Task CloneOutputMatchesKnownEntityTypes()
     {
-        var envUrl = Environment.GetEnvironmentVariable("COPILOT_TEST_ENVIRONMENT_URL")!;
-        var agentSchema = Environment.GetEnvironmentVariable("COPILOT_TEST_AGENT_SCHEMA_NAME")!;
+        var envUrl = Environment.GetEnvironmentVariable("COPILOT_TEST_ENVIRONMENT_URL");
+        var agentSchema = Environment.GetEnvironmentVariable("COPILOT_TEST_AGENT_SCHEMA_NAME");
 
         var result = await CliRunner.RunAsync(
             $"clone --environment \"{envUrl}\" --agent-schema-name \"{agentSchema}\" --output \"{_workspace.Path}\"");

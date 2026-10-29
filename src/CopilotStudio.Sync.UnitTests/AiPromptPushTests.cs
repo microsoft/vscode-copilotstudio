@@ -225,7 +225,7 @@ public class AiPromptPushTests : IDisposable
         var response = await CreateRefusingClient().UpsertAIPromptAsync(Guid.NewGuid(), new AIPromptMetadata { AIModelId = _modelId, Name = "My Prompt" }, CancellationToken.None);
 
         Assert.Equal(_modelId, response.AIModelId);
-        Assert.Empty(response.ErrorMessage!);
+        Assert.Empty((response.ErrorMessage ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")));
     }
 
     [Fact]

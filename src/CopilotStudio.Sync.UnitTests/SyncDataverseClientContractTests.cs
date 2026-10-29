@@ -82,7 +82,7 @@ public class SyncDataverseClientContractTests
             nameof(ISyncDataverseClient.GetConnectionReferencesByLogicalNamesAsync),
         })
         {
-            Assert.Equal(contract, contract.GetMethod(member)!.DeclaringType);
+            Assert.Equal(contract, (contract.GetMethod(member) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).DeclaringType);
         }
     }
 
@@ -104,7 +104,7 @@ public class SyncDataverseClientContractTests
             .Select(method => method.Name)
             .ToHashSet(StringComparer.Ordinal);
 
-        Assert.Empty(typeof(IStandaloneWorkflowDataverseClient).GetMethods().Select(method => method.Name).Where(shared.Contains));
+        Assert.DoesNotContain(typeof(IStandaloneWorkflowDataverseClient).GetMethods().Select(method => method.Name), shared.Contains);
     }
 
     [Fact]

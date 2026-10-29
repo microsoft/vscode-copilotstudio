@@ -356,7 +356,7 @@ public class SkillManifestConflictTests
     }
 
     private static BotDefinition CloudDefinition()
-        => new BotDefinition().WithEntity(CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings)!);
+        => new BotDefinition().WithEntity((CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")));
 
     private static Task PushAsync(WorkspaceSynchronizer sync, DirectoryPath workspace, DefinitionBase definition) => sync.PushLocalChangesAsync(
         workspace,

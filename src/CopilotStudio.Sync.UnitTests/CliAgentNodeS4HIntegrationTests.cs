@@ -40,7 +40,7 @@ public class CliAgentNodeS4HIntegrationTests
     {
         var (_, _, accessor, synchronizer, workspace) =
             await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
-        var cloudSnapshot = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        var cloudSnapshot = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         const string newName = "user_added_cr";
         await WriteCrFileAsync(accessor, newName, "/providers/Microsoft.PowerApps/apis/shared_userconnector");
@@ -64,10 +64,10 @@ public class CliAgentNodeS4HIntegrationTests
     {
         var (_, _, accessor, synchronizer, workspace) =
             await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
-        var cloudSnapshot = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        var cloudSnapshot = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         var target = cloudSnapshot.ConnectionReferences.First(cr => cr.Id.Value != Guid.Empty);
-        var targetName = target.ConnectionReferenceLogicalName.Value!;
+        var targetName = target.ConnectionReferenceLogicalName.Value;
 
         // Edit the connectorId on disk (overwrite the existing per-file).
         await WriteCrFileAsync(accessor, targetName, "/providers/Microsoft.PowerApps/apis/shared_EDITED");
@@ -92,7 +92,7 @@ public class CliAgentNodeS4HIntegrationTests
         // is never called for it). TDD D38 review follow-up.
         var (_, _, accessor, synchronizer, workspace) =
             await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
-        var cloudSnapshot = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        var cloudSnapshot = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         const string newName = "user_added_cr";
         const string newConnector = "/providers/Microsoft.PowerApps/apis/shared_userconnector";

@@ -22,7 +22,7 @@ internal static class TranslationsFolderMigration
 
     internal static bool TryGetLegacyPath(AgentFilePath componentPath, BotComponentBase component, string? botName, out AgentFilePath legacyPath)
     {
-        var path = LspProjection.IsTranslationsPath(componentPath.ToString()) || string.IsNullOrEmpty(component.SchemaNameString) ? null : LspProjection.GetFilePath(typeof(TranslationsComponent), component.SchemaNameString!, botName, componentPath.TryGetSubAgentName(out var subAgentName, out _) ? $"{LspProjection.AgentsFolder}{subAgentName}/" : null, pathWithoutExtension: null);
+        var path = LspProjection.IsTranslationsPath(componentPath.ToString()) || component.SchemaNameString is not { Length: > 0 } schemaName ? null : LspProjection.GetFilePath(typeof(TranslationsComponent), schemaName, botName, componentPath.TryGetSubAgentName(out var subAgentName, out _) ? $"{LspProjection.AgentsFolder}{subAgentName}/" : null, pathWithoutExtension: null);
         legacyPath = path == null ? default : new AgentFilePath(path);
         return path != null;
     }

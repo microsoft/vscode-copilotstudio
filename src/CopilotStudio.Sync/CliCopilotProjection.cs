@@ -85,6 +85,6 @@ public static class CliCopilotProjection
             return string.Empty;
         }
 
-        return Path.GetFileName(fileName.Replace('\\', '/')) ?? string.Empty;
+        return Path.GetFileName(fileName?.Replace('\\', '/')) ?? string.Empty;
     }
 }

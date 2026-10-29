@@ -710,6 +710,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
                 world = new World(workspacePath);
                 var path = Path.Combine(workspacePath, TopicsPath);
                 var doc = world.GetDocument(path);
+                Assert.NotNull(doc);
                 requestContext = world.GetRequestContext(doc, 0);
             }
             else

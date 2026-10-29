@@ -392,7 +392,7 @@ public sealed class StandaloneWorkflowSynchronizer : IStandaloneWorkflowSynchron
         var workflowName = metadata.Name ?? metadata.WorkflowId.ToString();
         var existing = await _dataverseClient.GetWorkflowAsync(metadata.WorkflowId, cancellationToken).ConfigureAwait(false);
         var created = existing is null;
-        var writing = created || Differs(existing!, metadata, local.Canonical);
+        var writing = existing is null || Differs(existing, metadata, local.Canonical);
 
         if (writing && await _dataverseClient.HasUnpublishedDraftAsync(metadata.WorkflowId, cancellationToken).ConfigureAwait(false))
         {
@@ -443,9 +443,9 @@ public sealed class StandaloneWorkflowSynchronizer : IStandaloneWorkflowSynchron
 
                 replaceAttempted = settings.AllowDestructiveReplace && !draftedForConnections && !created && WorkflowActivationPlanner.IsConnectionAuthorizationFailure(response.ErrorMessage);
 
-                if (replaceAttempted)
+                if (replaceAttempted && existing is not null)
                 {
-                    response = await ReplaceAsync(metadata, existing!, environmentId, cancellationToken).ConfigureAwait(false);
+                    response = await ReplaceAsync(metadata, existing, environmentId, cancellationToken).ConfigureAwait(false);
                     replaced = string.IsNullOrEmpty(response.ErrorMessage);
                 }
             }
@@ -456,27 +456,27 @@ public sealed class StandaloneWorkflowSynchronizer : IStandaloneWorkflowSynchron
                 throw;
             }
 
-            if (!string.IsNullOrEmpty(response.ErrorMessage))
+            if (response.ErrorMessage is { Length: > 0 } errorMessage)
             {
                 await RestartAsync(replaceAttempted ? null : existing, stopped).ConfigureAwait(false);
 
-                throw WorkflowActivationPlanner.IsConnectionAuthorizationFailure(response.ErrorMessage)
-                    ? StandaloneWorkflowException.ConnectionsNotReady(workflowName, environmentId, NamedConnectionReference(response.ErrorMessage!) ?? "a connection reference")
-                    : IsUnpublishedDraftRefusal(response.ErrorMessage!)
+                throw WorkflowActivationPlanner.IsConnectionAuthorizationFailure(errorMessage)
+                    ? StandaloneWorkflowException.ConnectionsNotReady(workflowName, environmentId, NamedConnectionReference(errorMessage) ?? "a connection reference")
+                    : IsUnpublishedDraftRefusal(errorMessage)
                         ? StandaloneWorkflowException.EnvironmentHoldsUnpublishedDraft(workflowName, environmentId)
-                        : StandaloneWorkflowException.PushFailed(workflowName, environmentId, response.ErrorMessage!);
+                        : StandaloneWorkflowException.PushFailed(workflowName, environmentId, errorMessage);
             }
 
             wrote = true;
 
             var stillRunning = wasRunning && !stopped && !replaced;
 
-            metadata.StateCode = stillRunning ? existing!.StateCode : 0;
-            metadata.StatusCode = stillRunning ? existing!.StatusCode : 1;
+            metadata.StateCode = stillRunning ? existing?.StateCode : 0;
+            metadata.StatusCode = stillRunning ? existing?.StatusCode : 1;
         }
-        else
+        else if (existing is not null)
         {
-            metadata.StateCode = existing!.StateCode;
+            metadata.StateCode = existing.StateCode;
             metadata.StatusCode = existing.StatusCode;
         }
 
@@ -637,12 +637,12 @@ public sealed class StandaloneWorkflowSynchronizer : IStandaloneWorkflowSynchron
             throw;
         }
 
-        if (string.IsNullOrEmpty(response.ErrorMessage))
+        if (response.ErrorMessage is not { Length: > 0 } errorMessage)
         {
             return response;
         }
 
-        await RestoreDeletedAsync(existing, environmentId, response.ErrorMessage!).ConfigureAwait(false);
+        await RestoreDeletedAsync(existing, environmentId, errorMessage).ConfigureAwait(false);
 
         return response;
     }
@@ -656,9 +656,9 @@ public sealed class StandaloneWorkflowSynchronizer : IStandaloneWorkflowSynchron
     {
         var restored = await _dataverseClient.InsertWorkflowAsync(existing, CancellationToken.None).ConfigureAwait(false);
 
-        if (!string.IsNullOrEmpty(restored.ErrorMessage))
+        if (restored.ErrorMessage is { Length: > 0 } errorMessage)
         {
-            throw StandaloneWorkflowException.ReplaceLostTheCloudCopy(existing.Name ?? existing.WorkflowId.ToString(), environmentId, writeFailure, restored.ErrorMessage!);
+            throw StandaloneWorkflowException.ReplaceLostTheCloudCopy(existing.Name ?? existing.WorkflowId.ToString(), environmentId, writeFailure, errorMessage);
         }
     }
 

@@ -360,7 +360,7 @@
             var syntax = rootElement.Syntax;
 
             syntaxTokenAtCursor = (SyntaxToken?)syntax?.GetSyntaxNodeAtPosition(index);
-            if (syntaxTokenAtCursor == null)
+            if (syntax is null || syntaxTokenAtCursor == null)
             {
                 lastNonTriviaTokenAtCursor = null;
                 return false;

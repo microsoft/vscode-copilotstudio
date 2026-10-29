@@ -39,7 +39,7 @@ public class SettingsProjectionFailureTests
         var entity = WorkspaceSynchronizer.TryDeserializeSettingsYaml(ValidSettings);
 
         Assert.NotNull(entity);
-        Assert.Equal("templ6", entity!.DisplayName?.ToString());
+        Assert.Equal("templ6", entity.DisplayName?.ToString());
     }
 
     [Fact]
@@ -52,20 +52,20 @@ public class SettingsProjectionFailureTests
     [Fact]
     public void TryGetSettingsYamlProjectsARealEntity()
     {
-        var entity = CodeSerializer.Deserialize<BotEntity>(ValidSettings)!;
+        var entity = (CodeSerializer.Deserialize<BotEntity>(ValidSettings) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         Assert.True(WorkspaceSynchronizer.TryGetSettingsYaml(entity, out var settingsYaml));
         Assert.NotNull(settingsYaml);
-        Assert.Contains("displayName: templ6", settingsYaml!, StringComparison.Ordinal);
-        Assert.Contains("language: 1033", settingsYaml!, StringComparison.Ordinal);
+        Assert.Contains("displayName: templ6", settingsYaml, StringComparison.Ordinal);
+        Assert.Contains("language: 1033", settingsYaml, StringComparison.Ordinal);
     }
 
     [Fact]
     public void ProjectedSettingsYamlAlwaysSurvivesItsOwnRoundTrip()
     {
-        var entity = CodeSerializer.Deserialize<BotEntity>(ValidSettings)!;
+        var entity = (CodeSerializer.Deserialize<BotEntity>(ValidSettings) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         Assert.True(WorkspaceSynchronizer.TryGetSettingsYaml(entity, out var settingsYaml));
 
-        Assert.NotNull(WorkspaceSynchronizer.TryDeserializeSettingsYaml(settingsYaml!));
+        Assert.NotNull(WorkspaceSynchronizer.TryDeserializeSettingsYaml((settingsYaml ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))));
     }
 }

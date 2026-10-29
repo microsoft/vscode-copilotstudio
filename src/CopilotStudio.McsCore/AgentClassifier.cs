@@ -72,12 +72,12 @@ namespace Microsoft.CopilotStudio.McsCore
         /// </summary>
         public static int? TryParseLayoutVersion(string? markerText)
         {
-            if (string.IsNullOrEmpty(markerText))
+            if (markerText is null || markerText.Length == 0)
             {
                 return null;
             }
 
-            using var reader = new StringReader(markerText!);
+            using var reader = new StringReader(markerText);
             string? line;
             while ((line = reader.ReadLine()) != null)
             {
@@ -150,8 +150,8 @@ namespace Microsoft.CopilotStudio.McsCore
             }
 
             var template = bot.Template;
-            if (!string.IsNullOrEmpty(template) &&
-                template!.StartsWith(CliTemplatePrefix, StringComparison.OrdinalIgnoreCase))
+            if (template is { Length: > 0 } &&
+                template.StartsWith(CliTemplatePrefix, StringComparison.OrdinalIgnoreCase))
             {
                 // CLI agent whose AgentSettings block is not (yet) materialized: the cliagent-
                 // template is an explicit CLI marker, so it still resolves to CliCopilot.
@@ -344,9 +344,9 @@ namespace Microsoft.CopilotStudio.McsCore
         {
             if (definition is BotComponentCollectionDefinition)
             {
-                var layout = string.IsNullOrEmpty(agentFolder)
+                var layout = agentFolder is null || agentFolder.Length == 0
                     ? WorkspaceLayout.Unknown
-                    : DetectWorkspaceLayout(agentFolder!);
+                    : DetectWorkspaceLayout(agentFolder);
 
                 return new AgentClassification(
                     AuthoringShape.Unknown, layout, SupportLevel.Supported, null, "component-collection");
@@ -363,9 +363,9 @@ namespace Microsoft.CopilotStudio.McsCore
         /// </summary>
         public static AgentClassification Classify(BotEntity? cloudEntity, string? agentFolder)
         {
-            var layout = string.IsNullOrEmpty(agentFolder)
+            var layout = agentFolder is null || agentFolder.Length == 0
                 ? WorkspaceLayout.Unknown
-                : DetectWorkspaceLayout(agentFolder!);
+                : DetectWorkspaceLayout(agentFolder);
 
             var cloud = ClassifyCloud(cloudEntity);
 

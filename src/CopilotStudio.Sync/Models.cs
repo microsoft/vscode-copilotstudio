@@ -76,6 +76,7 @@ public class AgentSyncInfo
     /// <summary>
     /// Url to dataverse org. Like "https://org12345678.crm.dynamics.com/"
     /// </summary>
+    // ! Populated by the connection initializer or JSON deserialization before sync.
     public Uri DataverseEndpoint { get; init; } = null!;
 
     /// <summary>
@@ -281,6 +282,7 @@ public class SolutionInfo
     public Dictionary<string, Version> SolutionVersions { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 #pragma warning restore CA2227
 
+    // ! Populated from the environment's solution versions before use.
     public Version CopilotStudioSolutionVersion { get; set; } = null!;
 
     public Version GetDataverseTableSearchSolutionUniqueName() => GetSolutionVersionByName("msft_AIPlatformExtensionsComponents");
@@ -582,8 +584,10 @@ public class PushChangesetResult
 
 public class WorkspaceSyncInfo
 {
+    // ! Set by the workspace sync result initializer.
     public DefinitionBase Definition { get; init; } = null!;
 
+    // ! Set by the workspace sync result initializer.
     public PvaComponentChangeSet Changeset { get; init; } = null!;
 }
 

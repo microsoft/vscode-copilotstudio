@@ -34,7 +34,7 @@ public class CustomConnectorDownloadGateTests
                 ConnectionReferences = ImmutableArray.Create(connectionReference),
             };
 
-            var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1")!;
+            var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
             mockIsland
                 .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new PvaComponentChangeSet(null, botEntity, "token-1"));
@@ -96,7 +96,7 @@ public class CustomConnectorDownloadGateTests
                 ConnectionReferences = ImmutableArray.Create(connectionReference),
             };
 
-            var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1")!;
+            var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
             mockIsland
                 .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new PvaComponentChangeSet(null, botEntity, "token-1"));
@@ -158,7 +158,7 @@ public class CustomConnectorDownloadGateTests
                 connectorId: "/providers/Microsoft.PowerApps/apis/shared_test")),
         };
 
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         mockIsland
             .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PvaComponentChangeSet(null, botEntity, "token-1"));
@@ -216,7 +216,7 @@ public class CustomConnectorDownloadGateTests
                 connectorId: "/providers/Microsoft.PowerApps/apis/shared_test")),
         };
 
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         mockIsland
             .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PvaComponentChangeSet(null, botEntity, "token-1"));
@@ -263,7 +263,7 @@ public class CustomConnectorDownloadGateTests
                 connectorId: "/providers/Microsoft.PowerApps/apis/shared_test")),
         };
 
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         mockIsland
             .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PvaComponentChangeSet(null, botEntity, "token-1"));
@@ -313,7 +313,7 @@ public class CustomConnectorDownloadGateTests
             ConnectionReferences = ImmutableArray.Create(connectionReference),
         };
 
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         mockIsland
             .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PvaComponentChangeSet(null, botEntity, "token-1"));

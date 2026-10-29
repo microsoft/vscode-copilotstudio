@@ -96,7 +96,7 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
             var result = await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None);
 
             Assert.NotNull(captured);
-            Assert.Equal(connectorId, captured!.ConnectorId);
+            Assert.Equal(connectorId, captured.ConnectorId);
             Assert.Equal(connectorId, result.PushedRowIds["folder-internal"]);
         }
 
@@ -190,7 +190,7 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
             await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None);
 
             Assert.NotNull(captured);
-            Assert.NotEqual(secretContents, captured!.OpenApiDefinition);
+            Assert.NotEqual(secretContents, captured.OpenApiDefinition);
             Assert.Equal(traversal, captured.OpenApiDefinition);
         }
 
@@ -456,7 +456,7 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
         private static async Task EditMetadataAsync(IFileAccessor files, string name, Guid connectorId, Action<JsonObject> edit)
         {
             var path = new AgentFilePath($"connectors/{name}-{connectorId}/metadata.yml");
-            var metadata = JsonNode.Parse(await files.ReadStringAsync(path, CancellationToken.None))!.AsObject();
+            var metadata = (JsonNode.Parse(await files.ReadStringAsync(path, CancellationToken.None)) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).AsObject();
             edit(metadata);
             await files.WriteAsync(path, metadata.ToJsonString(), CancellationToken.None);
         }

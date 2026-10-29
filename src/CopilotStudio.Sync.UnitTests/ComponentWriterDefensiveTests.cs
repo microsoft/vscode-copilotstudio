@@ -62,7 +62,7 @@ public class ComponentWriterDefensiveTests
         // Verify settings.mcs.yml is written (proves the write path executes).
         var (synchronizer, fileAccessorFactory, mockIsland) = CreateSyncInfrastructure();
 
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: testbot")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: testbot") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var baseDef = new BotDefinition();
 
         var workspace = new DirectoryPath("c:/test/workspace/");
@@ -113,7 +113,7 @@ public class ComponentWriterDefensiveTests
         return new AuthoringOperationContext(principal, orgInfo, botRef, null, false);
     }
 
-    internal static BotDefinition CreateAgentDefinition() => new BotDefinition().WithEntity(CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: testbot")!);
+    internal static BotDefinition CreateAgentDefinition() => new BotDefinition().WithEntity((CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: testbot") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")));
 
     internal static (WorkspaceSynchronizer sync, InMemoryFileAccessorFactory factory, Mock<IIslandControlPlaneService> island) CreateSyncInfrastructure(ISyncProgress? progress = null)
     {

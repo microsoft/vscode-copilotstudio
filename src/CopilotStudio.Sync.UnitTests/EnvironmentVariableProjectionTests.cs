@@ -35,7 +35,7 @@ public class EnvironmentVariableProjectionTests
 
         var envVar1 = CreateEnvVar("cr123.apiEndpoint", "API Endpoint");
         var envVar2 = CreateEnvVar("cr123.maxRetries", "Max Retries");
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr123")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr123") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         // Build changeset with env var changes using the full constructor
         var envVarChanges = new EnvironmentVariableChange[]
@@ -93,7 +93,7 @@ public class EnvironmentVariableProjectionTests
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
 
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: testbot")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: testbot") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var changeset = new PvaComponentChangeSet(null, botEntity, "token-1");
 
         mockIsland

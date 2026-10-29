@@ -180,6 +180,7 @@ public class WorkflowWorkspaceAccessorTests : IDisposable
     }
 
     [Fact]
+    // ! Null is intentional to verify argument validation.
     public void WriteConnectionReferenceDeclaration_RequiresAWorkspace() =>
         Assert.Throws<ArgumentNullException>(() => WorkflowDefinitionFile.WriteConnectionReferenceDeclaration((IFileAccessor)null!));
 

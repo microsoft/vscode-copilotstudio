@@ -43,7 +43,7 @@ public class SkillFolderLayoutTests
     }
 
     private static BotDefinition CloudDefinition()
-        => new BotDefinition().WithEntity(CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings)!);
+        => new BotDefinition().WithEntity((CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")));
 
     private static void Write(InMemoryFileAccessor accessor, string path, string content)
     {
@@ -81,7 +81,7 @@ public class SkillFolderLayoutTests
     {
         var skill = CreateSkill($"{Bot}.skill.get-us-weather_x9Z", "get-us-weather", Guid.NewGuid(), null);
 
-        var path = LspProjection.GetFilePath(typeof(InlineAgentSkill), skill.SchemaNameString!, Bot, null, null, AuthoringShape.CliCopilot, skill, null);
+        var path = LspProjection.GetFilePath(typeof(InlineAgentSkill), skill.SchemaNameString, Bot, null, null, AuthoringShape.CliCopilot, skill, null);
 
         Assert.Equal("behaviors/get-us-weather/skill.mcs.yml", path);
     }
@@ -101,8 +101,8 @@ public class SkillFolderLayoutTests
         var asset = CreateAsset($"{Bot}.file.skill_a1B", "skill", skill.Id);
         var definition = new BotDefinition().WithComponents(new BotComponentBase[] { skill, asset });
 
-        var anchorPath = LspProjection.GetFilePath(typeof(InlineAgentSkill), skill.SchemaNameString!, Bot, null, null, AuthoringShape.CliCopilot, skill, definition);
-        var assetPath = LspProjection.GetFilePath(typeof(FileAttachmentComponentMetadata), asset.SchemaNameString!, Bot, null, null, AuthoringShape.CliCopilot, asset, definition);
+        var anchorPath = LspProjection.GetFilePath(typeof(InlineAgentSkill), skill.SchemaNameString, Bot, null, null, AuthoringShape.CliCopilot, skill, definition);
+        var assetPath = LspProjection.GetFilePath(typeof(FileAttachmentComponentMetadata), asset.SchemaNameString, Bot, null, null, AuthoringShape.CliCopilot, asset, definition);
 
         Assert.Equal("behaviors/get-us-weather/skill.mcs.yml", anchorPath);
         Assert.Equal("behaviors/get-us-weather/skill_a1B.mcs.yml", assetPath);
@@ -115,7 +115,7 @@ public class SkillFolderLayoutTests
         var asset = CreateAsset($"{Bot}.file.docsinstruction.txt", "docs/instruction.txt", skill.Id);
         var definition = new BotDefinition().WithComponents(new BotComponentBase[] { skill, asset });
 
-        var assetPath = LspProjection.GetFilePath(typeof(FileAttachmentComponentMetadata), asset.SchemaNameString!, Bot, null, null, AuthoringShape.CliCopilot, asset, definition);
+        var assetPath = LspProjection.GetFilePath(typeof(FileAttachmentComponentMetadata), asset.SchemaNameString, Bot, null, null, AuthoringShape.CliCopilot, asset, definition);
 
         Assert.Equal("behaviors/get-us-weather/docs/instruction.txt.mcs.yml", assetPath);
     }
@@ -128,8 +128,8 @@ public class SkillFolderLayoutTests
         var pdf = CreateAsset($"{Bot}.file.reportpdf", "report.pdf", skill.Id);
         var definition = new BotDefinition().WithComponents(new BotComponentBase[] { skill, csv, pdf });
 
-        var csvPath = LspProjection.GetFilePath(typeof(FileAttachmentComponentMetadata), csv.SchemaNameString!, Bot, null, null, AuthoringShape.CliCopilot, csv, definition);
-        var pdfPath = LspProjection.GetFilePath(typeof(FileAttachmentComponentMetadata), pdf.SchemaNameString!, Bot, null, null, AuthoringShape.CliCopilot, pdf, definition);
+        var csvPath = LspProjection.GetFilePath(typeof(FileAttachmentComponentMetadata), csv.SchemaNameString, Bot, null, null, AuthoringShape.CliCopilot, csv, definition);
+        var pdfPath = LspProjection.GetFilePath(typeof(FileAttachmentComponentMetadata), pdf.SchemaNameString, Bot, null, null, AuthoringShape.CliCopilot, pdf, definition);
 
         Assert.Equal("behaviors/reports/report.csv.mcs.yml", csvPath);
         Assert.Equal("behaviors/reports/report.pdf.mcs.yml", pdfPath);
@@ -141,7 +141,7 @@ public class SkillFolderLayoutTests
         var knowledge = CreateAsset($"{Bot}.file.Handbook", "Handbook.pdf", default);
         var definition = new BotDefinition().WithComponents(new BotComponentBase[] { knowledge });
 
-        var path = LspProjection.GetFilePath(typeof(FileAttachmentComponentMetadata), knowledge.SchemaNameString!, Bot, null, null, AuthoringShape.CliCopilot, knowledge, definition);
+        var path = LspProjection.GetFilePath(typeof(FileAttachmentComponentMetadata), knowledge.SchemaNameString, Bot, null, null, AuthoringShape.CliCopilot, knowledge, definition);
 
         Assert.Equal("capabilities/knowledge/files/Handbook.mcs.yml", path);
     }
@@ -172,7 +172,7 @@ public class SkillFolderLayoutTests
         var read = await sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
 
         var skill = read.Components.OfType<DialogComponent>().Single(component => component.Dialog is InlineAgentSkill);
-        Assert.Equal("---\nname: get-us-weather\n---\nInstructions.\n", ((InlineAgentSkill)skill.Dialog!).Content);
+        Assert.Equal("---\nname: get-us-weather\n---\nInstructions.\n", ((InlineAgentSkill)(skill.Dialog ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))).Content);
         Assert.Empty(read.Components.OfType<FileAttachmentComponent>());
     }
 
@@ -187,7 +187,7 @@ public class SkillFolderLayoutTests
         var read = await sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
 
         var skill = read.Components.OfType<DialogComponent>().Single(component => component.Dialog is InlineAgentSkill);
-        Assert.Equal($"<!-- bic:bundle={Bot}.file.getusweatherzip -->", ((InlineAgentSkill)skill.Dialog!).Content);
+        Assert.Equal($"<!-- bic:bundle={Bot}.file.getusweatherzip -->", ((InlineAgentSkill)(skill.Dialog ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))).Content);
         var manifest = Assert.Single(read.Components.OfType<FileAttachmentComponent>(), component => SkillLayout.IsManifest(component.DisplayName));
         Assert.Equal($"{Bot}.file.getusweather.SKILL.md", manifest.SchemaNameString);
     }
@@ -205,7 +205,7 @@ public class SkillFolderLayoutTests
         Assert.Contains(changes, change => change.ChangeType == ChangeType.Create && change.SchemaName == $"{Bot}.skill.get-us-weather");
         var read = await sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
         var skill = read.Components.OfType<DialogComponent>().Single(component => component.Dialog is InlineAgentSkill);
-        Assert.StartsWith(SkillLayout.BundleMarkerPrefix, ((InlineAgentSkill)skill.Dialog!).Content, StringComparison.Ordinal);
+        Assert.StartsWith(SkillLayout.BundleMarkerPrefix, ((InlineAgentSkill)(skill.Dialog ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))).Content, StringComparison.Ordinal);
         Assert.Single(read.Components.OfType<FileAttachmentComponent>(), component => SkillLayout.IsManifest(component.DisplayName));
         Assert.Single(read.Components.OfType<FileAttachmentComponent>(), component => component.DisplayName == "scripts/run.ps1");
     }
@@ -399,7 +399,7 @@ public class SkillFolderLayoutTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/skill-migration-collide-{Guid.NewGuid():N}/");
         var accessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var entity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings)!;
+        var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var skill = CreateSkill($"{Bot}.skill.get-us-weather_x9Z", "get-us-weather", Guid.NewGuid(), $"<!-- bic:bundle={Bot}.file.getusweatherzip -->");
         var manifest = CreateAsset($"{Bot}.file.skillmd_dWN", "./SKILL.md", skill.Id);
         // Asset whose relative path equals the skill's display name.
@@ -434,7 +434,7 @@ public class SkillFolderLayoutTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/skill-migration-{Guid.NewGuid():N}/");
         var accessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var entity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings)!;
+        var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var skillId = Guid.NewGuid();
         var skill = CreateSkill($"{Bot}.skill.get-us-weather_x9Z", "get-us-weather", skillId, $"<!-- bic:bundle={Bot}.file.getusweatherzip -->");
         var manifest = CreateAsset($"{Bot}.file.skillmd_dWN", "./SKILL.md", skill.Id);
@@ -484,7 +484,7 @@ public class SkillFolderLayoutTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/skill-push-metadata-{Guid.NewGuid():N}/");
         var accessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var entity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings)!;
+        var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var skill = CreateSkill($"{Bot}.skill.get-us-weather_x9Z", "get-us-weather", Guid.NewGuid(), "Original instructions.\n");
         var cloud = new BotDefinition().WithEntity(entity).WithComponents(new BotComponentBase[] { skill });
 
@@ -564,7 +564,7 @@ public class SkillFolderLayoutTests
         var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var (baseSkill, local, remote) = SkillMergeInputs(LocalManifest, RemoteManifest);
 
-        sync.MergeComponent(baseSkill.SchemaNameString!, baseSkill, local, remote, out var conflict);
+        sync.MergeComponent(baseSkill.SchemaNameString, baseSkill, local, remote, out var conflict);
 
         Assert.Null(conflict.Yaml);
     }
@@ -575,12 +575,12 @@ public class SkillFolderLayoutTests
         var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var (baseSkill, local, remote) = SkillMergeInputs(LocalManifest, RemoteManifest);
 
-        var merged = sync.MergeComponent(baseSkill.SchemaNameString!, baseSkill, local, remote, out _);
+        var merged = sync.MergeComponent(baseSkill.SchemaNameString, baseSkill, local, remote, out _);
 
-        var content = SkillBodyProjection.GetContent(merged!);
+        var content = SkillBodyProjection.GetContent((merged ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")));
         Assert.True(McsConflictMarkers.Contains(content));
-        Assert.Contains("Local body.", content!, StringComparison.Ordinal);
-        Assert.Contains("Remote body.", content!, StringComparison.Ordinal);
+        Assert.Contains("Local body.", (content ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")), StringComparison.Ordinal);
+        Assert.Contains("Remote body.", (content ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -589,9 +589,9 @@ public class SkillFolderLayoutTests
         var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var (baseSkill, local, remote) = SkillMergeInputs(LocalManifest, RemoteManifest);
 
-        var merged = sync.MergeComponent(baseSkill.SchemaNameString!, baseSkill, local, remote, out _);
+        var merged = sync.MergeComponent(baseSkill.SchemaNameString, baseSkill, local, remote, out _);
 
-        Assert.True(SkillBodyProjection.TryGetManifestWrite(merged!, SkillAnchorPath, out var manifestPath, out var manifestText));
+        Assert.True(SkillBodyProjection.TryGetManifestWrite((merged ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")), SkillAnchorPath, out var manifestPath, out var manifestText));
         Assert.Equal("behaviors/get-us-weather/SKILL.md", manifestPath.ToString());
         Assert.True(McsConflictMarkers.Contains(manifestText));
     }
@@ -602,9 +602,9 @@ public class SkillFolderLayoutTests
         var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var (baseSkill, local, remote) = SkillMergeInputs(LocalManifest, RemoteManifest);
 
-        var merged = sync.MergeComponent(baseSkill.SchemaNameString!, baseSkill, local, remote, out _);
+        var merged = sync.MergeComponent(baseSkill.SchemaNameString, baseSkill, local, remote, out _);
 
-        var anchor = McsComponentBodyWriter.SerializeComponent(merged!, CloudDefinition(), SkillAnchorPath);
+        var anchor = McsComponentBodyWriter.SerializeComponent((merged ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")), CloudDefinition(), SkillAnchorPath);
         Assert.DoesNotContain("content:", anchor, StringComparison.Ordinal);
         Assert.False(McsConflictMarkers.Contains(anchor));
     }
@@ -619,13 +619,13 @@ public class SkillFolderLayoutTests
         var local = CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", id, wideBase.Replace("Intro line.", "Local intro."));
         var remote = CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", id, wideBase.Replace("Outro line.", "Remote outro."));
 
-        var merged = sync.MergeComponent(baseSkill.SchemaNameString!, baseSkill, local, remote, out var conflict);
+        var merged = sync.MergeComponent(baseSkill.SchemaNameString, baseSkill, local, remote, out var conflict);
 
         Assert.Null(conflict.Yaml);
-        var content = SkillBodyProjection.GetContent(merged!);
+        var content = SkillBodyProjection.GetContent((merged ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")));
         Assert.False(McsConflictMarkers.Contains(content));
-        Assert.Contains("Local intro.", content!, StringComparison.Ordinal);
-        Assert.Contains("Remote outro.", content!, StringComparison.Ordinal);
+        Assert.Contains("Local intro.", (content ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")), StringComparison.Ordinal);
+        Assert.Contains("Remote outro.", (content ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -637,10 +637,10 @@ public class SkillFolderLayoutTests
         var local = CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", id, LocalManifest, "local description");
         var remote = CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", id, RemoteManifest, "remote description");
 
-        var merged = sync.MergeComponent(baseSkill.SchemaNameString!, baseSkill, local, remote, out var conflict);
+        var merged = sync.MergeComponent(baseSkill.SchemaNameString, baseSkill, local, remote, out var conflict);
 
         Assert.DoesNotContain("Local body.", conflict.Yaml ?? string.Empty, StringComparison.Ordinal);
-        Assert.True(McsConflictMarkers.Contains(SkillBodyProjection.GetContent(merged!)));
+        Assert.True(McsConflictMarkers.Contains(SkillBodyProjection.GetContent((merged ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")))));
     }
 
     private static string NormalizeKeys(string body)
@@ -688,7 +688,7 @@ public class SkillFolderLayoutTests
 
         var parsed = McsYamlReader.Parse(resolved);
 
-        Assert.Equal("LOCAL text", ((IDictionary<string, object?>)parsed[McsMetadata.PropertyName]!)[McsMetadata.DescriptionKey]);
+        Assert.Equal("LOCAL text", ((IDictionary<string, object?>)(parsed[McsMetadata.PropertyName] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")))[McsMetadata.DescriptionKey]);
     }
 
     [Fact]
@@ -741,7 +741,7 @@ public class SkillFolderLayoutTests
         var rewritten = McsComponentBodyWriter.ReplaceBodyPreservingMetadata(skill, CloudDefinition(), SkillPreviewPath, "kind: ReplacementBody\n");
 
         Assert.False(McsConflictMarkers.Contains(rewritten));
-        var metadata = (IDictionary<string, object?>)McsYamlReader.Parse(rewritten)[McsMetadata.PropertyName]!;
+        var metadata = (IDictionary<string, object?>)(McsYamlReader.Parse(rewritten)[McsMetadata.PropertyName] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         Assert.Equal(DescriptionQuotingAConflict, metadata[McsMetadata.DescriptionKey]);
     }
 
@@ -761,7 +761,7 @@ public class SkillFolderLayoutTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/skill-migration-noop-{Guid.NewGuid():N}/");
         var accessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var entity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings)!;
+        var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var skillId = Guid.NewGuid();
         var skill = CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", skillId, $"<!-- bic:bundle={Bot}.file.getusweatherzip -->");
         var manifest = CreateAsset($"{Bot}.file.getusweather.SKILL.md", "SKILL.md", skill.Id);
@@ -848,7 +848,7 @@ public class SkillFolderLayoutTests
         var (_, changes) = await GetChangesAsync(sync, workspace, read);
 
         var readSkill = read.Components.OfType<DialogComponent>().Single(component => component.Dialog is InlineAgentSkill);
-        Assert.Null(((InlineAgentSkill)readSkill.Dialog!).Content);
+        Assert.Null(((InlineAgentSkill)(readSkill.Dialog ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))).Content);
         Assert.Empty(changes);
     }
 
@@ -871,7 +871,7 @@ public class SkillFolderLayoutTests
         var read = await sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
         var (_, changes) = await GetChangesAsync(sync, workspace, read);
 
-        Assert.Single(read.Components.OfType<DialogComponent>().Where(component => component.Dialog is InlineAgentSkill));
+        Assert.Single(read.Components.OfType<DialogComponent>(), component => component.Dialog is InlineAgentSkill);
         Assert.Empty(changes);
     }
 
@@ -895,7 +895,7 @@ public class SkillFolderLayoutTests
         var (_, changes) = await GetChangesAsync(sync, workspace, read);
 
         var promotedSkill = read.Components.OfType<DialogComponent>().Single(component => component.Dialog is InlineAgentSkill);
-        Assert.StartsWith(SkillLayout.BundleMarkerPrefix, ((InlineAgentSkill)promotedSkill.Dialog!).Content, StringComparison.Ordinal);
+        Assert.StartsWith(SkillLayout.BundleMarkerPrefix, ((InlineAgentSkill)(promotedSkill.Dialog ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))).Content, StringComparison.Ordinal);
         Assert.Contains(read.Components.OfType<FileAttachmentComponent>(), component => SkillLayout.IsManifest(component.DisplayName));
         Assert.Contains(changes, change => change.ChangeType == ChangeType.Update && change.SchemaName == skill.SchemaNameString);
         Assert.Contains(changes, change => change.ChangeType == ChangeType.Create && change.ChangeKind == BotElementKind.FileAttachmentComponent.ToString());
@@ -921,7 +921,7 @@ public class SkillFolderLayoutTests
         var (_, changes) = await GetChangesAsync(sync, workspace, read);
 
         var readSkill = read.Components.OfType<DialogComponent>().Single(component => component.Dialog is InlineAgentSkill);
-        Assert.Null(((InlineAgentSkill)readSkill.Dialog!).Content);
+        Assert.Null(((InlineAgentSkill)(readSkill.Dialog ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))).Content);
         Assert.Contains(read.Components.OfType<FileAttachmentComponent>(), component => component.SchemaNameString == manifest.SchemaNameString);
         Assert.Empty(changes);
     }
@@ -949,7 +949,7 @@ public class SkillFolderLayoutTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/skill-cloud-delete-{Guid.NewGuid():N}/");
         var accessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var entity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings)!;
+        var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var skill = CreateSkill($"{Bot}.skill.my-skill-1_eWv", "my-skill-1", Guid.NewGuid(), "Instructions.\n", "Skill description");
         var cloud = new BotDefinition().WithEntity(entity).WithComponents(new BotComponentBase[] { skill });
 
@@ -983,7 +983,7 @@ public class SkillFolderLayoutTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/skill-cloud-add-{Guid.NewGuid():N}/");
         var accessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var entity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings)!;
+        var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var previous = new BotDefinition().WithEntity(entity);
         var skill = CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", Guid.NewGuid(), $"<!-- bic:bundle={Bot}.file.getusweatherzip -->");
         var manifest = CreateAsset($"{Bot}.file.skillmd_a1B", "./SKILL.md", skill.Id);
@@ -1016,7 +1016,7 @@ public class SkillFolderLayoutTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/skill-cloud-add-missing-{Guid.NewGuid():N}/");
         var accessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var entity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings)!;
+        var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var previous = new BotDefinition().WithEntity(entity);
         var skill = CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", Guid.NewGuid(), $"<!-- bic:bundle={Bot}.file.getusweatherzip -->");
         var manifest = CreateAsset($"{Bot}.file.skillmd_a1B", "./SKILL.md", skill.Id);
@@ -1043,7 +1043,7 @@ public class SkillFolderLayoutTests
         Assert.False(accessor.Exists(new AgentFilePath("behaviors/get-us-weather/scripts/Get-UsWeather.ps1")));
         Assert.True(accessor.Exists(new AgentFilePath("behaviors/get-us-weather/scripts/Get-UsWeather.ps1.mcs.yml")));
 
-        var committedCache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        var committedCache = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         Assert.Contains(committedCache.Components, component => component.SchemaNameString == script.SchemaNameString);
         Assert.Equal("token-2", Read(accessor, ".mcs/changetoken.txt"));
     }
@@ -1054,7 +1054,7 @@ public class SkillFolderLayoutTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/skill-cloud-add-failed-{Guid.NewGuid():N}/");
         var accessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var entity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings)!;
+        var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var previous = new BotDefinition().WithEntity(entity);
         var skill = CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", Guid.NewGuid(), $"<!-- bic:bundle={Bot}.file.getusweatherzip -->");
         var manifest = CreateAsset($"{Bot}.file.skillmd_a1B", "./SKILL.md", skill.Id);
@@ -1076,7 +1076,7 @@ public class SkillFolderLayoutTests
 
         // The delta was not consumed, so the next pull replays it instead of the workspace being
         // permanently short of a component the cache already claims to hold.
-        var cache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        var cache = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         Assert.DoesNotContain(cache.Components, component => component.SchemaNameString == skill.SchemaNameString);
         Assert.False(accessor.Exists(new AgentFilePath(".mcs/changetoken.txt")));
     }
@@ -1139,7 +1139,7 @@ public class SkillFolderLayoutTests
     {
         var (synchronizer, factory, mockIsland) = CreateMemoryBackedInfrastructure();
         var workspace = new DirectoryPath($"c:/test/skill-inmem-pull-{Guid.NewGuid():N}/");
-        var entity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings)!;
+        var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var previous = new BotDefinition().WithEntity(entity);
         var accessor = CreateMemoryBackedWorkspace(factory, workspace, previous);
 
@@ -1177,7 +1177,7 @@ public class SkillFolderLayoutTests
     {
         var (synchronizer, factory, mockIsland) = CreateMemoryBackedInfrastructure();
         var workspace = new DirectoryPath($"c:/test/skill-inmem-roundtrip-{Guid.NewGuid():N}/");
-        var entity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings)!;
+        var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var previous = new BotDefinition().WithEntity(entity);
         CreateMemoryBackedWorkspace(factory, workspace, previous);
 
@@ -1209,7 +1209,7 @@ public class SkillFolderLayoutTests
     {
         var (synchronizer, factory, _) = CreateMemoryBackedInfrastructure();
         var workspace = new DirectoryPath($"c:/test/skill-inmem-push-{Guid.NewGuid():N}/");
-        var entity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings)!;
+        var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var skill = CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", Guid.NewGuid(), $"<!-- bic:bundle={Bot}.file.getusweatherzip -->");
         var manifest = CreateAsset($"{Bot}.file.skillmd_a1B", "./SKILL.md", skill.Id);
         var script = CreateAsset($"{Bot}.file.script_a1B", "./scripts/Get-UsWeather.ps1", skill.Id);
@@ -1242,7 +1242,7 @@ public class SkillFolderLayoutTests
     {
         var (synchronizer, factory, _) = CreateMemoryBackedInfrastructure();
         var workspace = new DirectoryPath($"c:/test/skill-inmem-guard-{Guid.NewGuid():N}/");
-        var entity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings)!;
+        var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var skill = CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", Guid.NewGuid(), $"<!-- bic:bundle={Bot}.file.getusweatherzip -->");
         var manifest = CreateAsset($"{Bot}.file.skillmd_a1B", "./SKILL.md", skill.Id);
         var cloud = new BotDefinition().WithEntity(entity).WithComponents(new BotComponentBase[] { skill, manifest });
@@ -1255,7 +1255,7 @@ public class SkillFolderLayoutTests
         var mockDataverse = CreateDataverseMock();
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => synchronizer.DownloadKnowledgeFilesAsync(
-            workspace, mockDataverse.Object, new[] { manifest.SchemaNameString! }, CancellationToken.None));
+            workspace, mockDataverse.Object, new[] { manifest.SchemaNameString }, CancellationToken.None));
 
         Assert.Contains("IStreamingKnowledgeFileClient", error.Message, StringComparison.Ordinal);
         mockDataverse.Verify(x => x.DownloadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<BotComponentId>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -1277,7 +1277,7 @@ public class SkillFolderLayoutTests
         Assert.Contains(changes, change => change.ChangeType == ChangeType.Create && change.SchemaName == $"{Bot}.skill.get-us-weather");
         var read = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
         var skill = read.Components.OfType<DialogComponent>().Single(component => component.Dialog is InlineAgentSkill);
-        Assert.StartsWith(SkillLayout.BundleMarkerPrefix, ((InlineAgentSkill)skill.Dialog!).Content, StringComparison.Ordinal);
+        Assert.StartsWith(SkillLayout.BundleMarkerPrefix, ((InlineAgentSkill)(skill.Dialog ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))).Content, StringComparison.Ordinal);
         Assert.Single(read.Components.OfType<FileAttachmentComponent>(), component => SkillLayout.IsManifest(component.DisplayName));
         Assert.Single(read.Components.OfType<FileAttachmentComponent>(), component => component.DisplayName == "scripts/run.ps1");
     }
@@ -1287,7 +1287,7 @@ public class SkillFolderLayoutTests
     {
         var (synchronizer, factory, mockIsland) = CreateMemoryBackedInfrastructure();
         var workspace = new DirectoryPath($"c:/test/skill-inmem-migrate-{Guid.NewGuid():N}/");
-        var entity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings)!;
+        var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var skill = CreateSkill($"{Bot}.skill.get-us-weather_x9Z", "get-us-weather", Guid.NewGuid(), $"<!-- bic:bundle={Bot}.file.getusweatherzip -->");
         var manifest = CreateAsset($"{Bot}.file.skillmd_dWN", "./SKILL.md", skill.Id);
         var script = CreateAsset($"{Bot}.file.scriptsrunps1_9GR", "./scripts/run.ps1", skill.Id);
@@ -1327,7 +1327,7 @@ public class SkillFolderLayoutTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/skill-cache-purity-{Guid.NewGuid():N}/");
         var accessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        var entity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings)!;
+        var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var cloudSkill = CreateSkill($"{Bot}.skill.cloud-skill", "cloud-skill", Guid.NewGuid(), "Cloud instructions.\n", "Cloud skill");
         var cloud = new BotDefinition().WithEntity(entity).WithComponents(new BotComponentBase[] { cloudSkill });
 
@@ -1353,7 +1353,7 @@ public class SkillFolderLayoutTests
 
         await synchronizer.PullExistingChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), localDefinition, mockDataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
 
-        var committedCache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!;
+        var committedCache = (WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         Assert.DoesNotContain(committedCache.Components, component => component.DisplayName == "local-only-skill");
         Assert.Single(committedCache.Components.OfType<DialogComponent>(), component => component.SchemaNameString == $"{Bot}.skill.cloud-skill");
         Assert.True(accessor.Exists(new AgentFilePath("behaviors/local-only-skill/skill.mcs.yml")));

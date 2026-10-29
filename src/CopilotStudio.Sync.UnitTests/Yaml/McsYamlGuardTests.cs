@@ -12,13 +12,16 @@ public class McsYamlGuardTests
     [Fact]
     public void ReaderRejectsNullInput()
     {
+        // ! Null is intentional to verify argument validation.
         Assert.Throws<ArgumentNullException>(() => McsYamlReader.Parse(null!));
+        // ! Null is intentional to verify argument validation.
         Assert.Throws<ArgumentNullException>(() => McsYamlReader.ParseDocument(null!));
     }
 
     [Fact]
     public void WriterRejectsNullInput()
     {
+        // ! Null is intentional to verify argument validation.
         Assert.Throws<ArgumentNullException>(() => McsYamlWriter.Write(null!));
     }
 
@@ -69,7 +72,7 @@ public class McsYamlGuardTests
     [InlineData(typeof(ArgumentException))]
     public void ProjectionComparisonTreatsSerializationErrorsAsAMismatch(Type exceptionType)
     {
-        var exception = (Exception)Activator.CreateInstance(exceptionType, "failed")!;
+        var exception = (Exception)(Activator.CreateInstance(exceptionType, "failed") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         Assert.True(WorkspaceSynchronizer.IsProjectionSerializationFailure(exception));
     }
@@ -77,12 +80,13 @@ public class McsYamlGuardTests
     [Fact]
     public void ProjectionComparisonTreatsRealObjectModelParseFailuresAsAMismatch()
     {
+        // ! No source URI is required when testing a parse failure.
         var exception = Record.Exception(() => CodeSerializer.Deserialize<BotEntity>(string.Empty, null!));
 
         Assert.NotNull(exception);
         Assert.True(
-            WorkspaceSynchronizer.IsProjectionSerializationFailure(exception!),
-            $"a real ObjectModel failure of type {exception!.GetType().Name} is not treated as a projection mismatch");
+            WorkspaceSynchronizer.IsProjectionSerializationFailure(exception),
+            $"a real ObjectModel failure of type {exception.GetType().Name} is not treated as a projection mismatch");
     }
 
     [Theory]
@@ -92,7 +96,7 @@ public class McsYamlGuardTests
     [InlineData(typeof(IOException))]
     public void ProjectionComparisonDoesNotSwallowUnrelatedFailures(Type exceptionType)
     {
-        var exception = (Exception)Activator.CreateInstance(exceptionType)!;
+        var exception = (Exception)(Activator.CreateInstance(exceptionType) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         Assert.False(WorkspaceSynchronizer.IsProjectionSerializationFailure(exception));
     }

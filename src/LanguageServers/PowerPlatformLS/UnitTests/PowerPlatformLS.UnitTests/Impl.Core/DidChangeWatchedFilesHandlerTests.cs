@@ -64,6 +64,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Core
 
         private static DidChangeWatchedFilesHandler CreateHandler(ILanguageAbstraction language, IDiagnosticsPublisher diagnosticPublisher)
         {
+            // ! These notification tests do not use the workspace manager.
             return new DidChangeWatchedFilesHandler(
                 Mock.Of<ILspLogger>(),
                 null!,

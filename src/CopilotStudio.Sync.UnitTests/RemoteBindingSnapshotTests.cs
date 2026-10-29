@@ -78,7 +78,7 @@ public class RemoteBindingSnapshotTests
 
         synchronizer.RestoreRemoteBindingState(workspace, snapshot);
 
-        Assert.Equal("My Flow", StandaloneWorkflowCache.Read(fileAccessor, workflowId)!.Name);
+        Assert.Equal("My Flow", (StandaloneWorkflowCache.Read(fileAccessor, workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Name);
         Assert.Single(StandaloneWorkflowCache.Flows(fileAccessor));
 
         await Task.CompletedTask;

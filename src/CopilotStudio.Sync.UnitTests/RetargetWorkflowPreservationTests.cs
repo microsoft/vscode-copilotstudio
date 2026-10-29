@@ -114,7 +114,8 @@ public class RetargetWorkflowPreservationTests : IDisposable
     {
         var synchronizer = CreateSynchronizer();
         var workflowFolder = CreateLocalWorkflowFolder();
-        var workflowId = WorkflowWorkspace.WorkflowIdOf(Path.GetFileName(workflowFolder))!.Value;
+        var workflowId = WorkflowWorkspace.WorkflowIdOf(Path.GetFileName(workflowFolder))
+            ?? throw new Xunit.Sdk.XunitException("Expected a workflow ID in the folder name.");
         var (flow, _) = WorkspaceSynchronizer.GetFlowDefinition(new WorkflowMetadata { WorkflowId = workflowId, Name = "My Flow", ClientData = "{}" });
         WorkspaceSynchronizer.WriteCloudCache(_fileAccessor, new BotDefinition().WithFlows(new[] { flow }));
         var dataverse = CreateEmptyRemoteDataverse();

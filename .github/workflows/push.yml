@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: Get Azure DevOps Access Token
       id: getToken
       uses: "./.github/actions/get-ado-token"
@@ -29,9 +29,11 @@ jobs:
 
     - name: Trigger Azure DevOps Pipeline
       id: trigger
+      env:
+        ADO_TOKEN: ${{ steps.getToken.outputs.token }}
       run: |
         response=$(curl -s -X POST \
-          -H "Authorization: Bearer ${{ steps.getToken.outputs.token }}" \
+          -H "Authorization: Bearer $ADO_TOKEN" \
           -H "Content-Type: application/json" \
           -d '{"resources": {"repositories": {"self": {"refName": "refs/heads/main"}}},"variables": {"ProjectBranch": {"value": "${{ github.ref_name }}"}}}' \
           ${{ vars.AZDEVOPS_URL }}/_apis/pipelines/${{ env.AzDevOpsPipelineId }}/runs?api-version=7.1)
@@ -44,12 +46,14 @@ jobs:
 
     - name: Monitor Pipeline Run
       timeout-minutes: 60
+      env:
+        ADO_TOKEN: ${{ steps.getToken.outputs.token }}
       run: |
         run_id=${{ steps.trigger.outputs.run_id }}
         status="inProgress"
         while [ "$status" == "inProgress" ] || [ "$status" == "notStarted" ] || [ "$status" == "canceling" ]  ; do
           response=$(curl -s -X GET \
-            -H "Authorization: Bearer ${{ steps.getToken.outputs.token }}" \
+            -H "Authorization: Bearer $ADO_TOKEN" \
             ${{ vars.AZDEVOPS_URL }}/_apis/pipelines/${{ env.AzDevOpsPipelineId }}/runs/$run_id?api-version=7.1)
           status=$(echo $response | jq -r .state)
           r1=$(echo $response | jq -r .result)

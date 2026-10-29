@@ -38,8 +38,8 @@ public sealed class CloneComparisonTests : IDisposable
     [LiveTenantFact]
     public async Task ExtensionBridgeCloneMatchesCliClone()
     {
-        var envUrl = Environment.GetEnvironmentVariable("COPILOT_TEST_ENVIRONMENT_URL")!;
-        var agentSchema = Environment.GetEnvironmentVariable("COPILOT_TEST_AGENT_SCHEMA_NAME")!;
+        var envUrl = Environment.GetEnvironmentVariable("COPILOT_TEST_ENVIRONMENT_URL");
+        var agentSchema = Environment.GetEnvironmentVariable("COPILOT_TEST_AGENT_SCHEMA_NAME");
 
         // 1. Clone via direct CLI path (AuthProvider → DataverseHttpClientAccessor)
         var cliResult = await CliRunner.RunAsync(

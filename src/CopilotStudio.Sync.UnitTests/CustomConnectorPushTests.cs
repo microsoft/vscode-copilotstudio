@@ -58,7 +58,7 @@ public class CustomConnectorPushTests : IDisposable
     }
 
     private static CustomConnectorMetadata Clone(CustomConnectorMetadata connector) =>
-        JsonSerializer.Deserialize<CustomConnectorMetadata>(JsonSerializer.Serialize(connector))!;
+        (JsonSerializer.Deserialize<CustomConnectorMetadata>(JsonSerializer.Serialize(connector)) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
     private void WriteConnectorFiles(string openApiJson)
     {
@@ -80,7 +80,7 @@ public class CustomConnectorPushTests : IDisposable
         File.WriteAllText(Path.Combine(_connectorFolder, "openapidefinition.json"), openApiJson);
 
     private Dictionary<string, string> ReadBaseline(string fileName) =>
-        JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(Path.Combine(_root, ".mcs", fileName)))!;
+        (JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(Path.Combine(_root, ".mcs", fileName))) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
     private string? ReadCloudCopy(string fileSuffix = "") => SyncedAssetKind.ReadCloudCopy(new FileAccessorFactory().Create(_workspace), $"Mcs.Connector.{_connectorId}{fileSuffix}");
 
@@ -194,9 +194,9 @@ public class CustomConnectorPushTests : IDisposable
 
         var result = await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
 
-        var metadata = JsonNode.Parse(File.ReadAllText(Path.Combine(_connectorFolder, "metadata.yml")))!;
-        Assert.Equal("Normalized by the server", metadata["description"]!.GetValue<string>());
-        Assert.Equal(7, metadata["versionnumber"]!.GetValue<long>());
+        var metadata = (JsonNode.Parse(File.ReadAllText(Path.Combine(_connectorFolder, "metadata.yml"))) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
+        Assert.Equal("Normalized by the server", (metadata["description"] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).GetValue<string>());
+        Assert.Equal(7, (metadata["versionnumber"] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).GetValue<long>());
         Assert.Contains("\"title\": \"server\"", File.ReadAllText(Path.Combine(_connectorFolder, "openapidefinition.json")), StringComparison.Ordinal);
         Assert.Equal("{}", File.ReadAllText(Path.Combine(_connectorFolder, "connectionparameters.json")));
         Assert.Equal("{}", File.ReadAllText(Path.Combine(_connectorFolder, "policytemplateinstances.json")));
@@ -234,6 +234,6 @@ public class CustomConnectorPushTests : IDisposable
         await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
 
         Assert.Equal(new[] { _connectorFolder }, Directory.GetDirectories(Path.Combine(_root, "connectors")));
-        Assert.Equal("shared_renamed", JsonNode.Parse(File.ReadAllText(Path.Combine(_connectorFolder, "metadata.yml")))!["name"]!.GetValue<string>());
+        Assert.Equal("shared_renamed", ((JsonNode.Parse(File.ReadAllText(Path.Combine(_connectorFolder, "metadata.yml"))) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))["name"] ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).GetValue<string>());
     }
 }

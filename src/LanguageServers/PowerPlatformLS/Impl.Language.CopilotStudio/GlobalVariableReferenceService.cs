@@ -10,6 +10,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Completion;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Models;
     using System.Collections.Generic;
+    using System.Diagnostics.CodeAnalysis;
     using System.Linq;
 
     internal readonly record struct GlobalVariableIdentity(string VariableName);
@@ -57,7 +58,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
             }
 
             var variableName = ResolveVariableNameAtCursor(context, element);
-            if (string.IsNullOrEmpty(variableName))
+            if (variableName is null || variableName.Length == 0)
             {
                 return false;
             }
@@ -67,7 +68,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
                 return false;
             }
 
-            identity = new GlobalVariableIdentity(variableName!);
+            identity = new GlobalVariableIdentity(variableName);
             return true;
         }
 
@@ -103,11 +104,12 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
         public IReadOnlyList<string> GetGlobalVariableNames(RequestContext context)
         {
             var workspace = (McsWorkspace)context.Workspace;
-            return workspace.Definition.DescendantsAndSelf().OfType<GlobalVariableComponent>().Select(globalVariable => GetVariableName(globalVariable.SchemaNameString)).Where(name => !string.IsNullOrEmpty(name)).Select(name => name!).Distinct().ToList();
+            return workspace.Definition.DescendantsAndSelf().OfType<GlobalVariableComponent>().Select(globalVariable => GetVariableName(globalVariable.SchemaNameString)).OfType<string>().Where(name => name.Length > 0).Distinct().ToList();
         }
 
         public bool TryGetDefinitionUri(RequestContext context, GlobalVariableIdentity identity, out System.Uri definitionUri)
         {
+            // ! The out value is read only when the Try method returns true.
             definitionUri = null!;
             var workspace = (McsWorkspace)context.Workspace;
             var globalVariable = workspace.Definition.DescendantsAndSelf().OfType<GlobalVariableComponent>().FirstOrDefault(candidate => VariableNameMatches(candidate, identity.VariableName));
@@ -125,10 +127,10 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
         {
             switch (element)
             {
-                case SetVariable setVariable when IsGlobalNamespace(setVariable.Variable?.Path) && IsCursorOnSetVariableTarget(setVariable, context.Index):
-                    return setVariable.Variable!.Path.VariableName;
-                case ExpressionBase expression when expression.IsVariableReference && IsGlobalNamespace(expression.VariableReference):
-                    return expression.VariableReference!.VariableName;
+                case SetVariable setVariable when setVariable.Variable is { } variable && IsGlobalNamespace(variable.Path) && IsCursorOnSetVariableTarget(setVariable, context.Index):
+                    return variable.Path.VariableName;
+                case ExpressionBase expression when expression.IsVariableReference && expression.VariableReference is { } reference && IsGlobalNamespace(reference):
+                    return reference.VariableName;
                 case ExpressionBase expression when expression.IsExpression:
                     return ResolveNameInExpressionAtCursor(context, expression);
                 case TemplateLine templateLine:
@@ -163,18 +165,18 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
 
         internal static string? GetVariableName(string? schemaName)
         {
-            if (string.IsNullOrEmpty(schemaName))
+            if (schemaName is null || schemaName.Length == 0)
             {
                 return null;
             }
 
-            var lastSeparator = schemaName!.LastIndexOf('.');
+            var lastSeparator = schemaName.LastIndexOf('.');
             return lastSeparator < 0 ? schemaName : schemaName.Substring(lastSeparator + 1);
         }
 
-        private static bool IsGlobalNamespace(PropertyPath? path) => path != null && path.Namespace == VariableNamespace.Global;
+        private static bool IsGlobalNamespace([NotNullWhen(true)] PropertyPath? path) => path != null && path.Namespace == VariableNamespace.Global;
 
-        private static bool IsGlobalReference(PropertyPath? path, string variableName) => IsGlobalNamespace(path) && string.Equals(path!.VariableName, variableName, System.StringComparison.Ordinal);
+        private static bool IsGlobalReference(PropertyPath? path, string variableName) => IsGlobalNamespace(path) && string.Equals(path.VariableName, variableName, System.StringComparison.Ordinal);
 
         private void AddDefinitionReferences(GlobalVariableComponent globalVariable, McsWorkspace workspace, List<GlobalVariableReference> results)
         {
@@ -349,9 +351,9 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio
                     continue;
                 }
 
-                if (expression.IsVariableReference && IsGlobalNamespace(expression.VariableReference))
+                if (expression.IsVariableReference && expression.VariableReference is { } reference && IsGlobalNamespace(reference))
                 {
-                    return expression.VariableReference!.VariableName;
+                    return reference.VariableName;
                 }
 
                 if (expression.IsExpression)

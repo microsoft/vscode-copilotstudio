@@ -56,7 +56,7 @@
             builder.Add("Topic.");
             builder.Add("Global.");
             builder.Add("System.");
-            foreach (var globalVariableName in botDefinition.Components.OfType<GlobalVariableComponent>().Select(component => GlobalVariableReferenceService.GetVariableName(component.SchemaNameString)).Where(name => !string.IsNullOrEmpty(name)).Select(name => name!).Distinct())
+            foreach (var globalVariableName in botDefinition.Components.OfType<GlobalVariableComponent>().Select(component => GlobalVariableReferenceService.GetVariableName(component.SchemaNameString)).OfType<string>().Where(name => name.Length > 0).Distinct())
             {
                 builder.Add($"Global.{globalVariableName}");
             }

@@ -47,7 +47,7 @@ public class ChildAgentKnowledgeFileRoutingTests
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/child-knowledge-pull-{Guid.NewGuid():N}/");
 
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         var cloudAgentId = Guid.NewGuid();
         var cloudAgent = CreateAgentDialogComponent("cre98_AgentC1.agent.Agent", cloudAgentId);
         var cloudChildTopic = CreateTopicComponent("cre98_AgentC1.topic.ChildTopic", Guid.NewGuid(), new BotComponentId(cloudAgentId));
@@ -101,7 +101,7 @@ public class ChildAgentKnowledgeFileRoutingTests
 
     private static BotDefinition CreateDefinition(IEnumerable<BotComponentBase> components)
     {
-        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1")!;
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_AgentC1") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
         return new BotDefinition().WithEntity(botEntity).WithComponents(components);
     }
 
