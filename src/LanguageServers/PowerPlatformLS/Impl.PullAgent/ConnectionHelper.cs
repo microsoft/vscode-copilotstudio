@@ -83,10 +83,11 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             ClusterCategory = request.AccountInfo.ClusterCategory,
         };
 
-        public static async Task ProvisionConnectionsAsync(IWorkspaceSynchronizer synchronizer, DirectoryPath workspaceFolder, DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+        public static async Task<CustomConnectorPushResult> ProvisionConnectionsAsync(IWorkspaceSynchronizer synchronizer, DirectoryPath workspaceFolder, DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
         {
             var connectorPushResult = await synchronizer.PushCustomConnectorsAsync(workspaceFolder, dataverseClient, cancellationToken);
             await synchronizer.ProvisionConnectionReferencesAsync(workspaceFolder, definition, dataverseClient, cancellationToken, connectorPushResult.PushedRowIds);
+            return connectorPushResult;
         }
 
         public static async Task<(ImmutableArray<WorkflowResponse> WorkflowResponse, CloudFlowMetadata? CloudFlowMetadata, ImmutableArray<SyncDataverseClient.AIPromptResponse> AIPromptResponse, ImmutableArray<SyncDataverseClient.AIPromptMetadata> AIPromptMetadata)> UpsertAgentScopedAssetsAsync(IWorkspaceSynchronizer synchronizer, DirectoryPath workspaceFolder, DefinitionBase definition, ISyncDataverseClient dataverseClient, Guid? agentId, WorkflowActivationMode activationMode, CancellationToken cancellationToken)

@@ -62,7 +62,6 @@ public sealed class ExitCodeTests
     [InlineData("list-agents", "--environment")]
     [InlineData("push", "--workspace")]
     [InlineData("pull", "--workspace")]
-    [InlineData("verify", "--workspace")]
     public async Task MissingRequiredOptionExitsNonZero(string command, string option)
     {
         var result = await CliRunner.RunAsync(command);

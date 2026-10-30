@@ -14,7 +14,7 @@ using Microsoft.CopilotStudio.McsCore.Yaml;
 
 namespace Microsoft.CopilotStudio.Sync.Dataverse;
 
-public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowDataverseClient, ISyncComponentCollectionDataverseClient, IStreamingKnowledgeFileClient
+public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowDataverseClient, ISyncComponentCollectionDataverseClient, IStreamingKnowledgeFileClient, ICustomConnectorOperations
 {
     private readonly IDataverseHttpClientAccessor _httpClientAccessor;
     private readonly AsyncLocal<string> _dataverseUrl = new();
@@ -379,6 +379,13 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         }
 
         return results.ToArray();
+    }
+
+    public virtual async Task<bool> UpsertConnectorAsync(CustomConnectorMetadata connector, CancellationToken cancellationToken)
+    {
+        var exists = (await GetConnectorVersionsByIdsAsync(new[] { (connector ?? throw new ArgumentNullException(nameof(connector))).ConnectorId }, cancellationToken).ConfigureAwait(false)).Length > 0;
+        await SaveConnectorAsync(connector, exists, cancellationToken).ConfigureAwait(false);
+        return !exists;
     }
 
     public virtual async Task<CustomConnectorMetadata> SaveConnectorAsync(CustomConnectorMetadata connector, bool exists, CancellationToken cancellationToken)

@@ -41,3 +41,18 @@ public interface IWorkflowStateOperations
     /// <param name="cancellationToken">Cancels the write.</param>
     Task SetWorkflowStateAsync(Guid workflowId, bool activate, CancellationToken cancellationToken);
 }
+
+/// <summary>Reads and saves the custom connectors an environment holds.</summary>
+public interface ICustomConnectorOperations
+{
+    /// <summary>Gets the versions of connectors by their connector ids.</summary>
+    /// <param name="connectorIds">Connector ids to look up, ignoring duplicates and empty values.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    Task<CustomConnectorMetadata[]> GetConnectorVersionsByIdsAsync(IReadOnlyCollection<Guid> connectorIds, CancellationToken cancellationToken);
+
+    /// <summary>Creates or updates a custom connector and returns the copy the environment stored.</summary>
+    /// <param name="connector">The custom connector metadata to save.</param>
+    /// <param name="exists">True to update the existing connector; false to create it.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    Task<CustomConnectorMetadata> SaveConnectorAsync(CustomConnectorMetadata connector, bool exists, CancellationToken cancellationToken);
+}

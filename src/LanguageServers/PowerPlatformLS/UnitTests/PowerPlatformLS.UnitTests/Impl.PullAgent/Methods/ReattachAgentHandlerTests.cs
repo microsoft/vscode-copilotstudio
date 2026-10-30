@@ -1003,11 +1003,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             CancellationToken cancellationToken)
             => Task.FromResult(Array.Empty<CustomConnectorMetadata>());
 
-        public virtual Task<CustomConnectorMetadata[]> GetConnectorVersionsByIdsAsync(IReadOnlyCollection<Guid> connectorIds, CancellationToken cancellationToken)
-            => Task.FromResult(Array.Empty<CustomConnectorMetadata>());
-
-        public virtual Task<CustomConnectorMetadata> SaveConnectorAsync(CustomConnectorMetadata connector, bool exists, CancellationToken cancellationToken)
-            => Task.FromResult(connector);
+        public virtual Task<bool> UpsertConnectorAsync(CustomConnectorMetadata connector, CancellationToken cancellationToken)
+            => Task.FromResult(false);
 
         public virtual Task<AIPromptMetadata[]> DownloadAllAIPromptsForAgentAsync(AgentSyncInfo syncInfo, CancellationToken cancellationToken)
             => Task.FromResult(Array.Empty<AIPromptMetadata>());

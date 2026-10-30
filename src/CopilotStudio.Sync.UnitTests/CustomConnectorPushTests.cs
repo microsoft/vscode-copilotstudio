@@ -51,7 +51,7 @@ public class CustomConnectorPushTests : IDisposable
     private static Mock<ISyncDataverseClient> CreateDataverse(Func<CustomConnectorMetadata, CustomConnectorMetadata>? storeConnector = null)
     {
         var dataverse = new Mock<ISyncDataverseClient>();
-        dataverse
+        dataverse.As<ICustomConnectorOperations>()
             .Setup(c => c.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((CustomConnectorMetadata connector, bool _, CancellationToken _) => storeConnector?.Invoke(connector) ?? connector);
         return dataverse;
@@ -68,7 +68,7 @@ public class CustomConnectorPushTests : IDisposable
             cloudConnectors.Add(stored);
             return stored;
         });
-        dataverse
+        dataverse.As<ICustomConnectorOperations>()
             .Setup(c => c.GetConnectorVersionsByIdsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => cloudConnectors.ToArray());
         dataverse
@@ -153,10 +153,10 @@ public class CustomConnectorPushTests : IDisposable
         await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
         await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
 
-        dataverse.Verify(
+        dataverse.As<ICustomConnectorOperations>().Verify(
             c => c.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Once);
-        dataverse.Verify(
+        dataverse.As<ICustomConnectorOperations>().Verify(
             c => c.GetConnectorVersionsByIdsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -173,7 +173,7 @@ public class CustomConnectorPushTests : IDisposable
         WriteOpenApiDefinition("{\n  \"swagger\": \"2.0\",\n  \"host\": \"example.com\"\n}");
         await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
 
-        dataverse.Verify(
+        dataverse.As<ICustomConnectorOperations>().Verify(
             c => c.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Exactly(2));
     }
@@ -190,7 +190,7 @@ public class CustomConnectorPushTests : IDisposable
         WriteOpenApiDefinition("{\"swagger\":   \"2.0\",\n\"host\":\"example.com\"}");
         await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
 
-        dataverse.Verify(
+        dataverse.As<ICustomConnectorOperations>().Verify(
             c => c.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -234,7 +234,7 @@ public class CustomConnectorPushTests : IDisposable
         await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
 
         Assert.Empty(changes);
-        dataverse.Verify(
+        dataverse.As<ICustomConnectorOperations>().Verify(
             c => c.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -250,7 +250,7 @@ public class CustomConnectorPushTests : IDisposable
 
         var result = await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
 
-        dataverse.Verify(c => c.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
+        dataverse.As<ICustomConnectorOperations>().Verify(c => c.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
         Assert.Empty(result.Created);
         Assert.Empty(result.Updated);
         Assert.Empty(result.Failed);
@@ -272,7 +272,47 @@ public class CustomConnectorPushTests : IDisposable
         var result = await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
 
         Assert.Equal($"Mcs.Connector.{_connectorId}", Assert.Single(result.Updated).SchemaName);
-        dataverse.Verify(c => c.SaveConnectorAsync(It.Is<CustomConnectorMetadata>(connector => connector.OpenApiDefinition != null && connector.OpenApiDefinition.Contains("local.example.com")), true, It.IsAny<CancellationToken>()), Times.Once);
+        dataverse.As<ICustomConnectorOperations>().Verify(c => c.SaveConnectorAsync(It.Is<CustomConnectorMetadata>(connector => connector.OpenApiDefinition != null && connector.OpenApiDefinition.Contains("local.example.com")), true, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task PushCustomConnectorsAsync_ClientWithoutConnectorOperations_UpsertsAndRecordsTheCopyItReadsBack()
+    {
+        var synchronizer = CreateSynchronizer();
+        WriteConnectorFiles("{\"swagger\":\"2.0\"}");
+        var cloudConnectors = new List<CustomConnectorMetadata>();
+        var version = 6;
+        var dataverse = new Mock<ISyncDataverseClient>(MockBehavior.Strict);
+        dataverse
+            .Setup(c => c.GetConnectorVersionsByInternalIdsAsync(It.IsAny<IEnumerable<string>>(), true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => cloudConnectors.ToArray());
+        dataverse
+            .Setup(c => c.DownloadConnectorsByInternalIdsAsync(It.IsAny<IEnumerable<string>>(), true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => cloudConnectors.Select(Clone).ToArray());
+        dataverse
+            .Setup(c => c.UpsertConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((CustomConnectorMetadata sent, CancellationToken _) =>
+            {
+                var stored = Clone(sent);
+                stored.Description = "Stored by the server";
+                stored.VersionNumber = ++version;
+                var isNew = cloudConnectors.Count == 0;
+                cloudConnectors.Clear();
+                cloudConnectors.Add(stored);
+                return isNew;
+            });
+
+        var createResult = await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
+        WriteOpenApiDefinition("{\"swagger\":\"2.0\",\"host\":\"local.example.com\"}");
+        var updateResult = await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
+
+        Assert.Equal($"Mcs.Connector.{_connectorId}", Assert.Single(createResult.Created).SchemaName);
+        Assert.Equal($"Mcs.Connector.{_connectorId}", Assert.Single(updateResult.Updated).SchemaName);
+        dataverse.Verify(c => c.UpsertConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+        Assert.Contains("Stored by the server", File.ReadAllText(Path.Combine(_connectorFolder, "metadata.yml")), StringComparison.Ordinal);
+        Assert.Equal(File.ReadAllText(Path.Combine(_connectorFolder, "metadata.yml")), ReadCloudCopy());
+        Assert.Equal("8", ReadBaseline(".connectors-download.json")[_connectorId.ToString("N")]);
+        Assert.Empty(await LocalConnectorChangesAsync(synchronizer));
     }
 
     [Fact]

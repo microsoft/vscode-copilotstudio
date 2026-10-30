@@ -98,16 +98,13 @@ public interface ISyncDataverseClient
     /// <param name="cancellationToken">Cancellation token.</param>
     Task<CustomConnectorMetadata[]> GetConnectorsByInternalIdPrefixAsync(string connectorInternalIdPrefix, CancellationToken cancellationToken);
 
-    /// <summary>Gets the versions of connectors by their connector ids from Dataverse.</summary>
-    /// <param name="connectorIds">Connector ids to look up, ignoring duplicates and empty values.</param>
+    /// <summary>
+    /// Upsert a custom connector in Dataverse.
+    /// </summary>
+    /// <param name="connector">The custom connector metadata to upsert.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    Task<CustomConnectorMetadata[]> GetConnectorVersionsByIdsAsync(IReadOnlyCollection<Guid> connectorIds, CancellationToken cancellationToken);
-
-    /// <summary>Creates or updates a custom connector in Dataverse and returns the stored connector.</summary>
-    /// <param name="connector">The custom connector metadata to save.</param>
-    /// <param name="exists">True to update the existing connector; false to create it.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    Task<CustomConnectorMetadata> SaveConnectorAsync(CustomConnectorMetadata connector, bool exists, CancellationToken cancellationToken);
+    /// <returns>true/false if a new connector was created/updated in Dataverse.</returns>
+    Task<bool> UpsertConnectorAsync(CustomConnectorMetadata connector, CancellationToken cancellationToken);
 
     /// <summary>
     /// Query Dataverse for solution versions needed by <see cref="SolutionInfo"/>.

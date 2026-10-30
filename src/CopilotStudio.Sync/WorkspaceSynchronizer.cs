@@ -9446,7 +9446,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var localConnectors = await ReadLocalConnectorsAsync(fileAccessor, cancellationToken).ConfigureAwait(false);
         var changedConnectors = localConnectors.Where(localConnector => localConnector.Snapshot.IsChangedLocally).ToList();
-        var remoteConnectors = changedConnectors.Count == 0 ? Array.Empty<CustomConnectorMetadata>() : await dataverseClient.GetConnectorVersionsByIdsAsync(changedConnectors.Select(localConnector => localConnector.Snapshot.Id).Distinct().ToList(), cancellationToken).ConfigureAwait(false);
+        var remoteConnectors = changedConnectors.Count == 0 ? Array.Empty<CustomConnectorMetadata>() : await GetConnectorVersionsAsync(dataverseClient, changedConnectors, cancellationToken).ConfigureAwait(false);
         var existingConnectorIds = remoteConnectors.Select(remoteConnector => remoteConnector.ConnectorId).ToHashSet();
         var serverConnectors = new Dictionary<Guid, CustomConnectorMetadata>();
         foreach (var serverConnector in await DownloadConnectorsAsync(dataverseClient, remoteConnectors, cancellationToken).ConfigureAwait(false))
@@ -9477,7 +9477,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 CustomConnectorMetadata storedConnector;
                 try
                 {
-                    storedConnector = await dataverseClient.SaveConnectorAsync(localConnector.Connector, exists, cancellationToken).ConfigureAwait(false);
+                    storedConnector = await SaveConnectorAsync(dataverseClient, localConnector.Connector, exists, cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception exception) when (exception is not OperationCanceledException)
                 {
@@ -9548,7 +9548,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
 
         var remoteConnectors = new Dictionary<Guid, CustomConnectorMetadata>();
-        foreach (var remoteConnector in await dataverseClient.GetConnectorVersionsByIdsAsync(localConnectors.Select(localConnector => localConnector.Snapshot.Id).Distinct().ToList(), cancellationToken).ConfigureAwait(false))
+        foreach (var remoteConnector in await GetConnectorVersionsAsync(dataverseClient, localConnectors, cancellationToken).ConfigureAwait(false))
         {
             remoteConnectors[remoteConnector.ConnectorId] = remoteConnector;
         }
@@ -9570,6 +9570,21 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
 
         return SyncedAssetChangeDetector.DetectRemoteChanges(localConnectors.Select(localConnector => localConnector.Snapshot), remoteStates, CreateCloudCopyReader(fileAccessor)).ToImmutableArray();
+    }
+
+    private static async Task<CustomConnectorMetadata[]> GetConnectorVersionsAsync(ISyncDataverseClient dataverseClient, IReadOnlyCollection<LocalConnector> localConnectors, CancellationToken cancellationToken) => dataverseClient is ICustomConnectorOperations connectorOperations
+        ? await connectorOperations.GetConnectorVersionsByIdsAsync(localConnectors.Select(localConnector => localConnector.Snapshot.Id).Distinct().ToList(), cancellationToken).ConfigureAwait(false)
+        : await dataverseClient.GetConnectorVersionsByInternalIdsAsync(localConnectors.Select(localConnector => localConnector.Connector.ConnectorInternalId).OfType<string>(), isManaged: true, cancellationToken).ConfigureAwait(false);
+
+    private static async Task<CustomConnectorMetadata> SaveConnectorAsync(ISyncDataverseClient dataverseClient, CustomConnectorMetadata connector, bool exists, CancellationToken cancellationToken)
+    {
+        if (dataverseClient is ICustomConnectorOperations connectorOperations)
+        {
+            return await connectorOperations.SaveConnectorAsync(connector, exists, cancellationToken).ConfigureAwait(false);
+        }
+
+        await dataverseClient.UpsertConnectorAsync(connector, cancellationToken).ConfigureAwait(false);
+        return (await DownloadConnectorsAsync(dataverseClient, new[] { connector }, cancellationToken).ConfigureAwait(false)).FirstOrDefault(storedConnector => storedConnector.ConnectorId == connector.ConnectorId) ?? throw new InvalidOperationException($"Connector '{connector.ConnectorId}' was not returned after it was saved.");
     }
 
     private static async Task<CustomConnectorMetadata[]> DownloadConnectorsAsync(ISyncDataverseClient dataverseClient, IEnumerable<CustomConnectorMetadata> connectorVersions, CancellationToken cancellationToken)

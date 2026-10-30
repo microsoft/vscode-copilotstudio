@@ -587,6 +587,24 @@ public class StandaloneWorkflowDataverseTests
         Assert.Equal(9, stored.VersionNumber);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task UpsertConnectorAsync_ProbesTheConnectorIdThenPatchesAnExistingConnectorOrPostsANewOne(bool exists)
+    {
+        var connectorId = Guid.NewGuid();
+        var (client, handler) = Create(request => request.Method == HttpMethod.Get
+            ? Json(exists ? $"{{\"value\":[{{\"connectorid\":\"{connectorId}\",\"versionnumber\":3}}]}}" : "{\"value\":[]}")
+            : Json($"{{\"connectorid\":\"{connectorId}\",\"versionnumber\":4}}"));
+
+        var created = await client.UpsertConnectorAsync(new CustomConnectorMetadata { ConnectorId = connectorId, Name = "shared_contoso", ConnectorInternalId = "shared_contoso-5f" }, CancellationToken.None);
+
+        Assert.Equal(!exists, created);
+        Assert.Equal(2, handler.Exchanges.Count);
+        Assert.Contains($"connectorid eq {connectorId}", Uri.UnescapeDataString(handler.Exchanges[0].Url), StringComparison.Ordinal);
+        Assert.Equal(exists ? "PATCH" : "POST", handler.Exchanges[1].Method.Method);
+    }
+
     [Fact]
     public async Task ListWorkflowsAsync_ListsEveryUnmanagedCloudFlowIncludingTheOnesAgentsUseInOneRequest()
     {

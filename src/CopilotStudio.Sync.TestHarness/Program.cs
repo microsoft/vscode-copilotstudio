@@ -165,6 +165,12 @@ pushCommand.SetAction(async parseResult =>
 
         PrintChangeSummary(localChanges);
 
+        var connectorPushResult = await ConnectionHelper.ProvisionConnectionsAsync(synchronizer, workspaceFolder, localDefinition, dataverseClient, CancellationToken.None);
+        if (connectorPushResult.Failed.Count > 0)
+        {
+            throw new InvalidOperationException($"Failed to push custom connector(s): {string.Join(", ", connectorPushResult.Failed.Select(change => change.Name))}.");
+        }
+
         CloudFlowMetadata? cloudFlowMetadata = null;
         ImmutableArray<SyncDataverseClient.AIPromptMetadata> aiPromptMetadata = ImmutableArray<SyncDataverseClient.AIPromptMetadata>.Empty;
         if (syncInfo.AgentId.HasValue)
@@ -175,8 +181,6 @@ pushCommand.SetAction(async parseResult =>
             (_, aiPromptMetadata) = await synchronizer.UpsertAIPromptsForAgentAsync(
                 workspaceFolder, dataverseClient, syncInfo.AgentId, CancellationToken.None);
         }
-
-        await ConnectionHelper.ProvisionConnectionsAsync(synchronizer, workspaceFolder, localDefinition, dataverseClient, CancellationToken.None);
 
         Console.WriteLine("Pushing changes...");
         // Use the multi-pass push path rather than the changeset returned by GetLocalChangesAsync.
