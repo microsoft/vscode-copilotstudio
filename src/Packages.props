@@ -23,13 +23,13 @@
     <PackageReference Update="Microsoft.Extensions.Logging" Version="$(AspNetCoreVersion)" />
     <PackageReference Update="Microsoft.Extensions.Logging.ApplicationInsights" Version="2.23.0" />
     <PackageReference Update="Azure.Identity" Version="1.21.0" />
-    <PackageReference Update="Microsoft.Identity.Client" Version="4.91.1" />
-    <PackageReference Update="Microsoft.Identity.Client.Extensions.Msal" Version="4.91.1" />
+    <PackageReference Update="Microsoft.Identity.Client" Version="4.92.0" />
+    <PackageReference Update="Microsoft.Identity.Client.Extensions.Msal" Version="4.92.0" />
     <PackageReference Update="Microsoft.Bot.Schema" Version="4.23.1" />
     <PackageReference Update="Microsoft.PowerFx.Interpreter" Version="$(PowerFxPackageVersion)" />
     <PackageReference Update="Microsoft.PowerFx.LanguageServerProtocol" Version="$(PowerFxPackageVersion)" />
     <PackageReference Update="Microsoft.VisualStudio.Threading" Version="17.14.15" />
-    <PackageReference Update="Nullable.Extended.Analyzer" Version="1.17.0" />
+    <PackageReference Update="Nullable.Extended.Analyzer" Version="1.19.0" />
     <PackageReference Update="System.Collections.Immutable" Version="$(AspNetCoreVersion)" />
     <PackageReference Update="System.CommandLine" Version="2.0.14" />
     <PackageReference Update="System.Text.Json" Version="$(AspNetCoreVersion)" />
@@ -41,7 +41,7 @@
   <ItemGroup>
     <PackageReference Update="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Update="Moq" Version="4.21.0" />
-    <PackageReference Update="xunit" Version="2.4.2" />
-    <PackageReference Update="xunit.runner.visualstudio" Version="2.4.3" />
+    <PackageReference Update="xunit" Version="2.9.3" />
+    <PackageReference Update="xunit.runner.visualstudio" Version="2.8.2" />
   </ItemGroup>
 </Project>
