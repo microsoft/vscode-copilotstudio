@@ -5,7 +5,7 @@ import { captureWorkspaceConnectionSnapshot, CopilotStudioWorkspace, getAccountR
 import { uploadKnowledgeFiles } from '../knowledgeFiles/uploadKnowledgeFiles';
 import { virtualKnowledgeFileSystemProvider } from '../knowledgeFiles/virtualKnowledgeFile';
 import { knowledgeTreeDataProvider } from '../knowledgeFiles/knowledgeFileTree';
-import { isConnectorOrPromptSchemaName, LspMethods, TelemetryEventsKeys } from '../constants';
+import { getConnectorOrPromptAssetSchemaName, isConnectorOrPromptSchemaName, LspMethods, TelemetryEventsKeys } from '../constants';
 import { lspClient, buildLspRequestPayload, LspRequestError, LSP_UNPUSHED_LOCAL_CHANGES } from '../services/lspClient';
 import { replaceLocalChanges } from './workspaceScm';
 import logger, { formatPii, PiiRedactionType, stripPiiTags } from '../services/logger';
@@ -425,8 +425,9 @@ async function askLocalChangeResolution(reason: string, offerRemoteOverwrite: bo
     [['Replace local changes', 'replaceLocalChanges'], ...(offerRemoteOverwrite ? [['Overwrite cloud changes', 'overwriteRemoteChanges'] as const] : [])]);
 }
 
-export async function askRemoteChangeResolution(workspace: CopilotStudioWorkspace, remoteChanges: readonly { schemaName: string }[]): Promise<ConflictResolution | undefined> {
-  const offerRemoteOverwrite = workspace.type === WorkspaceType.StandaloneWorkflow || remoteChanges.every(change => isConnectorOrPromptSchemaName(change.schemaName));
+export async function askRemoteChangeResolution(workspace: CopilotStudioWorkspace, remoteChanges: readonly { schemaName: string }[], localChanges: readonly { schemaName: string }[]): Promise<ConflictResolution | undefined> {
+  const locallyChangedAssets = new Set(localChanges.map(change => getConnectorOrPromptAssetSchemaName(change.schemaName)));
+  const offerRemoteOverwrite = workspace.type === WorkspaceType.StandaloneWorkflow || remoteChanges.every(change => isConnectorOrPromptSchemaName(change.schemaName) && locallyChangedAssets.has(getConnectorOrPromptAssetSchemaName(change.schemaName)));
   return await askConflictResolution(
     `The agent has ${remoteChanges.length} remote change${remoteChanges.length === 1 ? '' : 's'} that must be retrieved${offerRemoteOverwrite ? ' or overwritten' : ''} before your local changes can be applied.`,
     offerRemoteOverwrite ? { modal: true, detail: 'Get Remote Changes replaces your local copies with the cloud copies. Overwrite remote changes replaces the cloud copies with your local copies.' } : { modal: true },

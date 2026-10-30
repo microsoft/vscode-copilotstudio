@@ -19,8 +19,8 @@ public class SyncedAssetChangeDetectorTests
 
     private static readonly IReadOnlyDictionary<string, string> NoCloudCopy = new Dictionary<string, string>();
 
-    private static SyncedAssetSnapshot Snapshot(string contentHash = "hash", string? baselineHash = "hash", string? baseVersion = "5") =>
-        new(SyncedAssetKind.CustomConnector, AssetId, "Contoso", Folder, contentHash, baselineHash, baseVersion);
+    private static SyncedAssetSnapshot Snapshot(string contentHash = "hash", string? baselineHash = "hash", string? baseVersion = "5", string? baseVersionContentHash = "hash") =>
+        new(SyncedAssetKind.CustomConnector, AssetId, "Contoso", Folder, contentHash, baselineHash, baseVersion, baseVersionContentHash);
 
     private static Dictionary<string, string> CloudCopyWith(string fileName, string? content)
     {
@@ -37,9 +37,9 @@ public class SyncedAssetChangeDetectorTests
         return files;
     }
 
-    private static List<Change> DetectRemote(SyncedAssetSnapshot asset, string? remoteVersion, IReadOnlyDictionary<string, string>? remoteFiles, IReadOnlyDictionary<string, string>? cloudCopy = null)
+    private static List<Change> DetectRemote(SyncedAssetSnapshot asset, string? remoteVersion, IReadOnlyDictionary<string, string>? remoteFiles, IReadOnlyDictionary<string, string>? cloudCopy = null, string? remoteContentHash = null)
     {
-        var remoteStates = remoteVersion == null ? new Dictionary<Guid, RemoteAssetState>() : new Dictionary<Guid, RemoteAssetState> { [AssetId] = new RemoteAssetState(remoteVersion, remoteFiles) };
+        var remoteStates = remoteVersion == null ? new Dictionary<Guid, RemoteAssetState>() : new Dictionary<Guid, RemoteAssetState> { [AssetId] = new RemoteAssetState(remoteVersion, remoteFiles, remoteContentHash) };
         return SyncedAssetChangeDetector.DetectRemoteChanges(new[] { asset }, remoteStates, _ => cloudCopy ?? CloudCopy).ToList();
     }
 
@@ -72,6 +72,12 @@ public class SyncedAssetChangeDetectorTests
 
         Assert.Equal($"{Folder}/metadata.yml", change.Uri);
         Assert.Equal($"Mcs.Connector.{AssetId}", change.SchemaName);
+    }
+
+    [Fact]
+    public void DetectLocalChanges_EveryFileDiffersOnlyInLineEndings_ReturnsNothing()
+    {
+        Assert.Empty(SyncedAssetChangeDetector.DetectLocalChanges(Snapshot(contentHash: "edited"), CloudCopy, CloudCopy.ToDictionary(file => file.Key, file => file.Value.Replace("\n", "\r\n"))));
     }
 
     [Fact]
@@ -121,7 +127,19 @@ public class SyncedAssetChangeDetectorTests
     [Fact]
     public void DetectRemoteChanges_VersionMatchesBase_ReturnsNothingWithoutReadingTheCloudCopy()
     {
-        Assert.Empty(SyncedAssetChangeDetector.DetectRemoteChanges(new[] { Snapshot() }, new Dictionary<Guid, RemoteAssetState> { [AssetId] = new RemoteAssetState("5", CloudCopy) }, _ => throw new InvalidOperationException()));
+        Assert.Empty(SyncedAssetChangeDetector.DetectRemoteChanges(new[] { Snapshot() }, new Dictionary<Guid, RemoteAssetState> { [AssetId] = new RemoteAssetState("5", CloudCopy, null) }, _ => throw new InvalidOperationException()));
+    }
+
+    [Fact]
+    public void DetectRemoteChanges_OnlyTheVersionMoved_ReturnsNothing()
+    {
+        Assert.Empty(DetectRemote(Snapshot(), "6", CloudCopyWith(CustomConnectorLayout.MetadataFileName, "{\n  \"versionnumber\": 6\n}"), remoteContentHash: "hash"));
+    }
+
+    [Fact]
+    public void DetectRemoteChanges_VersionMovedAndTheBaselineDoesNotDescribeTheBaseVersion_ReturnsAnUpdate()
+    {
+        Assert.Equal(ChangeType.Update, Assert.Single(DetectRemote(Snapshot(baseVersionContentHash: null), "6", CloudCopy, remoteContentHash: "hash")).ChangeType);
     }
 
     [Fact]

@@ -845,7 +845,7 @@ describe('workspaceSynchronizer: remote change conflicts', () => {
 	test('remote changes to a workflow can be got or overwritten and the dialog explains both', async () => {
 		arrange('Overwrite remote changes');
 
-		const resolution = await askRemoteChangeResolution(workflowWorkspace, [workflowChange]);
+		const resolution = await askRemoteChangeResolution(workflowWorkspace, [workflowChange], []);
 
 		assert.strictEqual(resolution, 'overwriteRemoteChanges');
 		assert.deepStrictEqual(prompts, [{
@@ -855,10 +855,10 @@ describe('workspaceSynchronizer: remote change conflicts', () => {
 		}]);
 	});
 
-	test('remote changes to an agent that are all connectors or prompts can be got or overwritten and the dialog explains both', async () => {
+	test('remote changes to an agent that are all connectors or prompts the workspace also changed can be got or overwritten and the dialog explains both', async () => {
 		arrange('Overwrite remote changes');
 
-		const resolution = await askRemoteChangeResolution(agentWorkspace, [connectorChange, promptChange]);
+		const resolution = await askRemoteChangeResolution(agentWorkspace, [connectorChange, promptChange], [{ schemaName: `${connectorChange.schemaName}.openapidefinition` }, promptChange]);
 
 		assert.strictEqual(resolution, 'overwriteRemoteChanges');
 		assert.deepStrictEqual(prompts, [{
@@ -868,10 +868,23 @@ describe('workspaceSynchronizer: remote change conflicts', () => {
 		}]);
 	});
 
+	test('remote changes to an agent that include a connector the workspace did not change can only be got', async () => {
+		arrange('Get Remote Changes');
+
+		const resolution = await askRemoteChangeResolution(agentWorkspace, [connectorChange, promptChange], [promptChange]);
+
+		assert.strictEqual(resolution, 'getRemoteChanges');
+		assert.deepStrictEqual(prompts, [{
+			message: 'The agent has 2 remote changes that must be retrieved before your local changes can be applied.',
+			options: { modal: true },
+			items: ['Get Remote Changes'],
+		}]);
+	});
+
 	test('remote changes to an agent that include a component can only be got', async () => {
 		arrange('Get Remote Changes');
 
-		const resolution = await askRemoteChangeResolution(agentWorkspace, [topicChange, connectorChange]);
+		const resolution = await askRemoteChangeResolution(agentWorkspace, [topicChange, connectorChange], [topicChange, connectorChange]);
 
 		assert.strictEqual(resolution, 'getRemoteChanges');
 		assert.deepStrictEqual(prompts, [{
@@ -884,7 +897,7 @@ describe('workspaceSynchronizer: remote change conflicts', () => {
 	test('a dismissed remote change dialog resolves nothing', async () => {
 		arrange();
 
-		assert.strictEqual(await askRemoteChangeResolution(workflowWorkspace, [workflowChange]), undefined);
+		assert.strictEqual(await askRemoteChangeResolution(workflowWorkspace, [workflowChange], []), undefined);
 	});
 });
 

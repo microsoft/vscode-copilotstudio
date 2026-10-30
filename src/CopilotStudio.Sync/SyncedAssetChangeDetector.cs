@@ -4,7 +4,7 @@ using Microsoft.CopilotStudio.McsCore;
 
 namespace Microsoft.CopilotStudio.Sync;
 
-internal sealed record SyncedAssetSnapshot(SyncedAssetKind Kind, Guid Id, string Name, string Folder, string ContentHash, string? BaselineHash, string? BaseVersion)
+internal sealed record SyncedAssetSnapshot(SyncedAssetKind Kind, Guid Id, string Name, string Folder, string ContentHash, string? BaselineHash, string? BaseVersion, string? BaseVersionContentHash)
 {
     internal string SchemaName => $"{Kind.SchemaNamePrefix}{Id}";
 
@@ -13,7 +13,7 @@ internal sealed record SyncedAssetSnapshot(SyncedAssetKind Kind, Guid Id, string
     internal Change ToChange(ChangeType changeType, string? fileName = null, string? remoteContent = null) => new() { Name = Name, Uri = $"{Folder}/{fileName ?? Kind.PrimaryFileName}", ChangeType = changeType, ChangeKind = Kind.ChangeKind, SchemaName = Kind.GetFileSchemaName(Id, fileName ?? Kind.PrimaryFileName), RemoteContent = remoteContent };
 }
 
-internal sealed record RemoteAssetState(string? Version, IReadOnlyDictionary<string, string>? Files);
+internal sealed record RemoteAssetState(string? Version, IReadOnlyDictionary<string, string>? Files, string? ContentHash);
 
 internal static class SyncedAssetChangeDetector
 {
@@ -48,7 +48,7 @@ internal static class SyncedAssetChangeDetector
             return ChangeType.Create;
         }
 
-        return string.Equals(asset.BaseVersion, remoteState.Version, StringComparison.Ordinal) ? null : ChangeType.Update;
+        return string.Equals(asset.BaseVersion, remoteState.Version, StringComparison.Ordinal) || (asset.BaseVersionContentHash != null && string.Equals(asset.BaseVersionContentHash, remoteState.ContentHash, StringComparison.Ordinal)) ? null : ChangeType.Update;
     }
 
     private static List<Change> DetectFileChanges(SyncedAssetSnapshot asset, ChangeType changeType, IReadOnlyDictionary<string, string> cloudCopy, IReadOnlyDictionary<string, string>? currentFiles, bool includeContent)
@@ -56,7 +56,7 @@ internal static class SyncedAssetChangeDetector
         var originalFiles = changeType == ChangeType.Create ? NoFiles : cloudCopy;
         var changedFiles = changeType == ChangeType.Delete ? NoFiles : currentFiles;
         var fileChanges = changedFiles == null || (originalFiles.Count == 0 && changeType != ChangeType.Create) ? new List<Change>() : asset.Kind.FileNames.Select(fileName => GetFileChangeType(GetContent(originalFiles, fileName), GetContent(changedFiles, fileName)) is ChangeType fileChangeType ? asset.ToChange(fileChangeType, fileName, includeContent ? GetContent(changedFiles, fileName) : null) : null).OfType<Change>().ToList();
-        if (fileChanges.Count == 0)
+        if (fileChanges.Count == 0 && (includeContent || changedFiles == null || originalFiles.Count == 0))
         {
             fileChanges.Add(asset.ToChange(changeType, remoteContent: includeContent ? GetContent(changedFiles, asset.Kind.PrimaryFileName) : null));
         }

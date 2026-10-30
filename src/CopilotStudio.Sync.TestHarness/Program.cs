@@ -5,6 +5,7 @@ using Microsoft.CopilotStudio.Sync;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Microsoft.CopilotStudio.Sync.TestHarness;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.PowerPlatformLS.Impl.PullAgent;
 using System.Collections.Immutable;
 using System.CommandLine;
 using System.Diagnostics;
@@ -175,7 +176,7 @@ pushCommand.SetAction(async parseResult =>
                 workspaceFolder, dataverseClient, syncInfo.AgentId, CancellationToken.None);
         }
 
-        await synchronizer.ProvisionConnectionReferencesAsync(localDefinition, dataverseClient, CancellationToken.None);
+        await ConnectionHelper.ProvisionConnectionsAsync(synchronizer, workspaceFolder, localDefinition, dataverseClient, CancellationToken.None);
 
         Console.WriteLine("Pushing changes...");
         // Use the multi-pass push path rather than the changeset returned by GetLocalChangesAsync.

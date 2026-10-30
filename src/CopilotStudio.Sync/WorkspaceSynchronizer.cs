@@ -5875,11 +5875,13 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var changes = ImmutableArray.CreateBuilder<Change>();
         foreach (var asset in (await ReadLocalConnectorsAsync(fileAccessor, cancellationToken).ConfigureAwait(false)).Select(localConnector => localConnector.Snapshot).Concat((await ReadLocalPromptsAsync(fileAccessor, cancellationToken).ConfigureAwait(false)).Select(localPrompt => localPrompt.Snapshot)).Where(asset => asset.IsChangedLocally))
         {
-            changes.AddRange(SyncedAssetChangeDetector.DetectLocalChanges(asset, readCloudCopy(asset), await ReadLocalAssetFilesAsync(fileAccessor, asset, cancellationToken).ConfigureAwait(false)));
+            changes.AddRange(await DetectLocalAssetChangesAsync(fileAccessor, asset, readCloudCopy, cancellationToken).ConfigureAwait(false));
         }
 
         return changes.ToImmutable();
     }
+
+    private static async Task<IReadOnlyList<Change>> DetectLocalAssetChangesAsync(IFileAccessor fileAccessor, SyncedAssetSnapshot asset, Func<SyncedAssetSnapshot, IReadOnlyDictionary<string, string>> readCloudCopy, CancellationToken cancellationToken) => SyncedAssetChangeDetector.DetectLocalChanges(asset, readCloudCopy(asset), await ReadLocalAssetFilesAsync(fileAccessor, asset, cancellationToken).ConfigureAwait(false)).ToList();
 
     private static Func<SyncedAssetSnapshot, IReadOnlyDictionary<string, string>> CreateCloudCopyReader(IFileAccessor fileAccessor)
     {
@@ -7203,6 +7205,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             if (remotePrompts == null || remotePrompts.Length == 0)
             {
                 DeleteLocalComponentFolders(fileAccessor, existingFolders.Values);
+                RecordPromptBaselines(fileAccessor, Array.Empty<PromptFolderContent>(), replaceAll: true);
 
                 return ImmutableArray<AIPromptMetadata>.Empty;
             }
@@ -7246,10 +7249,16 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var localPrompts = await ReadLocalPromptsAsync(fileAccessor, cancellationToken).ConfigureAwait(false);
         var responses = ImmutableArray.CreateBuilder<AIPromptResponse>();
         var writtenPromptIds = new HashSet<Guid>();
+        var readCloudCopy = CreateCloudCopyReader(fileAccessor);
 
         foreach (var localPrompt in localPrompts.Where(localPrompt => localPrompt.Snapshot.IsChangedLocally))
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if ((await DetectLocalAssetChangesAsync(fileAccessor, localPrompt.Snapshot, readCloudCopy, cancellationToken).ConfigureAwait(false)).Count == 0)
+            {
+                continue;
+            }
+
             var response = await dataverseClient.UpsertAIPromptAsync(agentId, localPrompt.Prompt, cancellationToken).ConfigureAwait(false);
             responses.Add(response);
 
@@ -7300,6 +7309,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     {
         if (serverContents.Count == 0)
         {
+            if (replaceAll)
+            {
+                fileAccessor.Delete(AiPromptsSyncStatePath);
+                fileAccessor.Delete(SyncedAssetKind.AiPrompt.CloudCopyPath);
+            }
+
             return;
         }
 
@@ -7354,7 +7369,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }
 
             var baselineHash = baselines.TryGetValue(aiModelId.Value.ToString("N"), out var hash) ? hash : null;
-            localPrompts.Add(new LocalPrompt(prompt, new SyncedAssetSnapshot(SyncedAssetKind.AiPrompt, aiModelId.Value, FirstNonBlank(prompt.Name) ?? aiModelId.Value.ToString(), promptFolder, ComputeAiPromptHash(metadataYaml, promptJson), baselineHash, baselineHash)));
+            localPrompts.Add(new LocalPrompt(prompt, new SyncedAssetSnapshot(SyncedAssetKind.AiPrompt, aiModelId.Value, FirstNonBlank(prompt.Name) ?? aiModelId.Value.ToString(), promptFolder, ComputeAiPromptHash(metadataYaml, promptJson), baselineHash, baselineHash, baselineHash)));
         }
 
         return localPrompts;
@@ -7374,7 +7389,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             if (!serverPrompt.IsUnreadableReferencePlaceholder)
             {
                 var content = ProjectPromptFolder(serverPrompt);
-                remoteStates[serverPrompt.AIModelId] = new RemoteAssetState(content.ContentHash, content.Files);
+                remoteStates[serverPrompt.AIModelId] = new RemoteAssetState(content.ContentHash, content.Files, content.ContentHash);
             }
         }
 
@@ -9227,7 +9242,16 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }
         }
 
-        var contents = connectors.Where(connector => !cloudCopyOnlyConnectorIds.Contains(connector.ConnectorId)).Select(connector => ProjectConnectorFolder(connector, ResolveConnectorFolder(connector, existingFolders))).ToList();
+        var locallyChangedConnectors = new Dictionary<Guid, SyncedAssetSnapshot>();
+        foreach (var localConnector in connectors.Length == 0 ? Array.Empty<LocalConnector>() : await ReadLocalConnectorsAsync(fileAccessor, cancellationToken).ConfigureAwait(false))
+        {
+            if (localConnector.Snapshot.IsChangedLocally)
+            {
+                locallyChangedConnectors[localConnector.Snapshot.Id] = localConnector.Snapshot;
+            }
+        }
+
+        var contents = connectors.Where(connector => !cloudCopyOnlyConnectorIds.Contains(connector.ConnectorId)).Select(connector => ProjectConnectorFolder(connector, ResolveConnectorFolder(connector, existingFolders))).Where(content => !locallyChangedConnectors.TryGetValue(content.Connector.ConnectorId, out var snapshot) || SyncedAssetChangeDetector.GetRemoteChangeType(snapshot, new RemoteAssetState(FormatConnectorVersion(content.Connector.VersionNumber), content.Files, content.ContentHash)) != null).ToList();
 
 #if NETSTANDARD2_0
         foreach (var content in contents)
@@ -9422,8 +9446,15 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var localConnectors = await ReadLocalConnectorsAsync(fileAccessor, cancellationToken).ConfigureAwait(false);
         var changedConnectors = localConnectors.Where(localConnector => localConnector.Snapshot.IsChangedLocally).ToList();
-        var existingConnectorIds = changedConnectors.Count == 0 ? new HashSet<Guid>() : (await dataverseClient.GetConnectorVersionsByIdsAsync(changedConnectors.Select(localConnector => localConnector.Snapshot.Id).Distinct().ToList(), cancellationToken).ConfigureAwait(false)).Select(remoteConnector => remoteConnector.ConnectorId).ToHashSet();
-        var savedContents = new List<ConnectorFolderContent>();
+        var remoteConnectors = changedConnectors.Count == 0 ? Array.Empty<CustomConnectorMetadata>() : await dataverseClient.GetConnectorVersionsByIdsAsync(changedConnectors.Select(localConnector => localConnector.Snapshot.Id).Distinct().ToList(), cancellationToken).ConfigureAwait(false);
+        var existingConnectorIds = remoteConnectors.Select(remoteConnector => remoteConnector.ConnectorId).ToHashSet();
+        var serverConnectors = new Dictionary<Guid, CustomConnectorMetadata>();
+        foreach (var serverConnector in await DownloadConnectorsAsync(dataverseClient, remoteConnectors, cancellationToken).ConfigureAwait(false))
+        {
+            serverConnectors[serverConnector.ConnectorId] = serverConnector;
+        }
+
+        var serverContents = new List<ConnectorFolderContent>();
         var created = new List<Change>();
         var updated = new List<Change>();
         var failed = new List<Change>();
@@ -9433,6 +9464,14 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             foreach (var localConnector in changedConnectors)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                var serverContent = serverConnectors.TryGetValue(localConnector.Snapshot.Id, out var serverConnector) ? ProjectConnectorFolder(serverConnector, localConnector.Folder) : null;
+                if (serverContent != null && string.Equals(serverContent.ContentHash, localConnector.Snapshot.ContentHash, StringComparison.Ordinal))
+                {
+                    await WriteConnectorFolderAsync(fileAccessor, serverContent, cancellationToken).ConfigureAwait(false);
+                    serverContents.Add(serverContent);
+                    continue;
+                }
+
                 var exists = existingConnectorIds.Contains(localConnector.Snapshot.Id);
                 var change = localConnector.Snapshot.ToChange(exists ? ChangeType.Update : ChangeType.Create);
                 CustomConnectorMetadata storedConnector;
@@ -9449,13 +9488,13 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
                 var content = ProjectConnectorFolder(storedConnector, localConnector.Folder);
                 await WriteConnectorFolderAsync(fileAccessor, content, cancellationToken).ConfigureAwait(false);
-                savedContents.Add(content);
+                serverContents.Add(content);
                 (exists ? updated : created).Add(change);
             }
         }
         finally
         {
-            RecordConnectorBaselines(fileAccessor, savedContents);
+            RecordConnectorBaselines(fileAccessor, serverContents);
         }
 
         var failedSchemaNames = failed.Select(change => change.SchemaName).ToHashSet();
@@ -9494,7 +9533,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             var key = connector.ConnectorId.ToString("N");
             var baselineHash = contentHashes.TryGetValue(key, out var contentHash) ? contentHash : null;
             var baseVersion = baselineHash == null ? null : GetConnectorBaseVersion(connector, connector.ConnectorId, versions);
-            localConnectors.Add(new LocalConnector(connector, folder, new SyncedAssetSnapshot(SyncedAssetKind.CustomConnector, connector.ConnectorId, FirstNonBlank(connector.DisplayName, connector.Name) ?? key, folder, ComputeConnectorContentHash(connector), baselineHash, baseVersion)));
+            localConnectors.Add(new LocalConnector(connector, folder, new SyncedAssetSnapshot(SyncedAssetKind.CustomConnector, connector.ConnectorId, FirstNonBlank(connector.DisplayName, connector.Name) ?? key, folder, ComputeConnectorContentHash(connector), baselineHash, baseVersion, versions.TryGetValue(key, out var recordedVersion) && string.Equals(baseVersion, recordedVersion, StringComparison.Ordinal) ? baselineHash : null)));
         }
 
         return localConnectors;
@@ -9514,23 +9553,29 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             remoteConnectors[remoteConnector.ConnectorId] = remoteConnector;
         }
 
-        var remoteStates = remoteConnectors.ToDictionary(entry => entry.Key, entry => new RemoteAssetState(FormatConnectorVersion(entry.Value.VersionNumber), null));
+        var remoteStates = remoteConnectors.ToDictionary(entry => entry.Key, entry => new RemoteAssetState(FormatConnectorVersion(entry.Value.VersionNumber), null, null));
         var changedFolders = new Dictionary<Guid, string>();
         foreach (var localConnector in localConnectors.Where(localConnector => SyncedAssetChangeDetector.GetRemoteChangeType(localConnector.Snapshot, remoteStates.TryGetValue(localConnector.Snapshot.Id, out var remoteState) ? remoteState : null) is ChangeType.Create or ChangeType.Update))
         {
             changedFolders[localConnector.Snapshot.Id] = localConnector.Folder;
         }
 
-        var internalIdsToDownload = changedFolders.Keys.Select(connectorId => remoteConnectors[connectorId].ConnectorInternalId).OfType<string>().Where(internalId => !string.IsNullOrWhiteSpace(internalId)).ToList();
-        foreach (var downloadedConnector in internalIdsToDownload.Count == 0 ? Array.Empty<CustomConnectorMetadata>() : await dataverseClient.DownloadConnectorsByInternalIdsAsync(internalIdsToDownload, isManaged: true, cancellationToken).ConfigureAwait(false))
+        foreach (var downloadedConnector in await DownloadConnectorsAsync(dataverseClient, changedFolders.Keys.Select(connectorId => remoteConnectors[connectorId]), cancellationToken).ConfigureAwait(false))
         {
             if (changedFolders.TryGetValue(downloadedConnector.ConnectorId, out var folder))
             {
-                remoteStates[downloadedConnector.ConnectorId] = remoteStates[downloadedConnector.ConnectorId] with { Files = ProjectConnectorFolder(downloadedConnector, folder).Files };
+                var content = ProjectConnectorFolder(downloadedConnector, folder);
+                remoteStates[downloadedConnector.ConnectorId] = remoteStates[downloadedConnector.ConnectorId] with { Files = content.Files, ContentHash = content.ContentHash };
             }
         }
 
         return SyncedAssetChangeDetector.DetectRemoteChanges(localConnectors.Select(localConnector => localConnector.Snapshot), remoteStates, CreateCloudCopyReader(fileAccessor)).ToImmutableArray();
+    }
+
+    private static async Task<CustomConnectorMetadata[]> DownloadConnectorsAsync(ISyncDataverseClient dataverseClient, IEnumerable<CustomConnectorMetadata> connectorVersions, CancellationToken cancellationToken)
+    {
+        var internalIds = connectorVersions.Select(connectorVersion => connectorVersion.ConnectorInternalId).OfType<string>().Where(internalId => !string.IsNullOrWhiteSpace(internalId)).ToList();
+        return internalIds.Count == 0 ? Array.Empty<CustomConnectorMetadata>() : await dataverseClient.DownloadConnectorsByInternalIdsAsync(internalIds, isManaged: true, cancellationToken).ConfigureAwait(false);
     }
 
     private static ConnectorFolderContent ProjectConnectorFolder(CustomConnectorMetadata connector, string folder)

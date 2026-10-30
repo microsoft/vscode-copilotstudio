@@ -57,6 +57,26 @@ public class CustomConnectorPushTests : IDisposable
         return dataverse;
     }
 
+    private static Mock<ISyncDataverseClient> CreateCloudDataverse()
+    {
+        var cloudConnectors = new List<CustomConnectorMetadata>();
+        var dataverse = CreateDataverse(sent =>
+        {
+            var stored = Clone(sent);
+            stored.VersionNumber = 7;
+            cloudConnectors.Clear();
+            cloudConnectors.Add(stored);
+            return stored;
+        });
+        dataverse
+            .Setup(c => c.GetConnectorVersionsByIdsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => cloudConnectors.ToArray());
+        dataverse
+            .Setup(c => c.DownloadConnectorsByInternalIdsAsync(It.IsAny<IEnumerable<string>>(), true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => cloudConnectors.Select(Clone).ToArray());
+        return dataverse;
+    }
+
     private static CustomConnectorMetadata Clone(CustomConnectorMetadata connector) =>
         (JsonSerializer.Deserialize<CustomConnectorMetadata>(JsonSerializer.Serialize(connector)) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
@@ -217,6 +237,42 @@ public class CustomConnectorPushTests : IDisposable
         dataverse.Verify(
             c => c.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    [Fact]
+    public async Task PushCustomConnectorsAsync_WorkspaceWithoutBaselinesHoldsTheCloudContent_SkipsTheSaveAndRecordsTheCloudCopy()
+    {
+        var synchronizer = CreateSynchronizer();
+        WriteConnectorFiles("{\"swagger\":\"2.0\"}");
+        var dataverse = CreateCloudDataverse();
+        await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
+        Directory.Delete(Path.Combine(_root, ".mcs"), recursive: true);
+
+        var result = await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
+
+        dataverse.Verify(c => c.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Empty(result.Created);
+        Assert.Empty(result.Updated);
+        Assert.Empty(result.Failed);
+        Assert.Equal(_connectorId, result.PushedRowIds["shared_myconnector-5f1234567890abcdef"]);
+        Assert.Equal("7", ReadBaseline(".connectors-download.json")[_connectorId.ToString("N")]);
+        Assert.Equal(File.ReadAllText(Path.Combine(_connectorFolder, "metadata.yml")), ReadCloudCopy());
+        Assert.Empty(await LocalConnectorChangesAsync(synchronizer));
+    }
+
+    [Fact]
+    public async Task PushCustomConnectorsAsync_LocalEditOfAConnectorTheCloudHas_UpdatesIt()
+    {
+        var synchronizer = CreateSynchronizer();
+        WriteConnectorFiles("{\"swagger\":\"2.0\"}");
+        var dataverse = CreateCloudDataverse();
+        await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
+        WriteOpenApiDefinition("{\"swagger\":\"2.0\",\"host\":\"local.example.com\"}");
+
+        var result = await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
+
+        Assert.Equal($"Mcs.Connector.{_connectorId}", Assert.Single(result.Updated).SchemaName);
+        dataverse.Verify(c => c.SaveConnectorAsync(It.Is<CustomConnectorMetadata>(connector => connector.OpenApiDefinition != null && connector.OpenApiDefinition.Contains("local.example.com")), true, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

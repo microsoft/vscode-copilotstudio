@@ -270,6 +270,21 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
         }
 
         [Fact]
+        public async Task ChangeDetection_LocalEditAndACloudSaveThatMovedOnlyTheVersion_ReportsOnlyTheLocalChange()
+        {
+            var (synchronizer, files, workspace) = CreateAgentWorkspace();
+            var connectorId = Guid.NewGuid();
+            await SyncConnectorAsync(synchronizer, files, workspace, "Contoso", connectorId, version: 5);
+            await EditMetadataAsync(files, "Contoso", connectorId, metadata => metadata["iconbrandcolor"] = "#ff0000");
+
+            var local = Assert.Single(await LocalConnectorChangesAsync(synchronizer, workspace));
+            var remote = await RemoteConnectorChangesAsync(synchronizer, workspace, CreateRemoteDataverse(RemoteConnector("Contoso", connectorId, version: 6)).Object);
+
+            Assert.Equal(ChangeType.Update, local.ChangeType);
+            Assert.Empty(remote);
+        }
+
+        [Fact]
         public async Task ChangeDetection_RestoredOlderFolder_ReportsBothALocalAndARemoteUpdate()
         {
             var (synchronizer, files, workspace) = CreateAgentWorkspace();
@@ -335,7 +350,9 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
             var unchangedId = Guid.NewGuid();
             await SyncConnectorAsync(synchronizer, files, workspace, "Changed", changedId, version: 5);
             await SyncConnectorAsync(synchronizer, files, workspace, "Unchanged", unchangedId, version: 5);
-            var dataverse = CreateRemoteDataverse(RemoteConnector("Changed", changedId, version: 6), RemoteConnector("Unchanged", unchangedId, version: 5));
+            var changed = RemoteConnector("Changed", changedId, version: 6);
+            changed.Description = "Edited in the portal";
+            var dataverse = CreateRemoteDataverse(changed, RemoteConnector("Unchanged", unchangedId, version: 5));
 
             var remote = Assert.Single(await RemoteConnectorChangesAsync(synchronizer, workspace, dataverse.Object));
 

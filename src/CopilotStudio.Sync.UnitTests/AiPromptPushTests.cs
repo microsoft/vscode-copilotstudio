@@ -158,6 +158,40 @@ public class AiPromptPushTests : IDisposable
     }
 
     [Fact]
+    public async Task UpsertAIPromptsForAgentAsync_PromptFilesDifferFromTheCloudCopyOnlyInLineEndings_SendsAndReportsNothing()
+    {
+        var dataverse = CreateDataverse();
+        var synchronizer = await SyncPromptAsync(dataverse);
+        foreach (var path in Directory.GetFiles(_promptFolder))
+        {
+            var content = File.ReadAllText(path);
+            File.WriteAllText(path, content.Contains("\r\n", StringComparison.Ordinal) ? content.Replace("\r\n", "\n", StringComparison.Ordinal) : content.Replace("\n", "\r\n", StringComparison.Ordinal));
+        }
+
+        await synchronizer.UpsertAIPromptsForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None);
+
+        Assert.Empty(await LocalPromptChangesAsync(synchronizer));
+        dataverse.Verify(
+            c => c.UpsertAIPromptAsync(It.IsAny<Guid?>(), It.IsAny<AIPromptMetadata>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task GetAIPromptsAsync_TheCloudHasNoPromptsLeft_ClearsThePromptBaselinesAndCloudCopies()
+    {
+        var dataverse = CreateDataverse();
+        var synchronizer = await SyncPromptAsync(dataverse);
+        dataverse
+            .Setup(c => c.DownloadAllAIPromptsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<AIPromptMetadata>());
+
+        await synchronizer.GetAIPromptsAsync(_workspace, dataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, new FileAccessorFactory().Create(_workspace), CancellationToken.None);
+
+        Assert.Null(ReadCloudCopy());
+        Assert.False(File.Exists(Path.Combine(_root, ".mcs", ".aiprompts-sync.json")));
+    }
+
+    [Fact]
     public async Task UpsertAIPromptsForAgentAsync_PublishFails_DoesNotRecordBaselineOrReturnThePrompt()
     {
         var synchronizer = CreateSynchronizer();
