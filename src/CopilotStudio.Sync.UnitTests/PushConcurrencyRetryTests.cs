@@ -8,6 +8,8 @@ using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Moq;
 using System.Collections.Immutable;
+using System.Security.Cryptography;
+using System.Text.Json;
 using Xunit;
 using static Microsoft.CopilotStudio.Sync.Dataverse.SyncDataverseClient;
 
@@ -16,6 +18,8 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests;
 public class PushConcurrencyRetryTests
 {
     private const string AgentSchema = "cre98_AgentC1";
+
+    private const string NotesPath = "knowledge/files/Notes.txt";
 
     // ! The concurrency fixture does not need an inner exception.
     private static DataversePreconditionFailedException MakeConcurrencyException() =>
@@ -565,6 +569,59 @@ public class PushConcurrencyRetryTests
     }
 
     [Fact]
+    public async Task PushLocalChanges_WhenTheCloudUpdatedAKnowledgeFileEditedOnDisk_AbortsWithoutReplacingTheEdit()
+    {
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => PushAfterTheCloudUpdatedNotesAsync(localEdit: "local notes"));
+
+        Assert.Contains("Get the latest changes", exception.Message);
+    }
+
+    [Fact]
+    public async Task PushLocalChanges_WithOverwrite_KeepsAKnowledgeFileEditedOnDiskThatTheCloudUpdated()
+    {
+        var (fileAccessor, sentChangesets) = await PushAfterTheCloudUpdatedNotesAsync(localEdit: "local notes", overwriteRemoteChanges: true);
+
+        Assert.Equal(2, sentChangesets.Count);
+        Assert.Equal("local notes", await ReadAsync(fileAccessor, NotesPath));
+    }
+
+    [Fact]
+    public async Task PushLocalChanges_WhenTheCloudUpdatedAKnowledgeFileUnchangedOnDisk_DownloadsIt()
+    {
+        var (fileAccessor, sentChangesets) = await PushAfterTheCloudUpdatedNotesAsync(localEdit: null);
+
+        Assert.Equal(2, sentChangesets.Count);
+        Assert.Equal("cloud notes", await ReadAsync(fileAccessor, NotesPath));
+    }
+
+    private static Task<(IFileAccessor FileAccessor, List<PvaComponentChangeSet> SentChangesets)> PushAfterTheCloudUpdatedNotesAsync(string? localEdit, bool overwriteRemoteChanges = false)
+    {
+        var bot = BuildBot(Guid.NewGuid(), "Agent", version: 1);
+        var notesId = Guid.NewGuid();
+        var notes = KnowledgeFileTestFixtures.CreateFileComponent($"{AgentSchema}.file.Notes", "Notes.txt", notesId);
+
+        return PushAfterRemoteRefreshAsync(
+            new BotDefinition().WithEntity(bot).WithComponents(new[] { notes }),
+            new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentUpdate(notes) }, null, "token-2"),
+            new BotDefinition().WithEntity(bot).WithComponents(new BotComponentBase[] { notes, CreateTopic("Greeting", "greetingLocal", Guid.NewGuid()) }),
+            overwriteRemoteChanges,
+            KnowledgeFileTestFixtures.CreateStreamingMock(destination => KnowledgeFileTestFixtures.SeedContent(destination, "cloud notes")).Object,
+            new Dictionary<string, string> { [NotesPath] = "synced notes" },
+            async fileAccessor =>
+            {
+                using (var baseline = fileAccessor.OpenWrite(new AgentFilePath(".mcs/.knowledge-sync.json")))
+                {
+                    JsonSerializer.Serialize(baseline, new Dictionary<string, string> { [notesId.ToString("N")] = Convert.ToBase64String(SHA256.HashData(WorkspaceBytes.Read(fileAccessor, NotesPath))) });
+                }
+
+                if (localEdit != null)
+                {
+                    await fileAccessor.WriteAsync(new AgentFilePath(NotesPath), localEdit, CancellationToken.None);
+                }
+            });
+    }
+
+    [Fact]
     public async Task PushLocalChanges_WhenRetryingAfterARefresh_KeepsEnvironmentVariablesChangedOnlyInTheCloud()
     {
         var bot = BuildBot(Guid.NewGuid(), "Agent", version: 1);
@@ -660,7 +717,7 @@ public class PushConcurrencyRetryTests
         Assert.Contains("cre98_shared", await ReadAsync(fileAccessor, "references.mcs.yml"), StringComparison.Ordinal);
     }
 
-    private static async Task<(IFileAccessor FileAccessor, List<PvaComponentChangeSet> SentChangesets)> PushAfterRemoteRefreshAsync(BotDefinition cloudCache, PvaComponentChangeSet remoteChangeset, BotDefinition localDefinition, bool overwriteRemoteChanges = false, ISyncDataverseClient? dataverseClient = null, IReadOnlyDictionary<string, string>? workspaceFiles = null)
+    private static async Task<(IFileAccessor FileAccessor, List<PvaComponentChangeSet> SentChangesets)> PushAfterRemoteRefreshAsync(BotDefinition cloudCache, PvaComponentChangeSet remoteChangeset, BotDefinition localDefinition, bool overwriteRemoteChanges = false, ISyncDataverseClient? dataverseClient = null, IReadOnlyDictionary<string, string>? workspaceFiles = null, Func<IFileAccessor, Task>? arrange = null)
     {
         var (synchronizer, fileAccessorFactory, island) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/push-refresh-{Guid.NewGuid():N}/");
@@ -675,6 +732,11 @@ public class PushConcurrencyRetryTests
         foreach (var file in workspaceFiles ?? new Dictionary<string, string>())
         {
             await fileAccessor.WriteAsync(new AgentFilePath(file.Key), file.Value, CancellationToken.None);
+        }
+
+        if (arrange != null)
+        {
+            await arrange(fileAccessor);
         }
 
         var sentChangesets = new List<PvaComponentChangeSet>();

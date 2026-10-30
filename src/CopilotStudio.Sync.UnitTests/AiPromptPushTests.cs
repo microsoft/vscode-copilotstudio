@@ -225,6 +225,26 @@ public class AiPromptPushTests : IDisposable
     }
 
     [Fact]
+    public async Task UpsertAIPromptsForAgentAsync_PromptEditedWhilePublishing_KeepsTheNewerEditAsALocalChange()
+    {
+        var synchronizer = CreateSynchronizer();
+        WritePromptFiles("Summarize the input.");
+        var dataverse = CreateDataverse(storePrompt: _ =>
+        {
+            WritePromptJson("Translate the input to French.");
+            return ServerPrompt("Normalized by the server.");
+        });
+
+        var (_, prompts) = await synchronizer.UpsertAIPromptsForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None);
+        WriteCloudCache();
+
+        Assert.Contains("Translate the input to French.", File.ReadAllText(Path.Combine(_promptFolder, "prompt.json")), StringComparison.Ordinal);
+        Assert.Contains("Normalized by the server.", ReadCloudCopy() ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."), StringComparison.Ordinal);
+        Assert.Equal(_serverPrompts[_modelId].CustomConfiguration, Assert.Single(prompts).CustomConfiguration);
+        Assert.Contains(await LocalPromptChangesAsync(synchronizer), change => change.Uri.EndsWith("/prompt.json", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task UpsertAIPromptsForAgentAsync_ReadBackFails_ReturnsNoPromptsAndRecordsNoBaseline()
     {
         var synchronizer = CreateSynchronizer();

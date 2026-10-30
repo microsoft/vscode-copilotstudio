@@ -52,8 +52,8 @@ public class CustomConnectorPushTests : IDisposable
     {
         var dataverse = new Mock<ISyncDataverseClient>();
         dataverse.As<ICustomConnectorOperations>()
-            .Setup(c => c.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((CustomConnectorMetadata connector, bool _, CancellationToken _) => storeConnector?.Invoke(connector) ?? connector);
+            .Setup(c => c.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((CustomConnectorMetadata connector, bool _, long? _, CancellationToken _) => storeConnector?.Invoke(connector) ?? connector);
         return dataverse;
     }
 
@@ -154,7 +154,7 @@ public class CustomConnectorPushTests : IDisposable
         await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
 
         dataverse.As<ICustomConnectorOperations>().Verify(
-            c => c.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
+            c => c.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()),
             Times.Once);
         dataverse.As<ICustomConnectorOperations>().Verify(
             c => c.GetConnectorVersionsByIdsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()),
@@ -166,7 +166,7 @@ public class CustomConnectorPushTests : IDisposable
     {
         var synchronizer = CreateSynchronizer();
         WriteConnectorFiles("{\n  \"swagger\": \"2.0\"\n}");
-        var dataverse = CreateDataverse();
+        var dataverse = CreateCloudDataverse();
 
         await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
 
@@ -174,7 +174,7 @@ public class CustomConnectorPushTests : IDisposable
         await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
 
         dataverse.As<ICustomConnectorOperations>().Verify(
-            c => c.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
+            c => c.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()),
             Times.Exactly(2));
     }
 
@@ -191,7 +191,7 @@ public class CustomConnectorPushTests : IDisposable
         await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
 
         dataverse.As<ICustomConnectorOperations>().Verify(
-            c => c.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
+            c => c.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
@@ -235,7 +235,7 @@ public class CustomConnectorPushTests : IDisposable
 
         Assert.Empty(changes);
         dataverse.As<ICustomConnectorOperations>().Verify(
-            c => c.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
+            c => c.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
@@ -250,7 +250,7 @@ public class CustomConnectorPushTests : IDisposable
 
         var result = await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
 
-        dataverse.As<ICustomConnectorOperations>().Verify(c => c.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
+        dataverse.As<ICustomConnectorOperations>().Verify(c => c.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()), Times.Once);
         Assert.Empty(result.Created);
         Assert.Empty(result.Updated);
         Assert.Empty(result.Failed);
@@ -272,7 +272,7 @@ public class CustomConnectorPushTests : IDisposable
         var result = await synchronizer.PushCustomConnectorsAsync(_workspace, dataverse.Object, CancellationToken.None);
 
         Assert.Equal($"Mcs.Connector.{_connectorId}", Assert.Single(result.Updated).SchemaName);
-        dataverse.As<ICustomConnectorOperations>().Verify(c => c.SaveConnectorAsync(It.Is<CustomConnectorMetadata>(connector => connector.OpenApiDefinition != null && connector.OpenApiDefinition.Contains("local.example.com")), true, It.IsAny<CancellationToken>()), Times.Once);
+        dataverse.As<ICustomConnectorOperations>().Verify(c => c.SaveConnectorAsync(It.Is<CustomConnectorMetadata>(connector => connector.OpenApiDefinition != null && connector.OpenApiDefinition.Contains("local.example.com")), true, 7, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

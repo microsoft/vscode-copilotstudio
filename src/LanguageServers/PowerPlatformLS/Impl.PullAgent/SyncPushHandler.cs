@@ -47,7 +47,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
             await _synchronizer.ThrowIfWorkspaceInvalidAsync(workspace.FolderPath, workspace.Definition, cancellationToken);
 
-            await ConnectionHelper.ProvisionConnectionsAsync(_synchronizer, workspace.FolderPath, workspace.Definition, dataverseClient, cancellationToken);
+            var connectorPushResult = await ConnectionHelper.ProvisionConnectionsAsync(_synchronizer, workspace.FolderPath, workspace.Definition, dataverseClient, cancellationToken, overwriteRemoteChanges: !request.RequireNoUnpulledChanges);
 
             var activationMode = ActivationModeFor(request);
             var (workflowResponse, cloudFlowMetadata, aiPromptResponse, aiPromptMetadata) = operationContext is BotComponentCollectionAuthoringOperationContext
@@ -57,7 +57,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             var contentSaveContextOverride = await TryBuildComponentCollectionHostContextAsync(workspace, operationContext, dataverseClient, syncInfo, cancellationToken);
 
             await _synchronizer.PushLocalChangesAsync(workspace.FolderPath, operationContext, workspace.Definition, dataverseClient, syncInfo, cloudFlowMetadata, aiPromptMetadata, cancellationToken, contentSaveContextOverride);
-            return (workspace.Definition, workflowResponse, aiPromptResponse, string.Empty);
+            return (workspace.Definition, workflowResponse, aiPromptResponse, LspExceptionHandler.DescribeConnectorFailures(connectorPushResult));
         }
 
         protected override bool BlocksOnUnreadableDocuments => true;

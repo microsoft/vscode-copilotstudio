@@ -64,7 +64,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             var pushResult = new CustomConnectorPushResult { PushedRowIds = pushedRowIds };
             var synchronizer = new Mock<IWorkspaceSynchronizer>();
             synchronizer
-                .Setup(service => service.PushCustomConnectorsAsync(It.IsAny<DirectoryPath>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<CancellationToken>()))
+                .Setup(service => service.PushCustomConnectorsAsync(It.IsAny<DirectoryPath>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<CancellationToken>(), It.IsAny<bool>()))
                 .ReturnsAsync(pushResult);
             var workspaceFolder = new DirectoryPath("c:/agent/");
             var definition = new BotDefinition();
@@ -73,7 +73,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             var result = await ConnectionHelper.ProvisionConnectionsAsync(synchronizer.Object, workspaceFolder, definition, dataverse, CancellationToken.None);
 
             Assert.Same(pushResult, result);
-            synchronizer.Verify(service => service.PushCustomConnectorsAsync(workspaceFolder, dataverse, It.IsAny<CancellationToken>()), Times.Once);
+            synchronizer.Verify(service => service.PushCustomConnectorsAsync(workspaceFolder, dataverse, It.IsAny<CancellationToken>(), false), Times.Once);
             synchronizer.Verify(service => service.ProvisionConnectionReferencesAsync(workspaceFolder, definition, dataverse, It.IsAny<CancellationToken>(), pushedRowIds), Times.Once);
         }
     }

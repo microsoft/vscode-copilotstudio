@@ -24,6 +24,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
         private const string EnvironmentIdPiiType = "ENVIRONMENT ID";
 
+        private const string ConnectorNamePiiType = "CONNECTOR NAMES";
+
         /// <summary>
         /// Classifies the exception, logs it at the appropriate severity, and returns
         /// a status code and user-facing message suitable for the LSP response.
@@ -108,6 +110,13 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     count => $"{count} workspace {(count == 1 ? "file has" : "files have")} unresolved merge conflicts. Resolve them before pushing:",
                     conflicts,
                     static diagnostic => diagnostic.ToString(ProtectUserContent));
+
+        /// <summary>
+        /// Formats why a push did not save some custom connectors as a non-fatal warning, tagging each
+        /// connector name so the detail stays visible in the client UI while telemetry scrubbers redact it.
+        /// </summary>
+        internal static string DescribeConnectorFailures(CustomConnectorPushResult result)
+            => string.Join(" ", result.Failed.Zip(result.FailureReasons, static (connector, reason) => ProtectValue(reason, connector.Name, ConnectorNamePiiType)));
 
         /// <summary>
         /// Standalone workflow failures name folders the service derived from a workflow's display

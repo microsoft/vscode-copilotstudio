@@ -83,9 +83,9 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             ClusterCategory = request.AccountInfo.ClusterCategory,
         };
 
-        public static async Task<CustomConnectorPushResult> ProvisionConnectionsAsync(IWorkspaceSynchronizer synchronizer, DirectoryPath workspaceFolder, DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+        public static async Task<CustomConnectorPushResult> ProvisionConnectionsAsync(IWorkspaceSynchronizer synchronizer, DirectoryPath workspaceFolder, DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken, bool overwriteRemoteChanges = false)
         {
-            var connectorPushResult = await synchronizer.PushCustomConnectorsAsync(workspaceFolder, dataverseClient, cancellationToken);
+            var connectorPushResult = await synchronizer.PushCustomConnectorsAsync(workspaceFolder, dataverseClient, cancellationToken, overwriteRemoteChanges);
             await synchronizer.ProvisionConnectionReferencesAsync(workspaceFolder, definition, dataverseClient, cancellationToken, connectorPushResult.PushedRowIds);
             return connectorPushResult;
         }

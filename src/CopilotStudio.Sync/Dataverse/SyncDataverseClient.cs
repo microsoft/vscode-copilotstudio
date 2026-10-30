@@ -18,6 +18,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
 {
     private readonly IDataverseHttpClientAccessor _httpClientAccessor;
     private readonly AsyncLocal<string> _dataverseUrl = new();
+    private readonly ConcurrentDictionary<string, bool> _connectorVersionChecks = new(StringComparer.OrdinalIgnoreCase);
     private string DataverseUrl => _dataverseUrl.Value
         ?? throw new InvalidOperationException("Dataverse URL is not set. Call SetDataverseUrl before making API calls.");
 
@@ -384,11 +385,11 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
     public virtual async Task<bool> UpsertConnectorAsync(CustomConnectorMetadata connector, CancellationToken cancellationToken)
     {
         var exists = (await GetConnectorVersionsByIdsAsync(new[] { (connector ?? throw new ArgumentNullException(nameof(connector))).ConnectorId }, cancellationToken).ConfigureAwait(false)).Length > 0;
-        await SaveConnectorAsync(connector, exists, cancellationToken).ConfigureAwait(false);
+        await SaveConnectorAsync(connector, exists, expectedVersion: null, cancellationToken).ConfigureAwait(false);
         return !exists;
     }
 
-    public virtual async Task<CustomConnectorMetadata> SaveConnectorAsync(CustomConnectorMetadata connector, bool exists, CancellationToken cancellationToken)
+    public virtual async Task<CustomConnectorMetadata> SaveConnectorAsync(CustomConnectorMetadata connector, bool exists, long? expectedVersion, CancellationToken cancellationToken)
     {
         if (connector == null)
         {
@@ -401,9 +402,29 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         }
 
         var connectorUrl = $"{ConnectorsUrl}({connector.ConnectorId})";
-        return await SendAsync<CustomConnectorMetadata>(exists ? HttpMethodHelper.Patch : HttpMethod.Post, $"{(exists ? connectorUrl : ConnectorsUrl)}?$select={ConnectorColumns}", CreateConnectorRequestBody(connector, exists), expectReturn: true, cancellationToken).ConfigureAwait(false)
+        var ifMatchVersion = exists && expectedVersion is { } version && await ChecksConnectorVersionsAsync(cancellationToken).ConfigureAwait(false) ? version : (long?)null;
+        return await SendAsync<CustomConnectorMetadata>(exists ? HttpMethodHelper.Patch : HttpMethod.Post, $"{(exists ? connectorUrl : ConnectorsUrl)}?$select={ConnectorColumns}", CreateConnectorRequestBody(connector, exists), expectReturn: true, cancellationToken, ifMatchVersion: ifMatchVersion).ConfigureAwait(false)
             ?? await SendAsync<CustomConnectorMetadata>(HttpMethod.Get, $"{connectorUrl}?$select={ConnectorColumns}", null, false, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Connector '{connector.ConnectorId}' was not returned after it was saved.");
+    }
+
+    private async Task<bool> ChecksConnectorVersionsAsync(CancellationToken cancellationToken)
+    {
+        var dataverseUrl = DataverseUrl;
+        if (_connectorVersionChecks.TryGetValue(dataverseUrl, out var checksVersions))
+        {
+            return checksVersions;
+        }
+
+        try
+        {
+            var metadata = await SendAsync<JsonElement>(HttpMethod.Get, $"{dataverseUrl}/api/data/v9.2/EntityDefinitions(LogicalName='connector')?$select=IsOptimisticConcurrencyEnabled", null, false, cancellationToken).ConfigureAwait(false);
+            return _connectorVersionChecks.GetOrAdd(dataverseUrl, metadata.ValueKind == JsonValueKind.Object && metadata.TryGetProperty("IsOptimisticConcurrencyEnabled", out var enabled) && enabled.ValueKind == JsonValueKind.True);
+        }
+        catch (DataverseRequestException)
+        {
+            return false;
+        }
     }
 
     private static Dictionary<string, object?> CreateConnectorRequestBody(CustomConnectorMetadata connector, bool exists)
@@ -830,12 +851,12 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         return requested;
     }
 
-    private async Task<T?> SendAsync<T>(HttpMethod httpMethod, string requestUrl, object? requestBody, bool expectReturn, CancellationToken cancellationToken, string? preference = null)
+    private async Task<T?> SendAsync<T>(HttpMethod httpMethod, string requestUrl, object? requestBody, bool expectReturn, CancellationToken cancellationToken, string? preference = null, long? ifMatchVersion = null)
     {
         var requestUri = RequireDataverseOrigin(requestUrl);
         var body = requestBody is null ? null : JsonSerializer.SerializeToUtf8Bytes(requestBody, JsonSerializerOptions);
 
-        using var responseMessage = await _retryPolicy.SendAsync(_httpClientAccessor.CreateClient(), () => CreateRequest(httpMethod, requestUri, body, expectReturn ? "return=representation" : preference), HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        using var responseMessage = await _retryPolicy.SendAsync(_httpClientAccessor.CreateClient(), () => CreateRequest(httpMethod, requestUri, body, expectReturn ? "return=representation" : preference, ifMatchVersion), HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
 
         if (!responseMessage.IsSuccessStatusCode)
         {
@@ -872,7 +893,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         return await JsonSerializer.DeserializeAsync<T>(bufferStream, JsonSerializerOptions, cancellationToken).ConfigureAwait(false);
     }
 
-    private HttpRequestMessage CreateRequest(HttpMethod httpMethod, Uri requestUri, byte[]? body, string? preference)
+    private HttpRequestMessage CreateRequest(HttpMethod httpMethod, Uri requestUri, byte[]? body, string? preference, long? ifMatchVersion = null)
     {
         var requestMessage = new HttpRequestMessage(httpMethod, requestUri);
         requestMessage.Headers.Add("OData-MaxVersion", "4.0");
@@ -882,6 +903,11 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         if (preference is not null)
         {
             requestMessage.Headers.Add("Prefer", preference);
+        }
+
+        if (ifMatchVersion is { } version)
+        {
+            requestMessage.Headers.IfMatch.Add(new System.Net.Http.Headers.EntityTagHeaderValue($"\"{version.ToString(System.Globalization.CultureInfo.InvariantCulture)}\"", isWeak: true));
         }
 
         if (body is not null)

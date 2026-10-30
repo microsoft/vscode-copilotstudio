@@ -177,7 +177,7 @@ public interface IWorkspaceSynchronizer
     /// <param name="aiPrompts">AI Builder prompt metadata to project into the cloud cache.</param>
     /// <param name="cancellationToken">Used to cancel the request</param>
     /// <param name="uploadAllKnowledgeFiles">True/False to upload or not all knowledge files.</param>
-    /// <returns>Result describing knowledge file upload count and any newly created custom connectors.</returns>
+    /// <returns>Result describing the knowledge file upload count.</returns>
     Task<PushChangesetResult> PushChangesetAsync(
         DirectoryPath workspaceFolder,
         AuthoringOperationContextBase operationContext,
@@ -415,11 +415,13 @@ public interface IWorkspaceSynchronizer
     /// <param name="workspaceFolder">The location of the root of the workspace.</param>
     /// <param name="dataverseClient">The dataverse client to use for communication with the dataverse service.</param>
     /// <param name="cancellationToken">Cancellation token to cancel the operation.</param>
+    /// <param name="overwriteRemoteChanges">When true, local connectors replace connectors that also changed in the cloud since the last sync instead of being reported as failed.</param>
     /// <returns>Result with the pushed connector row IDs and the connectors created, updated, or failed.</returns>
     Task<CustomConnectorPushResult> PushCustomConnectorsAsync(
         DirectoryPath workspaceFolder,
         ISyncDataverseClient dataverseClient,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        bool overwriteRemoteChanges = false);
 
     /// <summary>
     /// Reads the workspace definition from the specified folder.

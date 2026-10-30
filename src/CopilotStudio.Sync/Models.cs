@@ -561,6 +561,9 @@ public class CustomConnectorPushResult
 
     /// <summary>The connectors this push failed to save.</summary>
     public IReadOnlyList<Change> Failed { get; init; } = Array.Empty<Change>();
+
+    /// <summary>Why each connector in <see cref="Failed"/> was not saved, one sentence per connector in the same order.</summary>
+    public IReadOnlyList<string> FailureReasons { get; init; } = Array.Empty<string>();
 }
 
 #endregion

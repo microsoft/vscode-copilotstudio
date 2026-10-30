@@ -53,6 +53,7 @@ public interface ICustomConnectorOperations
     /// <summary>Creates or updates a custom connector and returns the copy the environment stored.</summary>
     /// <param name="connector">The custom connector metadata to save.</param>
     /// <param name="exists">True to update the existing connector; false to create it.</param>
+    /// <param name="expectedVersion">When set, an update applies only while the stored connector still has this version, in environments that check versions.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
-    Task<CustomConnectorMetadata> SaveConnectorAsync(CustomConnectorMetadata connector, bool exists, CancellationToken cancellationToken);
+    Task<CustomConnectorMetadata> SaveConnectorAsync(CustomConnectorMetadata connector, bool exists, long? expectedVersion, CancellationToken cancellationToken);
 }

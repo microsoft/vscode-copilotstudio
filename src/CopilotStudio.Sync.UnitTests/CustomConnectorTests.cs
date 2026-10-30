@@ -9,6 +9,7 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Net;
     using System.Text;
     using System.Text.Json;
     using System.Text.Json.Nodes;
@@ -18,6 +19,8 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
 
     public class CustomConnectorTests : IDisposable
     {
+        private const string ConflictReason = "Failed to push custom connector 'Contoso': it changed in the cloud since it was last synced. Get the latest changes, or overwrite the cloud copy.";
+
         private readonly string _tempRoot;
 
         public CustomConnectorTests()
@@ -113,7 +116,7 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
 
             var dataverse = CreateStoringDataverse(existingIds: new[] { existingId });
 
-            var result = await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None);
+            var result = await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None, overwriteRemoteChanges: true);
 
             Assert.Equal(2, result.PushedRowIds.Count);
             Assert.Equal(newId, result.PushedRowIds["new-one-internal"]);
@@ -126,8 +129,8 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
             Assert.Equal(ChangeType.Update, updated.ChangeType);
             Assert.Equal($"Mcs.Connector.{existingId}", updated.SchemaName);
             dataverse.As<ICustomConnectorOperations>().Verify(d => d.GetConnectorVersionsByIdsAsync(It.Is<IReadOnlyCollection<Guid>>(ids => ids.Count == 2 && ids.Contains(newId) && ids.Contains(existingId)), It.IsAny<CancellationToken>()), Times.Once);
-            dataverse.As<ICustomConnectorOperations>().Verify(d => d.SaveConnectorAsync(It.Is<CustomConnectorMetadata>(c => c.ConnectorId == newId), false, It.IsAny<CancellationToken>()), Times.Once);
-            dataverse.As<ICustomConnectorOperations>().Verify(d => d.SaveConnectorAsync(It.Is<CustomConnectorMetadata>(c => c.ConnectorId == existingId), true, It.IsAny<CancellationToken>()), Times.Once);
+            dataverse.As<ICustomConnectorOperations>().Verify(d => d.SaveConnectorAsync(It.Is<CustomConnectorMetadata>(c => c.ConnectorId == newId), false, It.IsAny<long?>(), It.IsAny<CancellationToken>()), Times.Once);
+            dataverse.As<ICustomConnectorOperations>().Verify(d => d.SaveConnectorAsync(It.Is<CustomConnectorMetadata>(c => c.ConnectorId == existingId), true, It.IsAny<long?>(), It.IsAny<CancellationToken>()), Times.Once);
         }
 
         [Fact]
@@ -204,7 +207,7 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
             await WriteConnectorAsync(files, "Working", workingId);
             var dataverse = CreateStoringDataverse();
             dataverse.As<ICustomConnectorOperations>()
-                .Setup(d => d.SaveConnectorAsync(It.Is<CustomConnectorMetadata>(c => c.ConnectorId == failingId), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+                .Setup(d => d.SaveConnectorAsync(It.Is<CustomConnectorMetadata>(c => c.ConnectorId == failingId), It.IsAny<bool>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
                 .ThrowsAsync(new InvalidOperationException("denied"));
 
             var result = await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None);
@@ -216,6 +219,93 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
             var baselines = await files.ReadStringAsync(new AgentFilePath(".mcs/.connectors-sync.json"), CancellationToken.None);
             Assert.DoesNotContain(failingId.ToString("N"), baselines, StringComparison.OrdinalIgnoreCase);
             Assert.Contains(workingId.ToString("N"), baselines, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public async Task PushCustomConnectorsAsync_EditedLocallyAndInTheCloud_KeepsBothCopiesAndReportsTheConflict()
+        {
+            var (synchronizer, files, workspace, connectorId, dataverse) = await EditLocallyAndInTheCloudAsync();
+
+            var result = await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None);
+
+            Assert.Equal($"Mcs.Connector.{connectorId}", Assert.Single(result.Failed).SchemaName);
+            Assert.Equal(ConflictReason, Assert.Single(result.FailureReasons));
+            Assert.Empty(result.PushedRowIds);
+            dataverse.As<ICustomConnectorOperations>().Verify(d => d.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()), Times.Never);
+            Assert.Contains("#ff0000", await files.ReadStringAsync(new AgentFilePath($"connectors/Contoso-{connectorId}/metadata.yml"), CancellationToken.None), StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public async Task PushCustomConnectorsAsync_EditedLocallyAndInTheCloudWithOverwrite_SavesWithoutAVersionCondition()
+        {
+            var (synchronizer, _, workspace, connectorId, dataverse) = await EditLocallyAndInTheCloudAsync();
+
+            var result = await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None, overwriteRemoteChanges: true);
+
+            Assert.Equal($"Mcs.Connector.{connectorId}", Assert.Single(result.Updated).SchemaName);
+            Assert.Empty(result.FailureReasons);
+            dataverse.As<ICustomConnectorOperations>().Verify(d => d.SaveConnectorAsync(It.Is<CustomConnectorMetadata>(c => c.IconBrandColor == "#ff0000"), true, null, It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        [Fact]
+        public async Task PushCustomConnectorsAsync_TheCloudChangesBeforeTheSaveLands_ReportsTheConflict()
+        {
+            var (synchronizer, files, workspace) = CreateAgentWorkspace();
+            var connectorId = Guid.NewGuid();
+            await SyncConnectorAsync(synchronizer, files, workspace, "Contoso", connectorId, version: 5);
+            await EditMetadataAsync(files, "Contoso", connectorId, metadata => metadata["iconbrandcolor"] = "#ff0000");
+            var dataverse = CreateRemoteDataverse(RemoteConnector("Contoso", connectorId, version: 5));
+            dataverse.As<ICustomConnectorOperations>()
+                .Setup(d => d.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), true, 5, It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new DataverseRequestException(HttpStatusCode.PreconditionFailed, "{\"error\":{\"code\":\"0x80060882\"}}"));
+
+            var result = await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None);
+
+            Assert.Equal($"Mcs.Connector.{connectorId}", Assert.Single(result.Failed).SchemaName);
+            Assert.Equal(ConflictReason, Assert.Single(result.FailureReasons));
+        }
+
+        [Fact]
+        public async Task PushCustomConnectorsAsync_NewLocalFolderForAConnectorTheCloudHasWithOtherContent_ReportsTheConflict()
+        {
+            var (synchronizer, files, workspace) = CreateAgentWorkspace();
+            var connectorId = Guid.NewGuid();
+            await WriteConnectorAsync(files, "Contoso", connectorId);
+            var portalCopy = RemoteConnector("Contoso", connectorId, version: 3);
+            portalCopy.Description = "Edited in the portal";
+            var dataverse = CreateRemoteDataverse(portalCopy);
+
+            var result = await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None);
+
+            Assert.Equal(ConflictReason, Assert.Single(result.FailureReasons));
+            dataverse.As<ICustomConnectorOperations>().Verify(d => d.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task PushCustomConnectorsAsync_ConnectorEditedWhileSaving_KeepsTheNewerEditAsALocalChange()
+        {
+            var (synchronizer, files, workspace) = CreateAgentWorkspace();
+            var connectorId = Guid.NewGuid();
+            await SyncConnectorAsync(synchronizer, files, workspace, "Contoso", connectorId, version: 5);
+            await EditMetadataAsync(files, "Contoso", connectorId, metadata => metadata["iconbrandcolor"] = "#ff0000");
+            var dataverse = CreateRemoteDataverse(RemoteConnector("Contoso", connectorId, version: 5));
+            dataverse.As<ICustomConnectorOperations>()
+                .Setup(d => d.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
+                .Returns(async (CustomConnectorMetadata sent, bool _, long? _, CancellationToken _) =>
+                {
+                    await EditMetadataAsync(files, "Contoso", connectorId, metadata => metadata["iconbrandcolor"] = "#00ff00");
+                    sent.Description = "Normalized by the server";
+                    sent.VersionNumber = 6;
+                    return sent;
+                });
+
+            var result = await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None);
+
+            Assert.Equal($"Mcs.Connector.{connectorId}", Assert.Single(result.Updated).SchemaName);
+            var metadata = await files.ReadStringAsync(new AgentFilePath($"connectors/Contoso-{connectorId}/metadata.yml"), CancellationToken.None);
+            Assert.Contains("#00ff00", metadata, StringComparison.Ordinal);
+            Assert.DoesNotContain("Normalized by the server", metadata, StringComparison.Ordinal);
+            Assert.Equal($"connectors/Contoso-{connectorId}/metadata.yml", Assert.Single(await LocalConnectorChangesAsync(synchronizer, workspace)).Uri);
         }
 
         [Fact]
@@ -236,7 +326,7 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
             await synchronizer.PushChangesetAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), changeset, dataverse.Object, Guid.NewGuid(), null, default, CancellationToken.None);
 
             connectorOperations.Verify(d => d.GetConnectorVersionsByIdsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()), Times.Never);
-            connectorOperations.Verify(d => d.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
+            connectorOperations.Verify(d => d.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()), Times.Never);
             dataverse.Verify(d => d.UpsertConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<CancellationToken>()), Times.Never);
         }
 
@@ -438,8 +528,8 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
                 .Setup(d => d.GetConnectorVersionsByIdsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync((existingIds ?? Array.Empty<Guid>()).Select(id => new CustomConnectorMetadata { ConnectorId = id, VersionNumber = serverVersion }).ToArray());
             dataverse.As<ICustomConnectorOperations>()
-                .Setup(d => d.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync((CustomConnectorMetadata sent, bool _, CancellationToken _) =>
+                .Setup(d => d.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync((CustomConnectorMetadata sent, bool _, long? _, CancellationToken _) =>
                 {
                     onSave?.Invoke(sent);
                     sent.VersionNumber = serverVersion;
@@ -454,10 +544,24 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
             dataverse.As<ICustomConnectorOperations>()
                 .Setup(d => d.GetConnectorVersionsByIdsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(remoteConnectors);
+            dataverse.As<ICustomConnectorOperations>()
+                .Setup(d => d.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync((CustomConnectorMetadata sent, bool _, long? _, CancellationToken _) => sent);
             dataverse
                 .Setup(d => d.DownloadConnectorsByInternalIdsAsync(It.IsAny<IEnumerable<string>>(), true, It.IsAny<CancellationToken>()))
                 .ReturnsAsync((IEnumerable<string> internalIds, bool _, CancellationToken _) => remoteConnectors.Where(connector => internalIds.Contains(connector.ConnectorInternalId)).ToArray());
             return dataverse;
+        }
+
+        private static async Task<(WorkspaceSynchronizer Synchronizer, IFileAccessor Files, DirectoryPath Workspace, Guid ConnectorId, Mock<ISyncDataverseClient> Dataverse)> EditLocallyAndInTheCloudAsync()
+        {
+            var (synchronizer, files, workspace) = CreateAgentWorkspace();
+            var connectorId = Guid.NewGuid();
+            await SyncConnectorAsync(synchronizer, files, workspace, "Contoso", connectorId, version: 5);
+            await EditMetadataAsync(files, "Contoso", connectorId, metadata => metadata["iconbrandcolor"] = "#ff0000");
+            var portalCopy = RemoteConnector("Contoso", connectorId, version: 6);
+            portalCopy.Description = "Edited in the portal";
+            return (synchronizer, files, workspace, connectorId, CreateRemoteDataverse(portalCopy));
         }
 
         private static CustomConnectorMetadata RemoteConnector(string name, Guid connectorId, long version) =>

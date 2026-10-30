@@ -126,6 +126,37 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             var response = await fixture.SyncAsync(push: true);
 
             Assert.Equal(200, response.Code);
+            Assert.Equal(string.Empty, response.Message);
+            fixture.AssertPushCompleted();
+        }
+
+        [Theory]
+        [InlineData(true, false)]
+        [InlineData(false, true)]
+        public async Task ConnectorPush_OverwritesCloudChangesUnlessThePushRequiresNothingLeftToPull(bool requireNoUnpulledChanges, bool overwriteRemoteChanges)
+        {
+            using var fixture = new PreflightFixture();
+
+            var response = await fixture.SyncAsync(push: true, requireNoUnpulledChanges);
+
+            Assert.Equal(200, response.Code);
+            fixture.AssertConnectorsPushed(overwriteRemoteChanges);
+        }
+
+        [Fact]
+        public async Task ConnectorsThePushDidNotSave_AreReportedInTheResponseMessage()
+        {
+            using var fixture = new PreflightFixture();
+            fixture.ConnectorPushResult = new CustomConnectorPushResult
+            {
+                Failed = new[] { new Change { Name = "Contoso" }, new Change { Name = "Fabrikam" } },
+                FailureReasons = new[] { "Failed to push custom connector 'Contoso': it changed in the cloud since it was last synced.", "Failed to push custom connector 'Fabrikam': Bad request." },
+            };
+
+            var response = await fixture.SyncAsync(push: true, requireNoUnpulledChanges: true);
+
+            Assert.Equal(200, response.Code);
+            Assert.Equal("Failed to push custom connector '<pii type=\"CONNECTOR NAMES\" encoded=\"true\">Contoso</pii>': it changed in the cloud since it was last synced. Failed to push custom connector '<pii type=\"CONNECTOR NAMES\" encoded=\"true\">Fabrikam</pii>': Bad request.", response.Message);
             fixture.AssertPushCompleted();
         }
 
@@ -187,8 +218,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
                     .ReturnsAsync(new AgentSyncInfo { AgentId = Guid.NewGuid() });
                 _synchronizer.Setup(service => service.ThrowIfWorkspaceInvalidAsync(It.IsAny<DirectoryPath>(), It.IsAny<DefinitionBase>(), It.IsAny<CancellationToken>()))
                     .Returns((DirectoryPath folder, DefinitionBase definition, CancellationToken token) => Synchronizer.ThrowIfWorkspaceInvalidAsync(folder, definition, token));
-                _synchronizer.Setup(service => service.PushCustomConnectorsAsync(It.IsAny<DirectoryPath>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<CancellationToken>()))
-                    .ReturnsAsync(new CustomConnectorPushResult());
+                _synchronizer.Setup(service => service.PushCustomConnectorsAsync(It.IsAny<DirectoryPath>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<CancellationToken>(), It.IsAny<bool>()))
+                    .ReturnsAsync(() => ConnectorPushResult);
                 _synchronizer.Setup(service => service.ProvisionConnectionReferencesAsync(It.IsAny<DirectoryPath>(), It.IsAny<DefinitionBase>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<CancellationToken>(), It.IsAny<IReadOnlyDictionary<string, Guid>?>()))
                     .Returns(Task.CompletedTask);
                 _synchronizer.Setup(service => service.UpsertWorkflowForAgentAsync(It.IsAny<DirectoryPath>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>(), It.IsAny<WorkflowActivationMode>()))
@@ -226,6 +257,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
 
             public string Root { get; }
 
+            public CustomConnectorPushResult ConnectorPushResult { get; set; } = new();
+
             public WorkspaceSynchronizer Synchronizer { get; }
 
             public McsWorkspace Workspace => _world.GetWorkspace();
@@ -249,8 +282,9 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
                 Workspace.BuildCompilationModel();
             }
 
-            public Task<SyncAgentResponse> SyncAsync(bool push)
+            public Task<SyncAgentResponse> SyncAsync(bool push, bool requireNoUnpulledChanges = false)
             {
+                _request.RequireNoUnpulledChanges = requireNoUnpulledChanges;
                 var httpAccessor = new LspDataverseHttpClientAccessor(Mock.Of<ISyncAuthProvider>());
                 SyncHandler handler = push
                     ? new SyncPushHandler(_island.Object, _synchronizer.Object, new TestTokenManager(), _dataverse.Object, httpAccessor, _operationProvider.Object, Mock.Of<Microsoft.CopilotStudio.Sync.IStandaloneWorkflowSynchronizer>(), new Microsoft.CopilotStudio.McsCore.FileAccessorFactory(), _logger.Object)
@@ -262,7 +296,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
 
             public void AssertNoCloudWrites()
             {
-                _synchronizer.Verify(service => service.PushCustomConnectorsAsync(It.IsAny<DirectoryPath>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<CancellationToken>()), Times.Never);
+                _synchronizer.Verify(service => service.PushCustomConnectorsAsync(It.IsAny<DirectoryPath>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<CancellationToken>(), It.IsAny<bool>()), Times.Never);
                 _synchronizer.Verify(service => service.ProvisionConnectionReferencesAsync(It.IsAny<DirectoryPath>(), It.IsAny<DefinitionBase>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<CancellationToken>(), It.IsAny<IReadOnlyDictionary<string, Guid>?>()), Times.Never);
                 _synchronizer.Verify(service => service.UpsertWorkflowForAgentAsync(It.IsAny<DirectoryPath>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>(), It.IsAny<WorkflowActivationMode>()), Times.Never);
                 _synchronizer.Verify(service => service.UpsertAIPromptsForAgentAsync(It.IsAny<DirectoryPath>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -272,6 +306,9 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
 
             public void AssertPushCompleted()
                 => _synchronizer.Verify(service => service.PushLocalChangesAsync(It.IsAny<DirectoryPath>(), It.IsAny<AuthoringOperationContextBase>(), It.IsAny<DefinitionBase>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<AgentSyncInfo>(), It.IsAny<CloudFlowMetadata?>(), It.IsAny<ImmutableArray<SyncDataverseClient.AIPromptMetadata>>(), It.IsAny<CancellationToken>(), It.IsAny<AuthoringOperationContextBase?>(), It.IsAny<bool>()), Times.Once);
+
+            public void AssertConnectorsPushed(bool overwriteRemoteChanges)
+                => _synchronizer.Verify(service => service.PushCustomConnectorsAsync(It.IsAny<DirectoryPath>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<CancellationToken>(), overwriteRemoteChanges), Times.Once);
 
             public void Dispose() => Directory.Delete(Root, recursive: true);
 

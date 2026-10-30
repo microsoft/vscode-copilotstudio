@@ -338,7 +338,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
         }
 
         [Fact]
-        public async Task ReattachAgentProvisionsConnectionReferencesTest()
+        public async Task ReattachAgentUploadsLocalConnectorsAndProvisionsConnectionReferencesTest()
         {
             var context = CreateTestSetup();
             var synchronizer = new TestWorkspaceSynchronizerProvisionTracking();
@@ -347,7 +347,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
 
             Assert.Equal(200, response.Code);
-            Assert.True(synchronizer.PushCustomConnectorsCalled);
+            Assert.True(synchronizer.ConnectorPushOverwroteRemoteChanges);
             Assert.True(synchronizer.ProvisionConnectionReferencesCalled);
         }
 
@@ -1244,7 +1244,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
         public virtual Task<IReadOnlyList<ConnectionNeeded>> GetNewAgentConnectionReferencesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
             => Task.FromResult<IReadOnlyList<ConnectionNeeded>>(Array.Empty<ConnectionNeeded>());
 
-        public virtual Task<CustomConnectorPushResult> PushCustomConnectorsAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+        public virtual Task<CustomConnectorPushResult> PushCustomConnectorsAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken, bool overwriteRemoteChanges = false)
             => Task.FromResult(new CustomConnectorPushResult());
 
         public virtual Task<ImmutableArray<AIPromptMetadata>> GetAIPromptsAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, Microsoft.CopilotStudio.McsCore.IFileAccessor fileAccessor, CancellationToken cancellationToken)
@@ -1319,14 +1319,14 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
 
     internal class TestWorkspaceSynchronizerProvisionTracking : TestWorkspaceSynchronizer
     {
-        public bool PushCustomConnectorsCalled { get; private set; }
+        public bool? ConnectorPushOverwroteRemoteChanges { get; private set; }
 
         public bool ProvisionConnectionReferencesCalled { get; private set; }
 
-        public override Task<CustomConnectorPushResult> PushCustomConnectorsAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+        public override Task<CustomConnectorPushResult> PushCustomConnectorsAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken, bool overwriteRemoteChanges = false)
         {
-            PushCustomConnectorsCalled = true;
-            return base.PushCustomConnectorsAsync(workspaceFolder, dataverseClient, cancellationToken);
+            ConnectorPushOverwroteRemoteChanges = overwriteRemoteChanges;
+            return base.PushCustomConnectorsAsync(workspaceFolder, dataverseClient, cancellationToken, overwriteRemoteChanges);
         }
 
         public override Task ProvisionConnectionReferencesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken, IReadOnlyDictionary<string, Guid>? pushedConnectorIds = null)

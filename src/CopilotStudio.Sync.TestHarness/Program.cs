@@ -168,7 +168,7 @@ pushCommand.SetAction(async parseResult =>
         var connectorPushResult = await ConnectionHelper.ProvisionConnectionsAsync(synchronizer, workspaceFolder, localDefinition, dataverseClient, CancellationToken.None);
         if (connectorPushResult.Failed.Count > 0)
         {
-            throw new InvalidOperationException($"Failed to push custom connector(s): {string.Join(", ", connectorPushResult.Failed.Select(change => change.Name))}.");
+            throw new InvalidOperationException(string.Join(" ", connectorPushResult.FailureReasons));
         }
 
         CloudFlowMetadata? cloudFlowMetadata = null;
