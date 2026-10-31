@@ -15,9 +15,9 @@ public sealed class HostServicesTests
     private static readonly Uri EnvironmentUrl = new("https://contoso.crm.dynamics.com");
 
     [Fact]
-    public async Task Build_ResolvesEveryServiceTheHarnessCommandsUse()
+    public async Task BuildWithAuthProvider_ResolvesEveryServiceTheHarnessCommandsUse()
     {
-        await using var services = HostServices.Build(EnvironmentUrl, new NoTokenAuthProvider());
+        await using var services = HostServices.BuildWithAuthProvider(EnvironmentUrl, new NoTokenAuthProvider());
 
         Assert.NotNull(services.GetRequiredService<ISyncDataverseClient>());
         Assert.NotNull(services.GetRequiredService<IOperationContextProvider>());

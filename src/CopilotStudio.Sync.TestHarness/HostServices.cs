@@ -25,10 +25,10 @@ namespace Microsoft.CopilotStudio.Sync.TestHarness;
 public static class HostServices
 {
     /// <summary>Builds the harness container, signing in through the interactive browser credential.</summary>
-    public static async Task<ServiceProvider> BuildAsync(Uri environmentUrl) => Build(environmentUrl, await AuthProvider.CreateAsync().ConfigureAwait(false));
+    public static async Task<ServiceProvider> BuildAsync(Uri environmentUrl) => BuildWithAuthProvider(environmentUrl, await AuthProvider.CreateAsync().ConfigureAwait(false));
 
     /// <summary>Builds the harness container around the given auth provider.</summary>
-    public static ServiceProvider Build(Uri environmentUrl, ISyncAuthProvider authProvider)
+    public static ServiceProvider BuildWithAuthProvider(Uri environmentUrl, ISyncAuthProvider authProvider)
     {
         var services = new ServiceCollection();
 
