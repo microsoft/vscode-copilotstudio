@@ -651,6 +651,26 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
         }
 
         [Fact]
+        public async Task ReattachAgentRetargetConnectorNotSavedRestoresBindingAndReportsWhyTest()
+        {
+            var context = CreateTestSetup();
+            context.Request.AllowRetarget = true;
+            var synchronizer = new TestWorkspaceSynchronizerFailingConnector();
+            var handler = TestHandlerFactory.CreateHandler(new MockDataverseClient(), synchronizer, CreateOperationProvider());
+
+            var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
+
+            Assert.Equal(400, response.Code);
+            Assert.Equal("<pii type=\"CONNECTOR ERROR DETAILS\" encoded=\"true\">Failed to push custom connector 'Contoso': Bad request.</pii>", response.Message);
+            Assert.Equal(1, synchronizer.RestoreRemoteBindingStateCount);
+            Assert.Equal(1, synchronizer.ClearRetargetBackupCount);
+            Assert.Equal(0, synchronizer.UpsertWorkflowCallCount);
+            Assert.Equal(0, synchronizer.UpsertAIPromptCallCount);
+            Assert.False(synchronizer.ReattachCalled);
+            Assert.Equal(0, synchronizer.SavedSyncInfoCount);
+        }
+
+        [Fact]
         public async Task FinalizeRetarget_WhenPushFailedAndBackupRestored_ReportsRolledBack()
         {
             var context = CreateTestSetup();
@@ -1389,6 +1409,12 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
 
         public override void PersistRetargetBackup(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, RemoteBindingSnapshot snapshot)
             => throw _exception;
+    }
+
+    internal class TestWorkspaceSynchronizerFailingConnector : TestWorkspaceSynchronizerSyncInfoExists
+    {
+        public override Task<CustomConnectorPushResult> PushCustomConnectorsAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken, bool overwriteRemoteChanges = false)
+            => Task.FromResult(new CustomConnectorPushResult { Failed = new[] { new Change { Name = "Contoso" } }, FailureReasons = new[] { "Failed to push custom connector 'Contoso': Bad request." } });
     }
 
     internal class TestOperationContextProvider : IOperationContextProvider

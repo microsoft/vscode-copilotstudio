@@ -165,11 +165,7 @@ pushCommand.SetAction(async parseResult =>
 
         PrintChangeSummary(localChanges);
 
-        var connectorPushResult = await ConnectionHelper.ProvisionConnectionsAsync(synchronizer, workspaceFolder, localDefinition, dataverseClient, CancellationToken.None);
-        if (connectorPushResult.Failed.Count > 0)
-        {
-            throw new InvalidOperationException(string.Join(" ", connectorPushResult.FailureReasons));
-        }
+        PushRefusals.ThrowIfAny(await ConnectionHelper.ProvisionConnectionsAsync(synchronizer, workspaceFolder, localDefinition, dataverseClient, CancellationToken.None));
 
         CloudFlowMetadata? cloudFlowMetadata = null;
         ImmutableArray<SyncDataverseClient.AIPromptMetadata> aiPromptMetadata = ImmutableArray<SyncDataverseClient.AIPromptMetadata>.Empty;
@@ -178,8 +174,9 @@ pushCommand.SetAction(async parseResult =>
             (_, cloudFlowMetadata) = await synchronizer.UpsertWorkflowForAgentAsync(
                 workspaceFolder, dataverseClient, syncInfo.AgentId, CancellationToken.None);
 
-            (_, aiPromptMetadata) = await synchronizer.UpsertAIPromptsForAgentAsync(
+            (var aiPromptResponses, aiPromptMetadata) = await synchronizer.UpsertAIPromptsForAgentAsync(
                 workspaceFolder, dataverseClient, syncInfo.AgentId, CancellationToken.None);
+            PushRefusals.ThrowIfAny(aiPromptResponses);
         }
 
         Console.WriteLine("Pushing changes...");

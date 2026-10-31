@@ -749,6 +749,7 @@ describe('workspaceSynchronizer: remote change conflicts', () => {
 	const topicChange = { schemaName: 'cre98_agent.topic.Greeting' };
 	const connectorChange = { schemaName: `${CustomConnectorSchemaNamePrefix}6f1c2b3a-4d5e-4f60-8a9b-0c1d2e3f4a5b` };
 	const promptChange = { schemaName: `${AIPromptSchemaNamePrefix}0b6e1f7c-2a3d-4e5f-9a8b-7c6d5e4f3a2b` };
+	const cloudOnlyPromptChange = { schemaName: `${AIPromptSchemaNamePrefix}3b5436b4-d7b4-4c1e-9a2f-5e6d7c8b9a0f` };
 
 	let prompts: { message: string; options: vscode.MessageOptions; items: string[] }[];
 	let requests: { method: string; request: SyncRequest }[];
@@ -840,7 +841,7 @@ describe('workspaceSynchronizer: remote change conflicts', () => {
 		]);
 	});
 
-	const getOrOverwriteDetail = 'Get Remote Changes replaces your local copies with the cloud copies. Overwrite remote changes replaces the cloud copies with your local copies.';
+	const getOrOverwriteDetail = 'Get Remote Changes replaces your local copies with the cloud copies. Overwrite remote changes replaces the cloud copies of what you changed with your local copies.';
 
 	test('remote changes to a workflow can be got or overwritten and the dialog explains both', async () => {
 		arrange('Overwrite remote changes');
@@ -868,10 +869,23 @@ describe('workspaceSynchronizer: remote change conflicts', () => {
 		}]);
 	});
 
-	test('remote changes to an agent that include a connector the workspace did not change can only be got', async () => {
+	test('remote changes to an agent that are prompts, one of them changed only in the cloud, can be overwritten when the workspace also changed another', async () => {
+		arrange('Overwrite remote changes');
+
+		const resolution = await askRemoteChangeResolution(agentWorkspace, [promptChange, cloudOnlyPromptChange], [promptChange]);
+
+		assert.strictEqual(resolution, 'overwriteRemoteChanges');
+		assert.deepStrictEqual(prompts, [{
+			message: 'The agent has 2 remote changes that must be retrieved or overwritten before your local changes can be applied.',
+			options: { modal: true, detail: getOrOverwriteDetail },
+			items: ['Get Remote Changes', 'Overwrite remote changes'],
+		}]);
+	});
+
+	test('remote changes to an agent that are only to connectors or prompts the workspace did not change can only be got', async () => {
 		arrange('Get Remote Changes');
 
-		const resolution = await askRemoteChangeResolution(agentWorkspace, [connectorChange, promptChange], [promptChange]);
+		const resolution = await askRemoteChangeResolution(agentWorkspace, [connectorChange, cloudOnlyPromptChange], [topicChange, promptChange]);
 
 		assert.strictEqual(resolution, 'getRemoteChanges');
 		assert.deepStrictEqual(prompts, [{

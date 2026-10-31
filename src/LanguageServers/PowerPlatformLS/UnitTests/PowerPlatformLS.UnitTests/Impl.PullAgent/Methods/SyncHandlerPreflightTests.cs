@@ -145,19 +145,19 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
         }
 
         [Fact]
-        public async Task ConnectorsThePushDidNotSave_AreReportedInTheResponseMessage()
+        public async Task ConnectorsThePushDidNotSave_AreReportedInTheResponseMessageWithEachWholeReasonTagged()
         {
             using var fixture = new PreflightFixture();
             fixture.ConnectorPushResult = new CustomConnectorPushResult
             {
                 Failed = new[] { new Change { Name = "Contoso" }, new Change { Name = "Fabrikam" } },
-                FailureReasons = new[] { "Failed to push custom connector 'Contoso': it changed in the cloud since it was last synced.", "Failed to push custom connector 'Fabrikam': Bad request." },
+                FailureReasons = new[] { "Failed to push custom connector 'Contoso': it changed in the cloud since it was last synced.", "Failed to push custom connector 'Fabrikam': Dataverse request failed (400): {\"error\":{\"message\":\"Operation <GetSecret> is invalid\"}}" },
             };
 
             var response = await fixture.SyncAsync(push: true, requireNoUnpulledChanges: true);
 
             Assert.Equal(200, response.Code);
-            Assert.Equal("Failed to push custom connector '<pii type=\"CONNECTOR NAMES\" encoded=\"true\">Contoso</pii>': it changed in the cloud since it was last synced. Failed to push custom connector '<pii type=\"CONNECTOR NAMES\" encoded=\"true\">Fabrikam</pii>': Bad request.", response.Message);
+            Assert.Equal("<pii type=\"CONNECTOR ERROR DETAILS\" encoded=\"true\">Failed to push custom connector 'Contoso': it changed in the cloud since it was last synced.</pii> <pii type=\"CONNECTOR ERROR DETAILS\" encoded=\"true\">Failed to push custom connector 'Fabrikam': Dataverse request failed (400): {\"error\":{\"message\":\"Operation &lt;GetSecret&gt; is invalid\"}}</pii>", response.Message);
             fixture.AssertPushCompleted();
         }
 

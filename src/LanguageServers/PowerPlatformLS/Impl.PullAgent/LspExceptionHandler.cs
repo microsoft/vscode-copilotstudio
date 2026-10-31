@@ -24,7 +24,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
         private const string EnvironmentIdPiiType = "ENVIRONMENT ID";
 
-        private const string ConnectorNamePiiType = "CONNECTOR NAMES";
+        private const string ConnectorErrorDetailsPiiType = "CONNECTOR ERROR DETAILS";
 
         /// <summary>
         /// Classifies the exception, logs it at the appropriate severity, and returns
@@ -112,11 +112,12 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     static diagnostic => diagnostic.ToString(ProtectUserContent));
 
         /// <summary>
-        /// Formats why a push did not save some custom connectors as a non-fatal warning, tagging each
-        /// connector name so the detail stays visible in the client UI while telemetry scrubbers redact it.
+        /// Formats why some custom connectors were not saved, tagging each whole reason because a server
+        /// error can echo authored connector content, so the detail stays visible in the client UI while
+        /// telemetry scrubbers redact it.
         /// </summary>
         internal static string DescribeConnectorFailures(CustomConnectorPushResult result)
-            => string.Join(" ", result.Failed.Zip(result.FailureReasons, static (connector, reason) => ProtectValue(reason, connector.Name, ConnectorNamePiiType)));
+            => string.Join(" ", result.FailureReasons.Select(static reason => Tag(reason, ConnectorErrorDetailsPiiType)));
 
         /// <summary>
         /// Standalone workflow failures name folders the service derived from a workflow's display
