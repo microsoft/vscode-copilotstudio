@@ -177,6 +177,7 @@ internal class InMemoryFileAccessor : IFileAccessor
 {
     private readonly DirectoryPath _root;
     private readonly ConcurrentDictionary<string, byte[]> _files = new();
+    private readonly ConcurrentDictionary<string, long> _reportedLengths = new();
 
     public InMemoryFileAccessor(DirectoryPath root)
     {
@@ -185,19 +186,22 @@ internal class InMemoryFileAccessor : IFileAccessor
 
     public IReadOnlyDictionary<string, byte[]> Files => _files;
 
+    public void ReportLength(AgentFilePath path, long length) => _reportedLengths[path.ToString()] = length;
+
     public bool Exists(AgentFilePath path) => _files.ContainsKey(path.ToString());
 
     public Stream OpenRead(AgentFilePath path)
     {
         if (_files.TryGetValue(path.ToString(), out var data))
         {
-            return new MemoryStream(data, writable: false);
+            return _reportedLengths.TryGetValue(path.ToString(), out var length) ? new ReportedLengthStream(data, length) : new MemoryStream(data, writable: false);
         }
         throw new FileNotFoundException($"File not found: {path}");
     }
 
     public Stream OpenWrite(AgentFilePath path)
     {
+        _reportedLengths.TryRemove(path.ToString(), out _);
         return new WriteCapturingStream(path.ToString(), _files);
     }
 
@@ -263,4 +267,17 @@ internal class WriteCapturingStream : MemoryStream
         }
         base.Dispose(disposing);
     }
+}
+
+internal sealed class ReportedLengthStream : MemoryStream
+{
+    private readonly long _length;
+
+    public ReportedLengthStream(byte[] data, long length)
+        : base(data, writable: false)
+    {
+        _length = length;
+    }
+
+    public override long Length => _length;
 }

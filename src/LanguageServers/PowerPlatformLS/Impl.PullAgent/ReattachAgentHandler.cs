@@ -217,7 +217,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
                     await ConnectionHelper.ProvisionConnectionsAsync(_workspaceSynchronizer, workspaceFolder, workspace.Definition, _dataverseClient, cancellationToken, overwriteRemoteChanges: true);
 
-                    var (workflowResponse, cloudFlowMetadata, aiPromptResponse, aiPromptMetadata) = await ConnectionHelper.UpsertAgentScopedAssetsAsync(_workspaceSynchronizer, workspaceFolder, workspace.Definition, _dataverseClient, syncInfo.AgentId, CopilotStudio.Sync.WorkflowActivationMode.DraftWhenConnectionReferencesExist, cancellationToken);
+                    var (workflowResponse, cloudFlowMetadata, aiPromptResponse, aiPromptMetadata) = await ConnectionHelper.UpsertAgentScopedAssetsAsync(_workspaceSynchronizer, workspaceFolder, workspace.Definition, _dataverseClient, syncInfo.AgentId, CopilotStudio.Sync.WorkflowActivationMode.DraftWhenConnectionReferencesExist, cancellationToken, overwriteRemoteChanges: true);
 
                     await _retargetService.SyncWorkspaceAsync(workspaceFolder, operationContext, null, updateWorkspaceDirectory, _dataverseClient, syncInfo, cloudFlowMetadata, cancellationToken, aiPromptMetadata, syncCustomConnectors: false, syncWorkflowsAndPrompts: false);
                     await _workspaceSynchronizer.SaveSyncInfoAsync(workspaceFolder, syncInfo);

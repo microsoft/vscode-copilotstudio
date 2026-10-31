@@ -402,10 +402,22 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         }
 
         var connectorUrl = $"{ConnectorsUrl}({connector.ConnectorId})";
-        var ifMatchVersion = exists && expectedVersion is { } version && await ChecksConnectorVersionsAsync(cancellationToken).ConfigureAwait(false) ? version : (long?)null;
+        var ifMatchVersion = exists && expectedVersion is { } version ? await GetConnectorIfMatchVersionAsync(connector.ConnectorId, version, cancellationToken).ConfigureAwait(false) : null;
         return await SendAsync<CustomConnectorMetadata>(exists ? HttpMethodHelper.Patch : HttpMethod.Post, $"{(exists ? connectorUrl : ConnectorsUrl)}?$select={ConnectorColumns}", CreateConnectorRequestBody(connector, exists), expectReturn: true, cancellationToken, ifMatchVersion: ifMatchVersion).ConfigureAwait(false)
             ?? await SendAsync<CustomConnectorMetadata>(HttpMethod.Get, $"{connectorUrl}?$select={ConnectorColumns}", null, false, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Connector '{connector.ConnectorId}' was not returned after it was saved.");
+    }
+
+    private async Task<long?> GetConnectorIfMatchVersionAsync(Guid connectorId, long expectedVersion, CancellationToken cancellationToken)
+    {
+        if (await ChecksConnectorVersionsAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return expectedVersion;
+        }
+
+        return (await GetConnectorVersionsByIdsAsync(new[] { connectorId }, cancellationToken).ConfigureAwait(false)).FirstOrDefault()?.VersionNumber == expectedVersion
+            ? null
+            : throw new DataverseRequestException(System.Net.HttpStatusCode.PreconditionFailed, $"Connector '{connectorId}' no longer has version {expectedVersion}.");
     }
 
     private async Task<bool> ChecksConnectorVersionsAsync(CancellationToken cancellationToken)
@@ -416,15 +428,17 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
             return checksVersions;
         }
 
+        JsonElement metadata;
         try
         {
-            var metadata = await SendAsync<JsonElement>(HttpMethod.Get, $"{dataverseUrl}/api/data/v9.2/EntityDefinitions(LogicalName='connector')?$select=IsOptimisticConcurrencyEnabled", null, false, cancellationToken).ConfigureAwait(false);
-            return _connectorVersionChecks.GetOrAdd(dataverseUrl, metadata.ValueKind == JsonValueKind.Object && metadata.TryGetProperty("IsOptimisticConcurrencyEnabled", out var enabled) && enabled.ValueKind == JsonValueKind.True);
+            metadata = await SendAsync<JsonElement>(HttpMethod.Get, $"{dataverseUrl}/api/data/v9.2/EntityDefinitions(LogicalName='connector')?$select=IsOptimisticConcurrencyEnabled", null, false, cancellationToken).ConfigureAwait(false);
         }
-        catch (DataverseRequestException)
+        catch (DataverseRequestException exception)
         {
-            return false;
+            throw new InvalidOperationException("Could not confirm that the environment refuses connector updates based on an outdated copy. Try again, or overwrite the cloud copy.", exception);
         }
+
+        return _connectorVersionChecks.GetOrAdd(dataverseUrl, metadata.ValueKind == JsonValueKind.Object && metadata.TryGetProperty("IsOptimisticConcurrencyEnabled", out var enabled) && enabled.ValueKind == JsonValueKind.True);
     }
 
     private static Dictionary<string, object?> CreateConnectorRequestBody(CustomConnectorMetadata connector, bool exists)

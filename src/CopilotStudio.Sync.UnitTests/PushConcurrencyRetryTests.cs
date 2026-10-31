@@ -577,6 +577,14 @@ public class PushConcurrencyRetryTests
     }
 
     [Fact]
+    public async Task PushLocalChanges_WhenTheCloudUpdatedAKnowledgeFileEditedOnDiskBeyondTheUploadLimit_AbortsWithoutReplacingTheEdit()
+    {
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => PushAfterTheCloudUpdatedNotesAsync(localEdit: "local notes", localEditLength: 126L * 1024 * 1024));
+
+        Assert.Contains("Get the latest changes", exception.Message);
+    }
+
+    [Fact]
     public async Task PushLocalChanges_WithOverwrite_KeepsAKnowledgeFileEditedOnDiskThatTheCloudUpdated()
     {
         var (fileAccessor, sentChangesets) = await PushAfterTheCloudUpdatedNotesAsync(localEdit: "local notes", overwriteRemoteChanges: true);
@@ -594,7 +602,7 @@ public class PushConcurrencyRetryTests
         Assert.Equal("cloud notes", await ReadAsync(fileAccessor, NotesPath));
     }
 
-    private static Task<(IFileAccessor FileAccessor, List<PvaComponentChangeSet> SentChangesets)> PushAfterTheCloudUpdatedNotesAsync(string? localEdit, bool overwriteRemoteChanges = false)
+    private static Task<(IFileAccessor FileAccessor, List<PvaComponentChangeSet> SentChangesets)> PushAfterTheCloudUpdatedNotesAsync(string? localEdit, bool overwriteRemoteChanges = false, long? localEditLength = null)
     {
         var bot = BuildBot(Guid.NewGuid(), "Agent", version: 1);
         var notesId = Guid.NewGuid();
@@ -617,6 +625,11 @@ public class PushConcurrencyRetryTests
                 if (localEdit != null)
                 {
                     await fileAccessor.WriteAsync(new AgentFilePath(NotesPath), localEdit, CancellationToken.None);
+                }
+
+                if (localEditLength is { } length)
+                {
+                    ((InMemoryFileAccessor)fileAccessor).ReportLength(new AgentFilePath(NotesPath), length);
                 }
             });
     }

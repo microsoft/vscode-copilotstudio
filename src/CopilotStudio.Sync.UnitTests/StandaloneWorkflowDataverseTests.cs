@@ -589,53 +589,78 @@ public class StandaloneWorkflowDataverseTests
         Assert.Equal(9, stored.VersionNumber);
     }
 
-    [Theory]
-    [InlineData(true, "W/\"7\"")]
-    [InlineData(false, "")]
-    public async Task SaveConnectorAsync_ExpectedVersion_SendsIfMatchOnlyWhenTheConnectorTableChecksVersions(bool checksVersions, string expectedIfMatch)
+    [Fact]
+    public async Task SaveConnectorAsync_ConnectorTableChecksVersions_SendsIfMatchAndReadsTheTableMetadataOnce()
     {
         var connectorId = Guid.NewGuid();
-        var ifMatches = new List<string>();
-        var (client, handler) = Create(request =>
-        {
-            if (request.Method == HttpMethod.Get)
-            {
-                return Json($"{{\"IsOptimisticConcurrencyEnabled\":{(checksVersions ? "true" : "false")}}}");
-            }
-
-            ifMatches.Add(request.Headers.IfMatch.ToString());
-            return Json($"{{\"connectorid\":\"{connectorId}\",\"versionnumber\":8}}");
-        });
+        var (client, handler, ifMatches) = CreateConnectorStore(connectorId, () => Json("{\"IsOptimisticConcurrencyEnabled\":true}"), storedVersion: 7);
 
         await client.SaveConnectorAsync(new CustomConnectorMetadata { ConnectorId = connectorId, Name = "shared_contoso" }, exists: true, expectedVersion: 7, CancellationToken.None);
         await client.SaveConnectorAsync(new CustomConnectorMetadata { ConnectorId = connectorId, Name = "shared_contoso" }, exists: true, expectedVersion: 7, CancellationToken.None);
 
-        Assert.Equal(new[] { expectedIfMatch, expectedIfMatch }, ifMatches);
+        Assert.Equal(new[] { "W/\"7\"", "W/\"7\"" }, ifMatches);
         var metadataRequest = Assert.Single(handler.Exchanges, exchange => exchange.Method == HttpMethod.Get);
         Assert.Equal($"{DataverseUrl}/api/data/v9.2/EntityDefinitions(LogicalName='connector')?$select=IsOptimisticConcurrencyEnabled", Uri.UnescapeDataString(metadataRequest.Url));
     }
 
     [Fact]
-    public async Task SaveConnectorAsync_ConnectorTableMetadataUnreadable_SavesWithoutIfMatchAndAsksAgainNextTime()
+    public async Task SaveConnectorAsync_ConnectorTableDoesNotCheckVersions_ReadsTheStoredVersionBeforeEachUpdate()
     {
         var connectorId = Guid.NewGuid();
-        var ifMatches = new List<string>();
-        var (client, handler) = Create(request =>
-        {
-            if (request.Method == HttpMethod.Get)
-            {
-                return Failure(HttpStatusCode.Forbidden, "{\"error\":{\"code\":\"0x80040220\",\"message\":\"Principal user is missing prvReadEntity privilege.\"}}");
-            }
-
-            ifMatches.Add(request.Headers.IfMatch.ToString());
-            return Json($"{{\"connectorid\":\"{connectorId}\",\"versionnumber\":8}}");
-        });
+        var (client, handler, ifMatches) = CreateConnectorStore(connectorId, () => Json("{\"IsOptimisticConcurrencyEnabled\":false}"), storedVersion: 7);
 
         await client.SaveConnectorAsync(new CustomConnectorMetadata { ConnectorId = connectorId, Name = "shared_contoso" }, exists: true, expectedVersion: 7, CancellationToken.None);
         await client.SaveConnectorAsync(new CustomConnectorMetadata { ConnectorId = connectorId, Name = "shared_contoso" }, exists: true, expectedVersion: 7, CancellationToken.None);
 
         Assert.Equal(new[] { string.Empty, string.Empty }, ifMatches);
-        Assert.Equal(2, handler.Exchanges.Count(exchange => exchange.Method == HttpMethod.Get));
+        Assert.Single(handler.Exchanges, exchange => exchange.Url.Contains("EntityDefinitions", StringComparison.Ordinal));
+        Assert.Equal(new[] { "GET", "PATCH", "GET", "PATCH" }, handler.Exchanges.Where(exchange => !exchange.Url.Contains("EntityDefinitions", StringComparison.Ordinal)).Select(exchange => exchange.Method.Method));
+    }
+
+    [Fact]
+    public async Task SaveConnectorAsync_StoredVersionMovedWhereTheConnectorTableDoesNotCheckVersions_RefusesTheUpdate()
+    {
+        var connectorId = Guid.NewGuid();
+        var (client, _, ifMatches) = CreateConnectorStore(connectorId, () => Json("{\"IsOptimisticConcurrencyEnabled\":false}"), storedVersion: 8);
+
+        var exception = await Assert.ThrowsAsync<DataverseRequestException>(() => client.SaveConnectorAsync(new CustomConnectorMetadata { ConnectorId = connectorId, Name = "shared_contoso" }, exists: true, expectedVersion: 7, CancellationToken.None));
+
+        Assert.Equal(HttpStatusCode.PreconditionFailed, exception.StatusCode);
+        Assert.Empty(ifMatches);
+    }
+
+    [Fact]
+    public async Task SaveConnectorAsync_ConnectorTableMetadataUnreadable_RefusesTheUpdateAndAsksAgainNextTime()
+    {
+        var connectorId = Guid.NewGuid();
+        var (client, handler, ifMatches) = CreateConnectorStore(connectorId, () => Failure(HttpStatusCode.Forbidden, "{\"error\":{\"code\":\"0x80040220\",\"message\":\"Principal user is missing prvReadEntity privilege.\"}}"), storedVersion: 7);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.SaveConnectorAsync(new CustomConnectorMetadata { ConnectorId = connectorId, Name = "shared_contoso" }, exists: true, expectedVersion: 7, CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.SaveConnectorAsync(new CustomConnectorMetadata { ConnectorId = connectorId, Name = "shared_contoso" }, exists: true, expectedVersion: 7, CancellationToken.None));
+
+        Assert.Empty(ifMatches);
+        Assert.Equal(2, handler.Exchanges.Count(exchange => exchange.Url.Contains("EntityDefinitions", StringComparison.Ordinal)));
+    }
+
+    private static (SyncDataverseClient Client, RecordingHandler Handler, List<string> IfMatches) CreateConnectorStore(Guid connectorId, Func<HttpResponseMessage> tableMetadata, long storedVersion)
+    {
+        var ifMatches = new List<string>();
+        var (client, handler) = Create(request =>
+        {
+            if ((request.RequestUri ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ToString().Contains("EntityDefinitions", StringComparison.Ordinal))
+            {
+                return tableMetadata();
+            }
+
+            if (request.Method == HttpMethod.Get)
+            {
+                return Json($"{{\"value\":[{{\"connectorid\":\"{connectorId}\",\"versionnumber\":{storedVersion}}}]}}");
+            }
+
+            ifMatches.Add(request.Headers.IfMatch.ToString());
+            return Json($"{{\"connectorid\":\"{connectorId}\",\"versionnumber\":{storedVersion}}}");
+        });
+        return (client, handler, ifMatches);
     }
 
     [Theory]

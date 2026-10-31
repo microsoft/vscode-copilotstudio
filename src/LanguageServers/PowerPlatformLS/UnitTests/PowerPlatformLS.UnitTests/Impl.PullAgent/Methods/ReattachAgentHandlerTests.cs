@@ -352,6 +352,19 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
         }
 
         [Fact]
+        public async Task ReattachAgentPublishesLocalPromptsOverTheCloudCopyTest()
+        {
+            var context = CreateTestSetup();
+            var synchronizer = new TestWorkspaceSynchronizer();
+            var handler = TestHandlerFactory.CreateHandler(new MockDataverseClient(), synchronizer, CreateOperationProvider());
+
+            var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
+
+            Assert.Equal(200, response.Code);
+            Assert.True(synchronizer.PromptUpsertOverwroteRemoteChanges);
+        }
+
+        [Fact]
         public async Task ReattachAgentDataverseBadRequestTest()
         {
             var context = CreateTestSetup();
@@ -1250,11 +1263,14 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
         public virtual Task<ImmutableArray<AIPromptMetadata>> GetAIPromptsAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, Microsoft.CopilotStudio.McsCore.IFileAccessor fileAccessor, CancellationToken cancellationToken)
             => Task.FromResult(ImmutableArray<AIPromptMetadata>.Empty);
 
-        public virtual Task<(ImmutableArray<AIPromptResponse>, ImmutableArray<AIPromptMetadata>)> UpsertAIPromptsForAgentAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken)
+        public virtual Task<(ImmutableArray<AIPromptResponse>, ImmutableArray<AIPromptMetadata>)> UpsertAIPromptsForAgentAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken, bool overwriteRemoteChanges = false)
         {
             UpsertAIPromptCallCount++;
+            PromptUpsertOverwroteRemoteChanges = overwriteRemoteChanges;
             return Task.FromResult((ImmutableArray<AIPromptResponse>.Empty, ImmutableArray<AIPromptMetadata>.Empty));
         }
+
+        public bool? PromptUpsertOverwroteRemoteChanges { get; private set; }
 
         public int UpsertWorkflowCallCount { get; private set; }
 

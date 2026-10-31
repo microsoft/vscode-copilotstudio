@@ -315,12 +315,14 @@ public interface IWorkspaceSynchronizer
     /// <param name="dataverseClient">The dataverse client to use for communication with the dataverse service.</param>
     /// <param name="agentId">The Id for the agent.</param>
     /// <param name="cancellationToken">Cancellation token to cancel the operation.</param>
+    /// <param name="overwriteRemoteChanges">When true, local prompts replace prompts that also changed in the cloud since the last sync instead of being reported as failed.</param>
     /// <returns>List of AI prompt responses and the server copies of the workspace's prompts.</returns>
     Task<(ImmutableArray<AIPromptResponse>, ImmutableArray<AIPromptMetadata>)> UpsertAIPromptsForAgentAsync(
         DirectoryPath workspaceFolder,
         ISyncDataverseClient dataverseClient,
         Guid? agentId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        bool overwriteRemoteChanges = false);
 
     /// <summary>
     /// Gets workflows for the specified agent.

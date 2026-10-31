@@ -133,7 +133,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
         [Theory]
         [InlineData(true, false)]
         [InlineData(false, true)]
-        public async Task ConnectorPush_OverwritesCloudChangesUnlessThePushRequiresNothingLeftToPull(bool requireNoUnpulledChanges, bool overwriteRemoteChanges)
+        public async Task ConnectorAndPromptPush_OverwriteCloudChangesUnlessThePushRequiresNothingLeftToPull(bool requireNoUnpulledChanges, bool overwriteRemoteChanges)
         {
             using var fixture = new PreflightFixture();
 
@@ -141,6 +141,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
 
             Assert.Equal(200, response.Code);
             fixture.AssertConnectorsPushed(overwriteRemoteChanges);
+            fixture.AssertPromptsPushed(overwriteRemoteChanges);
         }
 
         [Fact]
@@ -224,7 +225,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
                     .Returns(Task.CompletedTask);
                 _synchronizer.Setup(service => service.UpsertWorkflowForAgentAsync(It.IsAny<DirectoryPath>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>(), It.IsAny<WorkflowActivationMode>()))
                     .ReturnsAsync((ImmutableArray<WorkflowResponse>.Empty, new CloudFlowMetadata()));
-                _synchronizer.Setup(service => service.UpsertAIPromptsForAgentAsync(It.IsAny<DirectoryPath>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+                _synchronizer.Setup(service => service.UpsertAIPromptsForAgentAsync(It.IsAny<DirectoryPath>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>(), It.IsAny<bool>()))
                     .ReturnsAsync((ImmutableArray<SyncDataverseClient.AIPromptResponse>.Empty, ImmutableArray<SyncDataverseClient.AIPromptMetadata>.Empty));
                 _synchronizer.Setup(service => service.PushLocalChangesAsync(It.IsAny<DirectoryPath>(), It.IsAny<AuthoringOperationContextBase>(), It.IsAny<DefinitionBase>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<AgentSyncInfo>(), It.IsAny<CloudFlowMetadata?>(), It.IsAny<ImmutableArray<SyncDataverseClient.AIPromptMetadata>>(), It.IsAny<CancellationToken>(), It.IsAny<AuthoringOperationContextBase?>(), It.IsAny<bool>()))
                     .Returns(Task.CompletedTask);
@@ -299,7 +300,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
                 _synchronizer.Verify(service => service.PushCustomConnectorsAsync(It.IsAny<DirectoryPath>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<CancellationToken>(), It.IsAny<bool>()), Times.Never);
                 _synchronizer.Verify(service => service.ProvisionConnectionReferencesAsync(It.IsAny<DirectoryPath>(), It.IsAny<DefinitionBase>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<CancellationToken>(), It.IsAny<IReadOnlyDictionary<string, Guid>?>()), Times.Never);
                 _synchronizer.Verify(service => service.UpsertWorkflowForAgentAsync(It.IsAny<DirectoryPath>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>(), It.IsAny<WorkflowActivationMode>()), Times.Never);
-                _synchronizer.Verify(service => service.UpsertAIPromptsForAgentAsync(It.IsAny<DirectoryPath>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
+                _synchronizer.Verify(service => service.UpsertAIPromptsForAgentAsync(It.IsAny<DirectoryPath>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>(), It.IsAny<bool>()), Times.Never);
                 _synchronizer.Verify(service => service.PushLocalChangesAsync(It.IsAny<DirectoryPath>(), It.IsAny<AuthoringOperationContextBase>(), It.IsAny<DefinitionBase>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<AgentSyncInfo>(), It.IsAny<CloudFlowMetadata?>(), It.IsAny<ImmutableArray<SyncDataverseClient.AIPromptMetadata>>(), It.IsAny<CancellationToken>(), It.IsAny<AuthoringOperationContextBase?>(), It.IsAny<bool>()), Times.Never);
                 _synchronizer.Verify(service => service.PullExistingChangesAsync(It.IsAny<DirectoryPath>(), It.IsAny<AuthoringOperationContextBase>(), It.IsAny<DefinitionBase>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>(), It.IsAny<bool>(), It.IsAny<ICollection<WorkspaceDiagnostic>>()), Times.Never);
             }
@@ -309,6 +310,9 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
 
             public void AssertConnectorsPushed(bool overwriteRemoteChanges)
                 => _synchronizer.Verify(service => service.PushCustomConnectorsAsync(It.IsAny<DirectoryPath>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<CancellationToken>(), overwriteRemoteChanges), Times.Once);
+
+            public void AssertPromptsPushed(bool overwriteRemoteChanges)
+                => _synchronizer.Verify(service => service.UpsertAIPromptsForAgentAsync(It.IsAny<DirectoryPath>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>(), overwriteRemoteChanges), Times.Once);
 
             public void Dispose() => Directory.Delete(Root, recursive: true);
 

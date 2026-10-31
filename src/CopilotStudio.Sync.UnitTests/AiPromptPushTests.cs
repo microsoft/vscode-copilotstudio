@@ -251,13 +251,76 @@ public class AiPromptPushTests : IDisposable
         WritePromptFiles("Summarize the input.");
         var dataverse = CreateDataverse();
         dataverse
-            .Setup(c => c.DownloadAIPromptsByModelIdsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .SetupSequence(c => c.DownloadAIPromptsByModelIdsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<AIPromptMetadata>())
             .ThrowsAsync(new InvalidOperationException("offline"));
 
         var (_, prompts) = await synchronizer.UpsertAIPromptsForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None);
 
         Assert.Empty(prompts);
         Assert.False(File.Exists(Path.Combine(_root, ".mcs", ".aiprompts-sync.json")));
+        dataverse.Verify(c => c.UpsertAIPromptAsync(It.IsAny<Guid?>(), It.IsAny<AIPromptMetadata>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpsertAIPromptsForAgentAsync_EditedLocallyAndInTheCloud_KeepsTheEditAndReportsTheConflict()
+    {
+        var dataverse = CreateDataverse();
+        var synchronizer = await SyncPromptAsync(dataverse);
+        WritePromptJson("Translate the input to French.");
+        _serverPrompts[_modelId] = ServerPrompt("Edited in the portal.");
+
+        var (responses, _) = await synchronizer.UpsertAIPromptsForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None);
+
+        var response = Assert.Single(responses);
+        Assert.Equal(_modelId, response.AIModelId);
+        Assert.Equal("It changed in the cloud since it was last synced. Get the latest changes, or overwrite the cloud copy.", response.ErrorMessage);
+        dataverse.Verify(c => c.UpsertAIPromptAsync(It.IsAny<Guid?>(), It.IsAny<AIPromptMetadata>(), It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Contains("Translate the input to French.", File.ReadAllText(Path.Combine(_promptFolder, "prompt.json")), StringComparison.Ordinal);
+        Assert.Contains(await LocalPromptChangesAsync(synchronizer), change => change.Uri.EndsWith("/prompt.json", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task UpsertAIPromptsForAgentAsync_EditedLocallyAndInTheCloudWithOverwrite_PublishesTheLocalPrompt()
+    {
+        var dataverse = CreateDataverse();
+        var synchronizer = await SyncPromptAsync(dataverse);
+        WritePromptJson("Translate the input to French.");
+        _serverPrompts[_modelId] = ServerPrompt("Edited in the portal.");
+
+        var (responses, _) = await synchronizer.UpsertAIPromptsForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None, overwriteRemoteChanges: true);
+
+        Assert.Equal(string.Empty, Assert.Single(responses).ErrorMessage);
+        dataverse.Verify(c => c.UpsertAIPromptAsync(It.IsAny<Guid?>(), It.Is<AIPromptMetadata>(prompt => prompt.CustomConfiguration == AiPromptProjection.BuildCustomConfigurationFromPromptJson("{ \"instruction\": \"Translate the input to French.\" }")), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpsertAIPromptsForAgentAsync_CloudCopyUnreadable_DoesNotPublishAndReportsWhy()
+    {
+        var dataverse = CreateDataverse();
+        var synchronizer = await SyncPromptAsync(dataverse);
+        WritePromptJson("Translate the input to French.");
+        dataverse
+            .Setup(c => c.DownloadAIPromptsByModelIdsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("offline"));
+
+        var (responses, _) = await synchronizer.UpsertAIPromptsForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None);
+
+        Assert.Equal("Could not check whether it changed in the cloud: offline", Assert.Single(responses).ErrorMessage);
+        dataverse.Verify(c => c.UpsertAIPromptAsync(It.IsAny<Guid?>(), It.IsAny<AIPromptMetadata>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpsertAIPromptsForAgentAsync_PromptWithoutABaselineThatMatchesTheCloud_IsPublished()
+    {
+        var dataverse = CreateDataverse();
+        var synchronizer = await SyncPromptAsync(dataverse);
+        File.Delete(Path.Combine(_root, ".mcs", ".aiprompts-sync.json"));
+
+        var (responses, _) = await synchronizer.UpsertAIPromptsForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None);
+
+        Assert.Equal(string.Empty, Assert.Single(responses).ErrorMessage);
+        dataverse.Verify(c => c.UpsertAIPromptAsync(It.IsAny<Guid?>(), It.IsAny<AIPromptMetadata>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
 
     [Fact]
