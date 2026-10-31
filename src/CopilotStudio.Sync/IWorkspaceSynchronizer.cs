@@ -177,7 +177,7 @@ public interface IWorkspaceSynchronizer
     /// <param name="aiPrompts">AI Builder prompt metadata to project into the cloud cache.</param>
     /// <param name="cancellationToken">Used to cancel the request</param>
     /// <param name="uploadAllKnowledgeFiles">True/False to upload or not all knowledge files.</param>
-    /// <returns>Result describing knowledge file upload count and any newly created custom connectors.</returns>
+    /// <returns>Result describing the knowledge file upload count.</returns>
     Task<PushChangesetResult> PushChangesetAsync(
         DirectoryPath workspaceFolder,
         AuthoringOperationContextBase operationContext,
@@ -201,6 +201,7 @@ public interface IWorkspaceSynchronizer
     /// <param name="aiPrompts">AI Builder prompt metadata to project into the cloud cache.</param>
     /// <param name="cancellationToken">Used to cancel the request.</param>
     /// <param name="contentSaveContextOverride">When set, the authoring context used for the content save.</param>
+    /// <param name="overwriteRemoteChanges">When true, local edits replace components that were also changed in the cloud instead of failing the push.</param>
     /// <returns>A task representing the asynchronous operation.</returns>
     Task PushLocalChangesAsync(
         DirectoryPath workspaceFolder,
@@ -211,7 +212,8 @@ public interface IWorkspaceSynchronizer
         CloudFlowMetadata? cloudFlowMetadata,
         ImmutableArray<AIPromptMetadata> aiPrompts,
         CancellationToken cancellationToken,
-        AuthoringOperationContextBase? contentSaveContextOverride = null);
+        AuthoringOperationContextBase? contentSaveContextOverride = null,
+        bool overwriteRemoteChanges = false);
 
     Task ThrowIfWorkspaceInvalidAsync(DirectoryPath workspaceFolder, DefinitionBase workspaceDefinition, CancellationToken cancellationToken);
 
@@ -313,12 +315,14 @@ public interface IWorkspaceSynchronizer
     /// <param name="dataverseClient">The dataverse client to use for communication with the dataverse service.</param>
     /// <param name="agentId">The Id for the agent.</param>
     /// <param name="cancellationToken">Cancellation token to cancel the operation.</param>
-    /// <returns>List of AI prompt responses and the prompt metadata that was upserted.</returns>
+    /// <param name="overwriteRemoteChanges">When true, local prompts replace prompts that also changed in the cloud since the last sync instead of being reported as failed.</param>
+    /// <returns>List of AI prompt responses and the server copies of the workspace's prompts.</returns>
     Task<(ImmutableArray<AIPromptResponse>, ImmutableArray<AIPromptMetadata>)> UpsertAIPromptsForAgentAsync(
         DirectoryPath workspaceFolder,
         ISyncDataverseClient dataverseClient,
         Guid? agentId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        bool overwriteRemoteChanges = false);
 
     /// <summary>
     /// Gets workflows for the specified agent.
@@ -413,11 +417,13 @@ public interface IWorkspaceSynchronizer
     /// <param name="workspaceFolder">The location of the root of the workspace.</param>
     /// <param name="dataverseClient">The dataverse client to use for communication with the dataverse service.</param>
     /// <param name="cancellationToken">Cancellation token to cancel the operation.</param>
-    /// <returns>Result with upserted connector row IDs and names of any newly created connectors.</returns>
+    /// <param name="overwriteRemoteChanges">When true, local connectors replace connectors that also changed in the cloud since the last sync instead of being reported as failed.</param>
+    /// <returns>Result with the pushed connector row IDs and the connectors created, updated, or failed.</returns>
     Task<CustomConnectorPushResult> PushCustomConnectorsAsync(
         DirectoryPath workspaceFolder,
         ISyncDataverseClient dataverseClient,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        bool overwriteRemoteChanges = false);
 
     /// <summary>
     /// Reads the workspace definition from the specified folder.
@@ -435,24 +441,6 @@ public interface IWorkspaceSynchronizer
     /// <param name="cancellationToken">Cancellation token to cancel the operation.</param>
     /// <returns>The workspace definition and a restore change for every file whose content could not be parsed.</returns>
     Task<(DefinitionBase Definition, ImmutableArray<Change> UnreadableChanges)> ReadWorkspaceDefinitionForDiscardAsync(DirectoryPath workspaceFolder, CancellationToken cancellationToken);
-
-    /// <summary>
-    /// Verifies a push by re-cloning the agent from the server to a temporary workspace
-    /// and diffing against the expected (pushed) state. Returns per-entity-type results.
-    /// This is a composed operation (clone + diff) per R9 push verification requirement.
-    /// </summary>
-    /// <param name="workspaceFolder">The workspace that was pushed (source of expected state).</param>
-    /// <param name="operationContext">The operation context for the agent.</param>
-    /// <param name="dataverseClient">Dataverse client for server communication.</param>
-    /// <param name="syncInfo">Synchronization information for the agent.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Verification result with per-entity-type acceptance status.</returns>
-    Task<PushVerificationResult> VerifyPushAsync(
-        DirectoryPath workspaceFolder,
-        AuthoringOperationContextBase operationContext,
-        ISyncDataverseClient dataverseClient,
-        AgentSyncInfo syncInfo,
-        CancellationToken cancellationToken);
 
     /// <summary>
     /// Clones an agent and its component collections into separate workspace folders

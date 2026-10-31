@@ -26,10 +26,12 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Handlers
     internal class GetCloudCacheFileHandler : IRequestHandler<GetFileRequest, GetFileResponse, RequestContext>
     {
         private const string EndpointName = "powerplatformls/getCachedFile";
+        private readonly IFileAccessorFactory _fileAccessorFactory;
         private readonly ILspLogger _logger;
 
-        public GetCloudCacheFileHandler(ILspLogger logger)
+        public GetCloudCacheFileHandler(IFileAccessorFactory fileAccessorFactory, ILspLogger logger)
         {
+            _fileAccessorFactory = fileAccessorFactory;
             _logger = logger;
         }
 
@@ -43,6 +45,15 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Handlers
             try
             {
                 var workspacePath = context.Workspace.FolderPath;
+                if (SyncedAssetKind.ReadCloudCopy(_fileAccessorFactory.Create(workspacePath), request.SchemaName) is { } cloudCopy)
+                {
+                    return Task.FromResult(new GetFileResponse
+                    {
+                        Code = 200,
+                        Content = cloudCopy
+                    });
+                }
+
                 var path = workspacePath.GetChildFilePath(".mcs/botdefinition.json");
                 var originalDefinition = (context.Workspace.GetDocument(path) as McsLspDocument)?.FileModel as DefinitionBase;
                 var contextDefinition = (context.Workspace as McsWorkspace)?.Definition;

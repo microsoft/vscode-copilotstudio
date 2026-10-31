@@ -117,4 +117,11 @@ public class SyncDataverseClientContractTests
         Assert.True(typeof(ISyncDataverseClient).IsAssignableFrom(typeof(SyncDataverseClient)));
         Assert.True(typeof(IStandaloneWorkflowDataverseClient).IsAssignableFrom(typeof(SyncDataverseClient)));
     }
+
+    [Fact]
+    public void TheConnectorContractIsSeparateFromTheShippedOne()
+    {
+        Assert.False(typeof(ICustomConnectorOperations).IsAssignableFrom(typeof(ISyncDataverseClient)));
+        Assert.True(typeof(ICustomConnectorOperations).IsAssignableFrom(typeof(SyncDataverseClient)));
+    }
 }

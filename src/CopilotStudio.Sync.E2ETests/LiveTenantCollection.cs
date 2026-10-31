@@ -7,7 +7,7 @@ namespace Microsoft.CopilotStudio.Sync.E2ETests;
 /// <summary>
 /// xUnit test collection that serializes all live-tenant E2E tests. Tests in this
 /// collection target the same Copilot Studio agent and must not run concurrently —
-/// a push in one test would cause verify failures in another.
+/// a push in one test would change the agent another test is reading.
 /// </summary>
 [CollectionDefinition(Name, DisableParallelization = true)]
 public sealed class LiveTenantCollection

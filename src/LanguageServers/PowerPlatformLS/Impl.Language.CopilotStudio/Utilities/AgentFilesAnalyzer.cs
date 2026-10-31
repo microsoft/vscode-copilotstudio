@@ -307,7 +307,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Utilities
             IDirectoryContents promptsContents;
             try
             {
-                promptsContents = _fileProvider.GetDirectoryContents(agentRoot.GetChildDirectoryPath("prompts"));
+                promptsContents = _fileProvider.GetDirectoryContents(agentRoot.GetChildDirectoryPath(AiPromptLayout.FolderName));
             }
             catch (InvalidOperationException)
             {
@@ -327,7 +327,7 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Utilities
                     continue;
                 }
 
-                var modelId = AiPromptProjection.ExtractTrailingGuidFromFileName(entry.Name);
+                var modelId = ComponentFolderName.ExtractTrailingGuid(entry.Name);
                 if (modelId == null || knownModelIds.Contains(modelId.Value))
                 {
                     continue;
@@ -336,12 +336,12 @@ namespace Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Utilities
                 var promptFolder = entry.ToDirectoryPath();
                 try
                 {
-                    if (!_fileProvider.GetFileInfo(promptFolder.GetChildFilePath("metadata.yml")).Exists)
+                    if (!_fileProvider.GetFileInfo(promptFolder.GetChildFilePath(AiPromptLayout.MetadataFileName)).Exists)
                     {
                         continue;
                     }
 
-                    var promptJsonInfo = _fileProvider.GetFileInfo(promptFolder.GetChildFilePath("prompt.json"));
+                    var promptJsonInfo = _fileProvider.GetFileInfo(promptFolder.GetChildFilePath(AiPromptLayout.PromptFileName));
                     var promptJson = promptJsonInfo.Exists ? promptJsonInfo.ReadAllText() : null;
                     var name = promptJson != null ? AiPromptProjection.TryReadPromptName(promptJson) : null;
                     var customConfiguration = promptJson != null ? AiPromptProjection.BuildCustomConfigurationFromPromptJson(promptJson) : null;

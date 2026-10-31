@@ -14,14 +14,21 @@ using Microsoft.CopilotStudio.McsCore.Yaml;
 
 namespace Microsoft.CopilotStudio.Sync.Dataverse;
 
-public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowDataverseClient, ISyncComponentCollectionDataverseClient, IStreamingKnowledgeFileClient
+public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowDataverseClient, ISyncComponentCollectionDataverseClient, IStreamingKnowledgeFileClient, ICustomConnectorOperations
 {
     private readonly IDataverseHttpClientAccessor _httpClientAccessor;
     private readonly AsyncLocal<string> _dataverseUrl = new();
+    private readonly ConcurrentDictionary<string, bool> _connectorVersionChecks = new(StringComparer.OrdinalIgnoreCase);
     private string DataverseUrl => _dataverseUrl.Value
         ?? throw new InvalidOperationException("Dataverse URL is not set. Call SetDataverseUrl before making API calls.");
 
+    private string ConnectorsUrl => $"{DataverseUrl}/api/data/v9.2/connectors";
+
     private const int BatchSize = 50;
+
+    private const string ConnectorColumns = "connectorid,name,displayname,description,connectorinternalid,openapidefinition,connectionparameters,connectionparametersets,policytemplateinstances,iconbrandcolor,iconblob,connectortype,statecode,statuscode,ismanaged,componentstate,createdon,modifiedon,versionnumber";
+
+    private const string ConnectorVersionColumns = "connectorid,connectorinternalid,ismanaged,modifiedon,versionnumber";
 
     private const string WorkflowPrimaryKeyColumn = "workflowid";
 
@@ -315,22 +322,11 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         return string.IsNullOrWhiteSpace(segment) ? null : segment;
     }
 
-    public virtual Task<CustomConnectorMetadata[]> DownloadConnectorsByInternalIdsAsync(IEnumerable<string> connectorInternalIds, bool isManaged, CancellationToken cancellationToken)
-    {
-        const string select =
-            "connectorid,name,displayname,description,connectorinternalid," +
-            "openapidefinition,connectionparameters,connectionparametersets," +
-            "policytemplateinstances," +
-            "iconbrandcolor,iconblob,connectortype,statecode,statuscode," +
-            "ismanaged,componentstate,createdon,modifiedon,versionnumber";
-        return QueryConnectorsByInternalIdsAsync(connectorInternalIds, isManaged, select, cancellationToken);
-    }
+    public virtual Task<CustomConnectorMetadata[]> DownloadConnectorsByInternalIdsAsync(IEnumerable<string> connectorInternalIds, bool isManaged, CancellationToken cancellationToken) => QueryConnectorsByInternalIdsAsync(connectorInternalIds, isManaged, ConnectorColumns, cancellationToken);
 
-    public virtual Task<CustomConnectorMetadata[]> GetConnectorVersionsByInternalIdsAsync(IEnumerable<string> connectorInternalIds, bool isManaged, CancellationToken cancellationToken)
-    {
-        const string select = "connectorid,connectorinternalid,ismanaged,modifiedon,versionnumber";
-        return QueryConnectorsByInternalIdsAsync(connectorInternalIds, isManaged, select, cancellationToken);
-    }
+    public virtual Task<CustomConnectorMetadata[]> GetConnectorVersionsByInternalIdsAsync(IEnumerable<string> connectorInternalIds, bool isManaged, CancellationToken cancellationToken) => QueryConnectorsByInternalIdsAsync(connectorInternalIds, isManaged, ConnectorVersionColumns, cancellationToken);
+
+    public virtual Task<CustomConnectorMetadata[]> GetConnectorVersionsByIdsAsync(IReadOnlyCollection<Guid> connectorIds, CancellationToken cancellationToken) => ReadConnectorsAsync(BuildConnectorQueryUrls((connectorIds ?? Array.Empty<Guid>()).Where(connectorId => connectorId != Guid.Empty).Distinct().Select(connectorId => $"connectorid eq {connectorId}"), ConnectorVersionColumns, string.Empty), cancellationToken);
 
     private async Task<CustomConnectorMetadata[]> QueryConnectorsByInternalIdsAsync(IEnumerable<string> connectorInternalIds, bool isManaged, string select, CancellationToken cancellationToken)
     {
@@ -339,10 +335,10 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
             return Array.Empty<CustomConnectorMetadata>();
         }
 
-        return await ReadConnectorsAsync(connectorInternalIds.Where(internalId => !string.IsNullOrWhiteSpace(internalId)).Select(internalId => internalId.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList().Chunk(BatchSize).Select(batch => $"{DataverseUrl}/api/data/v9.2/connectors?$select={select}&$filter={Uri.EscapeDataString(InternalIdFilter(batch, isManaged))}"), cancellationToken).ConfigureAwait(false);
+        return await ReadConnectorsAsync(BuildConnectorQueryUrls(connectorInternalIds.Where(internalId => !string.IsNullOrWhiteSpace(internalId)).Select(internalId => internalId.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Select(internalId => $"connectorinternalid eq {ODataLiteral.Quote(internalId)}"), select, isManaged ? string.Empty : " and ismanaged eq false"), cancellationToken).ConfigureAwait(false);
     }
 
-    private static string InternalIdFilter(IEnumerable<string> internalIds, bool isManaged) => $"({string.Join(" or ", internalIds.Select(internalId => $"connectorinternalid eq {ODataLiteral.Quote(internalId)}"))}){(isManaged ? string.Empty : " and ismanaged eq false")}";
+    private IEnumerable<string> BuildConnectorQueryUrls(IEnumerable<string> filterClauses, string select, string filterSuffix) => filterClauses.ToList().Chunk(BatchSize).Select(batch => $"{ConnectorsUrl}?$select={select}&$filter={Uri.EscapeDataString($"({string.Join(" or ", batch)}){filterSuffix}")}");
 
     public virtual async Task<CustomConnectorMetadata[]> GetConnectorsByInternalIdPrefixAsync(string connectorInternalIdPrefix, CancellationToken cancellationToken)
     {
@@ -351,7 +347,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
             return Array.Empty<CustomConnectorMetadata>();
         }
 
-        return await ReadConnectorsAsync(new[] { $"{DataverseUrl}/api/data/v9.2/connectors?$select=connectorid,name,displayname,connectorinternalid,connectortype,ismanaged,modifiedon&$filter={Uri.EscapeDataString($"startswith(connectorinternalid,{ODataLiteral.LikePattern(connectorInternalIdPrefix)})")}" }, cancellationToken).ConfigureAwait(false);
+        return await ReadConnectorsAsync(new[] { $"{ConnectorsUrl}?$select=connectorid,name,displayname,connectorinternalid,connectortype,ismanaged,modifiedon&$filter={Uri.EscapeDataString($"startswith(connectorinternalid,{ODataLiteral.LikePattern(connectorInternalIdPrefix)})")}" }, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<CustomConnectorMetadata[]> ReadConnectorsAsync(IEnumerable<string> firstPageUrls, CancellationToken cancellationToken)
@@ -388,6 +384,13 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
 
     public virtual async Task<bool> UpsertConnectorAsync(CustomConnectorMetadata connector, CancellationToken cancellationToken)
     {
+        var exists = (await GetConnectorVersionsByIdsAsync(new[] { (connector ?? throw new ArgumentNullException(nameof(connector))).ConnectorId }, cancellationToken).ConfigureAwait(false)).Length > 0;
+        await SaveConnectorAsync(connector, exists, expectedVersion: null, cancellationToken).ConfigureAwait(false);
+        return !exists;
+    }
+
+    public virtual async Task<CustomConnectorMetadata> SaveConnectorAsync(CustomConnectorMetadata connector, bool exists, long? expectedVersion, CancellationToken cancellationToken)
+    {
         if (connector == null)
         {
             throw new ArgumentNullException(nameof(connector));
@@ -398,34 +401,47 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
             throw new ArgumentException("Connector must have a non-empty ConnectorId.", nameof(connector));
         }
 
-        var exists = await ConnectorExistsAsync(connector.ConnectorId, cancellationToken).ConfigureAwait(false);
-        if (exists)
-        {
-            await UpdateConnectorAsync(connector, cancellationToken).ConfigureAwait(false);
-            return false;
-        }
-        else
-        {
-            await CreateConnectorAsync(connector, cancellationToken).ConfigureAwait(false);
-            return true;
-        }
+        var connectorUrl = $"{ConnectorsUrl}({connector.ConnectorId})";
+        var ifMatchVersion = exists && expectedVersion is { } version ? await GetConnectorIfMatchVersionAsync(connector.ConnectorId, version, cancellationToken).ConfigureAwait(false) : null;
+        return await SendAsync<CustomConnectorMetadata>(exists ? HttpMethodHelper.Patch : HttpMethod.Post, $"{(exists ? connectorUrl : ConnectorsUrl)}?$select={ConnectorColumns}", CreateConnectorRequestBody(connector, exists), expectReturn: true, cancellationToken, ifMatchVersion: ifMatchVersion).ConfigureAwait(false)
+            ?? await SendAsync<CustomConnectorMetadata>(HttpMethod.Get, $"{connectorUrl}?$select={ConnectorColumns}", null, false, cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException($"Connector '{connector.ConnectorId}' was not returned after it was saved.");
     }
 
-    private async Task<bool> ConnectorExistsAsync(Guid connectorId, CancellationToken cancellationToken)
+    private async Task<long?> GetConnectorIfMatchVersionAsync(Guid connectorId, long expectedVersion, CancellationToken cancellationToken)
     {
-        var url = $"{DataverseUrl}/api/data/v9.2/connectors({connectorId})?$select=connectorid";
+        if (await ChecksConnectorVersionsAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return expectedVersion;
+        }
+
+        return (await GetConnectorVersionsByIdsAsync(new[] { connectorId }, cancellationToken).ConfigureAwait(false)).FirstOrDefault()?.VersionNumber == expectedVersion
+            ? null
+            : throw new DataverseRequestException(System.Net.HttpStatusCode.PreconditionFailed, $"Connector '{connectorId}' no longer has version {expectedVersion}.");
+    }
+
+    private async Task<bool> ChecksConnectorVersionsAsync(CancellationToken cancellationToken)
+    {
+        var dataverseUrl = DataverseUrl;
+        if (_connectorVersionChecks.TryGetValue(dataverseUrl, out var checksVersions))
+        {
+            return checksVersions;
+        }
+
+        JsonElement metadata;
         try
         {
-            await SendAsync<object>(HttpMethod.Get, url, null, false, cancellationToken).ConfigureAwait(false);
-            return true;
+            metadata = await SendAsync<JsonElement>(HttpMethod.Get, $"{dataverseUrl}/api/data/v9.2/EntityDefinitions(LogicalName='connector')?$select=IsOptimisticConcurrencyEnabled", null, false, cancellationToken).ConfigureAwait(false);
         }
-        catch (InvalidOperationException ex) when (ex.Message.Contains("(404)"))
+        catch (DataverseRequestException exception)
         {
-            return false;
+            throw new InvalidOperationException("Could not confirm that the environment refuses connector updates based on an outdated copy. Try again, or overwrite the cloud copy.", exception);
         }
+
+        return _connectorVersionChecks.GetOrAdd(dataverseUrl, metadata.ValueKind == JsonValueKind.Object && metadata.TryGetProperty("IsOptimisticConcurrencyEnabled", out var enabled) && enabled.ValueKind == JsonValueKind.True);
     }
 
-    private async Task UpdateConnectorAsync(CustomConnectorMetadata connector, CancellationToken cancellationToken)
+    private static Dictionary<string, object?> CreateConnectorRequestBody(CustomConnectorMetadata connector, bool exists)
     {
         var body = new Dictionary<string, object?>
         {
@@ -438,36 +454,16 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
             ["policytemplateinstances"] = connector.PolicyTemplateInstances,
             ["iconbrandcolor"] = connector.IconBrandColor,
             ["iconblob"] = connector.IconBlobBase64,
-        }
-        .Where(kv => kv.Value != null)
-        .ToDictionary(kv => kv.Key, kv => kv.Value);
+        };
 
-        var url = $"{DataverseUrl}/api/data/v9.2/connectors({connector.ConnectorId})";
-        await SendAsync<object>(HttpMethodHelper.Patch, url, body, false, cancellationToken).ConfigureAwait(false);
-    }
-
-    private async Task CreateConnectorAsync(CustomConnectorMetadata connector, CancellationToken cancellationToken)
-    {
-        var body = new Dictionary<string, object?>
+        if (!exists)
         {
-            ["connectorid"] = connector.ConnectorId,
-            ["name"] = connector.Name,
-            ["displayname"] = connector.DisplayName,
-            ["description"] = connector.Description,
-            ["connectorinternalid"] = connector.ConnectorInternalId,
-            ["openapidefinition"] = connector.OpenApiDefinition,
-            ["connectionparameters"] = connector.ConnectionParameters,
-            ["connectionparametersets"] = connector.ConnectionParameterSets,
-            ["policytemplateinstances"] = connector.PolicyTemplateInstances,
-            ["iconbrandcolor"] = connector.IconBrandColor,
-            ["iconblob"] = connector.IconBlobBase64,
-            ["connectortype"] = connector.ConnectorType,
+            body["connectorid"] = connector.ConnectorId;
+            body["connectorinternalid"] = connector.ConnectorInternalId;
+            body["connectortype"] = connector.ConnectorType;
         }
-        .Where(kv => kv.Value != null)
-        .ToDictionary(kv => kv.Key, kv => kv.Value);
 
-        var url = $"{DataverseUrl}/api/data/v9.2/connectors";
-        await SendAsync<object>(HttpMethod.Post, url, body, false, cancellationToken).ConfigureAwait(false);
+        return body.Where(entry => entry.Value != null).ToDictionary(entry => entry.Key, entry => entry.Value);
     }
 
     private async Task<bool> WorkflowExistsAsync(Guid workflowId, CancellationToken cancellationToken)
@@ -869,12 +865,12 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         return requested;
     }
 
-    private async Task<T?> SendAsync<T>(HttpMethod httpMethod, string requestUrl, object? requestBody, bool expectReturn, CancellationToken cancellationToken, string? preference = null)
+    private async Task<T?> SendAsync<T>(HttpMethod httpMethod, string requestUrl, object? requestBody, bool expectReturn, CancellationToken cancellationToken, string? preference = null, long? ifMatchVersion = null)
     {
         var requestUri = RequireDataverseOrigin(requestUrl);
         var body = requestBody is null ? null : JsonSerializer.SerializeToUtf8Bytes(requestBody, JsonSerializerOptions);
 
-        using var responseMessage = await _retryPolicy.SendAsync(_httpClientAccessor.CreateClient(), () => CreateRequest(httpMethod, requestUri, body, expectReturn ? "return=representation" : preference), HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        using var responseMessage = await _retryPolicy.SendAsync(_httpClientAccessor.CreateClient(), () => CreateRequest(httpMethod, requestUri, body, expectReturn ? "return=representation" : preference, ifMatchVersion), HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
 
         if (!responseMessage.IsSuccessStatusCode)
         {
@@ -911,7 +907,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         return await JsonSerializer.DeserializeAsync<T>(bufferStream, JsonSerializerOptions, cancellationToken).ConfigureAwait(false);
     }
 
-    private HttpRequestMessage CreateRequest(HttpMethod httpMethod, Uri requestUri, byte[]? body, string? preference)
+    private HttpRequestMessage CreateRequest(HttpMethod httpMethod, Uri requestUri, byte[]? body, string? preference, long? ifMatchVersion = null)
     {
         var requestMessage = new HttpRequestMessage(httpMethod, requestUri);
         requestMessage.Headers.Add("OData-MaxVersion", "4.0");
@@ -921,6 +917,11 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         if (preference is not null)
         {
             requestMessage.Headers.Add("Prefer", preference);
+        }
+
+        if (ifMatchVersion is { } version)
+        {
+            requestMessage.Headers.IfMatch.Add(new System.Net.Http.Headers.EntityTagHeaderValue($"\"{version.ToString(System.Globalization.CultureInfo.InvariantCulture)}\"", isWeak: true));
         }
 
         if (body is not null)
@@ -1520,7 +1521,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         {
             if (string.IsNullOrEmpty(promptMetadata.CustomConfiguration))
             {
-                return new AIPromptResponse { PromptName = promptName, ErrorMessage = string.Empty };
+                return new AIPromptResponse { AIModelId = promptMetadata.AIModelId, PromptName = promptName, ErrorMessage = string.Empty };
             }
 
             var templateId = await GetTemplateIdAsync(promptMetadata.AIModelId, cancellationToken).ConfigureAwait(false);
@@ -1542,6 +1543,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
 
         return new AIPromptResponse
         {
+            AIModelId = promptMetadata.AIModelId,
             PromptName = promptName,
             ErrorMessage = errorMessage
         };
@@ -1826,6 +1828,8 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
 
     public class AIPromptResponse
     {
+        public Guid AIModelId { get; set; }
+
         public string? PromptName { get; set; }
 
         public string? ErrorMessage { get; set; }

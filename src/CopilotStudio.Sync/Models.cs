@@ -28,7 +28,7 @@ public record Change
 
     public string SchemaName { get; set; } = string.Empty;
 
-    public string? RemoteWorkflowContent { get; set; }
+    public string? RemoteContent { get; set; }
 }
 
 public enum ChangeType
@@ -552,6 +552,18 @@ public class CustomConnectorPushResult
     /// Map of connector internal id to the connector's Dataverse row GUID for every connector that was upserted.
     /// </summary>
     public IReadOnlyDictionary<string, Guid> PushedRowIds { get; init; } = new Dictionary<string, Guid>();
+
+    /// <summary>The connectors this push created in Dataverse.</summary>
+    public IReadOnlyList<Change> Created { get; init; } = Array.Empty<Change>();
+
+    /// <summary>The connectors this push updated in Dataverse.</summary>
+    public IReadOnlyList<Change> Updated { get; init; } = Array.Empty<Change>();
+
+    /// <summary>The connectors this push failed to save.</summary>
+    public IReadOnlyList<Change> Failed { get; init; } = Array.Empty<Change>();
+
+    /// <summary>Why each connector in <see cref="Failed"/> was not saved, one sentence per connector in the same order.</summary>
+    public IReadOnlyList<string> FailureReasons { get; init; } = Array.Empty<string>();
 }
 
 #endregion
@@ -623,55 +635,6 @@ internal interface IMcsWorkspace
     DefinitionBase Definition { get; }
 
     AuthoringShape AuthoringShape { get; }
-}
-
-#endregion
-
-#region PushVerification
-
-/// <summary>
-/// Result of a push verification operation.
-/// Compares the workspace state against the server's current state (via re-clone)
-/// to detect silent push rejection.
-/// </summary>
-public record PushVerificationResult
-{
-    /// <summary>
-    /// True if all entity types in the push were accepted by the server.
-    /// </summary>
-    public bool IsFullyAccepted { get; init; }
-
-    /// <summary>
-    /// Per-entity-type verification details. Each entry reports whether the server's
-    /// state matches the pushed state for that entity type.
-    /// </summary>
-    public ImmutableArray<EntityTypeVerification> EntityTypes { get; init; } = ImmutableArray<EntityTypeVerification>.Empty;
-}
-
-/// <summary>
-/// Verification result for a single entity type (e.g., "topic", "dialog", "entity").
-/// </summary>
-public record EntityTypeVerification
-{
-    /// <summary>
-    /// The entity/change kind (e.g., "topic", "dialog", "entity", "workflow").
-    /// </summary>
-    public string ChangeKind { get; init; } = string.Empty;
-
-    /// <summary>
-    /// Number of components of this type that were pushed.
-    /// </summary>
-    public int PushedCount { get; init; }
-
-    /// <summary>
-    /// Number of components of this type found in the server re-clone that match pushed state.
-    /// </summary>
-    public int VerifiedCount { get; init; }
-
-    /// <summary>
-    /// True if all pushed components of this type were accepted.
-    /// </summary>
-    public bool Accepted => PushedCount == VerifiedCount;
 }
 
 #endregion

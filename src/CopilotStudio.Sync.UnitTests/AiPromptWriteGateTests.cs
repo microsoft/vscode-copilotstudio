@@ -95,6 +95,34 @@ public class AiPromptWriteGateTests
         }
     }
 
+    [Fact]
+    public async Task GetAIPrompts_RecordsTheServerCopyAsTheCloudCopyAndDropsPromptsNoLongerOnTheServer()
+    {
+        var (synchronizer, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var keptModelId = Guid.NewGuid();
+        var removedModelId = Guid.NewGuid();
+        var serverPrompts = new[]
+        {
+            new AIPromptMetadata { AIModelId = keptModelId, Name = "Kept", CustomConfiguration = "{\"version\":\"1\"}" },
+            new AIPromptMetadata { AIModelId = removedModelId, Name = "Removed", CustomConfiguration = "{\"version\":\"1\"}" },
+        };
+        var mockDataverse = new Mock<ISyncDataverseClient>();
+        mockDataverse
+            .Setup(x => x.DownloadAllAIPromptsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => serverPrompts);
+        var accessor = new CountingFileAccessor();
+        var workspace = new DirectoryPath("c:/test/prompt-cloud-copy/");
+        var syncInfo = new AgentSyncInfo { AgentId = Guid.NewGuid() };
+
+        await synchronizer.GetAIPromptsAsync(workspace, mockDataverse.Object, syncInfo, accessor, CancellationToken.None);
+        serverPrompts = serverPrompts.Take(1).ToArray();
+        await synchronizer.GetAIPromptsAsync(workspace, mockDataverse.Object, syncInfo, accessor, CancellationToken.None);
+
+        Assert.Equal(await accessor.ReadStringAsync(new AgentFilePath($"prompts/Kept-{keptModelId}/prompt.json"), CancellationToken.None), SyncedAssetKind.ReadCloudCopy(accessor, $"Mcs.AIPrompt.{keptModelId}"));
+        Assert.Equal(await accessor.ReadStringAsync(new AgentFilePath($"prompts/Kept-{keptModelId}/metadata.yml"), CancellationToken.None), SyncedAssetKind.ReadCloudCopy(accessor, $"Mcs.AIPrompt.{keptModelId}.metadata"));
+        Assert.Null(SyncedAssetKind.ReadCloudCopy(accessor, $"Mcs.AIPrompt.{removedModelId}"));
+    }
+
     private sealed class CountingFileAccessor : IFileAccessor
     {
         private readonly Dictionary<string, byte[]> _files = new(StringComparer.Ordinal);

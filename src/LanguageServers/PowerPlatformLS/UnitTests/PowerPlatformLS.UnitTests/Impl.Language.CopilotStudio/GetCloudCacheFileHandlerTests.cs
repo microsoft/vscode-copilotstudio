@@ -12,6 +12,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Handlers;
     using Moq;
     using System;
+    using System.Collections.Generic;
     using System.Globalization;
     using System.IO;
     using System.Threading;
@@ -108,6 +109,48 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
             }
         }
 
+        [Theory]
+        [InlineData(CustomConnectorLayout.ChangeKind, CustomConnectorLayout.MetadataFileName)]
+        [InlineData(CustomConnectorLayout.ChangeKind, CustomConnectorLayout.OpenApiDefinitionFileName)]
+        [InlineData(AiPromptLayout.ChangeKind, AiPromptLayout.MetadataFileName)]
+        public async Task ConnectorAndPromptFilesAreReadFromTheirCloudCopy(string changeKind, string fileName)
+        {
+            var assetKind = SyncedAssetKind.Find(changeKind)!;
+            var schemaName = assetKind.GetFileSchemaName(Guid.NewGuid(), fileName);
+            var root = NewWorkspaceRoot();
+
+            try
+            {
+                assetKind.WriteCloudCopies(new FileAccessorFactory().Create(new DirectoryPath(root.Replace('\\', '/'))), new Dictionary<string, string> { [schemaName] = "cloud content" });
+
+                var response = await HandleAsync(schemaName, root);
+
+                Assert.Equal(200, response.Code);
+                Assert.Equal("cloud content", response.Content);
+            }
+            finally
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+
+        [Fact]
+        public async Task AConnectorFileTheCloudCopyDoesNotHoldReturnsNotFound()
+        {
+            var root = NewWorkspaceRoot();
+
+            try
+            {
+                var response = await HandleAsync($"Mcs.Connector.{Guid.NewGuid()}.openapidefinition", root);
+
+                Assert.Equal(404, response.Code);
+            }
+            finally
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+
         private static string NewWorkspaceRoot()
         {
             var root = Path.Combine(Path.GetTempPath(), "mcs-cache-" + Guid.NewGuid().ToString("N"));
@@ -134,7 +177,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
             var workspace = world.GetWorkspace();
             workspace.BuildCompilationModel();
 
-            var handler = new GetCloudCacheFileHandler(Mock.Of<ILspLogger>());
+            var handler = CreateHandler();
             var context = new RequestContext(world.GetRequiredService<ILanguageAbstraction>(), workspace, null, 0);
             var request = new GetFileRequest
             {
@@ -148,7 +191,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
         private static async Task<GetFileResponse> HandleAsync(string schemaName, string workspaceRoot)
         {
             var normalized = workspaceRoot.Replace('\\', '/');
-            var handler = new GetCloudCacheFileHandler(Mock.Of<ILspLogger>());
+            var handler = CreateHandler();
             var context = new RequestContext(new FakeLanguage(), new Workspace(new DirectoryPath(normalized)), null, 0);
             var request = new GetFileRequest
             {
@@ -162,7 +205,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
         private static async Task<GetFileResponse> HandleAsync(string schemaName)
         {
             var root = new DirectoryPath(WorkspaceRoot);
-            var handler = new GetCloudCacheFileHandler(Mock.Of<ILspLogger>());
+            var handler = CreateHandler();
             var context = new RequestContext(new FakeLanguage(), new Workspace(root), null, 0);
             var request = new GetFileRequest
             {
@@ -172,6 +215,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
 
             return await handler.HandleRequestAsync(request, context, CancellationToken.None);
         }
+
+        private static GetCloudCacheFileHandler CreateHandler() => new(new FileAccessorFactory(), Mock.Of<ILspLogger>());
 
         private sealed class FakeLanguage : ILanguageAbstraction
         {

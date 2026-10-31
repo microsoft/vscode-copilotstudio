@@ -557,6 +557,66 @@ public class DiscardLocalChangesTests
         Assert.Single(result.Skipped);
     }
 
+    [Theory]
+    [InlineData(CustomConnectorLayout.ChangeKind, "connectors/Weather", CustomConnectorLayout.MetadataFileName, CustomConnectorLayout.OpenApiDefinitionFileName)]
+    [InlineData(AiPromptLayout.ChangeKind, "prompts/Summarize", AiPromptLayout.PromptFileName, AiPromptLayout.MetadataFileName)]
+    public async Task SyncedAssetCreate_RemovesTheWholeFolder(string changeKind, string folder, string changedFile, string otherFile)
+    {
+        var (synchronizer, factory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath($"c:/test/discard-asset-create-{Guid.NewGuid():N}/");
+        var accessor = factory.Create(workspace);
+        WorkspaceSynchronizer.WriteCloudCache(accessor, new BotDefinition());
+        await accessor.WriteAsync(new AgentFilePath($"{folder}/{changedFile}"), "local", CancellationToken.None);
+        await accessor.WriteAsync(new AgentFilePath($"{folder}/{otherFile}"), "local", CancellationToken.None);
+
+        var result = synchronizer.DiscardLocalChanges(workspace, [new Change { ChangeType = ChangeType.Create, ChangeKind = changeKind, SchemaName = $"{changeKind}.created", Uri = $"{folder}/{changedFile}" }]);
+
+        Assert.Empty(accessor.ListFiles(folder));
+        Assert.Equal(1, result.Deleted);
+        Assert.Empty(result.Skipped);
+    }
+
+    [Theory]
+    [InlineData(CustomConnectorLayout.ChangeKind, "connectors/Weather", CustomConnectorLayout.MetadataFileName, CustomConnectorLayout.IconFileName)]
+    [InlineData(AiPromptLayout.ChangeKind, "prompts/Summarize", AiPromptLayout.PromptFileName, AiPromptLayout.MetadataFileName)]
+    public async Task SyncedAssetCreate_FileAddedToAnAssetWithACloudCopy_RemovesOnlyThatFile(string changeKind, string folder, string cachedFile, string createdFile)
+    {
+        var (synchronizer, factory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath($"c:/test/discard-asset-file-{Guid.NewGuid():N}/");
+        var accessor = factory.Create(workspace);
+        var assetKind = (SyncedAssetKind.Find(changeKind) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
+        var assetId = Guid.NewGuid();
+        WorkspaceSynchronizer.WriteCloudCache(accessor, new BotDefinition());
+        assetKind.WriteCloudCopies(accessor, new Dictionary<string, string> { [assetKind.GetFileSchemaName(assetId, cachedFile)] = "cloud" });
+        await accessor.WriteAsync(new AgentFilePath($"{folder}/{cachedFile}"), "cloud", CancellationToken.None);
+        await accessor.WriteAsync(new AgentFilePath($"{folder}/{createdFile}"), "local", CancellationToken.None);
+
+        var result = synchronizer.DiscardLocalChanges(workspace, [new Change { ChangeType = ChangeType.Create, ChangeKind = changeKind, SchemaName = assetKind.GetFileSchemaName(assetId, createdFile), Uri = $"{folder}/{createdFile}" }]);
+
+        Assert.True(accessor.Exists(new AgentFilePath($"{folder}/{cachedFile}")));
+        Assert.False(accessor.Exists(new AgentFilePath($"{folder}/{createdFile}")));
+        Assert.Equal(1, result.Deleted);
+    }
+
+    [Theory]
+    [InlineData(CustomConnectorLayout.ChangeKind, "connectors/Weather/" + CustomConnectorLayout.MetadataFileName, "custom connector content can only be restored with Get")]
+    [InlineData(AiPromptLayout.ChangeKind, "prompts/Summarize/" + AiPromptLayout.PromptFileName, "AI prompt content can only be restored with Get")]
+    public async Task SyncedAssetUpdate_IsSkippedAndLeavesTheFileUntouched(string changeKind, string path, string reason)
+    {
+        var (synchronizer, factory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath($"c:/test/discard-asset-update-{Guid.NewGuid():N}/");
+        var accessor = (InMemoryFileAccessor)factory.Create(workspace);
+        WorkspaceSynchronizer.WriteCloudCache(accessor, new BotDefinition());
+        await accessor.WriteAsync(new AgentFilePath(path), "local edit", CancellationToken.None);
+        var before = accessor.Files[path];
+
+        var result = synchronizer.DiscardLocalChanges(workspace, [new Change { ChangeType = ChangeType.Update, ChangeKind = changeKind, SchemaName = $"{changeKind}.edited", Uri = path }]);
+
+        Assert.Same(before, accessor.Files[path]);
+        Assert.Equal(reason, Assert.Single(result.Skipped).Reason);
+        Assert.Equal(0, result.Restored);
+    }
+
     [Fact]
     public async Task FailedRestore_DoesNotPreventLaterCreateDeletion()
     {

@@ -44,6 +44,7 @@ public interface IWorkspaceRetargetService
     /// <param name="aiPromptMetadata">AI prompt metadata already upserted to the target environment.</param>
     /// <param name="syncCustomConnectors">When false, skips custom connector folder reconciliation.</param>
     /// <param name="syncWorkflowsAndPrompts">When false, skips workflow and AI prompt reconciliation so a pre-push retarget sync does not delete local workflow or prompt content before it is pushed.</param>
+    /// <param name="preserveLocalConnectorAndPromptChanges">When true, keeps custom connector and AI prompt folders edited since their last sync, and their sync baselines, instead of replacing them with the cloud copies.</param>
     /// <returns>Workspace sync result.</returns>
     Task<WorkspaceSyncInfo> SyncWorkspaceAsync(
         DirectoryPath workspaceFolder,
@@ -56,5 +57,6 @@ public interface IWorkspaceRetargetService
         CancellationToken cancellationToken,
         ImmutableArray<AIPromptMetadata> aiPromptMetadata,
         bool syncCustomConnectors = true,
-        bool syncWorkflowsAndPrompts = true);
+        bool syncWorkflowsAndPrompts = true,
+        bool preserveLocalConnectorAndPromptChanges = false);
 }

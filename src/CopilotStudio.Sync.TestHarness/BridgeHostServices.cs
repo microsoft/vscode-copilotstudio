@@ -30,8 +30,9 @@ namespace Microsoft.CopilotStudio.Sync.TestHarness;
 /// Used by the clone-via-bridge command to prove extension-path clone output matches
 /// the direct CLI clone output (F3 acceptance criteria).
 /// </summary>
-internal static class BridgeHostServices
+public static class BridgeHostServices
 {
+    /// <summary>Builds the container with the extension's bridge auth types and the given Dataverse token.</summary>
     public static ServiceProvider BuildWithBridgeTypes(Uri environmentUrl, string dataverseToken)
     {
         var services = new ServiceCollection();
@@ -74,6 +75,7 @@ internal static class BridgeHostServices
         services.AddSingleton<IPluginEnrichmentService, StubPluginEnrichmentService>();
         services.AddSingleton<IAIModelEnrichmentService, StubAIModelEnrichmentService>();
         services.AddSingleton<ICloudFlowDefinitionEnrichementService, StubCloudFlowDefinitionEnrichementService>();
+        services.AddSingleton<ISkillResourceContentLoader, StubSkillResourceContentLoader>();
 
         // 6. Shared library services — isIslandPreauthorized: false matches PAC behavior.
         //    The Island control plane is an extension-specific cross-validation layer;
