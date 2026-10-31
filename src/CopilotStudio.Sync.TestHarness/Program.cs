@@ -194,9 +194,9 @@ pushCommand.SetAction(async parseResult =>
             workspaceFolder, dataverseClient, CancellationToken.None);
 
         Console.WriteLine("Syncing workspace metadata...");
-        await synchronizer.SyncWorkspaceAsync(
+        await services.GetRequiredService<IWorkspaceRetargetService>().SyncWorkspaceAsync(
             workspaceFolder, operationContext, null, true, dataverseClient,
-            syncInfo, cloudFlowMetadata, CancellationToken.None);
+            syncInfo, cloudFlowMetadata, CancellationToken.None, default, preserveLocalConnectorAndPromptChanges: true);
 
         Console.WriteLine($"Push complete. {localChanges.Length} change(s) pushed, {uploadedFiles.Length} file(s) uploaded.");
     }

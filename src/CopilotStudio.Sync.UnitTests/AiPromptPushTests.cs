@@ -76,6 +76,12 @@ public class AiPromptPushTests : IDisposable
     private AIPromptMetadata ServerPrompt(string instruction) =>
         new() { AIModelId = _modelId, Name = "My Prompt", CustomConfiguration = AiPromptProjection.BuildCustomConfigurationFromPromptJson("{ \"instruction\": \"" + instruction + "\" }") };
 
+    private Mock<ISyncDataverseClient> CreateDataverseThatSeesAnEditWhilePublishing() => CreateDataverse(storePrompt: _ =>
+    {
+        WritePromptJson("Translate the input to French.");
+        return ServerPrompt("Normalized by the server.");
+    });
+
     private void WritePromptFiles(string instruction)
     {
         File.WriteAllText(Path.Combine(_promptFolder, "metadata.yml"), "name: My Prompt\n");
@@ -229,11 +235,7 @@ public class AiPromptPushTests : IDisposable
     {
         var synchronizer = CreateSynchronizer();
         WritePromptFiles("Summarize the input.");
-        var dataverse = CreateDataverse(storePrompt: _ =>
-        {
-            WritePromptJson("Translate the input to French.");
-            return ServerPrompt("Normalized by the server.");
-        });
+        var dataverse = CreateDataverseThatSeesAnEditWhilePublishing();
 
         var (_, prompts) = await synchronizer.UpsertAIPromptsForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None);
         WriteCloudCache();
@@ -242,6 +244,24 @@ public class AiPromptPushTests : IDisposable
         Assert.Contains("Normalized by the server.", ReadCloudCopy() ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."), StringComparison.Ordinal);
         Assert.Equal(_serverPrompts[_modelId].CustomConfiguration, Assert.Single(prompts).CustomConfiguration);
         Assert.Contains(await LocalPromptChangesAsync(synchronizer), change => change.Uri.EndsWith("/prompt.json", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SyncWorkspaceAsync_PreservingLocalConnectorAndPromptChanges_KeepsAPromptEditedWhilePublishingForTheNextPush()
+    {
+        var synchronizer = CreateSynchronizer();
+        WritePromptFiles("Summarize the input.");
+        var dataverse = CreateDataverseThatSeesAnEditWhilePublishing();
+        dataverse
+            .Setup(c => c.DownloadAllAIPromptsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => _serverPrompts.Values.ToArray());
+        await synchronizer.UpsertAIPromptsForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None);
+
+        await synchronizer.SyncWorkspaceAsync(_workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), null, false, dataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, new CloudFlowMetadata(), CancellationToken.None, default, preserveLocalConnectorAndPromptChanges: true);
+        var (responses, _) = await synchronizer.UpsertAIPromptsForAgentAsync(_workspace, dataverse.Object, Guid.NewGuid(), CancellationToken.None);
+
+        Assert.Equal(string.Empty, Assert.Single(responses).ErrorMessage);
+        dataverse.Verify(c => c.UpsertAIPromptAsync(It.IsAny<Guid?>(), It.Is<AIPromptMetadata>(prompt => prompt.CustomConfiguration == AiPromptProjection.BuildCustomConfigurationFromPromptJson("{ \"instruction\": \"Translate the input to French.\" }")), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

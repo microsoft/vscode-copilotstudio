@@ -4186,8 +4186,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     /// <param name="aiPromptMetadata">AI prompt metadata already upserted to the target environment.</param>
     /// <param name="syncCustomConnectors">When false, skips custom connector folder reconciliation so a pre-push retarget sync does not delete local connector content before it is pushed.</param>
     /// <param name="syncWorkflowsAndPrompts">When false, skips workflow and AI prompt reconciliation so a pre-push retarget sync does not delete local workflow or prompt content before it is pushed.</param>
+    /// <param name="preserveLocalConnectorAndPromptChanges">When true, keeps custom connector and AI prompt folders edited since their last sync, and their sync baselines, instead of replacing them with the cloud copies.</param>
     /// <returns>Workspace sync result.</returns>
-    public async Task<WorkspaceSyncInfo> SyncWorkspaceAsync(DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, string? changeToken, bool updateWorkspaceDirectory, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken, ImmutableArray<AIPromptMetadata> aiPromptMetadata, bool syncCustomConnectors = true, bool syncWorkflowsAndPrompts = true)
+    public async Task<WorkspaceSyncInfo> SyncWorkspaceAsync(DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, string? changeToken, bool updateWorkspaceDirectory, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CloudFlowMetadata? cloudFlowMetadata, CancellationToken cancellationToken, ImmutableArray<AIPromptMetadata> aiPromptMetadata, bool syncCustomConnectors = true, bool syncWorkflowsAndPrompts = true, bool preserveLocalConnectorAndPromptChanges = false)
     {
         var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var workflows = cloudFlowMetadata ?? (syncWorkflowsAndPrompts ? await GetWorkflowsAsync(workspaceFolder, dataverseClient, syncInfo, fileAccessor, cancellationToken).ConfigureAwait(false) : new CloudFlowMetadata());
@@ -4201,7 +4202,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         var definition = emptyDefinition.ApplyChanges(changeset);
         var discoveredAiModelIds = ExtractAiModelIds(definition);
-        var aiPrompts = !aiPromptMetadata.IsDefaultOrEmpty ? aiPromptMetadata : (syncWorkflowsAndPrompts ? await GetAIPromptsCoreAsync(workspaceFolder, dataverseClient, syncInfo, fileAccessor, discoveredAiModelIds.Count > 0 ? discoveredAiModelIds : null, cancellationToken).ConfigureAwait(false) : ImmutableArray<AIPromptMetadata>.Empty);
+        var aiPrompts = !aiPromptMetadata.IsDefaultOrEmpty ? aiPromptMetadata : (syncWorkflowsAndPrompts ? await GetAIPromptsCoreAsync(workspaceFolder, dataverseClient, syncInfo, fileAccessor, discoveredAiModelIds.Count > 0 ? discoveredAiModelIds : null, cancellationToken, preserveLocalConnectorAndPromptChanges).ConfigureAwait(false) : ImmutableArray<AIPromptMetadata>.Empty);
         if (!aiPrompts.IsDefaultOrEmpty)
         {
             definition = definition.WithAIModelDefinitions(BuildAIModelDefinitions(aiPrompts));
@@ -4230,7 +4231,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         if (syncCustomConnectors)
         {
-            await WriteCustomConnectorsAsync(fileAccessor, workspaceFolder, definition, dataverseClient, cancellationToken).ConfigureAwait(false);
+            await WriteCustomConnectorsAsync(fileAccessor, workspaceFolder, definition, dataverseClient, cancellationToken, preserveLocalConnectorAndPromptChanges).ConfigureAwait(false);
         }
 
         return new WorkspaceSyncInfo
@@ -7212,7 +7213,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     public virtual Task<ImmutableArray<AIPromptMetadata>> GetAIPromptsAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, IFileAccessor fileAccessor, CancellationToken cancellationToken)
         => GetAIPromptsCoreAsync(workspaceFolder, dataverseClient, syncInfo, fileAccessor, knownAiModelIds: null, cancellationToken);
 
-    private async Task<ImmutableArray<AIPromptMetadata>> GetAIPromptsCoreAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, IFileAccessor fileAccessor, IReadOnlyCollection<Guid>? knownAiModelIds, CancellationToken cancellationToken)
+    private async Task<ImmutableArray<AIPromptMetadata>> GetAIPromptsCoreAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, IFileAccessor fileAccessor, IReadOnlyCollection<Guid>? knownAiModelIds, CancellationToken cancellationToken, bool preserveLocalChanges = false)
     {
         var prompts = ImmutableArray.CreateBuilder<AIPromptMetadata>();
 
@@ -7221,12 +7222,13 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             var remotePrompts = knownAiModelIds != null
                 ? await dataverseClient.DownloadAIPromptsByModelIdsAsync(knownAiModelIds, cancellationToken).ConfigureAwait(false)
                 : await dataverseClient.DownloadAllAIPromptsForAgentAsync(syncInfo, cancellationToken).ConfigureAwait(false);
-            var existingFolders = MapComponentFoldersById(fileAccessor, AiPromptLayout.FolderName);
+            var preservedPromptIds = preserveLocalChanges ? (await ReadLocalPromptsAsync(fileAccessor, cancellationToken).ConfigureAwait(false)).Where(localPrompt => localPrompt.Snapshot.IsChangedLocally).Select(localPrompt => localPrompt.Snapshot.Id).ToHashSet() : new HashSet<Guid>();
+            var existingFolders = MapComponentFoldersById(fileAccessor, AiPromptLayout.FolderName).Where(existingFolder => !preservedPromptIds.Contains(existingFolder.Key)).ToDictionary(existingFolder => existingFolder.Key, existingFolder => existingFolder.Value);
 
             if (remotePrompts == null || remotePrompts.Length == 0)
             {
                 DeleteLocalComponentFolders(fileAccessor, existingFolders.Values);
-                RecordPromptBaselines(fileAccessor, Array.Empty<PromptFolderContent>(), replaceAll: true);
+                RecordPromptBaselines(fileAccessor, Array.Empty<PromptFolderContent>(), replaceAll: !preserveLocalChanges);
 
                 return ImmutableArray<AIPromptMetadata>.Empty;
             }
@@ -7238,7 +7240,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 cancellationToken.ThrowIfCancellationRequested();
                 prompts.Add(prompt);
 
-                if (prompt.IsUnreadableReferencePlaceholder)
+                if (prompt.IsUnreadableReferencePlaceholder || preservedPromptIds.Contains(prompt.AIModelId))
                 {
                     continue;
                 }
@@ -7254,7 +7256,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 .ToHashSet();
             DeleteLocalComponentFolders(fileAccessor, existingFolders.Where(existingFolder => !remoteIds.Contains(existingFolder.Key)).Select(existingFolder => existingFolder.Value));
 
-            RecordPromptBaselines(fileAccessor, serverContents, replaceAll: true);
+            RecordPromptBaselines(fileAccessor, serverContents, replaceAll: !preserveLocalChanges);
         }
         catch (Exception ex)
         {
@@ -9680,9 +9682,31 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private async Task WriteConnectorFolderIfUnchangedAsync(IFileAccessor fileAccessor, ConnectorFolderContent content, LocalConnector localConnector, CancellationToken cancellationToken)
     {
-        if (await LoadLocalConnectorAsync(fileAccessor, localConnector.Folder, cancellationToken).ConfigureAwait(false) is { } current && string.Equals(ComputeConnectorContentHash(current), localConnector.Snapshot.ContentHash, StringComparison.Ordinal))
+        var current = await LoadLocalConnectorAsync(fileAccessor, localConnector.Folder, cancellationToken).ConfigureAwait(false);
+        if (current != null && string.Equals(ComputeConnectorContentHash(current), localConnector.Snapshot.ContentHash, StringComparison.Ordinal))
         {
             await WriteConnectorFolderAsync(fileAccessor, content, cancellationToken).ConfigureAwait(false);
+        }
+        else if (current?.VersionNumber is { } folderVersion && folderVersion == localConnector.FolderVersion && content.Connector.VersionNumber is { } savedVersion)
+        {
+            await WriteConnectorVersionAsync(fileAccessor, localConnector.Folder, savedVersion, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task WriteConnectorVersionAsync(IFileAccessor fileAccessor, string folder, long versionNumber, CancellationToken cancellationToken)
+    {
+        var metadataPath = new AgentFilePath($"{folder}/{CustomConnectorLayout.MetadataFileName}");
+        try
+        {
+            if (JsonNode.Parse(await fileAccessor.ReadStringAsync(metadataPath, cancellationToken).ConfigureAwait(false), new JsonNodeOptions { PropertyNameCaseInsensitive = true }) is JsonObject metadata && metadata.ContainsKey("versionnumber"))
+            {
+                metadata["versionnumber"] = versionNumber;
+                await WriteFileIfChangedAsync(fileAccessor, metadataPath, metadata.ToJsonString(IndentedJsonOptions), cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (Exception exception) when (exception is JsonException or ArgumentException or IOException)
+        {
+            _syncProgress.Report($"Failed to record version {versionNumber} in {metadataPath}: {exception.Message}");
         }
     }
 
@@ -9750,7 +9774,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
     }
 
-    private sealed record LocalConnector(CustomConnectorMetadata Connector, string Folder, SyncedAssetSnapshot Snapshot);
+    private sealed record LocalConnector(CustomConnectorMetadata Connector, string Folder, SyncedAssetSnapshot Snapshot)
+    {
+        internal long? FolderVersion { get; } = Connector.VersionNumber;
+    }
 
     private sealed record ConnectorFolderContent(CustomConnectorMetadata Connector, string Folder, string Metadata, string? OpenApiDefinition, string ConnectionParameters, string PolicyTemplateInstances, byte[]? Icon, string ContentHash)
     {

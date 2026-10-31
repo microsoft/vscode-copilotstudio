@@ -310,6 +310,43 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
         }
 
         [Fact]
+        public async Task PushCustomConnectorsAsync_AfterAnEditMadeWhileSaving_PushesItAgainstTheUnchangedCloud()
+        {
+            var (synchronizer, workspace, _, _, dataverse) = await PushWhileEditingAsync(metadata => metadata["iconbrandcolor"] = "#00ff00");
+
+            var result = await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None);
+
+            Assert.Empty(result.FailureReasons);
+            dataverse.As<ICustomConnectorOperations>().Verify(d => d.SaveConnectorAsync(It.Is<CustomConnectorMetadata>(c => c.IconBrandColor == "#00ff00"), true, 6, It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        [Fact]
+        public async Task PushCustomConnectorsAsync_AfterTheFolderWasRestoredToAnOlderVersionWhileSaving_StillReportsTheConflict()
+        {
+            var (synchronizer, workspace, _, _, dataverse) = await PushWhileEditingAsync(metadata =>
+            {
+                metadata["versionnumber"] = 4;
+                metadata["description"] = "Older description";
+            });
+
+            var result = await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None);
+
+            Assert.Equal(ConflictReason, Assert.Single(result.FailureReasons));
+        }
+
+        [Fact]
+        public async Task PushCustomConnectorsAsync_AfterAnEditMadeWhileSaving_StillReportsALaterCloudChange()
+        {
+            var (synchronizer, workspace, connectorId, server, dataverse) = await PushWhileEditingAsync(metadata => metadata["iconbrandcolor"] = "#00ff00");
+            server[0] = RemoteConnector("Contoso", connectorId, version: 7);
+            server[0].Description = "Edited in the portal";
+
+            var result = await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None);
+
+            Assert.Equal(ConflictReason, Assert.Single(result.FailureReasons));
+        }
+
+        [Fact]
         public async Task PushChangesetAsync_LocalConnectorEdit_IsNotPushedASecondTime()
         {
             var (synchronizer, fileAccessorFactory, island) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
@@ -336,14 +373,26 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
         {
             var (synchronizer, files, workspace, connectorId, dataverse) = await EditLocallyAndInTheCloudAsync();
             await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None);
-            var cloudFlowMetadata = new CloudFlowMetadata { ConnectionReferences = ImmutableArray.Create(new ConnectionReference(connectionReferenceLogicalName: "cr1.contoso", connectionId: string.Empty, connectorId: "/providers/Microsoft.PowerApps/apis/Contoso-internal")) };
 
-            await synchronizer.PushChangesetAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), new PvaComponentChangeSet(null, null, "token-2"), dataverse.Object, Guid.NewGuid(), cloudFlowMetadata, default, CancellationToken.None);
+            await synchronizer.PushChangesetAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), new PvaComponentChangeSet(null, null, "token-2"), dataverse.Object, Guid.NewGuid(), ContosoReference(), default, CancellationToken.None);
 
             var metadata = await files.ReadStringAsync(new AgentFilePath($"connectors/Contoso-{connectorId}/metadata.yml"), CancellationToken.None);
             Assert.Contains("#ff0000", metadata, StringComparison.Ordinal);
             Assert.DoesNotContain("Edited in the portal", metadata, StringComparison.Ordinal);
             Assert.Equal($"connectors/Contoso-{connectorId}/metadata.yml", Assert.Single(await LocalConnectorChangesAsync(synchronizer, workspace)).Uri);
+            Assert.Equal(ConflictReason, Assert.Single((await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None)).FailureReasons));
+        }
+
+        [Fact]
+        public async Task SyncWorkspaceAsync_PreservingLocalConnectorAndPromptChanges_KeepsAConnectorEditedLocallyAndInTheCloud()
+        {
+            var (synchronizer, files, workspace, connectorId, dataverse) = await EditLocallyAndInTheCloudAsync();
+
+            await synchronizer.SyncWorkspaceAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), null, false, dataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, ContosoReference(), CancellationToken.None, default, preserveLocalConnectorAndPromptChanges: true);
+
+            var metadata = await files.ReadStringAsync(new AgentFilePath($"connectors/Contoso-{connectorId}/metadata.yml"), CancellationToken.None);
+            Assert.Contains("#ff0000", metadata, StringComparison.Ordinal);
+            Assert.DoesNotContain("Edited in the portal", metadata, StringComparison.Ordinal);
             Assert.Equal(ConflictReason, Assert.Single((await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None)).FailureReasons));
         }
 
@@ -595,6 +644,47 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests
             portalCopy.Description = "Edited in the portal";
             return (synchronizer, files, workspace, connectorId, CreateRemoteDataverse(portalCopy));
         }
+
+        private static async Task<(WorkspaceSynchronizer Synchronizer, DirectoryPath Workspace, Guid ConnectorId, CustomConnectorMetadata[] Server, Mock<ISyncDataverseClient> Dataverse)> PushWhileEditingAsync(Action<JsonObject> editWhileSaving)
+        {
+            var (synchronizer, files, workspace) = CreateAgentWorkspace();
+            var connectorId = Guid.NewGuid();
+            await SyncConnectorAsync(synchronizer, files, workspace, "Contoso", connectorId, version: 5);
+            await EditMetadataAsync(files, "Contoso", connectorId, metadata => metadata["iconbrandcolor"] = "#ff0000");
+            var server = new[] { RemoteConnector("Contoso", connectorId, version: 5) };
+            var dataverse = CreateSavingDataverse(server, () => EditMetadataAsync(files, "Contoso", connectorId, editWhileSaving));
+            await synchronizer.PushCustomConnectorsAsync(workspace, dataverse.Object, CancellationToken.None);
+            return (synchronizer, workspace, connectorId, server, dataverse);
+        }
+
+        private static Mock<ISyncDataverseClient> CreateSavingDataverse(CustomConnectorMetadata[] server, Func<Task> whileFirstSave)
+        {
+            var dataverse = new Mock<ISyncDataverseClient>();
+            dataverse.As<ICustomConnectorOperations>()
+                .Setup(d => d.GetConnectorVersionsByIdsAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(() => server.Select(CopyOf).ToArray());
+            dataverse
+                .Setup(d => d.DownloadConnectorsByInternalIdsAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(() => server.Select(CopyOf).ToArray());
+            dataverse.As<ICustomConnectorOperations>()
+                .Setup(d => d.SaveConnectorAsync(It.IsAny<CustomConnectorMetadata>(), It.IsAny<bool>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
+                .Returns(async (CustomConnectorMetadata sent, bool _, long? _, CancellationToken _) =>
+                {
+                    await whileFirstSave();
+                    whileFirstSave = () => Task.CompletedTask;
+                    var savedVersion = server[0].VersionNumber + 1;
+                    server[0] = CopyOf(sent);
+                    server[0].VersionNumber = savedVersion;
+                    return CopyOf(server[0]);
+                });
+            return dataverse;
+        }
+
+        private static CustomConnectorMetadata CopyOf(CustomConnectorMetadata connector) =>
+            JsonSerializer.Deserialize<CustomConnectorMetadata>(JsonSerializer.Serialize(connector)) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.");
+
+        private static CloudFlowMetadata ContosoReference() =>
+            new() { ConnectionReferences = ImmutableArray.Create(new ConnectionReference(connectionReferenceLogicalName: "cr1.contoso", connectionId: string.Empty, connectorId: "/providers/Microsoft.PowerApps/apis/Contoso-internal")) };
 
         private static CustomConnectorMetadata RemoteConnector(string name, Guid connectorId, long version) =>
             new() { ConnectorId = connectorId, Name = name, DisplayName = name, ConnectorInternalId = $"{name}-internal", VersionNumber = version };

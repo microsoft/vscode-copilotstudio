@@ -22,9 +22,13 @@ namespace Microsoft.CopilotStudio.Sync.TestHarness;
 /// - Platform.Content services (from NuGet)
 /// - Host-provided stubs with warning-on-call behavior
 /// </summary>
-internal static class HostServices
+public static class HostServices
 {
-    public static async Task<ServiceProvider> BuildAsync(Uri environmentUrl)
+    /// <summary>Builds the harness container, signing in through the interactive browser credential.</summary>
+    public static async Task<ServiceProvider> BuildAsync(Uri environmentUrl) => Build(environmentUrl, await AuthProvider.CreateAsync().ConfigureAwait(false));
+
+    /// <summary>Builds the harness container around the given auth provider.</summary>
+    public static ServiceProvider Build(Uri environmentUrl, ISyncAuthProvider authProvider)
     {
         var services = new ServiceCollection();
 
@@ -32,7 +36,6 @@ internal static class HostServices
         services.AddLogging();
 
         // 2. Auth provider (interactive browser, silent after first sign-in)
-        var authProvider = await AuthProvider.CreateAsync().ConfigureAwait(false);
         services.AddSingleton<ISyncAuthProvider>(authProvider);
 
         // 3. Dataverse HTTP client accessor (must be registered BEFORE ServiceRegistrations)
@@ -57,9 +60,12 @@ internal static class HostServices
         services.AddSingleton<IPluginEnrichmentService, StubPluginEnrichmentService>();
         services.AddSingleton<IAIModelEnrichmentService, StubAIModelEnrichmentService>();
         services.AddSingleton<ICloudFlowDefinitionEnrichementService, StubCloudFlowDefinitionEnrichementService>();
+        services.AddSingleton<ISkillResourceContentLoader, StubSkillResourceContentLoader>();
 
         // 7. Shared library services
-        services.AddSingleton<IWorkspaceSynchronizer, WorkspaceSynchronizer>();
+        services.AddSingleton<WorkspaceSynchronizer>();
+        services.AddSingleton<IWorkspaceSynchronizer>(sp => sp.GetRequiredService<WorkspaceSynchronizer>());
+        services.AddSingleton<IWorkspaceRetargetService>(sp => sp.GetRequiredService<WorkspaceSynchronizer>());
         services.AddSingleton<IOperationContextProvider, OperationContextProvider>();
         services.AddSingleton<ISyncDataverseClient, SyncDataverseClient>();
         services.AddSingleton<IIslandControlPlaneService, IslandControlPlaneService>();
