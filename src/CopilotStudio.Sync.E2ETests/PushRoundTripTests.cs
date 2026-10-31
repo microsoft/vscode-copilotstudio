@@ -7,9 +7,8 @@ using Xunit.Abstractions;
 namespace Microsoft.CopilotStudio.Sync.E2ETests;
 
 /// <summary>
-/// Validates the full push round-trip: clone → edit topic → push → pull → verify.
-/// Confirms that local edits survive the round-trip through Dataverse and that
-/// VerifyPushAsync passes after the push.
+/// Validates the full push round-trip: clone → edit topic → push → pull → fresh clone.
+/// Confirms that local edits survive the round-trip through Dataverse.
 /// </summary>
 [Collection(LiveTenantCollection.Name)]
 public sealed class PushRoundTripTests : IDisposable
@@ -32,7 +31,7 @@ public sealed class PushRoundTripTests : IDisposable
     }
 
     [LiveTenantFact]
-    public async Task EditTopicPushPullVerifyRoundTrip()
+    public async Task EditTopicPushPullRoundTrip()
     {
         var envUrl = Environment.GetEnvironmentVariable("COPILOT_TEST_ENVIRONMENT_URL");
         var agentSchema = Environment.GetEnvironmentVariable("COPILOT_TEST_AGENT_SCHEMA_NAME");
@@ -89,7 +88,7 @@ public sealed class PushRoundTripTests : IDisposable
         _output.WriteLine($"Edited topic: {topicName}");
         _output.WriteLine($"Test tag: [{testTag}]");
 
-        // 3. Push — should detect the change, push it, and verify
+        // 3. Push — should detect the change and push it
         var pushResult = await CliRunner.RunAsync(
             $"push --workspace \"{_workspace.Path}\"");
         _output.WriteLine("PUSH STDOUT:\n" + pushResult.Stdout);
@@ -98,8 +97,6 @@ public sealed class PushRoundTripTests : IDisposable
         Assert.Equal(0, pushResult.ExitCode);
         // Push must report changes (not "no local changes")
         Assert.DoesNotContain("No local changes detected.", pushResult.Stdout);
-        // Push includes verify — must pass
-        Assert.Contains("Push verification passed", pushResult.Stdout);
 
         // 4. Pull — should succeed with no further remote changes
         var pullResult = await CliRunner.RunAsync(
@@ -107,14 +104,7 @@ public sealed class PushRoundTripTests : IDisposable
         _output.WriteLine("PULL STDOUT:\n" + pullResult.Stdout);
         Assert.Equal(0, pullResult.ExitCode);
 
-        // 5. Verify — confirm workspace still matches server state
-        var verifyResult = await CliRunner.RunAsync(
-            $"verify --workspace \"{_workspace.Path}\"");
-        _output.WriteLine("VERIFY STDOUT:\n" + verifyResult.Stdout);
-        Assert.Equal(0, verifyResult.ExitCode);
-        Assert.Contains("Push verification passed", verifyResult.Stdout);
-
-        // 6. Fresh clone to independent workspace — confirm the edit persisted
+        // 5. Fresh clone to independent workspace — confirm the edit persisted
         var freshClone = await CliRunner.RunAsync(
             $"clone --environment \"{envUrl}\" --agent-schema-name \"{agentSchema}\" --output \"{_verifyWorkspace.Path}\"");
         _output.WriteLine("FRESH CLONE STDOUT:\n" + freshClone.Stdout);

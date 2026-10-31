@@ -123,6 +123,29 @@ export function isKnowledgeFileChangeKind(changeKind: string): boolean {
   return changeKind === KnowledgeFileChangeKind;
 }
 
+export const CustomConnectorSchemaNamePrefix = 'Mcs.Connector.';
+
+export const AIPromptSchemaNamePrefix = 'Mcs.AIPrompt.';
+
+export const CustomConnectorIconSchemaNameSuffix = '.iconblob';
+
+export const CustomConnectorIconFileExtension = '.png';
+
+const GuidLength = 36;
+
+export function isConnectorOrPromptSchemaName(schemaName: string): boolean {
+  return schemaName.startsWith(CustomConnectorSchemaNamePrefix) || schemaName.startsWith(AIPromptSchemaNamePrefix);
+}
+
+export function getConnectorOrPromptAssetSchemaName(schemaName: string): string {
+  const prefix = [CustomConnectorSchemaNamePrefix, AIPromptSchemaNamePrefix].find(candidate => schemaName.startsWith(candidate));
+  return prefix === undefined ? schemaName : schemaName.slice(0, prefix.length + GuidLength);
+}
+
+export function isConnectorIconSchemaName(schemaName: string): boolean {
+  return schemaName.startsWith(CustomConnectorSchemaNamePrefix) && schemaName.endsWith(CustomConnectorIconSchemaNameSuffix);
+}
+
 export enum LogLevel {
   Info = 'Info',
   Warning = 'Warning',

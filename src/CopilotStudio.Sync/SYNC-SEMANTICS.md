@@ -96,17 +96,6 @@ Entry point: `PushChangesetAsync`.
 
 Workflows are pushed separately via `UpsertWorkflowForAgentAsync`, which reads each `workflows/{name}-{guid}/` folder and calls `UpdateWorkflowAsync` per workflow.
 
-### Verify push
-
-Entry point: `VerifyPushAsync`.
-
-1. Read the pushed workspace definition.
-2. Clone the agent to a temporary directory to get the server's current state.
-3. Compute local changes between the pushed definition and the server clone.
-4. If no differences: fully accepted. Otherwise: group differences by change kind and report per-entity-type acceptance.
-
-This detects silent push rejection — the server reports success but does not persist the change.
-
 ---
 
 ## Hidden state (`.mcs/`)

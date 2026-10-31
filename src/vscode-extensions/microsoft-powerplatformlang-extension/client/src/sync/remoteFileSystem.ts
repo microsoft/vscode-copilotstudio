@@ -4,6 +4,7 @@ import { findWorkspaceForUri, tryRepairAgentManagementEndpoint } from './localWo
 import { lspClient, buildLspRequestPayload } from "../services/lspClient";
 import { LspMethods, TelemetryEventsKeys } from "../constants";
 import logger, { formatPii, PiiRedactionType } from "../services/logger";
+import { toFileBytes, toSchemaName } from "./virtualFilePath";
 
 export const REMOTE_STATE_SCHEME = 'mcs-remote';
 
@@ -45,10 +46,7 @@ export class RemoteFileSystem implements FileSystemProvider {
                 await tryRepairAgentManagementEndpoint(syncInfo, workspaceUri);
             }
 
-            let schemaName = uri.path.substring(1); // remove leading slash
-            if (schemaName.startsWith("Remote: ")) {
-                schemaName = schemaName.substring("Remote: ".length);
-            }
+            const schemaName = toSchemaName("Remote", uri.path);
 
             const request: RemoteFileRequest = {
                 ...(await buildLspRequestPayload(syncInfo)),
@@ -57,7 +55,7 @@ export class RemoteFileSystem implements FileSystemProvider {
             };
 
             const result = await lspClient.sendRequest<GetFileResponse>(LspMethods.GET_REMOTE_FILE, request);
-            return Buffer.from(result.content ?? '', 'utf8');
+            return toFileBytes(schemaName, result.content);
         } catch (error) {
             logger.logError(TelemetryEventsKeys.GetRemoteFileError, 'Error fetching file', { error });
             return new Uint8Array();

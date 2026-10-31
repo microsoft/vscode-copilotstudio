@@ -5,6 +5,7 @@ using Microsoft.CopilotStudio.Sync;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Microsoft.CopilotStudio.Sync.TestHarness;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.PowerPlatformLS.Impl.PullAgent;
 using System.Collections.Immutable;
 using System.CommandLine;
 using System.Diagnostics;
@@ -164,6 +165,8 @@ pushCommand.SetAction(async parseResult =>
 
         PrintChangeSummary(localChanges);
 
+        PushRefusals.ThrowIfAny(await ConnectionHelper.ProvisionConnectionsAsync(synchronizer, workspaceFolder, localDefinition, dataverseClient, CancellationToken.None));
+
         CloudFlowMetadata? cloudFlowMetadata = null;
         ImmutableArray<SyncDataverseClient.AIPromptMetadata> aiPromptMetadata = ImmutableArray<SyncDataverseClient.AIPromptMetadata>.Empty;
         if (syncInfo.AgentId.HasValue)
@@ -171,11 +174,10 @@ pushCommand.SetAction(async parseResult =>
             (_, cloudFlowMetadata) = await synchronizer.UpsertWorkflowForAgentAsync(
                 workspaceFolder, dataverseClient, syncInfo.AgentId, CancellationToken.None);
 
-            (_, aiPromptMetadata) = await synchronizer.UpsertAIPromptsForAgentAsync(
+            (var aiPromptResponses, aiPromptMetadata) = await synchronizer.UpsertAIPromptsForAgentAsync(
                 workspaceFolder, dataverseClient, syncInfo.AgentId, CancellationToken.None);
+            PushRefusals.ThrowIfAny(aiPromptResponses);
         }
-
-        await synchronizer.ProvisionConnectionReferencesAsync(localDefinition, dataverseClient, CancellationToken.None);
 
         Console.WriteLine("Pushing changes...");
         // Use the multi-pass push path rather than the changeset returned by GetLocalChangesAsync.
@@ -192,17 +194,11 @@ pushCommand.SetAction(async parseResult =>
             workspaceFolder, dataverseClient, CancellationToken.None);
 
         Console.WriteLine("Syncing workspace metadata...");
-        await synchronizer.SyncWorkspaceAsync(
+        await services.GetRequiredService<IWorkspaceRetargetService>().SyncWorkspaceAsync(
             workspaceFolder, operationContext, null, true, dataverseClient,
-            syncInfo, cloudFlowMetadata, CancellationToken.None);
+            syncInfo, cloudFlowMetadata, CancellationToken.None, default, preserveLocalConnectorAndPromptChanges: true);
 
         Console.WriteLine($"Push complete. {localChanges.Length} change(s) pushed, {uploadedFiles.Length} file(s) uploaded.");
-
-        Console.WriteLine("Verifying push...");
-        var verification = await synchronizer.VerifyPushAsync(
-            workspaceFolder, operationContext, dataverseClient, syncInfo, CancellationToken.None);
-
-        PrintVerificationResult(verification);
     }
     catch (Exception ex)
     {
@@ -284,63 +280,6 @@ pullCommand.SetAction(async parseResult =>
         Console.WriteLine();
         Console.WriteLine("Pull complete.");
         PrintWorkspaceEntitySummary(workspaceFolder);
-    }
-    catch (Exception ex)
-    {
-        Console.Error.WriteLine($"Error: {ex.Message}");
-        Environment.ExitCode = 1;
-    }
-    finally
-    {
-        Console.WriteLine($"Elapsed: {sw.Elapsed.TotalSeconds:F1}s");
-    }
-
-});
-
-// ── verify ────────────────────────────────────────────────────────────
-var verifyCommand = new Command("verify", "Verify workspace matches server state (re-clone and diff)");
-var verifyWorkspaceOption = new Option<string>("--workspace") { Description = "Workspace directory (must contain .mcs/conn.json)", Required = true };
-verifyCommand.Options.Add(verifyWorkspaceOption);
-
-verifyCommand.SetAction(async parseResult =>
-{
-    var workspace = parseResult.GetRequiredValue(verifyWorkspaceOption);
-    var sw = Stopwatch.StartNew();
-    try
-    {
-        var workspaceFolder = ResolveWorkspace(workspace);
-        var syncInfoJson = Path.Combine(workspaceFolder.ToString().TrimEnd('/'), ".mcs", "conn.json");
-        if (!File.Exists(syncInfoJson))
-        {
-            Console.Error.WriteLine($"Error: No .mcs/conn.json found in {workspace}. Run 'clone' first.");
-            Environment.ExitCode = 1;
-            return;
-        }
-
-        var connJson = await File.ReadAllTextAsync(syncInfoJson);
-        var syncInfoPreview = System.Text.Json.JsonSerializer.Deserialize<AgentSyncInfo>(connJson)
-            ?? throw new InvalidOperationException("Failed to parse .mcs/conn.json");
-
-        await using var services = await HostServices.BuildAsync(syncInfoPreview.DataverseEndpoint);
-        Console.WriteLine($"Environment: {syncInfoPreview.DataverseEndpoint}");
-
-        var synchronizer = services.GetRequiredService<IWorkspaceSynchronizer>();
-        var dataverseClient = services.GetRequiredService<ISyncDataverseClient>();
-        var operationContextProvider = services.GetRequiredService<IOperationContextProvider>();
-
-        var syncInfo = await synchronizer.GetSyncInfoAsync(workspaceFolder);
-        dataverseClient.SetDataverseUrl(syncInfo.DataverseEndpoint.ToString());
-        SetIslandContextIfAvailable(services, syncInfo);
-
-        Console.WriteLine($"Agent ID: {syncInfo.AgentId}");
-
-        var operationContext = await operationContextProvider.GetAsync(syncInfo);
-
-        Console.WriteLine("Verifying workspace against server state...");
-        var verification = await synchronizer.VerifyPushAsync(
-            workspaceFolder, operationContext, dataverseClient, syncInfo, CancellationToken.None);
-
-        PrintVerificationResult(verification);
     }
     catch (Exception ex)
     {
@@ -519,7 +458,6 @@ cloneViaBridgeCommand.SetAction(async parseResult =>
 rootCommand.Subcommands.Add(cloneCommand);
 rootCommand.Subcommands.Add(pushCommand);
 rootCommand.Subcommands.Add(pullCommand);
-rootCommand.Subcommands.Add(verifyCommand);
 rootCommand.Subcommands.Add(listAgentsCommand);
 rootCommand.Subcommands.Add(cloneViaBridgeCommand);
 
@@ -660,28 +598,5 @@ static void PrintChangeSummary(System.Collections.Immutable.ImmutableArray<Chang
     foreach (var change in changes)
     {
         Console.WriteLine($"  {change.ChangeType}: {change.Name} ({change.ChangeKind})");
-    }
-}
-
-// Prints per-entity-type push verification results and sets exit code on failure.
-static void PrintVerificationResult(PushVerificationResult verification)
-{
-    Console.WriteLine();
-    Console.WriteLine("Verification results:");
-    foreach (var entityType in verification.EntityTypes)
-    {
-        var status = entityType.Accepted ? "OK" : "REJECTED";
-        Console.WriteLine($"  [{status,-8}] {entityType.ChangeKind,-30} {entityType.VerifiedCount}/{entityType.PushedCount} verified");
-    }
-
-    Console.WriteLine();
-    if (!verification.IsFullyAccepted)
-    {
-        Console.Error.WriteLine("Push verification FAILED — server rejected some changes.");
-        Environment.ExitCode = 1;
-    }
-    else
-    {
-        Console.WriteLine("Push verification passed — all entity types accepted.");
     }
 }

@@ -47,25 +47,26 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
             await _synchronizer.ThrowIfWorkspaceInvalidAsync(workspace.FolderPath, workspace.Definition, cancellationToken);
 
-            await ConnectionHelper.ProvisionConnectionsAsync(_synchronizer, workspace.FolderPath, workspace.Definition, dataverseClient, cancellationToken);
+            var overwriteRemoteChanges = !request.RequireNoUnpulledChanges;
+            var connectorPushResult = await ConnectionHelper.ProvisionConnectionsAsync(_synchronizer, workspace.FolderPath, workspace.Definition, dataverseClient, cancellationToken, overwriteRemoteChanges);
 
             var activationMode = ActivationModeFor(request);
             var (workflowResponse, cloudFlowMetadata, aiPromptResponse, aiPromptMetadata) = operationContext is BotComponentCollectionAuthoringOperationContext
-                ? await UpsertComponentCollectionScopedAssetsAsync(workspace.FolderPath, dataverseClient, syncInfo.ComponentCollectionId, activationMode, cancellationToken)
-                : await ConnectionHelper.UpsertAgentScopedAssetsAsync(_synchronizer, workspace.FolderPath, workspace.Definition, dataverseClient, syncInfo.AgentId, activationMode, cancellationToken);
+                ? await UpsertComponentCollectionScopedAssetsAsync(workspace.FolderPath, dataverseClient, syncInfo.ComponentCollectionId, activationMode, overwriteRemoteChanges, cancellationToken)
+                : await ConnectionHelper.UpsertAgentScopedAssetsAsync(_synchronizer, workspace.FolderPath, workspace.Definition, dataverseClient, syncInfo.AgentId, activationMode, cancellationToken, overwriteRemoteChanges);
 
             var contentSaveContextOverride = await TryBuildComponentCollectionHostContextAsync(workspace, operationContext, dataverseClient, syncInfo, cancellationToken);
 
             await _synchronizer.PushLocalChangesAsync(workspace.FolderPath, operationContext, workspace.Definition, dataverseClient, syncInfo, cloudFlowMetadata, aiPromptMetadata, cancellationToken, contentSaveContextOverride);
-            return (workspace.Definition, workflowResponse, aiPromptResponse, string.Empty);
+            return (workspace.Definition, workflowResponse, aiPromptResponse, LspExceptionHandler.DescribeConnectorFailures(connectorPushResult));
         }
 
         protected override bool BlocksOnUnreadableDocuments => true;
 
-        private async Task<(ImmutableArray<WorkflowResponse>, CloudFlowMetadata?, ImmutableArray<SyncDataverseClient.AIPromptResponse>, ImmutableArray<SyncDataverseClient.AIPromptMetadata>)> UpsertComponentCollectionScopedAssetsAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? componentCollectionId, CopilotStudio.Sync.WorkflowActivationMode activationMode, CancellationToken cancellationToken)
+        private async Task<(ImmutableArray<WorkflowResponse>, CloudFlowMetadata?, ImmutableArray<SyncDataverseClient.AIPromptResponse>, ImmutableArray<SyncDataverseClient.AIPromptMetadata>)> UpsertComponentCollectionScopedAssetsAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? componentCollectionId, CopilotStudio.Sync.WorkflowActivationMode activationMode, bool overwriteRemoteChanges, CancellationToken cancellationToken)
         {
             var (workflowResponse, cloudFlowMetadata) = await _synchronizer.UpsertWorkflowForAgentAsync(workspaceFolder, dataverseClient, componentCollectionId, cancellationToken, activationMode);
-            var (aiPromptResponse, aiPromptMetadata) = await _synchronizer.UpsertAIPromptsForAgentAsync(workspaceFolder, dataverseClient, componentCollectionId, cancellationToken);
+            var (aiPromptResponse, aiPromptMetadata) = await _synchronizer.UpsertAIPromptsForAgentAsync(workspaceFolder, dataverseClient, componentCollectionId, cancellationToken, overwriteRemoteChanges);
             return (workflowResponse, cloudFlowMetadata, aiPromptResponse, aiPromptMetadata);
         }
 

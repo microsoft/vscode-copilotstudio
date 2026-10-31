@@ -489,6 +489,199 @@ public class StandaloneWorkflowDataverseTests
     }
 
     [Fact]
+    public async Task GetConnectorVersionsByIdsAsync_BatchesDistinctIdsAndSelectsOnlyVersionColumns()
+    {
+        var (client, handler) = Create(_ => Json("{\"value\":[]}"));
+        var connectorIds = Enumerable.Range(0, 51).Select(_ => Guid.NewGuid()).ToList();
+
+        await client.GetConnectorVersionsByIdsAsync(connectorIds.Concat(new[] { connectorIds[0], Guid.Empty }).ToList(), CancellationToken.None);
+
+        Assert.Equal(2, handler.Exchanges.Count);
+        Assert.All(handler.Exchanges, exchange =>
+        {
+            Assert.Equal(HttpMethod.Get, exchange.Method);
+            Assert.Contains("/connectors?$select=connectorid,connectorinternalid,ismanaged,modifiedon,versionnumber&", Uri.UnescapeDataString(exchange.Url), StringComparison.Ordinal);
+            Assert.DoesNotContain("ismanaged eq false", Uri.UnescapeDataString(exchange.Url), StringComparison.Ordinal);
+            Assert.DoesNotContain(Guid.Empty.ToString(), exchange.Url, StringComparison.Ordinal);
+        });
+        Assert.All(connectorIds, connectorId => Assert.Single(handler.Exchanges, exchange => Uri.UnescapeDataString(exchange.Url).Contains($"connectorid eq {connectorId}", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task GetConnectorVersionsByIdsAsync_NoIds_SendsNoRequest()
+    {
+        var (client, handler) = Create(_ => Json("{\"value\":[]}"));
+
+        var connectors = await client.GetConnectorVersionsByIdsAsync(Array.Empty<Guid>(), CancellationToken.None);
+
+        Assert.Empty(connectors);
+        Assert.Empty(handler.Exchanges);
+    }
+
+    [Fact]
+    public async Task SaveConnectorAsync_NewConnector_PostsCreateOnlyFieldsAndReturnsTheStoredConnector()
+    {
+        var connectorId = Guid.NewGuid();
+        var preferences = new List<string>();
+        var (client, handler) = Create(request =>
+        {
+            preferences.Add(string.Join(",", request.Headers.TryGetValues("Prefer", out var values) ? values : Array.Empty<string>()));
+
+            return Json($"{{\"connectorid\":\"{connectorId}\",\"name\":\"shared_contoso\",\"description\":\"Stored by the server\",\"versionnumber\":42}}");
+        });
+
+        var stored = await client.SaveConnectorAsync(
+            new CustomConnectorMetadata { ConnectorId = connectorId, Name = "shared_contoso", ConnectorInternalId = "shared_contoso-5f", ConnectorType = 1, Description = "Sent by the client" },
+            exists: false,
+            expectedVersion: null,
+            CancellationToken.None);
+
+        var exchange = Assert.Single(handler.Exchanges);
+        Assert.Equal(HttpMethod.Post, exchange.Method);
+        Assert.Equal($"{DataverseUrl}/api/data/v9.2/connectors?$select=connectorid,name,displayname,description,connectorinternalid,openapidefinition,connectionparameters,connectionparametersets,policytemplateinstances,iconbrandcolor,iconblob,connectortype,statecode,statuscode,ismanaged,componentstate,createdon,modifiedon,versionnumber", Uri.UnescapeDataString(exchange.Url));
+        Assert.Equal("return=representation", Assert.Single(preferences));
+        using var body = JsonDocument.Parse(exchange.Body);
+        Assert.Equal(connectorId, body.RootElement.GetProperty("connectorid").GetGuid());
+        Assert.Equal("shared_contoso-5f", body.RootElement.GetProperty("connectorinternalid").GetString());
+        Assert.Equal(1, body.RootElement.GetProperty("connectortype").GetInt32());
+        Assert.False(body.RootElement.TryGetProperty("openapidefinition", out _));
+        Assert.Equal("Stored by the server", stored.Description);
+        Assert.Equal(42, stored.VersionNumber);
+    }
+
+    [Fact]
+    public async Task SaveConnectorAsync_ExistingConnector_PatchesWithoutCreateOnlyFields()
+    {
+        var connectorId = Guid.NewGuid();
+        var (client, handler) = Create(_ => Json($"{{\"connectorid\":\"{connectorId}\",\"versionnumber\":7}}"));
+
+        var stored = await client.SaveConnectorAsync(
+            new CustomConnectorMetadata { ConnectorId = connectorId, Name = "shared_contoso", ConnectorInternalId = "shared_contoso-5f", ConnectorType = 1, IconBrandColor = "#007ee5" },
+            exists: true,
+            expectedVersion: null,
+            CancellationToken.None);
+
+        var exchange = Assert.Single(handler.Exchanges);
+        Assert.Equal("PATCH", exchange.Method.Method);
+        Assert.StartsWith($"{DataverseUrl}/api/data/v9.2/connectors({connectorId})?$select=connectorid,", Uri.UnescapeDataString(exchange.Url), StringComparison.Ordinal);
+        using var body = JsonDocument.Parse(exchange.Body);
+        Assert.Equal("#007ee5", body.RootElement.GetProperty("iconbrandcolor").GetString());
+        Assert.False(body.RootElement.TryGetProperty("connectorid", out _));
+        Assert.False(body.RootElement.TryGetProperty("connectorinternalid", out _));
+        Assert.False(body.RootElement.TryGetProperty("connectortype", out _));
+        Assert.Equal(7, stored.VersionNumber);
+    }
+
+    [Fact]
+    public async Task SaveConnectorAsync_EmptyResponse_ReadsTheStoredConnectorOnce()
+    {
+        var connectorId = Guid.NewGuid();
+        var (client, handler) = Create(request => request.Method == HttpMethod.Get
+            ? Json($"{{\"connectorid\":\"{connectorId}\",\"description\":\"Read back\",\"versionnumber\":9}}")
+            : new HttpResponseMessage(HttpStatusCode.NoContent));
+
+        var stored = await client.SaveConnectorAsync(new CustomConnectorMetadata { ConnectorId = connectorId, Name = "shared_contoso" }, exists: true, expectedVersion: null, CancellationToken.None);
+
+        Assert.Equal(2, handler.Exchanges.Count);
+        Assert.Equal(HttpMethod.Get, handler.Exchanges[1].Method);
+        Assert.StartsWith($"{DataverseUrl}/api/data/v9.2/connectors({connectorId})?$select=connectorid,", Uri.UnescapeDataString(handler.Exchanges[1].Url), StringComparison.Ordinal);
+        Assert.Equal("Read back", stored.Description);
+        Assert.Equal(9, stored.VersionNumber);
+    }
+
+    [Fact]
+    public async Task SaveConnectorAsync_ConnectorTableChecksVersions_SendsIfMatchAndReadsTheTableMetadataOnce()
+    {
+        var connectorId = Guid.NewGuid();
+        var (client, handler, ifMatches) = CreateConnectorStore(connectorId, () => Json("{\"IsOptimisticConcurrencyEnabled\":true}"), storedVersion: 7);
+
+        await client.SaveConnectorAsync(new CustomConnectorMetadata { ConnectorId = connectorId, Name = "shared_contoso" }, exists: true, expectedVersion: 7, CancellationToken.None);
+        await client.SaveConnectorAsync(new CustomConnectorMetadata { ConnectorId = connectorId, Name = "shared_contoso" }, exists: true, expectedVersion: 7, CancellationToken.None);
+
+        Assert.Equal(new[] { "W/\"7\"", "W/\"7\"" }, ifMatches);
+        var metadataRequest = Assert.Single(handler.Exchanges, exchange => exchange.Method == HttpMethod.Get);
+        Assert.Equal($"{DataverseUrl}/api/data/v9.2/EntityDefinitions(LogicalName='connector')?$select=IsOptimisticConcurrencyEnabled", Uri.UnescapeDataString(metadataRequest.Url));
+    }
+
+    [Fact]
+    public async Task SaveConnectorAsync_ConnectorTableDoesNotCheckVersions_ReadsTheStoredVersionBeforeEachUpdate()
+    {
+        var connectorId = Guid.NewGuid();
+        var (client, handler, ifMatches) = CreateConnectorStore(connectorId, () => Json("{\"IsOptimisticConcurrencyEnabled\":false}"), storedVersion: 7);
+
+        await client.SaveConnectorAsync(new CustomConnectorMetadata { ConnectorId = connectorId, Name = "shared_contoso" }, exists: true, expectedVersion: 7, CancellationToken.None);
+        await client.SaveConnectorAsync(new CustomConnectorMetadata { ConnectorId = connectorId, Name = "shared_contoso" }, exists: true, expectedVersion: 7, CancellationToken.None);
+
+        Assert.Equal(new[] { string.Empty, string.Empty }, ifMatches);
+        Assert.Single(handler.Exchanges, exchange => exchange.Url.Contains("EntityDefinitions", StringComparison.Ordinal));
+        Assert.Equal(new[] { "GET", "PATCH", "GET", "PATCH" }, handler.Exchanges.Where(exchange => !exchange.Url.Contains("EntityDefinitions", StringComparison.Ordinal)).Select(exchange => exchange.Method.Method));
+    }
+
+    [Fact]
+    public async Task SaveConnectorAsync_StoredVersionMovedWhereTheConnectorTableDoesNotCheckVersions_RefusesTheUpdate()
+    {
+        var connectorId = Guid.NewGuid();
+        var (client, _, ifMatches) = CreateConnectorStore(connectorId, () => Json("{\"IsOptimisticConcurrencyEnabled\":false}"), storedVersion: 8);
+
+        var exception = await Assert.ThrowsAsync<DataverseRequestException>(() => client.SaveConnectorAsync(new CustomConnectorMetadata { ConnectorId = connectorId, Name = "shared_contoso" }, exists: true, expectedVersion: 7, CancellationToken.None));
+
+        Assert.Equal(HttpStatusCode.PreconditionFailed, exception.StatusCode);
+        Assert.Empty(ifMatches);
+    }
+
+    [Fact]
+    public async Task SaveConnectorAsync_ConnectorTableMetadataUnreadable_RefusesTheUpdateAndAsksAgainNextTime()
+    {
+        var connectorId = Guid.NewGuid();
+        var (client, handler, ifMatches) = CreateConnectorStore(connectorId, () => Failure(HttpStatusCode.Forbidden, "{\"error\":{\"code\":\"0x80040220\",\"message\":\"Principal user is missing prvReadEntity privilege.\"}}"), storedVersion: 7);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.SaveConnectorAsync(new CustomConnectorMetadata { ConnectorId = connectorId, Name = "shared_contoso" }, exists: true, expectedVersion: 7, CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.SaveConnectorAsync(new CustomConnectorMetadata { ConnectorId = connectorId, Name = "shared_contoso" }, exists: true, expectedVersion: 7, CancellationToken.None));
+
+        Assert.Empty(ifMatches);
+        Assert.Equal(2, handler.Exchanges.Count(exchange => exchange.Url.Contains("EntityDefinitions", StringComparison.Ordinal)));
+    }
+
+    private static (SyncDataverseClient Client, RecordingHandler Handler, List<string> IfMatches) CreateConnectorStore(Guid connectorId, Func<HttpResponseMessage> tableMetadata, long storedVersion)
+    {
+        var ifMatches = new List<string>();
+        var (client, handler) = Create(request =>
+        {
+            if ((request.RequestUri ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ToString().Contains("EntityDefinitions", StringComparison.Ordinal))
+            {
+                return tableMetadata();
+            }
+
+            if (request.Method == HttpMethod.Get)
+            {
+                return Json($"{{\"value\":[{{\"connectorid\":\"{connectorId}\",\"versionnumber\":{storedVersion}}}]}}");
+            }
+
+            ifMatches.Add(request.Headers.IfMatch.ToString());
+            return Json($"{{\"connectorid\":\"{connectorId}\",\"versionnumber\":{storedVersion}}}");
+        });
+        return (client, handler, ifMatches);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task UpsertConnectorAsync_ProbesTheConnectorIdThenPatchesAnExistingConnectorOrPostsANewOne(bool exists)
+    {
+        var connectorId = Guid.NewGuid();
+        var (client, handler) = Create(request => request.Method == HttpMethod.Get
+            ? Json(exists ? $"{{\"value\":[{{\"connectorid\":\"{connectorId}\",\"versionnumber\":3}}]}}" : "{\"value\":[]}")
+            : Json($"{{\"connectorid\":\"{connectorId}\",\"versionnumber\":4}}"));
+
+        var created = await client.UpsertConnectorAsync(new CustomConnectorMetadata { ConnectorId = connectorId, Name = "shared_contoso", ConnectorInternalId = "shared_contoso-5f" }, CancellationToken.None);
+
+        Assert.Equal(!exists, created);
+        Assert.Equal(2, handler.Exchanges.Count);
+        Assert.Contains($"connectorid eq {connectorId}", Uri.UnescapeDataString(handler.Exchanges[0].Url), StringComparison.Ordinal);
+        Assert.Equal(exists ? "PATCH" : "POST", handler.Exchanges[1].Method.Method);
+    }
+
+    [Fact]
     public async Task ListWorkflowsAsync_ListsEveryUnmanagedCloudFlowIncludingTheOnesAgentsUseInOneRequest()
     {
         var preferences = new List<bool>();

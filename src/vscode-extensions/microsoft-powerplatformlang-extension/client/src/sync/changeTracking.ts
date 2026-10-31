@@ -5,6 +5,7 @@ import * as models from '../types';
 import path from "path";
 import { LOCAL_STATE_SCHEME } from "./originalState";
 import { REMOTE_STATE_SCHEME } from "./remoteState";
+import { toVirtualFilePath } from "./virtualFilePath";
 
 const iconsRootPath = path.join(path.dirname(__dirname), 'icons');
 function getIconUri(iconName: string, theme: string): Uri {
@@ -226,9 +227,9 @@ function getEmptyUri(): Uri {
 
 
 function getLocalCacheUri(schemaName: string, uri: string): Uri {	
-		return Uri.from({ scheme: LOCAL_STATE_SCHEME, authority: "local", path: "/Local Cache: " + schemaName, query: uri });
+		return Uri.from({ scheme: LOCAL_STATE_SCHEME, authority: "local", path: toVirtualFilePath("Local Cache", schemaName), query: uri });
 	}
 
 function getRemoteUri(schemaName: string, uri: string): Uri {	
-		return Uri.from({ scheme: REMOTE_STATE_SCHEME, authority: "remote", path: "/Remote: " + schemaName, query: uri });
+		return Uri.from({ scheme: REMOTE_STATE_SCHEME, authority: "remote", path: toVirtualFilePath("Remote", schemaName), query: uri });
 	}

@@ -89,28 +89,6 @@ public class AIPromptTests
     }
 
     [Fact]
-    public void ExtractTrailingGuidFromFileName_ValidGuidSuffix_Parses()
-    {
-        var id = AiPromptProjection.ExtractTrailingGuidFromFileName(
-            "Prompt1-2fcc84f9-b852-496a-8b53-f571ccbf74c0");
-        Assert.NotNull(id);
-        Assert.Equal(Guid.Parse("2fcc84f9-b852-496a-8b53-f571ccbf74c0"), id);
-    }
-
-    [Fact]
-    public void ExtractTrailingGuidFromFileName_NoGuid_ReturnsNull()
-    {
-        Assert.Null(AiPromptProjection.ExtractTrailingGuidFromFileName("Prompt1"));
-    }
-
-    [Fact]
-    public void ExtractTrailingGuidFromFileName_GuidNotAtEnd_ReturnsNull()
-    {
-        Assert.Null(AiPromptProjection.ExtractTrailingGuidFromFileName(
-            "2fcc84f9-b852-496a-8b53-f571ccbf74c0-Prompt1"));
-    }
-
-    [Fact]
     public void TryReadPromptName_ReadsTopLevelName()
     {
         var json = ReadFixture("SummarizeDocument1.prompt.json");

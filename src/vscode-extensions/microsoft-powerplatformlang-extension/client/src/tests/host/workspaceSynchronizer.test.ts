@@ -19,7 +19,7 @@ import {
 	withSyncCommandBusy,
 } from '../../sync/workspaceSynchronizer';
 import { registerSyncCommands, requestsRemoteOverwrite, resolveWorkspaceArg } from '../../commands/syncWorkspace';
-import { LspMethods } from '../../constants';
+import { AIPromptSchemaNamePrefix, CustomConnectorSchemaNamePrefix, LspMethods } from '../../constants';
 import logger, { formatFileName, formatPii, PiiRedactionType, prepareLogData, sanitizeErrorDetails, stripPiiTags } from '../../services/logger';
 import { LspRequestError, LSP_UNPUSHED_LOCAL_CHANGES } from '../../services/lspClient';
 import type { SyncRequest, WorkflowResponse } from '../../types';
@@ -743,7 +743,13 @@ describe('workspaceSynchronizer: workspace binding', () => {
 
 describe('workspaceSynchronizer: remote change conflicts', () => {
 	const workflowWorkspace = createWorkflowWorkspace('conflict-flow');
+	const agentWorkspace = { ...workflowWorkspace, type: WorkspaceType.Agent };
 	const refusal = `'${formatPii('MyFlow-1', PiiRedactionType.WorkflowNames)}' has conflict local changes, and a pull would replace them.`;
+	const workflowChange = { schemaName: 'Mcs.Workflow.4f1d7c2e-8b3a-4c5d-9e6f-0a1b2c3d4e5f' };
+	const topicChange = { schemaName: 'cre98_agent.topic.Greeting' };
+	const connectorChange = { schemaName: `${CustomConnectorSchemaNamePrefix}6f1c2b3a-4d5e-4f60-8a9b-0c1d2e3f4a5b` };
+	const promptChange = { schemaName: `${AIPromptSchemaNamePrefix}0b6e1f7c-2a3d-4e5f-9a8b-7c6d5e4f3a2b` };
+	const cloudOnlyPromptChange = { schemaName: `${AIPromptSchemaNamePrefix}3b5436b4-d7b4-4c1e-9a2f-5e6d7c8b9a0f` };
 
 	let prompts: { message: string; options: vscode.MessageOptions; items: string[] }[];
 	let requests: { method: string; request: SyncRequest }[];
@@ -835,34 +841,77 @@ describe('workspaceSynchronizer: remote change conflicts', () => {
 		]);
 	});
 
-	test('remote changes to a workflow can be got or overwritten', async () => {
+	const getOrOverwriteDetail = 'Get Remote Changes replaces your local copies with the cloud copies. Overwrite remote changes replaces the cloud copies of what you changed with your local copies.';
+
+	test('remote changes to a workflow can be got or overwritten and the dialog explains both', async () => {
 		arrange('Overwrite remote changes');
 
-		const resolution = await askRemoteChangeResolution(workflowWorkspace, 1);
+		const resolution = await askRemoteChangeResolution(workflowWorkspace, [workflowChange], []);
 
 		assert.strictEqual(resolution, 'overwriteRemoteChanges');
 		assert.deepStrictEqual(prompts, [{
-			message: 'The agent has 1 remote change that must be retrieved before your local changes can be applied.',
-			options: { modal: true },
+			message: 'The agent has 1 remote change that must be retrieved or overwritten before your local changes can be applied.',
+			options: { modal: true, detail: getOrOverwriteDetail },
 			items: ['Get Remote Changes', 'Overwrite remote changes'],
 		}]);
 	});
 
-	test('remote changes to an agent can only be got', async () => {
+	test('remote changes to an agent that are all connectors or prompts the workspace also changed can be got or overwritten and the dialog explains both', async () => {
+		arrange('Overwrite remote changes');
+
+		const resolution = await askRemoteChangeResolution(agentWorkspace, [connectorChange, promptChange], [{ schemaName: `${connectorChange.schemaName}.openapidefinition` }, promptChange]);
+
+		assert.strictEqual(resolution, 'overwriteRemoteChanges');
+		assert.deepStrictEqual(prompts, [{
+			message: 'The agent has 2 remote changes that must be retrieved or overwritten before your local changes can be applied.',
+			options: { modal: true, detail: getOrOverwriteDetail },
+			items: ['Get Remote Changes', 'Overwrite remote changes'],
+		}]);
+	});
+
+	test('remote changes to an agent that are prompts, one of them changed only in the cloud, can be overwritten when the workspace also changed another', async () => {
+		arrange('Overwrite remote changes');
+
+		const resolution = await askRemoteChangeResolution(agentWorkspace, [promptChange, cloudOnlyPromptChange], [promptChange]);
+
+		assert.strictEqual(resolution, 'overwriteRemoteChanges');
+		assert.deepStrictEqual(prompts, [{
+			message: 'The agent has 2 remote changes that must be retrieved or overwritten before your local changes can be applied.',
+			options: { modal: true, detail: getOrOverwriteDetail },
+			items: ['Get Remote Changes', 'Overwrite remote changes'],
+		}]);
+	});
+
+	test('remote changes to an agent that are only to connectors or prompts the workspace did not change can only be got', async () => {
 		arrange('Get Remote Changes');
 
-		const resolution = await askRemoteChangeResolution({ ...workflowWorkspace, type: WorkspaceType.Agent }, 2);
+		const resolution = await askRemoteChangeResolution(agentWorkspace, [connectorChange, cloudOnlyPromptChange], [topicChange, promptChange]);
 
 		assert.strictEqual(resolution, 'getRemoteChanges');
-		assert.deepStrictEqual(prompts.map(({ message, items }) => [message, items]), [
-			['The agent has 2 remote changes that must be retrieved before your local changes can be applied.', ['Get Remote Changes']],
-		]);
+		assert.deepStrictEqual(prompts, [{
+			message: 'The agent has 2 remote changes that must be retrieved before your local changes can be applied.',
+			options: { modal: true },
+			items: ['Get Remote Changes'],
+		}]);
+	});
+
+	test('remote changes to an agent that include a component can only be got', async () => {
+		arrange('Get Remote Changes');
+
+		const resolution = await askRemoteChangeResolution(agentWorkspace, [topicChange, connectorChange], [topicChange, connectorChange]);
+
+		assert.strictEqual(resolution, 'getRemoteChanges');
+		assert.deepStrictEqual(prompts, [{
+			message: 'The agent has 2 remote changes that must be retrieved before your local changes can be applied.',
+			options: { modal: true },
+			items: ['Get Remote Changes'],
+		}]);
 	});
 
 	test('a dismissed remote change dialog resolves nothing', async () => {
 		arrange();
 
-		assert.strictEqual(await askRemoteChangeResolution(workflowWorkspace, 1), undefined);
+		assert.strictEqual(await askRemoteChangeResolution(workflowWorkspace, [workflowChange], []), undefined);
 	});
 });
 

@@ -204,7 +204,7 @@ const registerSyncCommand = (
             ) ?? [];
 
           if (changesWithoutKnowledgeFiles.length > 0) {
-            const resolution = await askRemoteChangeResolution(selectedWorkspace, changesWithoutKnowledgeFiles.length);
+            const resolution = await askRemoteChangeResolution(selectedWorkspace, changesWithoutKnowledgeFiles, changes?.localChanges ?? []);
 
             if (resolution === 'getRemoteChanges') {
               // Run the Get logic directly rather than dispatching the Get
