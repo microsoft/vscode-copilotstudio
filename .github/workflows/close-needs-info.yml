@@ -1,0 +1,73 @@
+name: Close inactive issues needing information
+
+on:
+  schedule:
+    - cron: '23 9 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: close-needs-info
+  cancel-in-progress: false
+
+jobs:
+  close:
+    # Opt in only after reviewing the initial Copilot assessments.
+    if: vars.ISSUE_ANALYSER_AUTO_CLOSE == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      issues: write
+    steps:
+      - name: Close after seven days without interactions
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        with:
+          script: |
+            const repo = context.repo;
+            const api = github.rest.issues;
+            const cutoff = Date.parse('2026-11-03T06:00:00Z');
+            const deadline = Date.now() - 7 * 24 * 60 * 60 * 1000;
+            const eligible = issue => !issue.pull_request && issue.state === 'open'
+              && Date.parse(issue.created_at) >= cutoff && !issue.locked
+              && issue.assignees.length === 0 && !issue.milestone
+              && issue.labels.some(label => label.name === 'Need Info')
+              && issue.labels.every(label => ['triage', 'bug', 'Need Info'].includes(label.name));
+
+            async function inactive(number) {
+              const params = { ...repo, issue_number: number, per_page: 100 };
+              const { data: issue } = await api.get(params);
+              if (!eligible(issue)) {
+                return false;
+              }
+              const comments = await github.paginate(api.listComments, params);
+              const events = await github.paginate(api.listEvents, params);
+              const interactions = [
+                issue.created_at, issue.updated_at,
+                ...comments.flatMap(comment => [comment.created_at, comment.updated_at]),
+                ...events.map(event => event.created_at)
+              ];
+              return interactions.every(timestamp => {
+                const time = Date.parse(timestamp);
+                return Number.isFinite(time) && time <= deadline;
+              });
+            }
+
+            for await (const page of github.paginate.iterator(api.listForRepo, {
+              ...repo, state: 'open', labels: 'Need Info', per_page: 100
+            })) {
+              for (const issue of page.data) {
+                if (!eligible(issue) || !await inactive(issue.number)) {
+                  continue;
+                }
+                // Re-read activity and eligibility immediately before closing.
+                if (!await inactive(issue.number)) {
+                  continue;
+                }
+                await api.update({
+                  ...repo, issue_number: issue.number,
+                  state: 'closed', state_reason: 'not_planned'
+                });
+                core.info(`Closed issue #${issue.number} after seven days without interactions.`);
+              }
+            }
