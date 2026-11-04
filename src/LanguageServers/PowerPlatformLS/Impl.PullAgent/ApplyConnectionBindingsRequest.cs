@@ -12,6 +12,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
         public string? ConnectionsAccessToken { get; set; }
 
+        public string? TargetAgentSchemaName { get; set; }
+
         public ImmutableArray<ConnectionBindingRequest> Bindings { get; set; } = ImmutableArray<ConnectionBindingRequest>.Empty;
     }
 }

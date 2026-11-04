@@ -1,6 +1,7 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 
 using Microsoft.Agents.ObjectModel;
+using Microsoft.Agents.Platform.Content;
 using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using System.Collections.Generic;
@@ -17,6 +18,21 @@ namespace Microsoft.CopilotStudio.Sync;
 /// </summary>
 public interface IConnectionManagementService
 {
+    /// <summary>
+    /// Reads deployed bindings together with locally declared references, or binds them in the target environment.
+    /// Never writes local workspace files. An empty binding list performs a read only.
+    /// </summary>
+    Task<IReadOnlyList<AgentConnectionView>> ManageDeploymentConnectionsAsync(
+        DirectoryPath workspaceFolder,
+        DefinitionBase definition,
+        AuthoringOperationContextBase operationContext,
+        AgentSyncInfo syncInfo,
+        ISyncDataverseClient dataverseClient,
+        IConnectionCatalogClient catalogClient,
+        PowerAppsContext catalogContext,
+        IReadOnlyList<ConnectionBindingRequest> bindings,
+        CancellationToken cancellationToken);
+
     /// <summary>
     /// Get the agent's connection references.
     /// </summary>
@@ -95,19 +111,17 @@ public interface IConnectionManagementService
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Creates and declares a new connection reference for the given connector.
+    /// Declares a new local connection reference for the given connector without provisioning a remote record.
     /// </summary>
     /// <param name="workspaceFolder">Workspace folder.</param>
     /// <param name="definition">The bot definition.</param>
     /// <param name="connectorInternalId">The connector internal id to create the reference for (for example <c>shared_office365</c>).</param>
-    /// <param name="dataverseClient">Dataverse client used to create the connection reference record.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The new connection reference logical name.</returns>
     Task<string> CreateConnectionReferenceForConnectorAsync(
         DirectoryPath workspaceFolder,
         DefinitionBase definition,
         string connectorInternalId,
-        ISyncDataverseClient dataverseClient,
         CancellationToken cancellationToken);
 
     /// <summary>

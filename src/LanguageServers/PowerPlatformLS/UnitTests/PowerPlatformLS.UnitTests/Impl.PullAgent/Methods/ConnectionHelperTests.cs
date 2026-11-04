@@ -18,6 +18,45 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
         private const string DataverseUrl = "https://test.crm.dynamics.com";
         private const string AgentManagementUrl = "https://test.agentmanagement.com";
 
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task ResolveDeploymentSyncInfo_ResolvesIdentityInSelectedEnvironmentOrFails(bool exists)
+        {
+            var agentId = exists ? Guid.NewGuid() : Guid.Empty;
+            var dataverse = new Mock<ISyncDataverseClient>();
+            dataverse.Setup(client => client.GetAgentIdBySchemaNameAsync("agent_schema", It.IsAny<CancellationToken>()))
+                .ReturnsAsync(agentId);
+            var request = new ListAgentConnectionsRequest
+            {
+                WorkspaceUri = new Uri("file:///c:/workspace"),
+                AccountInfo = new AccountInfo { TenantId = Guid.NewGuid() },
+                EnvironmentInfo = new EnvironmentInfo
+                {
+                    EnvironmentId = "selected-environment",
+                    DisplayName = "Selected Environment",
+                    DataverseUrl = DataverseUrl,
+                    AgentManagementUrl = AgentManagementUrl,
+                },
+                SolutionVersions = new SolutionInfo(),
+                CopilotStudioAccessToken = "cs-token",
+                DataverseAccessToken = "dv-token",
+            };
+
+            if (!exists)
+            {
+                await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                    ConnectionHelper.ResolveDeploymentSyncInfoAsync(request, "agent_schema", dataverse.Object, CancellationToken.None));
+                return;
+            }
+
+            var target = await ConnectionHelper.ResolveDeploymentSyncInfoAsync(request, "agent_schema", dataverse.Object, CancellationToken.None);
+            Assert.Equal(agentId, target.AgentId);
+            Assert.Equal("selected-environment", target.EnvironmentId);
+            Assert.Equal("Selected Environment", target.EnvironmentDisplayName);
+            Assert.Equal(new Uri(DataverseUrl), target.DataverseEndpoint);
+        }
+
         [Fact]
         public void BuildDefaultSyncInfoMapsRequestFieldsTest()
         {

@@ -289,6 +289,7 @@ export interface ConnectionBindingRequest {
 export interface ListAgentConnectionsRequest extends RemoteApiRequest {
   workspaceUri: string;
   connectionsAccessToken?: string;
+  targetAgentSchemaName?: string;
 }
 
 export interface ListAgentConnectionsResponse extends RemoteApiResponse {
@@ -299,6 +300,7 @@ export interface ApplyConnectionBindingsRequest extends RemoteApiRequest {
   workspaceUri: string;
   connectionsAccessToken?: string;
   bindings: ConnectionBindingRequest[];
+  targetAgentSchemaName?: string;
 }
 
 export interface ApplyConnectionBindingsResponse extends RemoteApiResponse {
@@ -377,7 +379,6 @@ export interface CreateConnectionReferenceRequest extends RemoteApiRequest {
 
 export interface CreateConnectionReferenceResponse extends RemoteApiResponse {
   logicalName: string;
-  agentConnections?: AgentConnectionView[];
 }
 
 export interface WorkflowResponse {

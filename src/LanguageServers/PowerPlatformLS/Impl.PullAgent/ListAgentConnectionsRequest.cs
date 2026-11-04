@@ -9,5 +9,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         public required Uri WorkspaceUri { get; set; }
 
         public string? ConnectionsAccessToken { get; set; }
+
+        public string? TargetAgentSchemaName { get; set; }
     }
 }

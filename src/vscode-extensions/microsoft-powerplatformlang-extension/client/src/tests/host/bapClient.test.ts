@@ -1,3 +1,9 @@
+import * as strictAssert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import * as path from 'node:path';
+import { createContext, runInContext } from 'node:vm';
+import { HttpRequestError } from '../../utils/httpRequestError';
+import { CoreServicesClusterCategory, DefaultCoreServicesClusterCategory } from '../../constants';
 import * as assert from 'node:assert';
 import { describe, test } from 'node:test';
 
@@ -192,4 +198,45 @@ describe('mergeEnvironmentsBySku', () => {
 
 		assert.deepStrictEqual(merged.map(e => e.environmentId), ['dev-b', 'dev-a']);
 	});
+});
+
+test('environment request errors expose the service message without JSON and retain diagnostic details', async () => {
+  let responseBody = '';
+  const sandbox = createContext({
+    exports: {},
+    require: (id: string) => {
+      switch (id) {
+        case 'vscode': return { Uri: { from: () => ({}) } };
+        case './account': return {
+          FetchAccessToken: async () => ({
+            response: new Response(responseBody, { status: 404 }), tokenInfo: {}
+          })
+        };
+        case '../constants': return { CoreServicesClusterCategory, DefaultCoreServicesClusterCategory };
+        case '../services/logger': return {};
+        case '../utils/httpRequestError': return { HttpRequestError };
+        default: throw new Error('Unexpected dependency: ' + id);
+      }
+    }
+  });
+  const compiled = await readFile(path.resolve(__dirname, '..', '..', 'clients', 'bapClient.js'), 'utf8');
+  runInContext(compiled, sandbox);
+  const message = "The environment 'unknown-env' could not be found in the tenant 'test-tenant'.";
+  for (const sample of [
+    { body: JSON.stringify({ error: { code: 'EnvironmentNotFound', message, detailUrlType: 'NotSpecified' } }), expected: message },
+    { body: JSON.stringify({ error: { message: { detail: 'Unexpected format' } } }), expected: 'Request failed with status 404' },
+    { body: JSON.stringify({ error: { message: ' ' } }), expected: 'Request failed with status 404' },
+    { body: 'Not JSON', expected: 'Request failed with status 404' }
+  ]) {
+    responseBody = sample.body;
+    await strictAssert.rejects(
+      runInContext('exports.getEnvironmentEndpointByIdAsync(null, "unknown-env", null)', sandbox) as Promise<unknown>,
+      error => {
+        strictAssert.ok(error instanceof HttpRequestError);
+        strictAssert.equal(error.userMessage, sample.expected);
+        strictAssert.match(error.message, /status 404/);
+        return true;
+      }
+    );
+  }
 });

@@ -1390,6 +1390,9 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
         public virtual Task<IReadOnlyList<AgentConnectionView>> GetAgentConnectionViewsAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, DefinitionBase definition, ISyncDataverseClient dataverseClient, IConnectionCatalogClient catalogClient, PowerAppsContext catalogContext, CancellationToken cancellationToken)
             => Task.FromResult<IReadOnlyList<AgentConnectionView>>(Array.Empty<AgentConnectionView>());
 
+        public virtual Task<IReadOnlyList<AgentConnectionView>> ManageDeploymentConnectionsAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, DefinitionBase definition, AuthoringOperationContextBase operationContext, AgentSyncInfo syncInfo, ISyncDataverseClient dataverseClient, IConnectionCatalogClient catalogClient, PowerAppsContext catalogContext, IReadOnlyList<ConnectionBindingRequest> bindings, CancellationToken cancellationToken)
+            => throw new NotSupportedException();
+
         public virtual Task<IReadOnlyList<AgentConnectionView>> ApplyConnectionBindingsAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, DefinitionBase definition, ISyncDataverseClient dataverseClient, IConnectionCatalogClient catalogClient, PowerAppsContext catalogContext, IReadOnlyList<ConnectionBindingRequest> bindings, CancellationToken cancellationToken)
             => Task.FromResult<IReadOnlyList<AgentConnectionView>>(Array.Empty<AgentConnectionView>());
 
@@ -1410,7 +1413,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
         public virtual Task<DeclareConnectionReferencesResult> DeclareConnectionReferencesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, DefinitionBase definition, IReadOnlyList<string> logicalNames, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
             => Task.FromResult(new DeclareConnectionReferencesResult());
 
-        public virtual Task<string> CreateConnectionReferenceForConnectorAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, DefinitionBase definition, string connectorInternalId, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+        public virtual Task<string> CreateConnectionReferenceForConnectorAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, DefinitionBase definition, string connectorInternalId, CancellationToken cancellationToken)
             => Task.FromResult(string.Empty);
 
         public virtual Task<ConnectionReferenceRemovalResult> RemoveConnectionReferenceAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, DefinitionBase definition, string logicalName, bool confirmed, CancellationToken cancellationToken)

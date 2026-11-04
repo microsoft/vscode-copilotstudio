@@ -4,6 +4,7 @@ import { AgentInfo, SolutionInfo } from "../types";
 import { solutionList } from "../generated/schema";
 import { coalesceRequest } from "../utils/coalesceRequest";
 import logger from "../services/logger";
+import { HttpRequestError } from "../utils/httpRequestError";
 
 const PowerVirtualAgentsSolutionName = "PowerVirtualAgents";
 const additionalSolutions: ReadonlyArray<string> = [
@@ -203,7 +204,7 @@ async function getAsync<TResult>(
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null);
-    throw new Error(`Request failed with status ${response.status}: ${JSON.stringify(errorBody ?? {})}`);
+    throw new HttpRequestError(response.status, errorBody);
   }
 
   const result = await response.json() as TResult;

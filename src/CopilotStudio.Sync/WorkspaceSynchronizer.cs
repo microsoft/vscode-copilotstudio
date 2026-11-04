@@ -3342,6 +3342,63 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         CancellationToken cancellationToken)
         => (await GetAgentConnectionViewsCoreAsync(workspaceFolder, definition, dataverseClient, catalogClient, catalogContext, cancellationToken).ConfigureAwait(false)).Views;
 
+    public virtual async Task<IReadOnlyList<AgentConnectionView>> ManageDeploymentConnectionsAsync(
+        DirectoryPath workspaceFolder,
+        DefinitionBase definition,
+        AuthoringOperationContextBase operationContext,
+        AgentSyncInfo syncInfo,
+        ISyncDataverseClient dataverseClient,
+        IConnectionCatalogClient catalogClient,
+        PowerAppsContext catalogContext,
+        IReadOnlyList<ConnectionBindingRequest> bindings,
+        CancellationToken cancellationToken)
+    {
+        var changes = await _islandControlPlaneService.GetComponentsAsync(operationContext, null, cancellationToken).ConfigureAwait(false);
+        var workflows = await GetRemoteWorkflowContentAsync(dataverseClient, syncInfo, cancellationToken).ConfigureAwait(false);
+        var remoteDefinition = new BotDefinition(flows: workflows.Workflows, connectionReferences: workflows.ConnectionReferences).ApplyChanges(changes);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
+        var localReferences = ReadDeclaredConnectionReferencesFromDisk(fileAccessor, definition);
+        var combinedDefinition = remoteDefinition.WithConnectionReferences(
+            remoteDefinition.ConnectionReferences.Concat(localReferences)
+                .GroupBy(reference => reference.ConnectionReferenceLogicalName.Value, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First()).ToImmutableArray());
+        var scan = new ConnectionReferenceUsageScan(
+            ImmutableDictionary<string, ImmutableArray<ConnectionReferenceUsage>>.Empty,
+            ImmutableArray<string>.Empty,
+            ImmutableArray<ScannedWorkflow>.Empty);
+        var references = await GetAgentConnectionReferencesAsync(combinedDefinition, dataverseClient, cancellationToken).ConfigureAwait(false);
+        var views = await BuildConnectionViewsAsync(references, scan, catalogClient, catalogContext, cancellationToken).ConfigureAwait(false);
+
+        // Validate the entire batch against the selected deployment before writing any binding.
+        foreach (var binding in bindings)
+        {
+            var view = views.FirstOrDefault(view => string.Equals(view.ConnectionReferenceLogicalName, binding.ConnectionReferenceLogicalName, StringComparison.OrdinalIgnoreCase));
+            if (view == null || !view.Candidates.Any(candidate =>
+                string.Equals(candidate.Name, binding.ConnectionId, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(candidate.Status, "Connected", StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new InvalidOperationException("The selected connection reference is not available in this deployment.");
+            }
+        }
+
+        foreach (var binding in bindings)
+        {
+            var reference = references.First(reference => string.Equals(
+                reference.ConnectionReferenceLogicalName, binding.ConnectionReferenceLogicalName, StringComparison.OrdinalIgnoreCase));
+            await dataverseClient.EnsureConnectionReferenceExistsAsync(
+                reference.ConnectionReferenceLogicalName, reference.ConnectorId, cancellationToken).ConfigureAwait(false);
+            await dataverseClient.BindConnectionReferenceAsync(binding.ConnectionReferenceLogicalName, binding.ConnectionId, cancellationToken, binding.ConnectionDisplayName).ConfigureAwait(false);
+        }
+
+        if (bindings.Count == 0)
+        {
+            return views;
+        }
+
+        references = await GetAgentConnectionReferencesAsync(combinedDefinition, dataverseClient, cancellationToken).ConfigureAwait(false);
+        return await BuildConnectionViewsAsync(references, scan, catalogClient, catalogContext, cancellationToken).ConfigureAwait(false);
+    }
+
     private async Task<(IReadOnlyList<AgentConnectionView> Views, ConnectionReferenceUsageScan Scan)> GetAgentConnectionViewsCoreAsync(
         DirectoryPath workspaceFolder,
         DefinitionBase definition,
@@ -3354,6 +3411,16 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var declaredDefinition = definition.WithConnectionReferences(ReadDeclaredConnectionReferencesFromDisk(viewFileAccessor, definition));
         var references = await GetAgentConnectionReferencesAsync(declaredDefinition, dataverseClient, cancellationToken).ConfigureAwait(false);
         var scan = ScanConnectionReferenceUsages(workspaceFolder, references);
+        return (await BuildConnectionViewsAsync(references, scan, catalogClient, catalogContext, cancellationToken).ConfigureAwait(false), scan);
+    }
+
+    private async Task<IReadOnlyList<AgentConnectionView>> BuildConnectionViewsAsync(
+        IReadOnlyList<ConnectionNeeded> references,
+        ConnectionReferenceUsageScan scan,
+        IConnectionCatalogClient catalogClient,
+        PowerAppsContext catalogContext,
+        CancellationToken cancellationToken)
+    {
         var declaredLogicalNames = new HashSet<string>(references.Select(r => r.ConnectionReferenceLogicalName), StringComparer.OrdinalIgnoreCase);
         var authoredLogicalNames = scan.AuthoredLogicalNames
             .Concat(scan.Workflows.SelectMany(w => w.ConnectionReferenceLogicalNames))
@@ -3363,7 +3430,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         if (references.Count == 0 && undeclared.Count == 0)
         {
-            return (Array.Empty<AgentConnectionView>(), scan);
+            return Array.Empty<AgentConnectionView>();
         }
 
         var candidatesByConnector = new ConcurrentDictionary<string, ImmutableArray<ConnectionInstance>>(StringComparer.OrdinalIgnoreCase);
@@ -3439,7 +3506,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             });
         }
 
-        return (result, scan);
+        return result;
     }
 
     private static string? ParseConnectorInternalId(string connectionReferenceLogicalName)
@@ -3770,7 +3837,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         };
     }
 
-    public virtual async Task<string> CreateConnectionReferenceForConnectorAsync(DirectoryPath workspaceFolder, DefinitionBase definition, string connectorInternalId, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+    public virtual async Task<string> CreateConnectionReferenceForConnectorAsync(DirectoryPath workspaceFolder, DefinitionBase definition, string connectorInternalId, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(connectorInternalId))
         {
@@ -3782,8 +3849,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var prefix = DeriveConnectionReferencePrefix(definition.WithConnectionReferences(declaredRefs));
         var logicalName = $"{prefix}.{connectorInternalId}.{Guid.NewGuid():N}";
         var connectorId = $"/providers/Microsoft.PowerApps/apis/{connectorInternalId}";
-
-        await dataverseClient.EnsureConnectionReferenceExistsAsync(logicalName, connectorId, cancellationToken).ConfigureAwait(false);
 
         var addition = new ConnectionReference(connectionReferenceLogicalName: logicalName, connectionId: string.Empty, connectorId: connectorId);
         var updated = definition.WithConnectionReferences(declaredRefs.Add(addition));

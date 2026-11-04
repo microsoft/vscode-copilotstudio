@@ -15,6 +15,186 @@ public class ConnectionManagementTests
     private static readonly DirectoryPath Workspace = new("c:/test/workspace/");
 
     [Theory]
+    [InlineData("read")]
+    [InlineData("bind")]
+    [InlineData("foreign-reference")]
+    [InlineData("foreign-connection")]
+    [InlineData("disconnected")]
+    public async Task ManageDeploymentConnections_UsesTargetBindingsAndNeverChangesWorkspace(string operation)
+    {
+        const string logicalName = "remote.shared_office365.reference";
+        const string connectorId = "/providers/Microsoft.PowerApps/apis/shared_office365";
+        var (synchronizer, factory, island) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var accessor = (InMemoryFileAccessor)factory.Create(Workspace);
+        WriteClassicConnectionReferences(accessor, (logicalName, connectorId));
+        Write(accessor, ".mcs/conn.json", "workspace sync binding must not be read or changed");
+        var localReferences = await accessor.ReadStringAsync(new AgentFilePath("connectionreferences.mcs.yml"), CancellationToken.None);
+        var operationContext = ComponentWriterDefensiveTests.CreateMockOperationContext();
+        var remote = new PvaComponentChangeSet(null, new BotEntity.Builder { SchemaName = "remote" }.Build(), null).ToBuilder();
+        remote.ConnectionReferenceChanges.Add(new ConnectionReferenceInsert(new ConnectionReference.Builder
+        {
+            ConnectionReferenceLogicalName = logicalName,
+            ConnectorId = connectorId,
+        }.Build()));
+        island.Setup(service => service.GetComponentsAsync(operationContext, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(remote.Build());
+        var syncInfo = new AgentSyncInfo { EnvironmentId = "remote-environment", AgentId = Guid.NewGuid() };
+        var boundConnection = "old";
+        var dataverse = new Mock<ISyncDataverseClient>();
+        dataverse.Setup(client => client.DownloadAllWorkflowsForAgentAsync(syncInfo, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<SyncDataverseClient.WorkflowMetadata>());
+        dataverse.Setup(client => client.GetConnectionReferencesByLogicalNamesAsync(
+                It.Is<IEnumerable<string>>(names => names.SequenceEqual(new[] { logicalName })),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new[]
+            {
+                new SyncDataverseClient.ConnectionReferenceInfo
+                {
+                    ConnectionReferenceLogicalName = logicalName,
+                    ConnectorId = connectorId,
+                    ConnectionId = boundConnection,
+                },
+            });
+        dataverse.Setup(client => client.BindConnectionReferenceAsync(logicalName, "remote-connection", It.IsAny<CancellationToken>(), It.IsAny<string?>()))
+            .Callback(() => boundConnection = "remote-connection")
+            .Returns(Task.CompletedTask);
+        var catalogContext = new PowerAppsContext { AccessToken = "token", EnvironmentId = syncInfo.EnvironmentId };
+        var catalog = new Mock<IConnectionCatalogClient>();
+        catalog.Setup(client => client.ListConnectionsAsync(catalogContext, "shared_office365", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[]
+            {
+                new ConnectionInstance { Name = "remote-connection", Status = "Connected" },
+                new ConnectionInstance { Name = "disconnected", Status = "Disconnected" },
+            });
+        var bindings = new List<ConnectionBindingRequest>();
+        if (operation != "read")
+        {
+            bindings.Add(new ConnectionBindingRequest { ConnectionReferenceLogicalName = logicalName, ConnectionId = "remote-connection" });
+        }
+        if (operation is "foreign-reference" or "foreign-connection" or "disconnected")
+        {
+            bindings.Add(new ConnectionBindingRequest
+            {
+                ConnectionReferenceLogicalName = operation == "foreign-reference" ? "workspace_only" : logicalName,
+                ConnectionId = operation == "foreign-connection" ? "workspace-connection" : operation == "disconnected" ? "disconnected" : "remote-connection",
+            });
+            await Assert.ThrowsAsync<InvalidOperationException>(() => synchronizer.ManageDeploymentConnectionsAsync(
+                Workspace, new BotDefinition(), operationContext, syncInfo, dataverse.Object, catalog.Object, catalogContext, bindings, CancellationToken.None));
+        }
+        else
+        {
+            var views = await synchronizer.ManageDeploymentConnectionsAsync(
+                Workspace, new BotDefinition(), operationContext, syncInfo, dataverse.Object, catalog.Object, catalogContext, bindings, CancellationToken.None);
+            var view = Assert.Single(views);
+            Assert.Equal(logicalName, view.ConnectionReferenceLogicalName);
+            Assert.Equal(operation == "bind" ? "remote-connection" : "old", view.BoundConnectionId);
+        }
+
+        dataverse.Verify(client => client.BindConnectionReferenceAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<string?>()),
+            operation == "bind" ? Times.Once() : Times.Never());
+        dataverse.Verify(client => client.EnsureConnectionReferenceExistsAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<Guid?>()),
+            operation == "bind" ? Times.Once() : Times.Never());
+        dataverse.Verify(client => client.DownloadAllWorkflowsForAgentAsync(syncInfo, It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Equal("workspace sync binding must not be read or changed", await accessor.ReadStringAsync(new AgentFilePath(".mcs/conn.json"), CancellationToken.None));
+        Assert.Equal(localReferences, await accessor.ReadStringAsync(new AgentFilePath("connectionreferences.mcs.yml"), CancellationToken.None));
+        Assert.Equal(2, accessor.ListFiles().Count());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ManageDeploymentConnections_LocalReferenceIsVisibleEverywhereAndProvisionedOnlyOnTargetApply(bool layered)
+    {
+        const string connectorId = "/providers/Microsoft.PowerApps/apis/shared_office365";
+        var (synchronizer, factory, island) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var accessor = (InMemoryFileAccessor)factory.Create(Workspace);
+        var definition = layered
+            ? new BotDefinition().WithEntity(CodeSerializer.Deserialize<BotEntity>("""
+                schemaName: test_agent
+                configuration:
+                  recognizer:
+                    kind: CLICopilotRecognizer
+                  agentSettings:
+                    instructions: {}
+                template: cliagent-1.0.0
+                """))
+            : new BotDefinition();
+        var logicalName = await synchronizer.CreateConnectionReferenceForConnectorAsync(
+            Workspace, definition, "shared_office365", CancellationToken.None);
+        Write(accessor, ".mcs/conn.json", "original attachment");
+        var localFiles = new Dictionary<AgentFilePath, string>();
+        foreach (var file in accessor.ListFiles())
+        {
+            localFiles.Add(file, await accessor.ReadStringAsync(file, CancellationToken.None));
+        }
+        var operationContext = ComponentWriterDefensiveTests.CreateMockOperationContext();
+        island.Setup(service => service.GetComponentsAsync(operationContext, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PvaComponentChangeSet(null, new BotEntity.Builder { SchemaName = "test_agent" }.Build(), null));
+
+        foreach (var environment in new[] { "dev", "test" })
+        {
+            var syncInfo = new AgentSyncInfo { EnvironmentId = environment, AgentId = Guid.NewGuid() };
+            var boundConnection = string.Empty;
+            var dataverse = new Mock<ISyncDataverseClient>();
+            dataverse.Setup(client => client.DownloadAllWorkflowsForAgentAsync(syncInfo, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(Array.Empty<SyncDataverseClient.WorkflowMetadata>());
+            dataverse.Setup(client => client.GetConnectionReferencesByLogicalNamesAsync(
+                    It.Is<IEnumerable<string>>(names => names.SequenceEqual(new[] { logicalName })), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(() => string.IsNullOrEmpty(boundConnection)
+                    ? Array.Empty<SyncDataverseClient.ConnectionReferenceInfo>()
+                    : new[] { new SyncDataverseClient.ConnectionReferenceInfo
+                    {
+                        ConnectionReferenceLogicalName = logicalName, ConnectorId = connectorId, ConnectionId = boundConnection,
+                    } });
+            dataverse.Setup(client => client.EnsureConnectionReferenceExistsAsync(logicalName, connectorId, It.IsAny<CancellationToken>(), It.IsAny<Guid?>()))
+                .Returns(Task.CompletedTask);
+            dataverse.Setup(client => client.BindConnectionReferenceAsync(logicalName, environment + "-connection", It.IsAny<CancellationToken>(), It.IsAny<string?>()))
+                .Callback(() => boundConnection = environment + "-connection")
+                .Returns(Task.CompletedTask);
+            var catalogContext = new PowerAppsContext { AccessToken = "token", EnvironmentId = environment };
+            var catalog = new Mock<IConnectionCatalogClient>();
+            catalog.Setup(client => client.ListConnectionsAsync(catalogContext, "shared_office365", It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new[] { new ConnectionInstance { Name = environment + "-connection", Status = "Connected" } });
+
+            var views = await synchronizer.ManageDeploymentConnectionsAsync(
+                Workspace, definition, operationContext, syncInfo, dataverse.Object, catalog.Object, catalogContext,
+                Array.Empty<ConnectionBindingRequest>(), CancellationToken.None);
+            var view = Assert.Single(views);
+            Assert.Equal(logicalName, view.ConnectionReferenceLogicalName);
+            Assert.Empty(view.BoundConnectionId);
+            Assert.Equal(environment + "-connection", Assert.Single(view.Candidates).Name);
+            dataverse.Verify(client => client.EnsureConnectionReferenceExistsAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<Guid?>()), Times.Never);
+            dataverse.Verify(client => client.BindConnectionReferenceAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<string?>()), Times.Never);
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() => synchronizer.ManageDeploymentConnectionsAsync(
+                Workspace, definition, operationContext, syncInfo, dataverse.Object, catalog.Object, catalogContext,
+                new[] { new ConnectionBindingRequest { ConnectionReferenceLogicalName = logicalName, ConnectionId = "other-environment-connection" } },
+                CancellationToken.None));
+            dataverse.Verify(client => client.EnsureConnectionReferenceExistsAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<Guid?>()), Times.Never);
+
+            views = await synchronizer.ManageDeploymentConnectionsAsync(
+                Workspace, definition, operationContext, syncInfo, dataverse.Object, catalog.Object, catalogContext,
+                new[] { new ConnectionBindingRequest { ConnectionReferenceLogicalName = logicalName, ConnectionId = environment + "-connection" } },
+                CancellationToken.None);
+            Assert.Equal(environment + "-connection", Assert.Single(views).BoundConnectionId);
+            dataverse.Verify(client => client.EnsureConnectionReferenceExistsAsync(
+                logicalName, connectorId, It.IsAny<CancellationToken>(), It.IsAny<Guid?>()), Times.Once);
+            dataverse.Verify(client => client.BindConnectionReferenceAsync(
+                logicalName, environment + "-connection", It.IsAny<CancellationToken>(), It.IsAny<string?>()), Times.Once);
+            Assert.Equal(localFiles.Count, accessor.ListFiles().Count());
+            foreach (var (file, contents) in localFiles)
+            {
+                Assert.Equal(contents, await accessor.ReadStringAsync(file, CancellationToken.None));
+            }
+        }
+    }
+
+    [Theory]
     [InlineData(true, false)]
     [InlineData(false, false)]
     [InlineData(true, true)]
@@ -437,27 +617,21 @@ public class ConnectionManagementTests
     }
 
     [Fact]
-    public async Task CreateConnectionReferenceForConnectorAsync_MintsLogicalNameAndProvisions()
+    public async Task CreateConnectionReferenceForConnectorAsync_MintsLogicalNameAndDeclaresLocally()
     {
         var (synchronizer, factory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
-        factory.Create(Workspace);
-        var dataverse = new Mock<ISyncDataverseClient>();
+        var accessor = (InMemoryFileAccessor)factory.Create(Workspace);
 
         var logicalName = await synchronizer.CreateConnectionReferenceForConnectorAsync(
             Workspace,
             new BotDefinition(),
             "shared_office365",
-            dataverse.Object,
             CancellationToken.None);
 
         Assert.Contains(".shared_office365.", logicalName);
-        dataverse.Verify(
-            c => c.EnsureConnectionReferenceExistsAsync(
-                logicalName,
-                "/providers/Microsoft.PowerApps/apis/shared_office365",
-                It.IsAny<CancellationToken>(),
-                It.IsAny<Guid?>()),
-            Times.Once);
+        var contents = await accessor.ReadStringAsync(new AgentFilePath("connectionreferences.mcs.yml"), CancellationToken.None);
+        Assert.Contains(logicalName, contents);
+        Assert.Contains("/providers/Microsoft.PowerApps/apis/shared_office365", contents);
     }
 
     [Fact]
@@ -468,13 +642,10 @@ public class ConnectionManagementTests
         WriteClassicConnectionReferences(
             accessor,
             ("cree9_agent.shared_msnweather.abc", "/providers/Microsoft.PowerApps/apis/shared_msnweather"));
-        var dataverse = new Mock<ISyncDataverseClient>();
-
         var logicalName = await synchronizer.CreateConnectionReferenceForConnectorAsync(
             Workspace,
             new BotDefinition(),
             "shared_sharepointonline",
-            dataverse.Object,
             CancellationToken.None);
 
         Assert.StartsWith("cree9_agent.shared_sharepointonline.", logicalName);

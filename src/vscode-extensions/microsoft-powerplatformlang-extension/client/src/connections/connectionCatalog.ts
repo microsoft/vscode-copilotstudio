@@ -58,14 +58,15 @@ const baseConnectionRequest = async (syncInfo: AgentSyncInfo, workspaceUri: stri
   connectionsAccessToken: await acquireWorkspaceConnectionsToken(syncInfo)
 });
 
-export const listAgentConnections = async (workspace: CopilotStudioWorkspace): Promise<AgentConnectionView[]> => {
+export const listAgentConnections = async (workspace: CopilotStudioWorkspace, targetAgentSchemaName?: string): Promise<AgentConnectionView[]> => {
   const { syncInfo, workspaceUri } = workspace;
   if (!syncInfo) {
     return [];
   }
 
   const request: ListAgentConnectionsRequest = {
-    ...await baseConnectionRequest(syncInfo, workspaceUri)
+    ...await baseConnectionRequest(syncInfo, workspaceUri),
+    targetAgentSchemaName
   };
 
   const response = await lspClient.sendRequest<ListAgentConnectionsResponse>(
@@ -78,7 +79,7 @@ export const listAgentConnections = async (workspace: CopilotStudioWorkspace): P
   return response.agentConnections ?? [];
 };
 
-export const applyConnectionBindings = async (workspace: CopilotStudioWorkspace, bindings: ConnectionBindingRequest[]): Promise<AgentConnectionView[]> => {
+export const applyConnectionBindings = async (workspace: CopilotStudioWorkspace, bindings: ConnectionBindingRequest[], targetAgentSchemaName?: string): Promise<AgentConnectionView[]> => {
   const { syncInfo, workspaceUri } = workspace;
   if (!syncInfo) {
     return [];
@@ -86,6 +87,7 @@ export const applyConnectionBindings = async (workspace: CopilotStudioWorkspace,
 
   const request: ApplyConnectionBindingsRequest = {
     ...await baseConnectionRequest(syncInfo, workspaceUri),
+    targetAgentSchemaName,
     bindings
   };
 
@@ -206,10 +208,10 @@ export const listConnectors = async (workspace: CopilotStudioWorkspace): Promise
   return response.connectors ?? [];
 };
 
-export const createConnectionReference = async (workspace: CopilotStudioWorkspace, connectorInternalId: string): Promise<{ logicalName: string; views: AgentConnectionView[] }> => {
+export const createConnectionReference = async (workspace: CopilotStudioWorkspace, connectorInternalId: string): Promise<{ logicalName: string }> => {
   const { syncInfo, workspaceUri } = workspace;
   if (!syncInfo) {
-    return { logicalName: '', views: [] };
+    throw new Error('Connect this agent to an environment before adding a connection reference.');
   }
 
   const request: CreateConnectionReferenceRequest = {
@@ -224,5 +226,5 @@ export const createConnectionReference = async (workspace: CopilotStudioWorkspac
   if (response.code !== 200) {
     throw new Error(response.message ?? 'Failed to create the connection reference.');
   }
-  return { logicalName: response.logicalName, views: response.agentConnections ?? [] };
+  return { logicalName: response.logicalName };
 };
