@@ -42,8 +42,12 @@ jobs:
               }
               const comments = await github.paginate(api.listComments, params);
               const events = await github.paginate(api.listEvents, params);
+              const { data: latest } = await api.get(params);
+              if (!eligible(latest)) {
+                return false;
+              }
               const interactions = [
-                issue.created_at, issue.updated_at,
+                latest.created_at, latest.updated_at,
                 ...comments.flatMap(comment => [comment.created_at, comment.updated_at]),
                 ...events.map(event => event.created_at)
               ];
