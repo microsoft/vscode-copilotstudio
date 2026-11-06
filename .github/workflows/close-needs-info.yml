@@ -53,21 +53,20 @@ jobs:
               });
             }
 
-            for await (const page of github.paginate.iterator(api.listForRepo, {
+            const candidates = await github.paginate(api.listForRepo, {
               ...repo, state: 'open', labels: 'Need Info', per_page: 100
-            })) {
-              for (const issue of page.data) {
-                if (!eligible(issue) || !await inactive(issue.number)) {
-                  continue;
-                }
-                // Re-read activity and eligibility immediately before closing.
-                if (!await inactive(issue.number)) {
-                  continue;
-                }
-                await api.update({
-                  ...repo, issue_number: issue.number,
-                  state: 'closed', state_reason: 'not_planned'
-                });
-                core.info(`Closed issue #${issue.number} after seven days without interactions.`);
+            });
+            for (const issue of candidates) {
+              if (!eligible(issue) || !await inactive(issue.number)) {
+                continue;
               }
+              // Re-read activity and eligibility immediately before closing.
+              if (!await inactive(issue.number)) {
+                continue;
+              }
+              await api.update({
+                ...repo, issue_number: issue.number,
+                state: 'closed', state_reason: 'not_planned'
+              });
+              core.info(`Closed issue #${issue.number} after seven days without interactions.`);
             }
