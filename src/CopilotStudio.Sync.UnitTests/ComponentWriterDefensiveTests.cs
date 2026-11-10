@@ -188,10 +188,13 @@ internal class InMemoryFileAccessor : IFileAccessor
 
     public void ReportLength(AgentFilePath path, long length) => _reportedLengths[path.ToString()] = length;
 
+    public ConcurrentQueue<string> Reads { get; } = new();
+
     public bool Exists(AgentFilePath path) => _files.ContainsKey(path.ToString());
 
     public Stream OpenRead(AgentFilePath path)
     {
+        Reads.Enqueue(path.ToString());
         if (_files.TryGetValue(path.ToString(), out var data))
         {
             return _reportedLengths.TryGetValue(path.ToString(), out var length) ? new ReportedLengthStream(data, length) : new MemoryStream(data, writable: false);

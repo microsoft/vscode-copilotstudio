@@ -5,6 +5,7 @@ using Microsoft.Agents.ObjectModel.Yaml;
 using Microsoft.Agents.Platform.Content;
 using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync.Dataverse;
+using Microsoft.CopilotStudio.Sync.UnitTests.Yaml;
 using Moq;
 using System.Collections.Immutable;
 using System.Text.Json;
@@ -19,6 +20,8 @@ public class MergeConflictPreservationTests
     private const string ToolSchema = "cr834_n2a8_PwdEI5.tool.connected-agent.cr834_n2a8_PwdEI5.action.crf9a_nagentn1_T2U1EY_iL5CJBUv";
     private const string ToolPath = "capabilities/tools/action.crf9a_nagentn1_T2U1EY_iL5CJBUv.mcs.yml";
     private const string SkillSchema = "cr834_n2a8_PwdEI5.skill.get-us-weather";
+    private const string SkillManifestPath = "behaviors/get-us-weather/SKILL.md";
+    private const string SkillManifest = "---\nname: get-us-weather\ndescription: base description\n---\nBase body.\n";
     private const string BaseDescription = "base description";
     private const string BaseDisplayName = "NAgent N1";
 
@@ -262,18 +265,36 @@ public class MergeConflictPreservationTests
         var skill = CreateSkill(Guid.NewGuid(), manifestText);
         var cached = ReadCache(context);
         var localDefinition = cached.WithComponents(cached.Components.Concat(new[] { skill, skill }));
-        const string manifestPath = "behaviors/get-us-weather/SKILL.md";
-        WriteFile(context, manifestPath, manifestText);
+        WriteFile(context, SkillManifestPath, manifestText);
         SetupChangeset(context, new BotComponentUpdate(CreateTool(context.ToolId, BaseDescription, "crf9a_nagentn1_T2U1EY", version: 1)));
         var conflicts = new List<WorkspaceDiagnostic>();
 
         await PullAsync(context, localDefinition, conflicts);
 
         var diagnostic = Assert.Single(conflicts);
-        Assert.Equal(manifestPath, diagnostic.FilePath);
+        Assert.Equal(SkillManifestPath, diagnostic.FilePath);
         Assert.Equal(WorkspaceDiagnosticKind.MergeConflict, diagnostic.Kind);
-        Assert.Equal(manifestText, ReadFile(context, manifestPath));
+        Assert.Equal(manifestText, ReadFile(context, SkillManifestPath));
         Assert.DoesNotContain("<<<<<<<", ReadFile(context, ".mcs/botdefinition.json"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Pull_SkillManifestWithCrlfLineEndingsHoldingTheRemoteEdit_ReportsNothingAndKeepsTheFile()
+    {
+        var context = await CloneAsync();
+        var skillId = Guid.NewGuid();
+        SetupChangeset(context, new BotComponentInsert(CreateSkill(skillId, SkillManifest)));
+        await PullAsync(context, await context.Sync.ReadWorkspaceDefinitionAsync(context.Workspace, CancellationToken.None));
+        var edited = SkillManifest.Replace("Base body.", "Shared edit.");
+        WriteFile(context, SkillManifestPath, LineEndings.ToCrLf(edited));
+        var localDefinition = await context.Sync.ReadWorkspaceDefinitionAsync(context.Workspace, CancellationToken.None);
+        SetupChangeset(context, new BotComponentUpdate(CreateSkill(skillId, edited)));
+        var conflicts = new List<WorkspaceDiagnostic>();
+
+        await PullAsync(context, localDefinition, conflicts);
+
+        Assert.Empty(conflicts);
+        Assert.Equal(LineEndings.ToCrLf(edited), ReadFile(context, SkillManifestPath));
     }
 
     [Fact]

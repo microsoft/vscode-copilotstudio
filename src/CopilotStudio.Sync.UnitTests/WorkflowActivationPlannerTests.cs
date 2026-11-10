@@ -422,4 +422,14 @@ public class WorkflowActivationPlannerTests
 
         Assert.Empty(await WorkflowActivationPlanner.DraftStandaloneUnboundActivationsAsync([Workflow(1)], client, CancellationToken.None));
     }
+
+    [Theory]
+    [InlineData(true, true, $"Workflow 'Weather' was saved, but the environment refused to have it enabled ({DataverseFailureTextTests.ReportedDescription}).")]
+    [InlineData(false, false, $"Workflow 'Weather' was saved, but the environment did not confirm whether it was turned off ({DataverseFailureTextTests.ReportedDescription}). Check its state before relying on it.")]
+    public void DescribeUnapplied_DescribesTheDataverseFailureWithoutTheServicesResponse(bool refused, bool activate, string expected)
+    {
+        var failure = DataverseFailureTextTests.Failure().Message;
+
+        Assert.Equal(expected, WorkflowActivationPlanner.DescribeUnapplied(refused ? WorkflowStateOutcome.Refusal(failure) : WorkflowStateOutcome.Unknown(failure), "Weather", activate));
+    }
 }

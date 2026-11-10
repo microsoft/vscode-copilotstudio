@@ -751,6 +751,25 @@ public class DiscardLocalChangesTests
     [Theory]
     [InlineData("default-1.0.0")]
     [InlineData("cliagent-1.0.0")]
+    public async Task ReadForDiscard_ThenDiscard_AnEditedSettingsFile_RestoresTheCachedSettings(string template)
+    {
+        var (synchronizer, workspace, accessor) = await CreateSettingsWorkspaceAsync(template);
+        await accessor.WriteAsync(new AgentFilePath("settings.mcs.yml"), $"schemaName: discard_settings_agent\ndisplayName: Edited agent\ntemplate: {template}\n", CancellationToken.None);
+
+        var (definition, unreadable) = await synchronizer.ReadWorkspaceDefinitionForDiscardAsync(workspace, CancellationToken.None);
+        var (_, changes) = synchronizer.GetLocalChanges(definition, WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!, accessor, ReadText(accessor, ".mcs/changetoken.txt"));
+        var result = synchronizer.DiscardLocalChanges(workspace, definition, changes);
+
+        Assert.Empty(unreadable);
+        var change = Assert.Single(changes);
+        Assert.Equal(("entity", ChangeType.Update), (change.SchemaName, change.ChangeType));
+        Assert.Equal((1, 0), (result.Restored, result.Deleted));
+        Assert.Equal("Cached agent", McsYamlValidator.Deserialize<BotEntity>(ReadText(accessor, "settings.mcs.yml"))!.DisplayName);
+    }
+
+    [Theory]
+    [InlineData("default-1.0.0")]
+    [InlineData("cliagent-1.0.0")]
     public async Task ReadForDiscard_ValidSettings_ReportsNoUnreadableSettings(string template)
     {
         var (synchronizer, workspace, accessor) = await CreateSettingsWorkspaceAsync(template);

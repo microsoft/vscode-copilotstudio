@@ -129,9 +129,10 @@ public static class ConnectionReferenceStore
         return writer.ToString();
     }
 
+    /// <summary>Writes the content unless the file already holds the same text, ignoring a byte order mark and whether its lines end in CRLF or LF, so an unchanged file keeps its bytes.</summary>
     internal static bool WriteIfChanged(IFileAccessor fileAccessor, AgentFilePath path, string content, Encoding encoding)
     {
-        if (fileAccessor.Exists(path) && string.Equals(ReadTextOrNull(fileAccessor, path), content, StringComparison.Ordinal))
+        if (CheckoutContent.HoldsText(fileAccessor, path, content))
         {
             return false;
         }

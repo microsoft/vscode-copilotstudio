@@ -473,6 +473,8 @@ public class CloudFlowMetadata
     /// non-authoritative (a transient failure) and must not be treated as the cloud's full workflow set.
     /// </summary>
     public bool Succeeded { get; init; } = true;
+
+    internal bool WorkflowsReported { get; init; } = true;
 }
 
 #endregion

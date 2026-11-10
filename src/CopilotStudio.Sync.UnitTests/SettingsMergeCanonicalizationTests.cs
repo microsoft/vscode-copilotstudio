@@ -20,7 +20,7 @@ public class SettingsMergeCanonicalizationTests
     private static readonly AgentFilePath SettingsPath = new AgentFilePath("settings.mcs.yml");
     private static readonly AgentFilePath CachePath = new AgentFilePath(".mcs/botdefinition.json");
 
-    private const string AuthoredSettings = """
+    internal const string AuthoredSettings = """
         displayName: "templ6"
         schemaName: "templ6_templ6"
         accessControlPolicy: GroupMembership
@@ -41,6 +41,27 @@ public class SettingsMergeCanonicalizationTests
         language: 1033
         """;
 
+    public static TheoryData<string> Formattings => new()
+    {
+        "as authored",
+        "without quotes",
+        "with its keys reordered",
+        "with blank lines",
+        "with its final newline toggled",
+        "with CRLF line endings",
+    };
+
+    internal static string Reformat(string settings, string formatting) => formatting switch
+    {
+        "as authored" => settings,
+        "without quotes" => settings.Replace("\"", string.Empty, StringComparison.Ordinal),
+        "with its keys reordered" => settings.Replace("  authoringModel: CliCopilot\n", string.Empty, StringComparison.Ordinal).Replace("template: ", "  authoringModel: CliCopilot\ntemplate: ", StringComparison.Ordinal),
+        "with blank lines" => settings.Replace("configuration:\n", "\nconfiguration:\n", StringComparison.Ordinal).Replace("template: ", "\ntemplate: ", StringComparison.Ordinal),
+        "with its final newline toggled" => settings.EndsWith('\n') ? settings.TrimEnd('\n') : settings + "\n",
+        "with CRLF line endings" => settings.Replace("\n", "\r\n", StringComparison.Ordinal),
+        _ => throw new ArgumentOutOfRangeException(nameof(formatting), formatting, null),
+    };
+
     [Fact]
     public async Task Pull_WhenAuthoredFileMeetsPublishedCloud_KeepsInstruction()
     {
@@ -49,13 +70,41 @@ public class SettingsMergeCanonicalizationTests
         Assert.Contains(Instruction, ReadFile(accessor, SettingsPath), StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task Pull_WhenAuthoredFileMeetsPublishedCloud_WritesTheCanonicalProjection()
+    [Theory]
+    [MemberData(nameof(Formattings))]
+    public async Task Pull_WhenAuthoredFileMeetsPublishedCloud_LeavesSettingsThatDifferOnlyInFormattingByteForByte(string formatting)
     {
-        var (accessor, _) = await InitThenPullAsync(AuthoredSettings);
+        var authored = Reformat(AuthoredSettings, formatting);
 
-        var cachedEntity = (((BotDefinition)(WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))).Entity ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
-        Assert.Equal(ProjectSettings(cachedEntity), ReadFile(accessor, SettingsPath));
+        var (accessor, _) = await InitThenPullAsync(authored);
+
+        Assert.Equal(authored, ReadFile(accessor, SettingsPath));
+    }
+
+    [Fact]
+    public async Task Pull_WhenTheCloudChangedTheInstruction_WritesTheSettingsInSyncsFormat()
+    {
+        var (accessor, _) = await InitThenPullAsync(AuthoredSettings, cloudInstruction: "instruction changed in the cloud");
+
+        var onDisk = ReadFile(accessor, SettingsPath);
+        Assert.Equal(ProjectSettings(CachedEntity(accessor)), onDisk);
+        Assert.Contains("instruction changed in the cloud", onDisk, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Pull_WhenTheSettingsFileIsMissing_WritesTheSettingsInSyncsFormat()
+    {
+        var (accessor, _) = await InitThenPullAsync(authoredSettings: null);
+
+        Assert.Equal(ProjectSettings(CachedEntity(accessor)), ReadFile(accessor, SettingsPath));
+    }
+
+    [Fact]
+    public async Task Clone_OverASettingsFileThatCannotBeRead_WritesTheSettingsInSyncsFormat()
+    {
+        var (_, _, accessor, _, _) = await CloneAsync(settingsBeforeClone: "displayName: [unclosed");
+
+        Assert.Equal(ProjectSettings(CachedEntity(accessor)), ReadFile(accessor, SettingsPath));
     }
 
     [Fact]
@@ -71,8 +120,7 @@ public class SettingsMergeCanonicalizationTests
     {
         var (accessor, _) = await InitThenPullAsync(AuthoredSettings);
 
-        var cachedEntity = (((BotDefinition)(WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))).Entity ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
-        Assert.Equal(PublishedOn, cachedEntity.PublishedOn?.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffffff'Z'"));
+        Assert.Equal(PublishedOn, CachedEntity(accessor).PublishedOn?.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffffff'Z'"));
     }
 
     [Fact]
@@ -123,7 +171,7 @@ public class SettingsMergeCanonicalizationTests
         Assert.Contains("series: GPT56Reasoning", onDisk, StringComparison.Ordinal);
 
         var cacheJson = ReadFile(accessor, CachePath);
-        var cachedEntity = (((BotDefinition)(WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))).Entity ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
+        var cachedEntity = CachedEntity(accessor);
 
         Assert.DoesNotContain(localOnlyInstruction, cacheJson, StringComparison.Ordinal);
         Assert.DoesNotContain("GPT56Reasoning", cacheJson, StringComparison.Ordinal);
@@ -157,11 +205,17 @@ public class SettingsMergeCanonicalizationTests
 
     private sealed record PublishedAgent(WorkspaceSynchronizer Synchronizer, InMemoryFileAccessor Accessor, DirectoryPath Workspace, AgentSyncInfo SyncInfo);
 
-    private static async Task<PublishedAgent> CloneThenPublishAsync(string authoredSettings)
+    private static async Task<(WorkspaceSynchronizer Synchronizer, Mock<IIslandControlPlaneService> Island, InMemoryFileAccessor Accessor, DirectoryPath Workspace, AgentSyncInfo SyncInfo)> CloneAsync(string? settingsBeforeClone = null)
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/settings-merge-{Guid.NewGuid():N}/");
         var syncInfo = new AgentSyncInfo { AgentId = Guid.NewGuid() };
+        var accessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
+
+        if (settingsBeforeClone is not null)
+        {
+            WriteFile(accessor, SettingsPath, settingsBeforeClone);
+        }
 
         SetupIsland(mockIsland, CreateEntity(Instruction, publishedOn: null, version: 3635906), "token-1");
         await synchronizer.CloneChangesAsync(
@@ -172,10 +226,23 @@ public class SettingsMergeCanonicalizationTests
             syncInfo,
             CancellationToken.None);
 
-        var accessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        WriteFile(accessor, SettingsPath, authoredSettings);
+        return (synchronizer, mockIsland, accessor, workspace, syncInfo);
+    }
 
-        SetupIsland(mockIsland, CreateEntity(Instruction, PublishedOn, version: 3635930), "token-2");
+    private static async Task<PublishedAgent> CloneThenPublishAsync(string? authoredSettings, string cloudInstruction = Instruction)
+    {
+        var (synchronizer, mockIsland, accessor, workspace, syncInfo) = await CloneAsync();
+
+        if (authoredSettings is null)
+        {
+            accessor.Delete(SettingsPath);
+        }
+        else
+        {
+            WriteFile(accessor, SettingsPath, authoredSettings);
+        }
+
+        SetupIsland(mockIsland, CreateEntity(cloudInstruction, PublishedOn, version: 3635930), "token-2");
 
         return new PublishedAgent(synchronizer, accessor, workspace, syncInfo);
     }
@@ -188,9 +255,9 @@ public class SettingsMergeCanonicalizationTests
         return changes;
     }
 
-    private static async Task<(InMemoryFileAccessor accessor, DirectoryPath workspace)> InitThenPullAsync(string authoredSettings)
+    private static async Task<(InMemoryFileAccessor accessor, DirectoryPath workspace)> InitThenPullAsync(string? authoredSettings, string cloudInstruction = Instruction)
     {
-        var agent = await CloneThenPublishAsync(authoredSettings);
+        var agent = await CloneThenPublishAsync(authoredSettings, cloudInstruction);
         var localDefinition = await agent.Synchronizer.ReadWorkspaceDefinitionAsync(agent.Workspace, CancellationToken.None);
 
         await agent.Synchronizer.PullExistingChangesAsync(
@@ -206,6 +273,8 @@ public class SettingsMergeCanonicalizationTests
 
     private static string? InstructionOf(BotEntity entity)
         => (entity.Configuration?.AgentSettings?.Instructions?.Segments.FirstOrDefault() as StaticSegment)?.Value;
+
+    private static BotEntity CachedEntity(InMemoryFileAccessor accessor) => ((BotDefinition)(WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."))).Entity ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.");
 
     private static string ProjectSettings(BotEntity entity)
     {

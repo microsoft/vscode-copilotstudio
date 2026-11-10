@@ -10,6 +10,9 @@ public class WorkspaceFolderNamesTests
     [InlineData("CON", "CON_")]
     [InlineData("con.txt", "con_.txt")]
     [InlineData("Lpt9", "Lpt9_")]
+    [InlineData("COM0", "COM0_")]
+    [InlineData("lpt0.x", "lpt0_.x")]
+    [InlineData("COM\u00B9", "COM\u00B9_")]
     [InlineData("COM10", "COM10")]
     [InlineData("Console", "Console")]
     public void ForWorkflow_GuardsReservedDeviceNames(string name, string expected) =>
@@ -18,6 +21,7 @@ public class WorkspaceFolderNamesTests
     [Theory]
     [InlineData("CON", "CON_")]
     [InlineData("aux.config", "aux_.config")]
+    [InlineData("LPT\u00B3 .cfg", "LPT\u00B3_ .cfg")]
     [InlineData("trailing. ", "trailing")]
     [InlineData("a:b*c?d", "a-b-c-d")]
     [InlineData("Tab\there", "Tab-here")]

@@ -5,7 +5,7 @@ namespace Microsoft.CopilotStudio.McsCore
     internal static class ChildAgentLink
     {
         internal const string LinkFileName = ".agent.json";
-        internal const string AgentDefinitionFileName = "agent.mcs.yml";
+        internal const string AgentDefinitionFileName = WorkspaceFileNames.Agent;
         internal const string AgentsFolderName = "agents";
         internal const string AgentsFolderPrefix = AgentsFolderName + "/";
 

@@ -6,6 +6,7 @@ using System.Text.Json.Nodes;
 using System.Threading;
 using Microsoft.Agents.ObjectModel;
 using Microsoft.CopilotStudio.McsCore;
+using static Microsoft.CopilotStudio.Sync.JsonElementReader;
 
 namespace Microsoft.CopilotStudio.Sync;
 
@@ -25,6 +26,8 @@ public static class WorkflowDefinitionFile
     public const string ConnectorIdPrefix = "/providers/Microsoft.PowerApps/apis/";
 
     private static readonly JsonSerializerOptions IndentedJson = new() { WriteIndented = true };
+
+    private static readonly Encoding NoByteOrderMark = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
     /// <summary>Renders a definition the way it is written to disk, leaving unparseable content alone.</summary>
     public static string Format(string? clientData)
@@ -292,20 +295,10 @@ public static class WorkflowDefinitionFile
     private static ConnectionReference Describe(WorkflowConnectionReference reference) =>
         new ConnectionReference(connectionReferenceLogicalName: reference.LogicalName, connectionId: string.Empty, connectorId: ConnectorIdPrefix + reference.ConnectorInternalId);
 
-    /// <summary>Writes a file only when its content differs from what is already there.</summary>
-    public static bool WriteIfChanged(string path, string content)
-    {
-        if (File.Exists(path) && string.Equals(File.ReadAllText(path), content, StringComparison.Ordinal))
-        {
-            return false;
-        }
+    /// <summary>Writes a file only when its text differs from what is already there, ignoring a byte order mark and whether lines end in CRLF or LF.</summary>
+    public static bool WriteIfChanged(string path, string content) => WriteIfChanged(WorkflowWorkspace.OpenWorkspace(Path.GetDirectoryName(path) ?? throw new ArgumentException("A workflow file path must have a containing directory.", nameof(path))), new AgentFilePath(Path.GetFileName(path)), content);
 
-        Directory.CreateDirectory(Path.GetDirectoryName(path)
-            ?? throw new ArgumentException("A workflow file path must have a containing directory.", nameof(path)));
-        File.WriteAllText(path, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-
-        return true;
-    }
+    internal static bool WriteIfChanged(IFileAccessor fileAccessor, AgentFilePath path, string content) => ConnectionReferenceStore.WriteIfChanged(fileAccessor, path, content, NoByteOrderMark);
 
     private static WorkflowConnectionReference? Describe(JsonProperty reference) =>
         reference.Value.ValueKind == JsonValueKind.Object
@@ -317,7 +310,4 @@ public static class WorkflowDefinitionFile
 
     private static string ConnectorInternalId(JsonProperty reference) =>
         reference.Value.TryGetProperty("api", out var api) && api.ValueKind == JsonValueKind.Object && ReadString(api, "name") is { Length: > 0 } name ? name : reference.Name;
-
-    private static string? ReadString(JsonElement element, string propertyName) =>
-        element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 }

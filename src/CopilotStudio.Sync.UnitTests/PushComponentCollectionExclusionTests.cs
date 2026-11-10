@@ -10,7 +10,7 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests;
 
 public class PushComponentCollectionExclusionTests
 {
-    private static DialogComponent Topic(string schemaName, string displayName) => new(
+    internal static DialogComponent Topic(string schemaName, string displayName) => new(
         schemaName: schemaName,
         displayName: displayName,
         description: string.Empty,

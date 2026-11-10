@@ -449,7 +449,7 @@ public interface IWorkspaceSynchronizer
     /// are resolved in a second pass via <see cref="ApplyTouchupsAsync"/>.
     /// </summary>
     /// <param name="rootFolder">Parent directory under which workspace subfolders are created.</param>
-    /// <param name="syncInfo">Connection details for the agent (saved to each workspace).</param>
+    /// <param name="syncInfo">Connection details for the agent, saved to its workspace and, scoped to each component collection, to that collection's workspace.</param>
     /// <param name="assetsToClone">Which assets to clone (agent and/or component collection IDs).</param>
     /// <param name="agentInfo">Agent metadata including display names for folder naming.</param>
     /// <param name="operationContextProvider">Creates operation contexts for each asset.</param>

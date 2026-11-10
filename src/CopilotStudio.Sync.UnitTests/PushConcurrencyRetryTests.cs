@@ -22,7 +22,7 @@ public class PushConcurrencyRetryTests
     private const string NotesPath = "knowledge/files/Notes.txt";
 
     // ! The concurrency fixture does not need an inner exception.
-    private static DataversePreconditionFailedException MakeConcurrencyException() =>
+    internal static DataversePreconditionFailedException MakeConcurrencyException() =>
         new DataversePreconditionFailedException(
             "0x80060882",
             "ConcurrencyVersionMismatch",
@@ -160,9 +160,26 @@ public class PushConcurrencyRetryTests
 
         var (synchronizer, _, workspace) = await SetupSettingsPushAsync(BuildBot(agentId, "Agent", version: 1), edited);
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => PushRenamedAgentAsync(synchronizer, workspace, agentId));
+        var exception = await Assert.ThrowsAsync<WorkspacePushException>(() => PushRenamedAgentAsync(synchronizer, workspace, agentId));
 
         Assert.Contains("Get the latest changes", exception.Message);
+        Assert.Equal(WorkspacePushErrorCodes.RemoteChanged, exception.Code);
+    }
+
+    [Fact]
+    public async Task PushLocalChanges_WhenAComponentsParentAgentNeverExists_FailsAsAMissingConnectedAgentWithoutSaving()
+    {
+        var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath("c:/test/push-missing-parent/");
+        var agentId = Guid.NewGuid();
+        var (bot, _) = BuildLocalWithNewTopic(agentId);
+        var orphan = new DialogComponent(schemaName: $"{AgentSchema}.topic.Orphan", displayName: "Orphan", description: string.Empty, id: Guid.NewGuid(), parentBotComponentId: new BotComponentId(Guid.NewGuid()), dialog: new AdaptiveDialog());
+        WorkspaceSynchronizer.WriteCloudCache(fileAccessorFactory.Create(workspace), new BotDefinition().WithEntity(bot));
+
+        var exception = await Assert.ThrowsAsync<WorkspacePushException>(() => synchronizer.PushLocalChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), new BotDefinition().WithEntity(bot).WithComponents(new[] { orphan }), new Mock<ISyncDataverseClient>().Object, new AgentSyncInfo { AgentId = agentId }, cloudFlowMetadata: null, aiPrompts: ImmutableArray<AIPromptMetadata>.Empty, CancellationToken.None));
+
+        Assert.Equal((WorkspacePushErrorCodes.ConnectedAgentMissing, "Unsupported sync operation. A component references a parent agent that could not be created on the cloud."), (exception.Code, exception.Message));
+        mockIsland.Verify(service => service.SaveChangesAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<PvaComponentChangeSet>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Theory]
@@ -215,7 +232,7 @@ public class PushConcurrencyRetryTests
                     return Task.FromResult(new PvaComponentChangeSet(incoming.BotComponentChanges, incoming.Bot, "token-3"));
                 });
 
-            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => synchronizer.PushLocalChangesAsync(
+            var exception = await Assert.ThrowsAsync<WorkspacePushException>(() => synchronizer.PushLocalChangesAsync(
                 workspace,
                 ComponentWriterDefensiveTests.CreateMockOperationContext(),
                 localDefinition,
@@ -226,6 +243,7 @@ public class PushConcurrencyRetryTests
                 CancellationToken.None));
 
             Assert.Contains("Get the latest changes", exception.Message);
+            Assert.Equal(WorkspacePushErrorCodes.RemoteChanged, exception.Code);
             Assert.Equal(1, attempts);
             Assert.Equal(cacheBefore, await fileAccessor.ReadStringAsync(new AgentFilePath(".mcs/botdefinition.json"), CancellationToken.None));
             Assert.Equal("token-1", await fileAccessor.ReadStringAsync(new AgentFilePath(".mcs/changetoken.txt"), CancellationToken.None));
@@ -399,7 +417,7 @@ public class PushConcurrencyRetryTests
 
         var syncInfo = new AgentSyncInfo { AgentId = agentId };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => synchronizer.PushLocalChangesAsync(
+        var exception = await Assert.ThrowsAsync<WorkspacePushException>(() => synchronizer.PushLocalChangesAsync(
             workspace,
             ComponentWriterDefensiveTests.CreateMockOperationContext(),
             localDefinition,
@@ -410,6 +428,7 @@ public class PushConcurrencyRetryTests
             CancellationToken.None));
 
         Assert.Contains("Get the latest changes", exception.Message);
+        Assert.Equal(WorkspacePushErrorCodes.RemoteChanged, exception.Code);
 
         // The conflict abort must NOT advance the local baseline. The change token and cloud
         // cache stay at their pre-push state so a later push cannot silently overwrite the
@@ -471,7 +490,7 @@ public class PushConcurrencyRetryTests
 
         var syncInfo = new AgentSyncInfo { AgentId = agentId };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => synchronizer.PushLocalChangesAsync(
+        var exception = await Assert.ThrowsAsync<WorkspacePushException>(() => synchronizer.PushLocalChangesAsync(
             workspace,
             ComponentWriterDefensiveTests.CreateMockOperationContext(),
             localDefinition,
@@ -482,6 +501,7 @@ public class PushConcurrencyRetryTests
             CancellationToken.None));
 
         Assert.Contains("Get the latest changes", exception.Message);
+        Assert.Equal(WorkspacePushErrorCodes.RemoteChanged, exception.Code);
 
         Assert.Equal("token-1", await fileAccessor.ReadStringAsync(new AgentFilePath(".mcs/changetoken.txt"), CancellationToken.None));
 
@@ -571,16 +591,18 @@ public class PushConcurrencyRetryTests
     [Fact]
     public async Task PushLocalChanges_WhenTheCloudUpdatedAKnowledgeFileEditedOnDisk_AbortsWithoutReplacingTheEdit()
     {
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => PushAfterTheCloudUpdatedNotesAsync(localEdit: "local notes"));
+        var exception = await Assert.ThrowsAsync<WorkspacePushException>(() => PushAfterTheCloudUpdatedNotesAsync(localEdit: "local notes"));
 
+        Assert.Equal(WorkspacePushErrorCodes.RemoteChanged, exception.Code);
         Assert.Contains("Get the latest changes", exception.Message);
     }
 
     [Fact]
     public async Task PushLocalChanges_WhenTheCloudUpdatedAKnowledgeFileEditedOnDiskBeyondTheUploadLimit_AbortsWithoutReplacingTheEdit()
     {
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => PushAfterTheCloudUpdatedNotesAsync(localEdit: "local notes", localEditLength: 126L * 1024 * 1024));
+        var exception = await Assert.ThrowsAsync<WorkspacePushException>(() => PushAfterTheCloudUpdatedNotesAsync(localEdit: "local notes", localEditLength: 126L * 1024 * 1024));
 
+        Assert.Equal(WorkspacePushErrorCodes.RemoteChanged, exception.Code);
         Assert.Contains("Get the latest changes", exception.Message);
     }
 
@@ -659,11 +681,12 @@ public class PushConcurrencyRetryTests
         var bot = BuildBot(Guid.NewGuid(), "Agent", version: 1);
         var endpointId = Guid.NewGuid();
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => PushAfterRemoteRefreshAsync(
+        var exception = await Assert.ThrowsAsync<WorkspacePushException>(() => PushAfterRemoteRefreshAsync(
             new BotDefinition().WithEntity(bot).WithEnvironmentVariables(new[] { CreateEnvironmentVariable("Endpoint", "https://original", endpointId) }),
             new PvaComponentChangeSet.Builder { ChangeToken = "token-2", EnvironmentVariableChanges = { new EnvironmentVariableUpdate(CreateEnvironmentVariable("Endpoint", "https://cloud", endpointId)) } }.Build(),
             new BotDefinition().WithEntity(bot).WithEnvironmentVariables(new[] { CreateEnvironmentVariable("Endpoint", "https://local", endpointId) })));
 
+        Assert.Equal(WorkspacePushErrorCodes.RemoteChanged, exception.Code);
         Assert.Contains("Get the latest changes", exception.Message);
     }
 

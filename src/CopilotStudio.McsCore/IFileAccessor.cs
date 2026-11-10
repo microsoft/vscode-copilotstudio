@@ -56,6 +56,8 @@ public interface IFileAccessor
 
 internal static class FileAccessorExtensions
 {
+    private static readonly byte[] ByteOrderMark = Encoding.UTF8.GetPreamble();
+
     // No #if for the WriteAsync/ReadStringAsync overloads below: the
     // netstandard2.0-compatible call shapes produce identical behavior on net10.
     //   - WriteAsync(string) avoids the contents.AsMemory() detour. We already hold
@@ -104,5 +106,43 @@ internal static class FileAccessorExtensions
         await stream.CopyToAsync(buffer, 81920, cancel).ConfigureAwait(false);
 
         return buffer.ToArray();
+    }
+
+    public static void Write(this IFileAccessor writer, AgentFilePath path, ReadOnlyMemory<byte> content)
+    {
+        using var stream = writer.OpenWrite(path);
+
+#if NETSTANDARD2_0
+        if (System.Runtime.InteropServices.MemoryMarshal.TryGetArray(content, out var segment) && segment.Array is { } array)
+        {
+            stream.Write(array, segment.Offset, segment.Count);
+
+            return;
+        }
+
+        var copy = content.ToArray();
+        stream.Write(copy, 0, copy.Length);
+#else
+        stream.Write(content.Span);
+#endif
+    }
+
+    public static ReadOnlyMemory<byte> ReadBytes(this IFileAccessor reader, AgentFilePath path)
+    {
+        using var stream = reader.OpenRead(path);
+        using var content = new MemoryStream(stream.CanSeek ? (int)stream.Length : 0);
+        stream.CopyTo(content);
+
+        return new ReadOnlyMemory<byte>(content.GetBuffer(), 0, (int)content.Length);
+    }
+
+    public static byte[]? EditText(ReadOnlyMemory<byte> content, Func<string, string> edit)
+    {
+        var bytes = content.ToArray();
+        var marked = bytes.Take(ByteOrderMark.Length).SequenceEqual(ByteOrderMark);
+        var text = Encoding.UTF8.GetString(bytes, marked ? ByteOrderMark.Length : 0, bytes.Length - (marked ? ByteOrderMark.Length : 0));
+        var edited = edit(text);
+
+        return string.Equals(edited, text, StringComparison.Ordinal) ? null : (marked ? ByteOrderMark : Array.Empty<byte>()).Concat(Encoding.UTF8.GetBytes(edited)).ToArray();
     }
 }

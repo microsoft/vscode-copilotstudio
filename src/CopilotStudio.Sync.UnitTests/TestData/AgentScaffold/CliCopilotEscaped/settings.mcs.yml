@@ -1,0 +1,25 @@
+displayName: "Contoso \"Help\": Desk #1 \\ Ops"
+schemaName: con_a{x}!
+accessControlPolicy: GroupMembership
+authenticationMode: Integrated
+authenticationTrigger: Always
+configuration:
+  recognizer:
+    kind: CLICopilotRecognizer
+
+  agentSettings:
+    model:
+      series: Sonnet46
+
+    instructions:
+      segments:
+        - kind: StaticSegment
+          value: |-
+            Say "hello"
+            then stop: always, #1 priority
+            - back\slash
+
+  authoringModel: CliCopilot
+
+template: cliagent-1.0.0
+language: 1033

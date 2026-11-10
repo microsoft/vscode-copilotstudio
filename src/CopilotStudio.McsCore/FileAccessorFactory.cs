@@ -1,9 +1,11 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 // Ported from om/src/vscode/LanguageServers/PowerPlatformLS/Impl.PullAgent/File/FileWriter.cs
 
+using System.Diagnostics.CodeAnalysis;
 
 namespace Microsoft.CopilotStudio.McsCore;
 
+[SuppressMessage("ApiDesign", "RS0030:Do not use banned APIs", Justification = "The physical accessor is the one place workspace IO reaches the file system.")]
 internal class FileAccessorFactory : IFileAccessorFactory
 {
     public bool IsMemoryBacked => false;
@@ -13,6 +15,12 @@ internal class FileAccessorFactory : IFileAccessorFactory
     public void Release(DirectoryPath root)
     {
     }
+
+    internal static IFileAccessor OpenFolder(string folder) => new FileWriter(ToDirectoryPath(folder));
+
+    internal static DirectoryPath ToDirectoryPath(string folder) => new DirectoryPath(PathHelper.ToInternalCanonicalPath(folder));
+
+    internal static bool IsEmpty(IFileAccessor fileAccessor) => fileAccessor is FileWriter disk ? disk.IsEmpty() : !fileAccessor.ListFiles().Any();
 
     private class FileWriter : IFileAccessor
     {
@@ -203,5 +211,7 @@ internal class FileAccessorFactory : IFileAccessorFactory
                 yield return new AgentFilePath(relative);
             }
         }
+
+        internal bool IsEmpty() => !Directory.Exists(_root.ToString()) || !Directory.EnumerateFileSystemEntries(_root.ToString()).Any();
     }
 }

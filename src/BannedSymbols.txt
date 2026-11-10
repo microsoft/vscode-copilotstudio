@@ -1,0 +1,7 @@
+T:System.IO.File;Read and write workspace content through IFileAccessor so workspaces held in memory never reach the disk.
+T:System.IO.Directory;Read and write workspace content through IFileAccessor so workspaces held in memory never reach the disk.
+T:System.IO.FileStream;Read and write workspace content through IFileAccessor so workspaces held in memory never reach the disk.
+T:System.IO.FileInfo;Read and write workspace content through IFileAccessor so workspaces held in memory never reach the disk.
+T:System.IO.DirectoryInfo;Read and write workspace content through IFileAccessor so workspaces held in memory never reach the disk.
+M:System.IO.Path.GetTempPath;Lease a scratch workspace from the IFileAccessorFactory instead of using the system temporary folder.
+M:System.IO.Path.GetTempFileName;Lease a scratch workspace from the IFileAccessorFactory instead of using the system temporary folder.

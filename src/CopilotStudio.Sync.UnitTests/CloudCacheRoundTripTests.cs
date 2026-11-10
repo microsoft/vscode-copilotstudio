@@ -14,6 +14,12 @@ using Xunit.Abstractions;
 
 namespace Microsoft.CopilotStudio.Sync.UnitTests;
 
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class CloudCacheRoundTripCollection
+{
+    public const string Name = "CloudCacheRoundTrip";
+}
+
 /// <summary>
 /// Round-trip verification for <see cref="WorkspaceSynchronizer.WriteCloudCache"/> /
 /// <see cref="WorkspaceSynchronizer.ReadCloudCacheSnapshot"/> against pinned CLI-agent and
@@ -23,6 +29,7 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests;
 /// dropped or mutated by the shared library's serializer, this test fails and the operator
 /// must decide whether to extend OM or patch the shared library.
 /// </summary>
+[Collection(CloudCacheRoundTripCollection.Name)]
 public class CloudCacheRoundTripTests
 {
     private static readonly AgentFilePath CachePath = new AgentFilePath(".mcs/botdefinition.json");

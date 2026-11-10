@@ -69,6 +69,24 @@ public class CliAgentBotEntityReaderTests
         Assert.Equal(diskEntity.SchemaName.Value, result.SchemaName.Value);
     }
 
+    [Fact]
+    public void Overlay_TakesTheAuthoredSettingsAndKeepsTheCloudsTemplateAndPublishState()
+    {
+        var cloudBuilder = LoadEntityFromFixture("FoodLogger").ToBuilder();
+        cloudBuilder.PublishedOn = new DateTime(2026, 10, 20, 8, 0, 0, DateTimeKind.Utc);
+        var cloud = cloudBuilder.Build();
+        var authoredBuilder = cloud.ToBuilder();
+        authoredBuilder.DisplayName = "Food Logger Revised";
+        authoredBuilder.Template = "default-2.1.0";
+        authoredBuilder.PublishedOn = new DateTime(2026, 9, 10, 15, 58, 14, DateTimeKind.Utc);
+        var accessor = new InMemoryFileAccessor(new DirectoryPath("c:/test/authored/"));
+        WriteSettings(accessor, authoredBuilder.Build());
+
+        var result = CliAgentBotEntityReader.Overlay(accessor, cloud);
+
+        Assert.Equal(("Food Logger Revised", cloud.Template, cloud.PublishedOn), (result.DisplayName, result.Template, result.PublishedOn));
+    }
+
     // --- Failure modes ------------------------------------------------------
 
     [Fact]

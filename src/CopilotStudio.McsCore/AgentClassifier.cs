@@ -26,7 +26,7 @@ namespace Microsoft.CopilotStudio.McsCore
     public static class AgentClassifier
     {
         private const string CliTemplatePrefix = "cliagent-";
-        private const string ClassicSettingsFileName = "settings.mcs.yml";
+        private const string ClassicSettingsFileName = WorkspaceFileNames.Settings;
 
         /// <summary>
         /// Forward-looking, layout-only workspace marker (TDD D29). Generic-YAML
@@ -41,11 +41,11 @@ namespace Microsoft.CopilotStudio.McsCore
         /// <summary>The root files whose presence means a directory holds an agent project of its own.</summary>
         public static readonly string[] AgentProjectFileNames =
         {
-            "settings.mcs.yml",
+            WorkspaceFileNames.Settings,
             "settings.mcs.yaml",
-            "agent.mcs.yml",
+            WorkspaceFileNames.Agent,
             "agent.mcs.yaml",
-            "collection.mcs.yml",
+            WorkspaceFileNames.Collection,
             "collection.mcs.yaml",
         };
 
@@ -150,8 +150,7 @@ namespace Microsoft.CopilotStudio.McsCore
             }
 
             var template = bot.Template;
-            if (template is { Length: > 0 } &&
-                template.StartsWith(CliTemplatePrefix, StringComparison.OrdinalIgnoreCase))
+            if (IsCliTemplate(template))
             {
                 // CLI agent whose AgentSettings block is not (yet) materialized: the cliagent-
                 // template is an explicit CLI marker, so it still resolves to CliCopilot.
@@ -168,82 +167,16 @@ namespace Microsoft.CopilotStudio.McsCore
                 string.IsNullOrEmpty(template) ? "classic-no-template" : "classic-template:" + template);
         }
 
+        internal static bool IsCliTemplate(string? template) => template is not null && template.StartsWith(CliTemplatePrefix, StringComparison.OrdinalIgnoreCase);
+
         /// <summary>
         /// Resolves the <see cref="WorkspaceLayout"/> of a local agent folder. Both
         /// classic and CLI agents store the entity in <c>settings.mcs.yml</c> (D22), so
         /// the layout is discriminated by content (D25): the typed <c>AgentSettings</c>
         /// block marks the CLI shape, otherwise it is classic.
         /// </summary>
-        public static WorkspaceLayout DetectWorkspaceLayout(string agentFolder)
-        {
-            if (string.IsNullOrEmpty(agentFolder))
-            {
-                return WorkspaceLayout.Unknown;
-            }
-
-            var contentLayout = DetectWorkspaceLayoutFromContent(agentFolder);
-
-            // Forward-looking marker (D29). Present + KNOWN version is authoritative for
-            // the LAYOUT axis, but NEVER shape-authoritative: the content shape must
-            // corroborate, otherwise a marker claiming the CLI layout over non-CLI content
-            // (tamper/corruption) FAILS CLOSED (Unknown). An unknown/malformed/higher
-            // version falls through to best-effort content inference here; the write/pack
-            // path fails closed on unknown-higher separately.
-            var markerPath = Path.Combine(agentFolder, WorkspaceLayoutMarkerFileName);
-            if (File.Exists(markerPath))
-            {
-                int? version;
-                try
-                {
-                    version = TryParseLayoutVersion(File.ReadAllText(markerPath));
-                }
-                catch
-                {
-                    version = null;
-                }
-
-                if (version == CurrentLayoutVersion)
-                {
-                    return contentLayout == WorkspaceLayout.CliLayered
-                        ? WorkspaceLayout.CliLayered
-                        : WorkspaceLayout.Unknown;
-                }
-            }
-
-            return contentLayout;
-        }
-
-        /// <summary>
-        /// Node P content inference for the workspace layout (D25): both shapes store the
-        /// entity in <c>settings.mcs.yml</c>, so the layout is discriminated by content -
-        /// a typed <c>AgentSettings</c> block marks the CLI layout, otherwise classic.
-        /// This is the transition fallback used when the <c>agent.sync.yaml</c> marker is
-        /// absent or carries an unknown version.
-        /// </summary>
-        private static WorkspaceLayout DetectWorkspaceLayoutFromContent(string agentFolder)
-        {
-            var settingsPath = Path.Combine(agentFolder, ClassicSettingsFileName);
-            if (!File.Exists(settingsPath))
-            {
-                return WorkspaceLayout.Unknown;
-            }
-
-            try
-            {
-                var entity = CodeSerializer.Deserialize<BotEntity>(File.ReadAllText(settingsPath));
-                if (entity != null && DetectAuthoringShape(entity) == AuthoringShape.CliCopilot)
-                {
-                    return WorkspaceLayout.CliLayered;
-                }
-            }
-            catch
-            {
-                // Unreadable/malformed settings.mcs.yml falls through to classic; the
-                // per-operation support gate handles unusable workspaces elsewhere.
-            }
-
-            return WorkspaceLayout.ClassicMcs;
-        }
+        public static WorkspaceLayout DetectWorkspaceLayout(string agentFolder) =>
+            string.IsNullOrEmpty(agentFolder) ? WorkspaceLayout.Unknown : DetectWorkspaceLayout(FileAccessorFactory.OpenFolder(agentFolder));
 
         /// <summary>
         /// Maps a <see cref="WorkspaceLayout"/> to the authoring shape it was authored as.
@@ -340,20 +273,9 @@ namespace Microsoft.CopilotStudio.McsCore
         /// directly. A <see cref="BotDefinition"/> (or null) defers to the entity-based
         /// <see cref="Classify(BotEntity?, string?)"/>.
         /// </summary>
-        public static AgentClassification Classify(DefinitionBase? definition, string? agentFolder)
-        {
-            if (definition is BotComponentCollectionDefinition)
-            {
-                var layout = agentFolder is null || agentFolder.Length == 0
-                    ? WorkspaceLayout.Unknown
-                    : DetectWorkspaceLayout(agentFolder);
+        public static AgentClassification Classify(DefinitionBase? definition, string? agentFolder) => Classify(definition, LayoutOf(agentFolder));
 
-                return new AgentClassification(
-                    AuthoringShape.Unknown, layout, SupportLevel.Supported, null, "component-collection");
-            }
-
-            return Classify((definition as BotDefinition)?.Entity, agentFolder);
-        }
+        internal static AgentClassification Classify(DefinitionBase? definition, IFileAccessor fileAccessor) => Classify(definition, DetectWorkspaceLayout(fileAccessor));
 
         /// <summary>
         /// Combined classification from cloud evidence (optional) plus a local workspace
@@ -361,12 +283,16 @@ namespace Microsoft.CopilotStudio.McsCore
         /// fills in the layout field and provides a fallback authoring shape (and raw
         /// value) when the cloud evidence is absent or unrecognized.
         /// </summary>
-        public static AgentClassification Classify(BotEntity? cloudEntity, string? agentFolder)
-        {
-            var layout = agentFolder is null || agentFolder.Length == 0
-                ? WorkspaceLayout.Unknown
-                : DetectWorkspaceLayout(agentFolder);
+        public static AgentClassification Classify(BotEntity? cloudEntity, string? agentFolder) => Classify(cloudEntity, LayoutOf(agentFolder));
 
+        private static WorkspaceLayout LayoutOf(string? agentFolder) => agentFolder is null || agentFolder.Length == 0 ? WorkspaceLayout.Unknown : DetectWorkspaceLayout(agentFolder);
+
+        private static AgentClassification Classify(DefinitionBase? definition, WorkspaceLayout layout) => definition is BotComponentCollectionDefinition
+            ? new AgentClassification(AuthoringShape.Unknown, layout, SupportLevel.Supported, null, "component-collection")
+            : Classify((definition as BotDefinition)?.Entity, layout);
+
+        private static AgentClassification Classify(BotEntity? cloudEntity, WorkspaceLayout layout)
+        {
             var cloud = ClassifyCloud(cloudEntity);
 
             if (cloud.AuthoringShape != AuthoringShape.Unknown)

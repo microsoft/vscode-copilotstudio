@@ -1,0 +1,22 @@
+displayName: Contoso Helpdesk
+schemaName: con_contosohelpdesk
+accessControlPolicy: GroupMembership
+authenticationMode: Integrated
+authenticationTrigger: Always
+configuration:
+  recognizer:
+    kind: CLICopilotRecognizer
+
+  agentSettings:
+    model:
+      series: Sonnet46
+
+    instructions:
+      segments:
+        - kind: StaticSegment
+          value: Be helpful.
+
+  authoringModel: CliCopilot
+
+template: cliagent-1.0.0
+language: 1033

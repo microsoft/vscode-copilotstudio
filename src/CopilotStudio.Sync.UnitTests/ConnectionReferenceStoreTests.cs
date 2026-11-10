@@ -52,6 +52,117 @@ public class ConnectionReferenceStoreTests
     private static bool WriteFlat(IFileAccessor fileAccessor, params ConnectionReference[] references) =>
         ConnectionReferenceStore.Write(fileAccessor, references, ConnectionReferenceLayout.Flat, null, CancellationToken.None);
 
+    private static string PathFor(ConnectionReferenceLayout layout, string logicalName) =>
+        layout == ConnectionReferenceLayout.Layered ? LayeredPath(logicalName) : ConnectionReferenceStore.FlatFileName;
+
+    private static void WriteBytes(IFileAccessor fileAccessor, string path, byte[] bytes)
+    {
+        using var stream = fileAccessor.OpenWrite(new AgentFilePath(path));
+
+        stream.Write(bytes, 0, bytes.Length);
+    }
+
+    internal static byte[] CheckedOut(string text, string lineEnding, bool byteOrderMark)
+    {
+        var bytes = Encoding.UTF8.GetBytes(text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace("\n", lineEnding, StringComparison.Ordinal));
+
+        return byteOrderMark ? [.. ByteOrderMark, .. bytes] : bytes;
+    }
+
+    public static TheoryData<byte[], string> FilesHoldingTheText => new()
+    {
+        { CheckedOut("a: 1\nb: 2\n", "\r\n", byteOrderMark: false), "a: 1\nb: 2\n" },
+        { CheckedOut("a: 1\nb: 2\n", "\n", byteOrderMark: true), "a: 1\nb: 2\n" },
+        { CheckedOut("a: 1\nb: 2\n", "\r\n", byteOrderMark: true), "a: 1\nb: 2\n" },
+        { CheckedOut("a: 1\nb: 2\n", "\n", byteOrderMark: false), "a: 1\r\nb: 2\r\n" },
+        { Encoding.UTF8.GetBytes("a: 1\rb: 2\r\n"), "a: 1\rb: 2\n" },
+        { CheckedOut(string.Empty, "\n", byteOrderMark: true), string.Empty },
+    };
+
+    public static TheoryData<byte[], string> FilesHoldingOtherText => new()
+    {
+        { Encoding.UTF8.GetBytes("a: 1\r\r\nb: 2\r\n"), "a: 1\nb: 2\n" },
+        { Encoding.UTF8.GetBytes("a: 1\rb: 2\n"), "a: 1\nb: 2\n" },
+        { CheckedOut("a: 1\nb: 2\n", "\r\n", byteOrderMark: false), "a: 1\nb: 2" },
+        { Encoding.UTF8.GetBytes("a: 1\0\r\n"), "a: 1\0\n" },
+        { new byte[] { 0x61, 0x3A, 0x20, 0xFF, 0x0D, 0x0A }, "a: \uFFFD\n" },
+    };
+
+    [Theory]
+    [MemberData(nameof(FilesHoldingTheText))]
+    public void WriteIfChanged_OverAFileHoldingTheTextApartFromCrLfLineEndsOrAByteOrderMark_ReportsNoChangeAndKeepsItsBytes(byte[] checkedOut, string content)
+    {
+        var workspace = NewWorkspace();
+        WriteBytes(workspace, "file.yml", checkedOut);
+
+        Assert.False(ConnectionReferenceStore.WriteIfChanged(workspace, new AgentFilePath("file.yml"), content, Encoding.UTF8));
+        Assert.Equal(checkedOut, ReadBytes(workspace, "file.yml"));
+    }
+
+    [Theory]
+    [MemberData(nameof(FilesHoldingOtherText))]
+    public void WriteIfChanged_OverAFileHoldingOtherTextOrContentThatIsNotText_WritesTheContent(byte[] checkedOut, string content)
+    {
+        var workspace = NewWorkspace();
+        WriteBytes(workspace, "file.yml", checkedOut);
+
+        Assert.True(ConnectionReferenceStore.WriteIfChanged(workspace, new AgentFilePath("file.yml"), content, new UTF8Encoding(false)));
+        Assert.Equal(new UTF8Encoding(false).GetBytes(content), ReadBytes(workspace, "file.yml"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void WriteIfChanged_OverAFileThatCannotBeRead_WritesTheContent(bool accessDenied)
+    {
+        var workspace = NewWorkspace();
+        WriteBytes(workspace, "file.yml", CheckedOut("a: 1\n", "\r\n", byteOrderMark: false));
+
+        Assert.True(ConnectionReferenceStore.WriteIfChanged(new DeclaredConnectionReferencesTests.UnreadableAccessor(workspace, accessDenied ? new UnauthorizedAccessException("denied") : new IOException("locked")), new AgentFilePath("file.yml"), "a: 1\n", new UTF8Encoding(false)));
+        Assert.Equal(Encoding.UTF8.GetBytes("a: 1\n"), ReadBytes(workspace, "file.yml"));
+    }
+
+    [Theory]
+    [InlineData(ConnectionReferenceLayout.Layered, "\r\n", false)]
+    [InlineData(ConnectionReferenceLayout.Layered, "\n", false)]
+    [InlineData(ConnectionReferenceLayout.Layered, "\r\n", true)]
+    [InlineData(ConnectionReferenceLayout.Flat, "\r\n", false)]
+    [InlineData(ConnectionReferenceLayout.Flat, "\n", false)]
+    [InlineData(ConnectionReferenceLayout.Flat, "\r\n", true)]
+    public void Write_OverAFileThatDiffersOnlyInLineEndingsOrAByteOrderMark_ReportsNoChangeAndKeepsItsBytes(ConnectionReferenceLayout layout, string lineEnding, bool byteOrderMark)
+    {
+        var workspace = NewWorkspace();
+        var reference = Reference("new_teams", "shared_teams");
+        var path = PathFor(layout, "new_teams");
+
+        ConnectionReferenceStore.Write(workspace, [reference], layout, null, CancellationToken.None);
+
+        var checkedOut = CheckedOut(ReadText(workspace, path), lineEnding, byteOrderMark);
+
+        WriteBytes(workspace, path, checkedOut);
+
+        Assert.False(ConnectionReferenceStore.Write(workspace, [reference], layout, null, CancellationToken.None));
+        Assert.Equal(checkedOut, ReadBytes(workspace, path));
+    }
+
+    [Theory]
+    [InlineData(ConnectionReferenceLayout.Layered)]
+    [InlineData(ConnectionReferenceLayout.Flat)]
+    public void Write_OverAFileWithCrLfLineEndingsThatDeclaresAnotherConnector_RewritesItAsAFreshWriteDoes(ConnectionReferenceLayout layout)
+    {
+        var workspace = NewWorkspace();
+        var fresh = NewWorkspace();
+        var changed = Reference("new_teams", "shared_msnweather");
+        var path = PathFor(layout, "new_teams");
+
+        ConnectionReferenceStore.Write(workspace, [Reference("new_teams", "shared_teams")], layout, null, CancellationToken.None);
+        WriteBytes(workspace, path, CheckedOut(ReadText(workspace, path), "\r\n", byteOrderMark: false));
+        ConnectionReferenceStore.Write(fresh, [changed], layout, null, CancellationToken.None);
+
+        Assert.True(ConnectionReferenceStore.Write(workspace, [changed], layout, null, CancellationToken.None));
+        Assert.Equal(ReadBytes(fresh, path), ReadBytes(workspace, path));
+    }
+
     [Fact]
     public void Layered_WritesOneFilePerReference()
     {

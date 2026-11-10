@@ -30,6 +30,7 @@ using Microsoft.Agents.ObjectModel;
 using Microsoft.Agents.Platform.Content;
 using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync;
+using Microsoft.CopilotStudio.Sync.UnitTests.Yaml;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -215,6 +216,44 @@ public class CliAgentNodeGMergeTests
         var merged = sync.MergeStrings(original, local, remote);
 
         Assert.Contains("<<<<<<<", merged, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("a\nb\nc\n", "a\r\nb\r\nc\r\n", "a\nB\nc\n", "a\r\nB\r\nc\r\n")]
+    [InlineData("a\nb\nc\n", "a\r\nB\r\nc\r\n", "a\nB\nc\n", "a\r\nB\r\nc\r\n")]
+    [InlineData("a\r\nb\r\nc\r\n", "a\nb\nc\n", "a\r\nB\r\nc\r\n", "a\nB\nc\n")]
+    public void MergeStrings_TextsThatDifferOnlyInLineEndings_MergeWithoutAConflictInTheLocalLineEndings(string original, string local, string remote, string expected)
+    {
+        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+
+        var merged = sync.MergeStrings(original, local, remote);
+
+        Assert.Equal(expected, merged);
+    }
+
+    [Theory]
+    [InlineData("\r\n")]
+    [InlineData("\n")]
+    public void MergeStrings_ConflictingEdits_RaiseMarkersInTheLocalLineEndings(string lineEnd)
+    {
+        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+
+        var merged = sync.MergeStrings("a\nb\nc\n", $"a{lineEnd}LOCAL{lineEnd}c{lineEnd}", "a\nREMOTE\nc\n");
+
+        Assert.Contains("<<<<<<<", merged, StringComparison.Ordinal);
+        Assert.Contains("LOCAL", merged, StringComparison.Ordinal);
+        Assert.Contains("REMOTE", merged, StringComparison.Ordinal);
+        Assert.Equal(LineEndings.ToLf(merged).Replace("\n", lineEnd), merged);
+    }
+
+    [Fact]
+    public void MergeStrings_WithoutLocalText_WritesTheMergedTextWithLfLineEndings()
+    {
+        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+
+        var merged = sync.MergeStrings("a\r\nb\r\n", null, "a\r\nB\r\n");
+
+        Assert.DoesNotContain("\r", merged, StringComparison.Ordinal);
     }
 
     // --- MergeComponent: full recompile of a CLI-shaped component --------------------

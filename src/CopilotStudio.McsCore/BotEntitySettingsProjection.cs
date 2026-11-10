@@ -41,4 +41,14 @@ public static class BotEntitySettingsProjection
 
         return builder.Build();
     }
+
+    internal static BotEntity WithAuthoredSettingsFrom(this BotEntity entity, BotEntity authored)
+    {
+        var builder = entity.ApplySettingsYamlProperties(authored).ToBuilder();
+        builder.SchemaName = entity.SchemaName;
+        builder.Template = entity.Template;
+        builder.PublishedOn = entity.PublishedOn;
+
+        return builder.Build();
+    }
 }

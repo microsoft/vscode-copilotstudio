@@ -6,6 +6,7 @@ using Microsoft.Agents.ObjectModel;
 using Microsoft.Agents.Platform.Content.Abstractions;
 using Microsoft.CopilotStudio.McsCore;
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -14,7 +15,8 @@ using Microsoft.CopilotStudio.McsCore.Yaml;
 
 namespace Microsoft.CopilotStudio.Sync.Dataverse;
 
-public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowDataverseClient, ISyncComponentCollectionDataverseClient, IStreamingKnowledgeFileClient, ICustomConnectorOperations
+/// <summary>Reads and writes an organization's agents, components, component collections, workflows, knowledge files and environment variables through its Dataverse Web API, at the URL set by <see cref="SetDataverseUrl"/>.</summary>
+public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowDataverseClient, ISyncComponentCollectionDataverseClient, ISyncComponentCollectionLinkDataverseClient, IStreamingKnowledgeFileClient, ICustomConnectorOperations, IAgentPublishDataverseClient, IAgentProvisioningDataverseClient, IAgentChangeProbeDataverseClient
 {
     private readonly IDataverseHttpClientAccessor _httpClientAccessor;
     private readonly AsyncLocal<string> _dataverseUrl = new();
@@ -53,6 +55,8 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
     private const string FormattedValuesPreference = "odata.include-annotations=\"OData.Community.Display.V1.FormattedValue\"";
 
     private const int UnpublishedComponentState = 1;
+
+    private const int TestCaseComponentType = 19;
 
     private static readonly string[] WorkflowSummaryColumns = { "workflowid", "name", "description", "statecode", "statuscode", "modifiedon" };
 
@@ -173,6 +177,52 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         var result = await SendAsync<AgentInfoDetail>(HttpMethod.Get, requestUri, null, false, cancellationToken).ConfigureAwait(false);
         return result?.Value?.Select(agent => agent.AgentId).Where(id => id != Guid.Empty).ToList() ?? new List<Guid>();
     }
+
+    /// <inheritdoc />
+    public virtual async Task<IReadOnlyDictionary<string, IReadOnlyList<AgentInfo>>> GetLinkedAgentsByComponentCollectionSchemaNamesAsync(IEnumerable<string> schemaNames, CancellationToken cancellationToken)
+    {
+        var linked = new Dictionary<string, IReadOnlyList<AgentInfo>>(StringComparer.OrdinalIgnoreCase);
+
+        await ForEachComponentCollectionAsync<ComponentCollectionLinksDetail>("$select=schemaname&$expand=bot_botcomponentcollection($select=botid,schemaname,name)", schemaNames, collection => linked[collection.SchemaName] = (collection.Agents ?? Array.Empty<AgentSyncInfoDetail>()).Where(agent => agent.AgentId != Guid.Empty).Select(agent => agent.ToAgentInfo()).ToList(), cancellationToken).ConfigureAwait(false);
+
+        return linked;
+    }
+
+    /// <inheritdoc />
+    public virtual async Task<IReadOnlyDictionary<string, ComponentCollectionInfo>> GetComponentCollectionsBySchemaNamesAsync(IEnumerable<string> schemaNames, CancellationToken cancellationToken)
+    {
+        var collections = new Dictionary<string, ComponentCollectionInfo>(StringComparer.OrdinalIgnoreCase);
+
+        await ForEachComponentCollectionAsync<ComponentCollectionDetail>("$select=botcomponentcollectionid,schemaname,name", schemaNames, collection => collections[collection.SchemaName] = collection.ToComponentCollectionInfo(), cancellationToken).ConfigureAwait(false);
+
+        return collections;
+    }
+
+    /// <inheritdoc />
+    public virtual async Task PublishAgentAsync(Guid agentId, CancellationToken cancellationToken) =>
+        await SendAsync<object>(HttpMethod.Post, $"{DataverseUrl}/api/data/v9.2/bots({agentId})/Microsoft.Dynamics.CRM.PvaPublish", new Dictionary<string, object?>(), expectReturn: false, cancellationToken).ConfigureAwait(false);
+
+    /// <inheritdoc />
+    public virtual async Task<AgentPublishOperation?> GetLastPublishOperationAsync(Guid agentId, CancellationToken cancellationToken) =>
+        BotSynchronizationStatus.ReadLastPublishOperation(await ReadBotAsync(agentId, BotSynchronizationStatus.Column, cancellationToken).ConfigureAwait(false));
+
+    /// <inheritdoc />
+    public virtual async Task<AgentProvisioningStatus> GetProvisioningStatusAsync(Guid agentId, CancellationToken cancellationToken) => BotSynchronizationStatus.ReadProvisioningStatus(await ReadBotAsync(agentId, BotSynchronizationStatus.ProvisioningColumns, cancellationToken).ConfigureAwait(false));
+
+    private async Task ForEachComponentCollectionAsync<TDetail>(string query, IEnumerable<string> schemaNames, Action<TDetail> visit, CancellationToken cancellationToken) where TDetail : class
+    {
+        foreach (var filter in AnyOfInBatches(NameEqualityClauses("schemaname", schemaNames ?? Enumerable.Empty<string>())))
+        {
+            foreach (var detail in await ReadCollectionAsync($"botcomponentcollections?{query}&$filter={Uri.EscapeDataString(filter)}", row => ReadRow<TDetail>(row, "component collection"), null, cancellationToken).ConfigureAwait(false))
+            {
+                visit(detail);
+            }
+        }
+    }
+
+    private Task<JsonElement> ReadBotAsync(Guid agentId, string columns, CancellationToken cancellationToken) => SendAsync<JsonElement>(HttpMethod.Get, $"{DataverseUrl}/api/data/v9.2/bots({agentId})?$select={columns}", null, false, cancellationToken);
+
+    private static T ReadRow<T>(JsonElement row, string rowName) where T : class => row.Deserialize<T>(JsonSerializerOptions) ?? throw new DataverseRequestException(System.Net.HttpStatusCode.BadGateway, $"The service returned a null {rowName} row, so the {rowName}s could not be read.");
 
     public virtual async Task<WorkflowMetadata[]> DownloadAllWorkflowsForAgentAsync(AgentSyncInfo syncInfo, CancellationToken cancellationToken)
     {
@@ -326,7 +376,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
 
     public virtual Task<CustomConnectorMetadata[]> GetConnectorVersionsByInternalIdsAsync(IEnumerable<string> connectorInternalIds, bool isManaged, CancellationToken cancellationToken) => QueryConnectorsByInternalIdsAsync(connectorInternalIds, isManaged, ConnectorVersionColumns, cancellationToken);
 
-    public virtual Task<CustomConnectorMetadata[]> GetConnectorVersionsByIdsAsync(IReadOnlyCollection<Guid> connectorIds, CancellationToken cancellationToken) => ReadConnectorsAsync(BuildConnectorQueryUrls((connectorIds ?? Array.Empty<Guid>()).Where(connectorId => connectorId != Guid.Empty).Distinct().Select(connectorId => $"connectorid eq {connectorId}"), ConnectorVersionColumns, string.Empty), cancellationToken);
+    public virtual Task<CustomConnectorMetadata[]> GetConnectorVersionsByIdsAsync(IReadOnlyCollection<Guid> connectorIds, CancellationToken cancellationToken) => ReadConnectorsAsync(BuildConnectorQueryUrls(AnyOfInBatches((connectorIds ?? Array.Empty<Guid>()).Where(connectorId => connectorId != Guid.Empty).Distinct().Select(connectorId => $"connectorid eq {connectorId}")), ConnectorVersionColumns), cancellationToken);
 
     private async Task<CustomConnectorMetadata[]> QueryConnectorsByInternalIdsAsync(IEnumerable<string> connectorInternalIds, bool isManaged, string select, CancellationToken cancellationToken)
     {
@@ -335,10 +385,16 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
             return Array.Empty<CustomConnectorMetadata>();
         }
 
-        return await ReadConnectorsAsync(BuildConnectorQueryUrls(connectorInternalIds.Where(internalId => !string.IsNullOrWhiteSpace(internalId)).Select(internalId => internalId.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Select(internalId => $"connectorinternalid eq {ODataLiteral.Quote(internalId)}"), select, isManaged ? string.Empty : " and ismanaged eq false"), cancellationToken).ConfigureAwait(false);
+        return await ReadConnectorsAsync(BuildConnectorQueryUrls(ConnectorInternalIdFilters(connectorInternalIds, isManaged), select), cancellationToken).ConfigureAwait(false);
     }
 
-    private IEnumerable<string> BuildConnectorQueryUrls(IEnumerable<string> filterClauses, string select, string filterSuffix) => filterClauses.ToList().Chunk(BatchSize).Select(batch => $"{ConnectorsUrl}?$select={select}&$filter={Uri.EscapeDataString($"({string.Join(" or ", batch)}){filterSuffix}")}");
+    private static IEnumerable<string> ConnectorInternalIdFilters(IEnumerable<string> connectorInternalIds, bool isManaged) => AnyOfInBatches(NameEqualityClauses("connectorinternalid", connectorInternalIds), isManaged ? string.Empty : " and ismanaged eq false");
+
+    private static IEnumerable<string> AnyOfInBatches(IEnumerable<string> alternatives, string filterSuffix = "") => alternatives.ToList().Chunk(BatchSize).Select(batch => $"({string.Join(" or ", batch)}){filterSuffix}");
+
+    private static IEnumerable<string> NameEqualityClauses(string column, IEnumerable<string> names) => names.Where(name => !string.IsNullOrWhiteSpace(name)).Select(name => name.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Select(name => $"{column} eq {ODataLiteral.Quote(name)}");
+
+    private IEnumerable<string> BuildConnectorQueryUrls(IEnumerable<string> filters, string select) => filters.Select(filter => $"{ConnectorsUrl}?$select={select}&$filter={Uri.EscapeDataString(filter)}");
 
     public virtual async Task<CustomConnectorMetadata[]> GetConnectorsByInternalIdPrefixAsync(string connectorInternalIdPrefix, CancellationToken cancellationToken)
     {
@@ -521,51 +577,81 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         return workflow;
     }
 
-    public virtual async Task<WorkflowSummary[]> ListWorkflowsAsync(string? nameFilter, int? maximumCount, CancellationToken cancellationToken)
+    /// <summary>Reads the unmanaged cloud flows from the workflows table without their definitions, keeping those whose name contains the trimmed filter when one is given, up to the maximum count.</summary>
+    public virtual Task<WorkflowSummary[]> ListWorkflowsAsync(string? nameFilter, int? maximumCount, CancellationToken cancellationToken) =>
+        ReadCollectionAsync($"workflows?$select={string.Join(",", WorkflowSummaryColumns)}&$filter={Uri.EscapeDataString(nameFilter?.Trim() is { Length: > 0 } name ? $"{UnmanagedCloudFlowFilter} and contains(name,{ODataLiteral.LikePattern(name)})" : UnmanagedCloudFlowFilter)}", row => ReadRow<WorkflowSummary>(row, "workflow"), maximumCount, cancellationToken);
+
+    /// <inheritdoc />
+    public virtual async Task<AgentChangeProbe?> ProbeAgentAsync(Guid? agentId, string schemaName, CancellationToken cancellationToken)
     {
-        if (maximumCount < 0)
+        if ((await ReadCollectionAsync($"bots?$select=botid,modifiedon&$filter={Uri.EscapeDataString(agentId is { } id ? $"botid eq {id}" : $"schemaname eq {ODataLiteral.Quote(schemaName)}")}&$expand=bot_botcomponentcollection($select=botcomponentcollectionid,modifiedon)", row => row.ValueKind == JsonValueKind.Object ? ProbedRow.Of(row, "botid", "bot_botcomponentcollection", "botcomponentcollectionid") : null, null, cancellationToken).ConfigureAwait(false)).FirstOrDefault() is not { Key: { } botId } bot)
         {
-            throw new ArgumentOutOfRangeException(nameof(maximumCount), maximumCount, "A row cap cannot be negative.");
+            return null;
         }
+
+        var collectionIds = bot.Linked.Select(collection => collection.Key).OfType<string>().ToArray();
+        var components = await ReadCollectionsAsync(OwnerFilters(botId, collectionIds, string.Empty).Select(owners => $"botcomponents?$select=botcomponentid,componenttype,data,modifiedon&$filter={Uri.EscapeDataString(owners)}&$expand=botcomponent_connectionreference($select=connectionreferenceid,connectorid,modifiedon),botcomponent_environmentvariabledefinition($select=environmentvariabledefinitionid,modifiedon)"), row => (Row: ProbedRow.Of(row, "botcomponentid"), PromptIds: JsonElementReader.ReadInt32(row, "componenttype") == TestCaseComponentType ? Array.Empty<Guid>() : WorkspaceSynchronizer.AiModelIdReferenceRegex.Matches(JsonElementReader.ReadString(row, "data") ?? string.Empty).Cast<Match>().Select(match => Guid.Parse(match.Groups[1].Value)).ToArray(), ConnectionReferences: ProbedRow.LinkedOf(row, "botcomponent_connectionreference", reference => ProbedRow.Of(reference, "connectionreferenceid") with { ConnectorInternalId = ExtractConnectorInternalId(JsonElementReader.ReadString(reference, "connectorid")) }), EnvironmentVariables: ProbedRow.LinkedOf(row, "botcomponent_environmentvariabledefinition", variable => ProbedRow.Of(variable, "environmentvariabledefinitionid"))), cancellationToken).ConfigureAwait(false);
+        var flows = await ReadCollectionsAsync(OwnerFilters(botId, collectionIds, "component/").Select(owners => $"workflows?$select=workflowid,modifiedon&$filter={Uri.EscapeDataString($"botcomponent_workflow/any(component:{owners} and component/componenttype ne {TestCaseComponentType})")}"), row => ProbedRow.Of(row, "workflowid"), cancellationToken).ConfigureAwait(false);
+        var prompts = await ReadCollectionsAsync(AnyOfInBatches(components.SelectMany(component => component.PromptIds).Distinct().Select(promptId => $"msdyn_aimodelid eq {promptId}")).Select(filter => $"msdyn_aimodels?$select=msdyn_aimodelid,modifiedon&$filter={Uri.EscapeDataString(filter)}&$expand=msdyn_aimodel_msdyn_aiconfiguration($select=msdyn_aiconfigurationid,modifiedon)"), row => ProbedRow.Of(row, "msdyn_aimodelid", "msdyn_aimodel_msdyn_aiconfiguration", "msdyn_aiconfigurationid"), cancellationToken).ConfigureAwait(false);
+        var connectionReferences = components.SelectMany(component => component.ConnectionReferences).ToArray();
+        var environmentVariables = components.SelectMany(component => component.EnvironmentVariables).ToArray();
+
+        return new AgentChangeProbe(ProbeOf(new[] { bot }), ProbeOf(bot.Linked), ProbeOf(components.Select(component => component.Row)), ProbeOf(flows), ProbeOf(prompts), ProbeOf(prompts.SelectMany(prompt => prompt.Linked)), ProbeOf(connectionReferences), ProbeOf(await ReadCustomConnectorsAsync(connectionReferences, cancellationToken).ConfigureAwait(false)), ProbeOf(environmentVariables), ProbeOf(await ReadEnvironmentVariableValuesAsync(environmentVariables, cancellationToken).ConfigureAwait(false)));
+    }
+
+    private static IEnumerable<string> OwnerFilters(string botId, IEnumerable<string> collectionIds, string path) => AnyOfInBatches(collectionIds.Select(collectionId => $"{path}_parentbotcomponentcollectionid_value eq {collectionId}").Prepend($"{path}_parentbotid_value eq {botId}"));
+
+    private Task<IReadOnlyList<ProbedRow>> ReadCustomConnectorsAsync(IEnumerable<ProbedRow> connectionReferences, CancellationToken cancellationToken) => ReadCollectionsAsync(ConnectorInternalIdFilters(connectionReferences.Select(reference => reference.ConnectorInternalId).OfType<string>(), isManaged: false).Select(filter => $"connectors?$select=connectorid,modifiedon&$filter={Uri.EscapeDataString(filter)}"), row => ProbedRow.Of(row, "connectorid"), cancellationToken);
+
+    private Task<IReadOnlyList<ProbedRow>> ReadEnvironmentVariableValuesAsync(IEnumerable<ProbedRow> environmentVariables, CancellationToken cancellationToken) => ReadCollectionsAsync(AnyOfInBatches(environmentVariables.Select(variable => variable.Key).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).Select(definitionId => $"_environmentvariabledefinitionid_value eq {definitionId}")).Select(filter => $"environmentvariablevalues?$select=environmentvariablevalueid,modifiedon&$filter={Uri.EscapeDataString(filter)}"), row => ProbedRow.Of(row, "environmentvariablevalueid"), cancellationToken);
+
+    private static AgentTableProbe ProbeOf(IEnumerable<ProbedRow> rows)
+    {
+        var distinct = rows.GroupBy(row => row.Key, StringComparer.OrdinalIgnoreCase).Select(group => group.First()).ToArray();
+
+        return new AgentTableProbe(distinct.Length, distinct.Select(row => row.ModifiedOn).Max());
+    }
+
+    private async Task<IReadOnlyList<T>> ReadCollectionsAsync<T>(IEnumerable<string> collectionQueries, Func<JsonElement, T> readRow, CancellationToken cancellationToken)
+    {
+        var rows = new List<T>();
+
+        foreach (var collectionQuery in collectionQueries)
+        {
+            rows.AddRange(await ReadCollectionAsync(collectionQuery, readRow, null, cancellationToken).ConfigureAwait(false));
+        }
+
+        return rows;
+    }
+
+    private async Task<T[]> ReadCollectionAsync<T>(string collectionQuery, Func<JsonElement, T> readRow, int? maximumCount, CancellationToken cancellationToken)
+    {
+        MaximumRowCount.Require(maximumCount);
 
         if (maximumCount == 0)
         {
-            return Array.Empty<WorkflowSummary>();
+            return Array.Empty<T>();
         }
 
-        var requestUrl = $"{DataverseUrl}/api/data/v9.2/workflows?$select={string.Join(",", WorkflowSummaryColumns)}&$filter={Uri.EscapeDataString(string.IsNullOrWhiteSpace(nameFilter) ? UnmanagedCloudFlowFilter : $"{UnmanagedCloudFlowFilter} and contains(name,{ODataLiteral.LikePattern((nameFilter ?? string.Empty).Trim())})")}";
-
-        if (maximumCount > 0)
+        try
         {
-            requestUrl += $"&$top={maximumCount}";
+            return (await DataverseCollectionPager.ReadAsync(RequireDataverseOrigin(DataverseUrl), $"{DataverseUrl}/api/data/v9.2/{collectionQuery}{(maximumCount > 0 ? $"&$top={maximumCount}" : string.Empty)}", (pageUrl, pageCancellationToken) => SendAsync<JsonDocument>(HttpMethod.Get, pageUrl, null, false, pageCancellationToken), readRow, maximumCount, cancellationToken).ConfigureAwait(false)).ToArray();
         }
-
-        var summaries = new List<WorkflowSummary>();
-        var nextUrl = requestUrl;
-
-        while (nextUrl is { Length: > 0 })
+        catch (DataverseCollectionPageException exception)
         {
-            var response = await SendAsync<ODataResponse<WorkflowSummary>>(HttpMethod.Get, nextUrl, null, false, cancellationToken).ConfigureAwait(false);
-
-            if (response?.Value != null)
-            {
-                summaries.AddRange(response.Value);
-            }
-
-            if (maximumCount > 0 && summaries.Count >= maximumCount)
-            {
-                break;
-            }
-
-            nextUrl = response?.NextLink;
+            throw new DataverseRequestException(System.Net.HttpStatusCode.BadGateway, exception.Message);
         }
+    }
 
-        if (maximumCount > 0 && summaries.Count > maximumCount)
-        {
-            summaries.RemoveRange(maximumCount.Value, summaries.Count - maximumCount.Value);
-        }
+    private sealed record ProbedRow(string? Key, DateTimeOffset? ModifiedOn, IReadOnlyList<ProbedRow> Linked)
+    {
+        public string? ConnectorInternalId { get; init; }
 
-        return summaries.ToArray();
+        public static ProbedRow Of(JsonElement row, string keyColumn) => new(JsonElementReader.ReadString(row, keyColumn), JsonElementReader.ReadTimestamp(row, "modifiedon"), Array.Empty<ProbedRow>());
+
+        public static ProbedRow Of(JsonElement row, string keyColumn, string linkedRows, string linkedKeyColumn) => Of(row, keyColumn) with { Linked = LinkedOf(row, linkedRows, linkedRow => Of(linkedRow, linkedKeyColumn)) };
+
+        public static ProbedRow[] LinkedOf(JsonElement row, string linkedRows, Func<JsonElement, ProbedRow> readLinkedRow) => row.TryGetProperty(linkedRows, out var linked) && linked.ValueKind == JsonValueKind.Array ? linked.EnumerateArray().Select(readLinkedRow).ToArray() : Array.Empty<ProbedRow>();
     }
 
     public virtual async Task<bool> DeleteWorkflowAsync(Guid workflowId, CancellationToken cancellationToken)
@@ -689,11 +775,11 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         string url = string.Empty;
         if (syncInfo.AgentId.HasValue && syncInfo.AgentId != Guid.Empty)
         {
-            url = $"{DataverseUrl}/api/data/v9.2/botcomponents?$select=botcomponentid&$filter=_parentbotid_value eq {syncInfo.AgentId} and componenttype ne 19";
+            url = $"{DataverseUrl}/api/data/v9.2/botcomponents?$select=botcomponentid&$filter=_parentbotid_value eq {syncInfo.AgentId} and componenttype ne {TestCaseComponentType}";
         }
         else if (syncInfo.ComponentCollectionId.HasValue && syncInfo.ComponentCollectionId != Guid.Empty)
         {
-            url = $"{DataverseUrl}/api/data/v9.2/botcomponents?$select=botcomponentid&$filter=_parentbotcomponentcollectionid_value eq {syncInfo.ComponentCollectionId} and componenttype ne 19";
+            url = $"{DataverseUrl}/api/data/v9.2/botcomponents?$select=botcomponentid&$filter=_parentbotcomponentcollectionid_value eq {syncInfo.ComponentCollectionId} and componenttype ne {TestCaseComponentType}";
         }
 
         if (string.IsNullOrEmpty(url))
@@ -855,11 +941,12 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
             || !Uri.TryCreate(DataverseUrl, UriKind.Absolute, out var environment)
             || !string.Equals(requested.Scheme, environment.Scheme, StringComparison.OrdinalIgnoreCase)
             || !string.Equals(requested.Host, environment.Host, StringComparison.OrdinalIgnoreCase)
-            || requested.Port != environment.Port)
+            || requested.Port != environment.Port
+            || !string.Equals(requested.UserInfo, environment.UserInfo, StringComparison.Ordinal))
         {
             throw new DataverseRequestException(
                 System.Net.HttpStatusCode.BadGateway,
-                "The service asked for a page outside the environment being used. The request was not sent, because sending it would disclose this environment's access token.");
+                DataverseCollectionPageException.PageOutsideOrganizationMessage);
         }
 
         return requested;
@@ -893,7 +980,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
                 return default;
             }
 
-            return await JsonSerializer.DeserializeAsync<T>(responseStream, JsonSerializerOptions, cancellationToken).ConfigureAwait(false);
+            return await ReadJsonAsync<T>(responseStream, cancellationToken).ConfigureAwait(false);
         }
 
         using var bufferStream = new MemoryStream();
@@ -904,8 +991,10 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         }
 
         bufferStream.Position = 0;
-        return await JsonSerializer.DeserializeAsync<T>(bufferStream, JsonSerializerOptions, cancellationToken).ConfigureAwait(false);
+        return await ReadJsonAsync<T>(bufferStream, cancellationToken).ConfigureAwait(false);
     }
+
+    private static async Task<T?> ReadJsonAsync<T>(Stream json, CancellationToken cancellationToken) => typeof(T) == typeof(JsonDocument) ? (T)(object)await JsonDocument.ParseAsync(json, default, cancellationToken).ConfigureAwait(false) : await JsonSerializer.DeserializeAsync<T>(json, JsonSerializerOptions, cancellationToken).ConfigureAwait(false);
 
     private HttpRequestMessage CreateRequest(HttpMethod httpMethod, Uri requestUri, byte[]? body, string? preference, long? ifMatchVersion = null)
     {
@@ -1048,7 +1137,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
     public virtual async Task<AgentInfo> GetAgentInfoAsync(Guid agentId, CancellationToken cancellationToken)
     {
         var requestUri = $"{DataverseUrl}/api/data/v9.2/bots({agentId})" +
-                         "?$select=botid,name,iconbase64" +
+                         "?$select=botid,name,iconbase64,schemaname" +
                          "&$expand=bot_botcomponentcollection($select=schemaname,botcomponentcollectionid,name)";
 
         var response = await SendAsync<AgentDetailWithCollections>(HttpMethod.Get, requestUri, null, false, cancellationToken).ConfigureAwait(false)
@@ -1059,6 +1148,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
             AgentId = response.AgentId,
             DisplayName = response.Name,
             IconBase64 = response.IconBase64,
+            SchemaName = response.SchemaName,
             ComponentCollections = (response.ComponentCollections ?? Array.Empty<ComponentCollectionDetail>())
                 .Select(cc => new ComponentCollectionInfo
                 {
@@ -1187,6 +1277,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
     private async Task<Guid> ResolveConnectionReferenceIdAsync(string connectionReferenceLogicalName, CancellationToken cancellationToken) =>
         (await FindConnectionReferencesAsync(connectionReferenceLogicalName, "connectionreferenceid", cancellationToken).ConfigureAwait(false)).FirstOrDefault()?.ConnectionReferenceId ?? throw new InvalidOperationException($"Connection reference '{connectionReferenceLogicalName}' was not found in Dataverse.");
 
+    [SuppressMessage("ApiDesign", "RS0030:Do not use banned APIs", Justification = "The path-based ISyncDataverseClient overload exchanges content through a caller-supplied local folder by contract.")]
     public async Task DownloadKnowledgeFileAsync(string knowledgeFileFolder, BotComponentId botComponentId, string fileName, CancellationToken cancellationToken = default)
     {
         var localPath = GetKnowledgeFileLocalPath(knowledgeFileFolder, fileName);
@@ -1231,6 +1322,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         }
     }
 
+    [SuppressMessage("ApiDesign", "RS0030:Do not use banned APIs", Justification = "The path-based ISyncDataverseClient overload exchanges content through a caller-supplied local folder by contract.")]
     private static async Task<FileStream> CreateWritableFileStreamWithRetryAsync(string localPath, CancellationToken cancellationToken)
     {
         const int maxAttempts = 3;
@@ -1257,6 +1349,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         return errorCode == errorSharingViolation || errorCode == errorLockViolation;
     }
 
+    [SuppressMessage("ApiDesign", "RS0030:Do not use banned APIs", Justification = "The path-based ISyncDataverseClient overload exchanges content through a caller-supplied local folder by contract.")]
     public async Task UploadKnowledgeFileAsync(string knowledgeFileFolder, Guid botComponentId, string fileName, CancellationToken cancellationToken = default)
     {
         using var fileStream = new FileStream(GetKnowledgeFileLocalPath(knowledgeFileFolder, fileName), FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 81920, useAsync: true);
@@ -1351,11 +1444,11 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         string? scopeFilter = null;
         if (syncInfo.AgentId.HasValue && syncInfo.AgentId != Guid.Empty)
         {
-            scopeFilter = $"_parentbotid_value eq {syncInfo.AgentId} and componenttype ne 19";
+            scopeFilter = $"_parentbotid_value eq {syncInfo.AgentId} and componenttype ne {TestCaseComponentType}";
         }
         else if (syncInfo.ComponentCollectionId.HasValue && syncInfo.ComponentCollectionId != Guid.Empty)
         {
-            scopeFilter = $"_parentbotcomponentcollectionid_value eq {syncInfo.ComponentCollectionId} and componenttype ne 19";
+            scopeFilter = $"_parentbotcomponentcollectionid_value eq {syncInfo.ComponentCollectionId} and componenttype ne {TestCaseComponentType}";
         }
 
         if (scopeFilter == null)
@@ -1385,7 +1478,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
                         continue;
                     }
 
-                    foreach (Match aiModelIdMatch in Regex.Matches(componentYaml ?? string.Empty, @"aIModelId\s*:\s*([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"))
+                    foreach (Match aiModelIdMatch in WorkspaceSynchronizer.AiModelIdReferenceRegex.Matches(componentYaml))
                     {
                         if (Guid.TryParse(aiModelIdMatch.Groups[1].Value, out var modelId))
                         {
@@ -1792,6 +1885,14 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
 
         [JsonIgnore]
         public List<string> ConnectionReferences { get; set; } = new();
+
+        internal WorkflowMetadata WithName(string name)
+        {
+            var renamed = (WorkflowMetadata)MemberwiseClone();
+            renamed.Name = name;
+
+            return renamed;
+        }
     }
 
     public class ManagedProperty
@@ -1861,6 +1962,9 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
             [JsonPropertyName("iconbase64")]
             public string? IconBase64 { get; set; }
 
+            [JsonPropertyName("schemaname")]
+            public string? SchemaName { get; set; }
+
             [JsonPropertyName("bot_botcomponentcollection")]
             public ComponentCollectionDetail[]? ComponentCollections { get; set; }
         }
@@ -1888,6 +1992,15 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         {
             [JsonPropertyName("value")]
             public ComponentCollectionDetail[] Value { get; set; } = Array.Empty<ComponentCollectionDetail>();
+        }
+
+        internal class ComponentCollectionLinksDetail
+        {
+            [JsonPropertyName("schemaname")]
+            public string SchemaName { get; set; } = string.Empty;
+
+            [JsonPropertyName("bot_botcomponentcollection")]
+            public AgentSyncInfoDetail[]? Agents { get; set; }
         }
 
 #pragma warning restore CA1034

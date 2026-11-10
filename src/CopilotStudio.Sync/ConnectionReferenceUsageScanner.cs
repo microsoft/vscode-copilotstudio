@@ -38,7 +38,6 @@ public sealed class ConnectionReferenceUsageScanner
     private const string ConnectionReferencesFileName = "connectionreferences.mcs.yml";
     private const string ConnectionReferencesFileNameLong = "connectionreferences.mcs.yaml";
     private const string WorkflowsFolder = "workflows";
-    private const string HiddenFolder = ".mcs";
 
     /// <summary>
     /// Scans the workspace for connection reference usages.
@@ -80,7 +79,7 @@ public sealed class ConnectionReferenceUsageScanner
                 continue;
             }
 
-            if (IsUnder(path, HiddenFolder) || IsConnectionReferencesFile(path))
+            if (SyncStatePaths.IsSyncStatePath(path) || IsConnectionReferencesFile(path))
             {
                 continue;
             }
@@ -132,7 +131,7 @@ public sealed class ConnectionReferenceUsageScanner
                 WorkflowId = metadata.WorkflowId == Guid.Empty ? string.Empty : metadata.WorkflowId.ToString(),
                 DisplayName = displayName,
                 FilePath = path,
-                State = MapWorkflowState(metadata.StateCode, metadata.StatusCode),
+                State = CopilotStudioStates.WorkflowStateOf(metadata.StateCode),
                 ConnectionReferenceLogicalNames = connectionNames,
             });
 
@@ -242,22 +241,6 @@ public sealed class ConnectionReferenceUsageScanner
         }
 
         return UsageKind.Action;
-    }
-
-    private static WorkflowState MapWorkflowState(int? stateCode, int? statusCode)
-    {
-        if (stateCode == null)
-        {
-            return WorkflowState.Unknown;
-        }
-
-        return stateCode.Value switch
-        {
-            0 => WorkflowState.Draft,
-            1 => WorkflowState.Activated,
-            2 => WorkflowState.Suspended,
-            _ => WorkflowState.Unknown,
-        };
     }
 
     private static string? ReadText(IFileAccessor fileAccessor, AgentFilePath path)

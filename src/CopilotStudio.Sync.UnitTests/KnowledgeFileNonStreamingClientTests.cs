@@ -117,4 +117,66 @@ public class KnowledgeFileNonStreamingClientTests
         Assert.Single(uploaded);
         Assert.Equal("nested-payload", observedContent);
     }
+
+    [Fact]
+    public async Task ClientWithoutStreamingSupport_RemovesItsStagingFolderOnceEachTransferEnds()
+    {
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath("c:/test/knowledge-legacy-cleanup/");
+        var fileAccessor = fileAccessorFactory.Create(workspace);
+
+        WriteBotCloudCache(fileAccessor, CreateFileComponent("cr1.file.Doc", "Doc.txt", Guid.NewGuid()));
+
+        var stagingFolders = new List<string>();
+        var nonStreamingClient = new Mock<ISyncDataverseClient>(MockBehavior.Loose);
+        nonStreamingClient
+            .Setup(client => client.DownloadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<BotComponentId>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns<string, BotComponentId, string, CancellationToken>((folder, _, fileName, _) =>
+            {
+                stagingFolders.Add(folder);
+                File.WriteAllText(Path.Combine(folder, fileName), "downloaded");
+                return Task.CompletedTask;
+            });
+        nonStreamingClient
+            .Setup(client => client.UploadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns<string, Guid, string, CancellationToken>((folder, _, _, _) =>
+            {
+                stagingFolders.Add(folder);
+                return Task.CompletedTask;
+            });
+
+        await fileAccessor.WriteAsync(new AgentFilePath(Assert.Single(await synchronizer.DownloadKnowledgeFilesAsync(workspace, nonStreamingClient.Object, schemaNames: null, CancellationToken.None)).RelativePath), "edited", CancellationToken.None);
+        await synchronizer.UploadKnowledgeFilesAsync(workspace, nonStreamingClient.Object, CancellationToken.None);
+
+        Assert.Equal(2, stagingFolders.Count);
+        Assert.All(stagingFolders, folder => Assert.False(Directory.Exists(folder)));
+    }
+
+    [Fact]
+    public async Task ClientWithoutStreamingSupport_FailedDownload_RemovesItsStagingFolderAndLeavesNoStagedContent()
+    {
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath("c:/test/knowledge-legacy-failure/");
+        var fileAccessor = fileAccessorFactory.Create(workspace);
+
+        WriteBotCloudCache(fileAccessor, CreateFileComponent("cr1.file.Doc", "Doc.txt", Guid.NewGuid()));
+        var filesBefore = fileAccessor.ListFiles().Select(file => file.ToString()).ToList();
+
+        string? stagingFolder = null;
+        var nonStreamingClient = new Mock<ISyncDataverseClient>(MockBehavior.Loose);
+        nonStreamingClient
+            .Setup(client => client.DownloadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<BotComponentId>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns<string, BotComponentId, string, CancellationToken>((folder, _, fileName, _) =>
+            {
+                stagingFolder = folder;
+                File.WriteAllText(Path.Combine(folder, fileName), "partial");
+                throw new DataverseRequestException(System.Net.HttpStatusCode.Forbidden, "{\"error\":{\"message\":\"refused\"}}");
+            });
+
+        await Assert.ThrowsAsync<DataverseRequestException>(() => synchronizer.DownloadKnowledgeFilesAsync(workspace, nonStreamingClient.Object, schemaNames: null, CancellationToken.None));
+
+        Assert.NotNull(stagingFolder);
+        Assert.False(Directory.Exists(stagingFolder));
+        Assert.Equal(filesBefore, fileAccessor.ListFiles().Select(file => file.ToString()).ToList());
+    }
 }

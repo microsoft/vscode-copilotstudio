@@ -1204,6 +1204,80 @@ public class SkillFolderLayoutTests
         Assert.Empty(changes);
     }
 
+    [Theory]
+    [InlineData("\r\n", false)]
+    [InlineData("\n", true)]
+    [InlineData("\r\n", true)]
+    public async Task InMemory_SkillPayloadsTheCloudUploadedAgain_PullKeepsCopiesThatDifferOnlyInLineEndsOrAByteOrderMarkAndThePushUploadsNothing(string lineEnding, bool byteOrderMark)
+    {
+        var (synchronizer, factory, mockIsland) = CreateMemoryBackedInfrastructure();
+        var workspace = new DirectoryPath($"c:/test/skill-inmem-reupload-{Guid.NewGuid():N}/");
+        var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
+        var previous = new BotDefinition().WithEntity(entity);
+        var accessor = CreateMemoryBackedWorkspace(factory, workspace, previous);
+        var syncInfo = new AgentSyncInfo { AgentId = Guid.NewGuid() };
+        var skill = CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", Guid.NewGuid(), $"<!-- bic:bundle={Bot}.file.getusweatherzip -->");
+        var manifest = CreateAsset($"{Bot}.file.skillmd_a1B", "./SKILL.md", skill.Id);
+        var script = CreateAsset($"{Bot}.file.script_a1B", "./scripts/Get-UsWeather.ps1", skill.Id);
+        var payloads = new Dictionary<Guid, string> { [manifest.Id.Value] = "---\nname: get-us-weather\n---\nGet the weather.\n", [script.Id.Value] = "param($City)\nInvoke-RestMethod $City\n" };
+
+        mockIsland.SetupSequence(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentInsert(skill), new BotComponentInsert(manifest), new BotComponentInsert(script) }, entity, "token-2"))
+            .ReturnsAsync(new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentUpdate(manifest), new BotComponentUpdate(script) }, entity, "token-3"));
+        var mockDataverse = CreateDataverseMock();
+        mockDataverse.As<IStreamingKnowledgeFileClient>()
+            .Setup(x => x.DownloadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<BotComponentId>(), It.IsAny<CancellationToken>()))
+            .Returns<Stream, BotComponentId, CancellationToken>((destination, componentId, cancellationToken) => destination.WriteAsync(Encoding.UTF8.GetBytes(payloads[componentId.Value]), 0, Encoding.UTF8.GetByteCount(payloads[componentId.Value]), cancellationToken));
+        await synchronizer.PullExistingChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), previous, mockDataverse.Object, syncInfo, CancellationToken.None);
+        var checkedOut = accessor.ListFiles("behaviors").ToDictionary(path => path, path => ConnectionReferenceStoreTests.CheckedOut(ReadFrom(accessor, path.ToString()), lineEnding, byteOrderMark));
+        foreach (var file in checkedOut)
+        {
+            using var stream = accessor.OpenWrite(file.Key);
+            stream.Write(file.Value, 0, file.Value.Length);
+        }
+
+        await synchronizer.PullExistingChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true), mockDataverse.Object, syncInfo, CancellationToken.None);
+
+        var kept = new Dictionary<AgentFilePath, byte[]>();
+        foreach (var path in checkedOut.Keys)
+        {
+            kept[path] = await accessor.ReadBytesAsync(path, CancellationToken.None);
+        }
+
+        mockDataverse.As<IStreamingKnowledgeFileClient>().Verify(x => x.DownloadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<BotComponentId>(), It.IsAny<CancellationToken>()), Times.Exactly(4));
+        Assert.Equal(checkedOut, kept);
+        Assert.Empty((await GetChangesAsync(synchronizer, workspace, await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true))).Item2);
+        Assert.Empty(await synchronizer.UploadKnowledgeFilesAsync(workspace, mockDataverse.Object, CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData("\r\n", false)]
+    [InlineData("\n", true)]
+    [InlineData("\r\n", true)]
+    public async Task Clone_OverASkillCheckedOutWithOtherLineEndsOrAByteOrderMark_LeavesItsAnchorAndManifestUntouched(string lineEnding, bool byteOrderMark)
+    {
+        var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath($"c:/test/skill-clone-over-{Guid.NewGuid():N}/");
+        var accessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
+        var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
+        var skill = CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", Guid.NewGuid(), "---\nname: get-us-weather\n---\nGet the weather.\n");
+        var syncInfo = new AgentSyncInfo { AgentId = Guid.NewGuid() };
+        mockIsland.Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentInsert(skill) }, entity, "token-1"));
+        await synchronizer.CloneChangesAsync(workspace, new ReferenceTracker(), ComponentWriterDefensiveTests.CreateMockOperationContext(), CreateDataverseMock().Object, syncInfo, CancellationToken.None);
+        var checkedOut = accessor.ListFiles("behaviors").ToDictionary(path => path.ToString(), path => ConnectionReferenceStoreTests.CheckedOut(Read(accessor, path.ToString()), lineEnding, byteOrderMark));
+        foreach (var file in checkedOut)
+        {
+            using var stream = accessor.OpenWrite(new AgentFilePath(file.Key));
+            stream.Write(file.Value, 0, file.Value.Length);
+        }
+
+        await synchronizer.CloneChangesAsync(workspace, new ReferenceTracker(), ComponentWriterDefensiveTests.CreateMockOperationContext(), CreateDataverseMock().Object, syncInfo, CancellationToken.None);
+
+        Assert.Equal(new[] { "behaviors/get-us-weather/SKILL.md", "behaviors/get-us-weather/skill.mcs.yml" }, checkedOut.Keys.OrderBy(path => path, StringComparer.Ordinal));
+        Assert.Equal(checkedOut, checkedOut.Keys.ToDictionary(path => path, path => accessor.Files[path]));
+    }
+
     [Fact]
     public async Task InMemory_SkillAssetPayloads_AreUploadedThroughStreamingClient()
     {

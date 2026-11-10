@@ -124,6 +124,38 @@ public class EnvironmentVariableProjectionTests
         Assert.Empty(envVarFiles);
     }
 
+    [Theory]
+    [InlineData("\r\n", false)]
+    [InlineData("\n", true)]
+    [InlineData("\r\n", true)]
+    public async Task Pull_OverAnEnvironmentVariableFileThatDiffersOnlyInLineEndsOrAByteOrderMark_LeavesItUntouched(string lineEnding, bool byteOrderMark)
+    {
+        var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var botEntity = CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cr123") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.");
+        mockIsland
+            .SetupSequence(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PvaComponentChangeSet(botComponentChanges: null, connectorDefinitionChanges: null, environmentVariableChanges: new EnvironmentVariableChange[] { new EnvironmentVariableInsert(CreateEnvVar("cr123.apiEndpoint", "API Endpoint")) }, connectionReferenceChanges: null, aIPluginOperationChanges: null, componentCollectionChanges: null, dataverseTableSearchChanges: null, dataverseTableSearchEntityConfigurationChanges: null, connectedAgentDefinitionChanges: null, bot: botEntity, changeToken: "token-1"))
+            .ReturnsAsync(new PvaComponentChangeSet(null, botEntity, "token-2"));
+        var workspace = new DirectoryPath($"c:/test/agent-{Guid.NewGuid():N}/");
+        var syncInfo = new AgentSyncInfo { AgentId = Guid.NewGuid() };
+        var mockDataverse = new Mock<ISyncDataverseClient>();
+        mockDataverse
+            .Setup(x => x.DownloadAllWorkflowsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<WorkflowMetadata>());
+        await synchronizer.CloneChangesAsync(workspace, new ReferenceTracker(), ComponentWriterDefensiveTests.CreateMockOperationContext(), mockDataverse.Object, syncInfo, CancellationToken.None);
+        var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
+        var path = new AgentFilePath("environmentvariables/cr123.apiEndpoint.mcs.yml");
+        var checkedOut = ConnectionReferenceStoreTests.CheckedOut(await fileAccessor.ReadStringAsync(path, CancellationToken.None), lineEnding, byteOrderMark);
+        using (var stream = fileAccessor.OpenWrite(path))
+        {
+            stream.Write(checkedOut, 0, checkedOut.Length);
+        }
+
+        await synchronizer.PullExistingChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None), mockDataverse.Object, syncInfo, CancellationToken.None);
+
+        Assert.Equal(checkedOut, fileAccessor.Files[path.ToString()]);
+    }
+
     private static EnvironmentVariableDefinition CreateEnvVar(string schemaName, string? displayName = null)
     {
         var builder = new EnvironmentVariableDefinition().ToBuilder();

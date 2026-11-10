@@ -1,5 +1,7 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 
+using System.Security.Cryptography;
+using System.Text.Json;
 using Microsoft.Agents.ObjectModel;
 using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync.Dataverse;
@@ -43,4 +45,18 @@ internal static class KnowledgeFileTestFixtures
         destination.Write(bytes, 0, bytes.Length);
         return Task.CompletedTask;
     }
+
+    internal static Dictionary<string, string> ReadKnowledgeSyncState(IFileAccessor fileAccessor)
+    {
+        var path = new AgentFilePath(".mcs/.knowledge-sync.json");
+        if (!fileAccessor.Exists(path))
+        {
+            return new Dictionary<string, string>();
+        }
+
+        using var stream = fileAccessor.OpenRead(path);
+        return JsonSerializer.Deserialize<Dictionary<string, string>>(stream)!;
+    }
+
+    internal static string KnowledgeHashOf(byte[] content) => Convert.ToBase64String(SHA256.HashData(content));
 }

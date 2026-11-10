@@ -110,8 +110,8 @@ internal class IslandControlPlaneService : IIslandControlPlaneService
             return _httpClientFactory.CreateClient(BotManagementClientName);
         }
 
-        var audienceUri = new Uri(GetTokenAudience(
-            _clusterCategory.Value ?? throw new InvalidOperationException("Cluster category is not set. Call SetConnectionContext before making API calls.")));
+        var audienceUri = CopilotStudioControlPlane.AudienceFor(
+            _clusterCategory.Value ?? throw new InvalidOperationException("Cluster category is not set. Call SetConnectionContext before making API calls."));
 #pragma warning disable CA2000 // handler is disposed by HttpClient (disposeHandler: true)
         var handler = new BearerTokenHandler(_authProvider, audienceUri);
 #pragma warning restore CA2000
@@ -119,25 +119,6 @@ internal class IslandControlPlaneService : IIslandControlPlaneService
         return new HttpClient(handler, disposeHandler: true);
 #pragma warning restore CA5399
     }
-
-    /// <summary>
-    /// Maps cluster category to the Azure AD application ID used as the token audience
-    /// for Copilot Studio Island Control Plane.
-    /// Ported from vscode-extensions account.ts getTokenScopeHostName().
-    /// </summary>
-    private static string GetTokenAudience(CoreServicesClusterCategory clusterCategory) => clusterCategory switch
-    {
-        CoreServicesClusterCategory.Exp or
-        CoreServicesClusterCategory.Dev or
-        CoreServicesClusterCategory.Test or
-        CoreServicesClusterCategory.Preprod => "api://a522f059-bb65-47c0-8934-7db6e5286414",
-        CoreServicesClusterCategory.FirstRelease or
-        CoreServicesClusterCategory.Prod => "api://96ff4394-9197-43aa-b393-6a41652e21f8",
-        CoreServicesClusterCategory.Gov => "api://9315aedd-209b-43b3-b149-2abff6a95d59",
-        CoreServicesClusterCategory.High => "api://69c6e40c-465f-4154-987d-da5cba10734e",
-        CoreServicesClusterCategory.DoD => "api://bd4a9f18-e349-4c74-a6b7-65dd465ea9ab",
-        _ => throw new InvalidOperationException($"Unsupported cluster category: {clusterCategory}")
-    };
 
     private async Task<PvaComponentChangeSet> RetrieveComponentsFromIslandAsync(AuthoringOperationContextBase operationContext, string? changeToken, CancellationToken cancellationToken)
     {

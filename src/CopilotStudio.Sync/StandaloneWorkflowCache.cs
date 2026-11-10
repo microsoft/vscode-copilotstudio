@@ -141,7 +141,7 @@ public static class StandaloneWorkflowCache
             return true;
         }
 
-        if (ReadMetadataOrNull(fileAccessor, workflow.MetadataPath) is not { } declared)
+        if (WorkflowMetadataFile.TryRead(fileAccessor, workflow.MetadataPath) is not { } declared)
         {
             return true;
         }
@@ -229,17 +229,5 @@ public static class StandaloneWorkflowCache
         }
 
         return null;
-    }
-
-    private static SyncDataverseClient.WorkflowMetadata? ReadMetadataOrNull(IFileAccessor fileAccessor, AgentFilePath path)
-    {
-        try
-        {
-            return ConnectionReferenceStore.ReadTextOrNull(fileAccessor, path) is { } yaml ? WorkflowMetadataFile.ReadStrict(yaml) : null;
-        }
-        catch (Exception failure) when (failure is not OperationCanceledException)
-        {
-            return null;
-        }
     }
 }

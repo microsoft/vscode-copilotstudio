@@ -448,6 +448,18 @@ public class StandaloneWorkflowDataverseTests
         Assert.DoesNotContain("clientdata", handler.Exchanges[0].Url, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData(" \t ")]
+    public async Task ListWorkflowsAsync_WithoutANameToFilterBy_ReadsEveryCloudFlow(string? nameFilter)
+    {
+        var (client, handler) = Create(_ => Json("{\"value\":[]}"));
+
+        await client.ListWorkflowsAsync(nameFilter, null, CancellationToken.None);
+
+        Assert.DoesNotContain("contains(", Uri.UnescapeDataString(handler.Exchanges[0].Url), StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task ListWorkflowsAsync_AppliesTheNameFilter()
     {
@@ -507,15 +519,27 @@ public class StandaloneWorkflowDataverseTests
         Assert.All(connectorIds, connectorId => Assert.Single(handler.Exchanges, exchange => Uri.UnescapeDataString(exchange.Url).Contains($"connectorid eq {connectorId}", StringComparison.Ordinal)));
     }
 
-    [Fact]
-    public async Task GetConnectorVersionsByIdsAsync_NoIds_SendsNoRequest()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GetConnectorVersionsByIdsAsync_NoIds_SendsNoRequest(bool withoutAnIdCollection)
     {
         var (client, handler) = Create(_ => Json("{\"value\":[]}"));
 
-        var connectors = await client.GetConnectorVersionsByIdsAsync(Array.Empty<Guid>(), CancellationToken.None);
+        var connectors = await client.GetConnectorVersionsByIdsAsync(withoutAnIdCollection ? null! : Array.Empty<Guid>(), CancellationToken.None);
 
         Assert.Empty(connectors);
         Assert.Empty(handler.Exchanges);
+    }
+
+    [Fact]
+    public async Task GetConnectorVersionsByInternalIdsAsync_OfManagedConnectors_FiltersByEachTrimmedInternalIdOnceWithoutTheUnmanagedCondition()
+    {
+        var (client, handler) = Create(_ => Json("{\"value\":[]}"));
+
+        await client.GetConnectorVersionsByInternalIdsAsync(new[] { " shared_contoso ", "SHARED_CONTOSO", " ", "shared_o'neil" }, isManaged: true, CancellationToken.None);
+
+        Assert.EndsWith("/connectors?$select=connectorid,connectorinternalid,ismanaged,modifiedon,versionnumber&$filter=(connectorinternalid eq 'shared_contoso' or connectorinternalid eq 'shared_o''neil')", Uri.UnescapeDataString(Assert.Single(handler.Exchanges).Url), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -836,6 +860,16 @@ public class StandaloneWorkflowDataverseTests
 
         Assert.Equal(["One", "Two"], summaries.Select(summary => summary.Name));
         Assert.Equal(2, handler.Exchanges.Count);
+    }
+
+    [Fact]
+    public async Task ListWorkflowsAsync_WhenAPageHoldsANullRow_FailsInsteadOfSkippingIt()
+    {
+        var (client, _) = Create(_ => Json($"{{\"value\":[{{\"workflowid\":\"{Guid.NewGuid()}\",\"name\":\"One\"}},null]}}"));
+
+        var failure = await Assert.ThrowsAsync<DataverseRequestException>(() => client.ListWorkflowsAsync(null, null, CancellationToken.None));
+
+        Assert.Equal((HttpStatusCode.BadGateway, "The service returned a null workflow row, so the workflows could not be read."), (failure.StatusCode, failure.ResponseBody));
     }
 
     [Fact]

@@ -437,7 +437,7 @@ public class StandaloneWorkflowDownloadGuardTests
 
     private const string ReferencingDefinition = """{"properties":{"connectionReferences":{"shared_teams":{"api":{"name":"shared_teams"},"connection":{"connectionReferenceLogicalName":"new_teams"}}},"from":"local"}}""";
 
-    private const string DraftRefusal = "Failed to update workflow: Dataverse request failed (400): {\"error\":{\"code\":\"0x80040203\",\"message\":\"You are attempting to do a published update of publishable component in an unmodified active context when there exists an unpublished active row.\\r\\nThis is not allowed context.IsModified =False Component Type: 29 CurrentState=ActiveUnpublished\"}}";
+    internal const string DraftRefusal = "Failed to update workflow: Dataverse request failed (400): {\"error\":{\"code\":\"0x80040203\",\"message\":\"You are attempting to do a published update of publishable component in an unmodified active context when there exists an unpublished active row.\\r\\nThis is not allowed context.IsModified =False Component Type: 29 CurrentState=ActiveUnpublished\"}}";
 
     [Fact]
     public async Task UpsertRefusesToWriteOverAnUnpublishedDraftBeforeWritingAnything()
@@ -542,6 +542,47 @@ public class StandaloneWorkflowDownloadGuardTests
         Assert.Equal(StandaloneWorkflowFailure.EnvironmentHoldsUnpublishedDraft, failure.Failure);
         Assert.Equal("My Flow", failure.Subject);
         Assert.Equal(Definition, (client.Stored(workflowId) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ClientData);
+    }
+
+    [Fact]
+    public async Task UpsertAskedToOverwriteADraft_WritesOverItAndSaysSo()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+
+        client.Seed(Row(workflowId));
+
+        var (synchronizer, workspace, folder) = await ClonedAsync(client, workflowId);
+
+        Edit(workspace, folder);
+        client.Drafts.Add(workflowId);
+
+        var upsert = await synchronizer.UpsertAsync(workspace, "env", CancellationToken.None, new StandaloneWorkflowUpsertOptions { OverwriteUnpublishedDraft = true });
+
+        Assert.True(upsert.OverwroteUnpublishedDraft);
+        Assert.False(upsert.Replaced);
+        Assert.Contains("local", client.Stored(workflowId)!.ClientData!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task UpsertAskedToOverwriteADraftTheEnvironmentRefusesToUpdate_ReplacesTheRowUnderItsIdentifier()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient { UpdateFailure = DraftRefusal };
+
+        client.Seed(Row(workflowId));
+
+        var (synchronizer, workspace, folder) = await ClonedAsync(client, workflowId);
+
+        Edit(workspace, folder);
+
+        var upsert = await synchronizer.UpsertAsync(workspace, "env", CancellationToken.None, new StandaloneWorkflowUpsertOptions { OverwriteUnpublishedDraft = true });
+
+        Assert.True(upsert.OverwroteUnpublishedDraft);
+        Assert.True(upsert.Replaced);
+        Assert.Equal(["update", "delete", "insert"], client.Calls.Where(call => call is "update" or "delete" or "insert"));
+        Assert.Contains("local", client.Stored(workflowId)!.ClientData!, StringComparison.Ordinal);
+        Assert.Equal(client.Stored(workflowId)!.ClientData, StandaloneWorkflowCache.Read(workspace, workflowId)!.ClientData);
     }
 
     [Theory]
