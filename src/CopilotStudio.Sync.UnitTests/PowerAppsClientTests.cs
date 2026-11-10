@@ -15,6 +15,16 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests;
 
 public class PowerAppsClientTests
 {
+    private const string PowerPlatformApiEndpoint = "https://testenv.environment.api.test.powerplatform.com/";
+
+    private const string PowerAppsApiRoot = "https://api.powerapps.com/providers/Microsoft.PowerApps/apis";
+
+    private const string PowerPlatformApiRoot = "https://testenv.environment.api.test.powerplatform.com/connectivity/connectors";
+
+    private const string EnvironmentFilter = "&$filter=environment%20eq%20%27test-env%27";
+
+    private const string EmptyList = "{\"value\":[]}";
+
     private static PowerAppsContext Context => new()
     {
         AccessToken = "test-token",
@@ -137,6 +147,84 @@ public class PowerAppsClientTests
         Assert.Equal(50, requests);
         Assert.Equal(Enumerable.Range(1, 50).Select(page => $"shared_test_{page}"), result.Select(connector => connector.InternalId));
     }
+
+    public static TheoryData<string, bool, string> EveryConnectionCall()
+    {
+        var data = new TheoryData<string, bool, string>();
+
+        foreach (var throughPowerPlatformApi in new[] { false, true })
+        {
+            foreach (var (call, pathSuffix) in new[] { ("ListConnectors", string.Empty), ("ListConnections", "/shared_teams/connections") })
+            {
+                data.Add(call, throughPowerPlatformApi, throughPowerPlatformApi ? $"{PowerPlatformApiRoot}{pathSuffix}?api-version=1{EnvironmentFilter}" : $"{PowerAppsApiRoot}{pathSuffix}?api-version=2016-11-01{EnvironmentFilter}");
+            }
+        }
+
+        return data;
+    }
+
+    [Theory]
+    [MemberData(nameof(EveryConnectionCall))]
+    public async Task EveryConnectionCall_SendsTheRequestOfTheContextsEndpointFamily(string call, bool throughPowerPlatformApi, string uri)
+    {
+        var requests = new List<RecordedRequest>();
+        var client = new PowerAppsClient(new HttpClient(Recording(requests)));
+
+        await (call == "ListConnectors" ? (Task)client.ListConnectorsAsync(ContextFor(throughPowerPlatformApi), CancellationToken.None) : client.ListConnectionsAsync(ContextFor(throughPowerPlatformApi), "shared_teams", CancellationToken.None));
+
+        Assert.Equal(new RecordedRequest("GET", uri, "Bearer test-token", "CopilotStudio.Sync"), Assert.Single(requests));
+    }
+
+    [Fact]
+    public async Task ConnectionCalls_WithAnEndpoint_IgnoreTheClusterCategory()
+    {
+        var requests = new List<RecordedRequest>();
+        var client = new PowerAppsClient(new HttpClient(Recording(requests)));
+
+        await client.ListConnectionsAsync(new PowerAppsContext { AccessToken = "test-token", EnvironmentId = "test-env", ClusterCategory = CoreServicesClusterCategory.Mooncake }, "shared_teams", CancellationToken.None);
+        await client.ListConnectionsAsync(new PowerAppsContext { AccessToken = "test-token", EnvironmentId = "test-env", ClusterCategory = CoreServicesClusterCategory.Mooncake, PowerPlatformApiEndpoint = new Uri(PowerPlatformApiEndpoint) }, "shared_teams", CancellationToken.None);
+
+        Assert.Equal(new[] { "https://api.powerapps.cn/providers/Microsoft.PowerApps/apis/shared_teams/connections", $"{PowerPlatformApiRoot}/shared_teams/connections" }, requests.Select(request => request.Uri.Split('?')[0]));
+    }
+
+    [Theory]
+    [InlineData("https://testenv.environment.api.test.powerplatform.com", "https://testenv.environment.api.test.powerplatform.com/connectivity/connectors")]
+    [InlineData("HTTPS://TestEnv.Environment.Api.Test.PowerPlatform.com:443/", "https://testenv.environment.api.test.powerplatform.com/connectivity/connectors")]
+    [InlineData("https://gateway.example/environments/test-env/", "https://gateway.example/environments/test-env/connectivity/connectors")]
+    public async Task ConnectionCalls_AppendTheConnectorsPathToTheEndpoint(string endpoint, string root)
+    {
+        var requests = new List<RecordedRequest>();
+
+        await new PowerAppsClient(new HttpClient(Recording(requests))).ListConnectorsAsync(new PowerAppsContext { AccessToken = "test-token", EnvironmentId = "test-env", PowerPlatformApiEndpoint = new Uri(endpoint) }, CancellationToken.None);
+
+        Assert.Equal($"{root}?api-version=1{EnvironmentFilter}", Assert.Single(requests).Uri);
+    }
+
+    [Theory]
+    [InlineData("http://testenv.environment.api.test.powerplatform.com/")]
+    [InlineData("https://testenv.environment.api.test.powerplatform.com/?api-version=1")]
+    [InlineData("https://testenv.environment.api.test.powerplatform.com/#connectors")]
+    [InlineData("connectivity/connectors")]
+    public void PowerPlatformApiEndpoint_ThatIsNotAnAbsoluteHttpsBase_IsRejected(string endpoint)
+    {
+        Assert.Equal(nameof(PowerAppsContext.PowerPlatformApiEndpoint), Assert.Throws<ArgumentException>(() => new PowerAppsContext { PowerPlatformApiEndpoint = new Uri(endpoint, UriKind.RelativeOrAbsolute) }).ParamName);
+    }
+
+    private static PowerAppsContext ContextFor(bool throughPowerPlatformApi) => new()
+    {
+        AccessToken = "test-token",
+        EnvironmentId = "test-env",
+        PowerPlatformApiEndpoint = throughPowerPlatformApi ? new Uri(PowerPlatformApiEndpoint) : null,
+    };
+
+    private static StubHandler Recording(List<RecordedRequest> requests) => new((request, _) =>
+    {
+        requests.Add(new RecordedRequest(request.Method.Method, request.RequestUri!.AbsoluteUri, request.Headers.Authorization?.ToString(), request.Headers.UserAgent.ToString()));
+
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(EmptyList, Encoding.UTF8, "application/json") });
+    });
+
+    private sealed record RecordedRequest(string Method, string Uri, string? Authorization, string UserAgent);
 
     private sealed class StubHandler : HttpMessageHandler
     {

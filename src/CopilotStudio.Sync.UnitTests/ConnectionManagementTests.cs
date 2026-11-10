@@ -1,5 +1,6 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 
+using System.Collections.Immutable;
 using Microsoft.Agents.ObjectModel;
 using Microsoft.Agents.ObjectModel.Yaml;
 using Microsoft.Agents.Platform.Content;
@@ -727,6 +728,84 @@ public class ConnectionManagementTests
         dataverse.Verify(
             c => c.BindConnectionReferenceAsync(logicalName, "user@contoso.com", It.IsAny<CancellationToken>(), It.IsAny<string?>()),
             Times.Once);
+    }
+
+    [Fact]
+    public async Task ApplyConnectionBindingsAsync_RefreshesOnlyTheBoundReferencesInTheCloudCacheFromTheCloud()
+    {
+        var (synchronizer, factory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var accessor = (InMemoryFileAccessor)factory.Create(Workspace);
+        const string bound = "cree9_agent.shared_teams.bound";
+        const string untouched = "cree9_agent.shared_teams.untouched";
+        var cloud = new FakeDataverseCloud();
+        var boundRow = cloud.AddConnectionReference(bound, ConnectionViewFixtures.TeamsConnectorId);
+        var untouchedRow = cloud.AddConnectionReference(untouched, ConnectionViewFixtures.TeamsConnectorId, "conn-before");
+        WriteClassicConnectionReferences(accessor, (bound, ConnectionViewFixtures.TeamsConnectorId), (untouched, ConnectionViewFixtures.TeamsConnectorId));
+        WorkspaceSynchronizer.WriteCloudCache(accessor, new BotDefinition().WithConnectionReferences(ImmutableArray.Create(WorkspaceSynchronizer.ToConnectionReference(boundRow), WorkspaceSynchronizer.ToConnectionReference(untouchedRow))));
+        cloud.AddConnectionReference(untouched, ConnectionViewFixtures.TeamsConnectorId, "conn-changed-elsewhere");
+
+        await synchronizer.ApplyConnectionBindingsAsync(
+            Workspace,
+            new BotDefinition(),
+            cloud.Client.Object,
+            new Mock<IConnectionCatalogClient>().Object,
+            new PowerAppsContext { AccessToken = string.Empty, EnvironmentId = "env" },
+            new[] { new ConnectionBindingRequest { ConnectionReferenceLogicalName = bound, ConnectionId = "conn-1" } },
+            CancellationToken.None);
+
+        var cached = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!.ConnectionReferences;
+        var refreshed = Assert.Single(cached, reference => reference.ConnectionReferenceLogicalName.Value == bound);
+        Assert.Equal("conn-1", refreshed.ConnectionId);
+        Assert.Equal(8, refreshed.Version);
+        Assert.Equal(boundRow.ConnectionReferenceId, refreshed.Id.Value);
+        var kept = Assert.Single(cached, reference => reference.ConnectionReferenceLogicalName.Value == untouched);
+        Assert.Equal("conn-before", kept.ConnectionId);
+        Assert.Equal(7, kept.Version);
+    }
+
+    [Fact]
+    public async Task ApplyConnectionBindingsAsync_WithoutACloudCache_WritesNone()
+    {
+        var (synchronizer, factory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var accessor = (InMemoryFileAccessor)factory.Create(Workspace);
+        const string bound = "cree9_agent.shared_teams.bound";
+        var cloud = new FakeDataverseCloud();
+        cloud.AddConnectionReference(bound, ConnectionViewFixtures.TeamsConnectorId);
+        WriteClassicConnectionReferences(accessor, (bound, ConnectionViewFixtures.TeamsConnectorId));
+
+        await synchronizer.ApplyConnectionBindingsAsync(
+            Workspace,
+            new BotDefinition(),
+            cloud.Client.Object,
+            new Mock<IConnectionCatalogClient>().Object,
+            new PowerAppsContext { AccessToken = string.Empty, EnvironmentId = "env" },
+            new[] { new ConnectionBindingRequest { ConnectionReferenceLogicalName = bound, ConnectionId = "conn-1" } },
+            CancellationToken.None);
+
+        Assert.Equal("conn-1", cloud.ConnectionReferences[bound].ConnectionId);
+        Assert.False(accessor.Exists(new AgentFilePath(".mcs/botdefinition.json")));
+    }
+
+    [Fact]
+    public async Task SetWorkflowActivationsAsync_KeepsTheCachedDefinitionAsTheServiceReturnedIt()
+    {
+        var (synchronizer, factory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var accessor = (InMemoryFileAccessor)factory.Create(Workspace);
+        var workflowId = Guid.NewGuid();
+        const string clientData = "{\"properties\":{\"definition\":{\"actions\":{}}}}";
+        var metadata = new SyncDataverseClient.WorkflowMetadata { WorkflowId = workflowId, Name = "Notify", StateCode = 0, StatusCode = 1, ClientData = clientData };
+        var folder = WorkflowWorkspace.RelativeFolderFor("Notify", workflowId);
+        Write(accessor, "settings.mcs.yml", "displayName: Agent\n");
+        Write(accessor, $"{folder}/{WorkflowWorkspace.DefinitionFileName}", clientData);
+        Write(accessor, $"{folder}/{WorkflowWorkspace.MetadataFileName}", WorkflowMetadataFile.Write(metadata));
+        WorkspaceSynchronizer.WriteCloudCache(accessor, new BotDefinition().WithFlows(ImmutableArray.Create(WorkspaceSynchronizer.GetFlowDefinition(metadata).Item1)));
+
+        Assert.True((await synchronizer.SetWorkflowActivationsAsync(Workspace, new[] { new WorkflowActivationRequest { WorkflowId = workflowId, Activate = true } }, new Mock<ISyncDataverseClient>().Object, CancellationToken.None)).Succeeded);
+        var flow = Assert.Single(WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor)!.Flows);
+        Assert.Equal(clientData, WorkspaceSynchronizer.GetRawClientData(flow));
+        var cachedMetadata = Microsoft.CopilotStudio.McsCore.Yaml.McsYamlObjectMapper.Deserialize<SyncDataverseClient.WorkflowMetadata>(WorkspaceSynchronizer.GetWorkflowMetadata(flow))!;
+        Assert.Equal(1, cachedMetadata.StateCode);
+        Assert.Equal(2, cachedMetadata.StatusCode);
     }
 
     [Fact]

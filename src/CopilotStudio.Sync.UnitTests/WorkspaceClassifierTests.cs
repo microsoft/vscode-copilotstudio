@@ -1,7 +1,9 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 
+using System.Text;
 using Microsoft.CopilotStudio.McsCore;
 using Xunit;
+using ProductionFileAccessorFactory = Microsoft.CopilotStudio.McsCore.InMemoryFileAccessorFactory;
 
 namespace Microsoft.CopilotStudio.Sync.UnitTests;
 
@@ -227,6 +229,35 @@ public class WorkspaceClassifierTests : IDisposable
     [Fact]
     public void TheKindDefaultsToUnknownSoExistingCallersAreUnchanged() =>
         Assert.Equal(WorkspaceKind.Unknown, new AgentClassification(AuthoringShape.Classic, WorkspaceLayout.ClassicMcs, SupportLevel.Supported, null, "test").Kind);
+
+    public static TheoryData<string[]> WorkspaceShapes => new()
+    {
+        Array.Empty<string>(),
+        new[] { "settings.mcs.yml", "displayName: Agent\n" },
+        new[] { "settings.mcs.yml", "displayName: NB1\nschemaName: crf9a_nb1\n", AgentClassifier.WorkspaceLayoutMarkerFileName, AgentClassifier.BuildWorkspaceLayoutMarker() },
+        new[] { "collection.mcs.yml", "schemaName: cree9_tools\n" },
+        new[] { "workflows/Flow-6f9619ff-8b86-d011-b42d-00c04fc964ff/workflow.json", Definition, "workflows/Flow-6f9619ff-8b86-d011-b42d-00c04fc964ff/metadata.yml", "name: Flow", WorkflowWorkspace.ProjectFileName, WorkflowWorkspace.BuildProjectFile() },
+    };
+
+    [Theory]
+    [MemberData(nameof(WorkspaceShapes))]
+    public async Task AWorkspaceInMemory_IsClassifiedExactlyAsTheSameFilesOnDisk(string[] files)
+    {
+        Directory.CreateDirectory(_root);
+        var memory = new ProductionFileAccessorFactory().Create(new DirectoryPath("memory/"));
+
+        for (var index = 0; index < files.Length; index += 2)
+        {
+            WriteFile(files[index], files[index + 1]);
+            await memory.WriteAsync(new AgentFilePath(files[index]), Encoding.UTF8.GetBytes(files[index + 1]), CancellationToken.None);
+        }
+
+        foreach (var definition in new Agents.ObjectModel.DefinitionBase?[] { null, new Agents.ObjectModel.BotDefinition() })
+        {
+            Assert.Equal(WorkspaceClassifier.Classify(definition, _root), WorkspaceClassifier.Classify(definition, memory));
+            Assert.Equal(AgentClassifier.Classify(definition, _root), AgentClassifier.Classify(definition, memory));
+        }
+    }
 }
 
 public class StandaloneWorkflowPromotionTests : IDisposable

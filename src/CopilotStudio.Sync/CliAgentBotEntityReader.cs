@@ -29,7 +29,7 @@ namespace Microsoft.CopilotStudio.Sync;
 /// </summary>
 internal static class CliAgentBotEntityReader
 {
-    private static readonly AgentFilePath SettingsPath = new AgentFilePath("settings.mcs.yml");
+    private static readonly AgentFilePath SettingsPath = WorkspaceSynchronizer.SettingsPath;
     private static readonly AgentFilePath LayoutMarkerPath = new AgentFilePath(AgentClassifier.WorkspaceLayoutMarkerFileName);
 
     /// <summary>
@@ -128,16 +128,23 @@ internal static class CliAgentBotEntityReader
 
         // OM-native overlay: start from the on-disk settings (identity + recognizer
         // + agentSettings) and layer the cloud-only metadata back on.
-        return cloudEntity.ApplySettingsYamlProperties(diskEntity);
+        return cloudEntity.WithAuthoredSettingsFrom(diskEntity);
     }
 
-    internal static BotEntity Read(IFileAccessor fileAccessor)
+    internal static BotEntity Read(IFileAccessor fileAccessor) => Parse(() =>
+    {
+        using var stream = fileAccessor.OpenRead(SettingsPath);
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        return reader.ReadToEnd();
+    });
+
+    internal static BotEntity Parse(string settingsYaml) => Parse(() => settingsYaml);
+
+    private static BotEntity Parse(Func<string> settingsYaml)
     {
         try
         {
-            using var stream = fileAccessor.OpenRead(SettingsPath);
-            using var reader = new StreamReader(stream, Encoding.UTF8);
-            return McsYamlValidator.Deserialize<BotEntity>(reader.ReadToEnd())
+            return McsYamlValidator.Deserialize<BotEntity>(settingsYaml())
                 ?? throw new McsYamlFormatException("Settings did not deserialize to a BotEntity. Fix or re-clone the agent.", 0, 0);
         }
         catch (Exception failure) when (WorkspaceSynchronizer.IsProjectionSerializationFailure(failure) || failure is IOException or UnauthorizedAccessException)

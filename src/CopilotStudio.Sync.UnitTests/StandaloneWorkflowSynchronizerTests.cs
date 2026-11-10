@@ -1,6 +1,7 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 
 using System.Text;
+using System.Text.Json;
 using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Xunit;
@@ -28,6 +29,8 @@ internal sealed class FakeStandaloneWorkflowClient : IStandaloneWorkflowDatavers
     public string? StopFailure { get; set; }
 
     public string? RestoreFailure { get; set; }
+
+    public Exception? GetFailure { get; set; }
 
     public Func<SyncDataverseClient.WorkflowMetadata, SyncDataverseClient.WorkflowMetadata>? NormalizeOnWrite { get; set; }
 
@@ -63,6 +66,11 @@ internal sealed class FakeStandaloneWorkflowClient : IStandaloneWorkflowDatavers
     public Task<SyncDataverseClient.WorkflowMetadata?> GetWorkflowAsync(Guid workflowId, CancellationToken cancellationToken)
     {
         Calls.Add("get");
+
+        if (GetFailure is { } failure)
+        {
+            return Task.FromException<SyncDataverseClient.WorkflowMetadata?>(failure);
+        }
 
         return Task.FromResult(_rows.TryGetValue(workflowId, out var row) ? (ReturnStoredInstance ? row : Copy(row)) : null);
     }
@@ -176,18 +184,13 @@ internal sealed class FakeStandaloneWorkflowClient : IStandaloneWorkflowDatavers
     private SyncDataverseClient.WorkflowMetadata Normalize(SyncDataverseClient.WorkflowMetadata metadata) =>
         NormalizeOnWrite is null ? Copy(metadata) : NormalizeOnWrite(Copy(metadata));
 
-    private static SyncDataverseClient.WorkflowMetadata Copy(SyncDataverseClient.WorkflowMetadata source) => new()
+    private static SyncDataverseClient.WorkflowMetadata Copy(SyncDataverseClient.WorkflowMetadata source)
     {
-        WorkflowId = source.WorkflowId,
-        Name = source.Name,
-        Description = source.Description,
-        ClientData = source.ClientData,
-        StateCode = source.StateCode,
-        StatusCode = source.StatusCode,
-        IsManaged = source.IsManaged,
-        JsonFileName = source.JsonFileName,
-        ConnectionReferences = source.ConnectionReferences.ToList(),
-    };
+        var copy = JsonSerializer.Deserialize<SyncDataverseClient.WorkflowMetadata>(JsonSerializer.Serialize(source)) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.");
+        copy.ConnectionReferences = source.ConnectionReferences.ToList();
+
+        return copy;
+    }
 }
 
 public class StandaloneWorkflowSynchronizerTests
@@ -252,6 +255,32 @@ public class StandaloneWorkflowSynchronizerTests
     };
 
     private static Dictionary<string, string?> Snapshot(IFileAccessor workspace) => workspace.ListFiles().ToDictionary(path => path.ToString(), path => Read(workspace, path.ToString()));
+
+    private static string[] CheckedOutFiles(string folder) =>
+    [
+        $"{folder}/{WorkflowWorkspace.DefinitionFileName}",
+        $"{folder}/{WorkflowWorkspace.MetadataFileName}",
+        $"{ConnectionReferenceStore.LayeredFolderName}/new_teams{ConnectionReferenceStore.LayeredFileExtension}",
+        AgentClassifier.WorkspaceLayoutMarkerFileName,
+        WorkflowWorkspace.ProjectFileName,
+    ];
+
+    private static Dictionary<string, string> Bytes(InMemoryFileAccessor workspace, IEnumerable<string> paths) =>
+        paths.ToDictionary(path => path, path => Convert.ToBase64String(workspace.Files[path]), StringComparer.Ordinal);
+
+    private static Dictionary<string, string> CheckOut(InMemoryFileAccessor workspace, string[] paths, string lineEnding, bool byteOrderMark)
+    {
+        foreach (var path in paths)
+        {
+            var bytes = ConnectionReferenceStoreTests.CheckedOut(Read(workspace, path) ?? throw new Xunit.Sdk.XunitException($"Expected '{path}' in the workspace."), lineEnding, byteOrderMark);
+
+            using var stream = workspace.OpenWrite(new AgentFilePath(path));
+
+            stream.Write(bytes, 0, bytes.Length);
+        }
+
+        return Bytes(workspace, paths);
+    }
 
     [Fact]
     public async Task Download_WritesTheDefinitionMetadataAndDeclaration()
@@ -339,6 +368,53 @@ public class StandaloneWorkflowSynchronizerTests
         Assert.True((await synchronizer.DownloadAsync(workflowId, workspace, "env", CancellationToken.None, new StandaloneWorkflowDownloadOptions { OverwriteLocalChanges = true })).Changed);
     }
 
+    [Theory]
+    [InlineData("\r\n", false)]
+    [InlineData("\n", false)]
+    [InlineData("\r\n", true)]
+    public async Task Pull_OfAnUnchangedWorkflowWhoseCheckoutDiffersOnlyInLineEndingsOrAByteOrderMark_ReportsNoChangeAndKeepsEveryFile(string lineEnding, bool byteOrderMark)
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+        var workspace = NewWorkspace();
+        var synchronizer = new StandaloneWorkflowSynchronizer(client);
+        var files = CheckedOutFiles(WorkflowWorkspace.RelativeFolderFor("My Flow", workflowId));
+
+        client.Seed(Row(workflowId, "My Flow", DefinitionWithReference));
+        await synchronizer.DownloadAsync(workflowId, workspace, "env", CancellationToken.None);
+        var checkedOut = CheckOut(workspace, files, lineEnding, byteOrderMark);
+
+        var pulled = await synchronizer.PullAsync(workflowId, workspace, CancellationToken.None);
+
+        Assert.False((pulled.Download ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).Changed);
+        Assert.Equal(checkedOut, Bytes(workspace, files));
+    }
+
+    [Fact]
+    public async Task Pull_OfAWorkflowTheCloudChanged_RewritesTheChangedFilesOfACrLfCheckoutAsADownloadWritesThem()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+        var workspace = NewWorkspace();
+        var fresh = NewWorkspace();
+        var synchronizer = new StandaloneWorkflowSynchronizer(client);
+        var folder = WorkflowWorkspace.RelativeFolderFor("My Flow", workflowId);
+        var files = CheckedOutFiles(folder);
+        string[] changed = [$"{folder}/{WorkflowWorkspace.DefinitionFileName}", $"{folder}/{WorkflowWorkspace.MetadataFileName}", $"{ConnectionReferenceStore.LayeredFolderName}/new_teams{ConnectionReferenceStore.LayeredFileExtension}"];
+
+        client.Seed(Row(workflowId, "My Flow", DefinitionWithReference));
+        await synchronizer.DownloadAsync(workflowId, workspace, "env", CancellationToken.None);
+        var checkedOut = CheckOut(workspace, files, "\r\n", byteOrderMark: false);
+        client.Seed(Row(workflowId, "My Flow", DefinitionWithReference.Replace("\"name\":\"shared_teams\"", "\"name\":\"shared_msnweather\"", StringComparison.Ordinal), stateCode: 1));
+        await synchronizer.DownloadAsync(workflowId, fresh, "env", CancellationToken.None);
+        var downloaded = Bytes(fresh, files);
+
+        await synchronizer.PullAsync(workflowId, workspace, CancellationToken.None);
+
+        Assert.All(changed, path => Assert.NotEqual(checkedOut[path], downloaded[path]));
+        Assert.Equal(files.ToDictionary(path => path, path => changed.Contains(path) ? downloaded[path] : checkedOut[path], StringComparer.Ordinal), Bytes(workspace, files));
+    }
+
     [Fact]
     public async Task Download_WhenTheWorkflowWasRenamed_MovesTheFolder()
     {
@@ -385,6 +461,71 @@ public class StandaloneWorkflowSynchronizerTests
             () => new StandaloneWorkflowSynchronizer(new FakeStandaloneWorkflowClient()).DownloadAsync(Guid.NewGuid(), NewWorkspace(), "env", CancellationToken.None));
 
         Assert.Equal(StandaloneWorkflowFailure.SourceNotFound, failure.Failure);
+    }
+
+    [Fact]
+    public async Task Download_WithAName_WritesTheWorkflowUnderThatNameAndCachesTheServiceCopy()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient { ReturnStoredInstance = true };
+        var workspace = NewWorkspace();
+        client.Seed(Row(workflowId, "My Flow", DefinitionWithReference));
+
+        var downloaded = await new StandaloneWorkflowSynchronizer(client).DownloadAsync(workflowId, workspace, "env", CancellationToken.None, new StandaloneWorkflowDownloadOptions { Name = "My Copy" });
+
+        var local = WorkflowMetadataFile.ReadStrict(Read(workspace, $"{downloaded.Folder}/{WorkflowWorkspace.MetadataFileName}")!)!;
+        Assert.Equal((WorkflowWorkspace.RelativeFolderFor("My Copy", workflowId), "My Copy"), (downloaded.Folder, downloaded.Workflow.Name));
+        Assert.Equal(("My Copy", $"{downloaded.Folder}/{WorkflowWorkspace.DefinitionFileName}"), (local.Name, local.JsonFileName));
+        Assert.Equal(WorkflowDefinitionFile.Format(DefinitionWithReference), Read(workspace, $"{downloaded.Folder}/{WorkflowWorkspace.DefinitionFileName}"));
+        Assert.Equal("My Flow", StandaloneWorkflowCache.Read(workspace, workflowId)!.Name);
+        Assert.Equal("My Flow", client.Stored(workflowId)!.Name);
+        Assert.True(StandaloneWorkflowCache.HasLocalChange(workspace, Assert.Single(WorkflowWorkspace.FindAll(workspace))));
+    }
+
+    [Fact]
+    public async Task Pull_WithAName_WritesTheWorkflowUnderThatName()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+        var workspace = NewWorkspace();
+        var synchronizer = new StandaloneWorkflowSynchronizer(client);
+        client.Seed(Row(workflowId, "My Flow", DefinitionWithReference));
+
+        Assert.Equal(WorkflowWorkspace.RelativeFolderFor("My Copy", workflowId), (await synchronizer.PullAsync(workflowId, workspace, CancellationToken.None, new StandaloneWorkflowDownloadOptions { Name = "My Copy" })).Download!.Folder);
+        Assert.Equal("My Copy", (await synchronizer.ReadLocalAsync(workspace, CancellationToken.None)).Name);
+        Assert.Equal("My Flow", StandaloneWorkflowCache.Read(workspace, workflowId)!.Name);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Download_WithNoName_KeepsTheServiceName(string? name)
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+        var workspace = NewWorkspace();
+        var synchronizer = new StandaloneWorkflowSynchronizer(client);
+        client.Seed(Row(workflowId, "My Flow", DefinitionWithReference));
+
+        Assert.Equal(WorkflowWorkspace.RelativeFolderFor("My Flow", workflowId), (await synchronizer.DownloadAsync(workflowId, workspace, "env", CancellationToken.None, new StandaloneWorkflowDownloadOptions { Name = name })).Folder);
+        Assert.Equal("My Flow", (await synchronizer.ReadLocalAsync(workspace, CancellationToken.None)).Name);
+        Assert.False(StandaloneWorkflowCache.HasLocalChange(workspace, Assert.Single(WorkflowWorkspace.FindAll(workspace))));
+    }
+
+    [Theory]
+    [InlineData("download", "My\tCopy")]
+    [InlineData("pull", "My\nCopy")]
+    public async Task ANameAWorkflowCannotTake_IsRefusedBeforeAnyCall(string operation, string name)
+    {
+        var client = new FakeStandaloneWorkflowClient();
+        var workspace = NewWorkspace();
+        var synchronizer = new StandaloneWorkflowSynchronizer(client);
+        var options = new StandaloneWorkflowDownloadOptions { Name = name };
+
+        Assert.Equal(StandaloneWorkflowFailure.InvalidName, (await Assert.ThrowsAsync<StandaloneWorkflowException>(() => operation == "download" ? synchronizer.DownloadAsync(Guid.NewGuid(), workspace, "env", CancellationToken.None, options) : synchronizer.PullAsync(Guid.NewGuid(), workspace, CancellationToken.None, options))).Failure);
+        Assert.Empty(client.Calls);
+        Assert.Empty(workspace.ListFiles());
     }
 
     [Theory]

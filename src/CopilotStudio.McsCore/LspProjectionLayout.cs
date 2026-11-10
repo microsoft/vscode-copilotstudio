@@ -11,7 +11,7 @@ namespace Microsoft.CopilotStudio.McsCore;
 /// </summary>
 internal static class LspProjectionLayout
 {
-    public static readonly AgentFilePath CollectionMcsYml = new AgentFilePath("collection.mcs.yml");
+    public static readonly AgentFilePath CollectionMcsYml = new AgentFilePath(WorkspaceFileNames.Collection);
     private static readonly IReadOnlyCollection<Type> PackagedSkillPayloadTypes = new[] { typeof(FileAttachmentComponent) };
     private static readonly IReadOnlyCollection<Type> InlineAgentSkillTypes = new[] { typeof(InlineAgentSkill) };
 

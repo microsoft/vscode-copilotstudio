@@ -1,0 +1,10 @@
+mcs.metadata:
+  componentName: "Contoso \"Help\": Desk #1 \\ Ops"
+kind: GptComponentMetadata
+instructions: "Say \"hello\"\nthen stop: always, #1 priority\n- back\\slash"
+gptCapabilities:
+  webBrowsing: true
+
+aISettings:
+  model:
+    modelNameHint: GPT5Chat

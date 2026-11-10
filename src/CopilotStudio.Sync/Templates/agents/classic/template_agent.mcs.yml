@@ -1,0 +1,10 @@
+mcs.metadata:
+  componentName: $agentDisplayNameYaml$
+kind: GptComponentMetadata
+instructions: $agentInstructionsYaml$
+gptCapabilities:
+  webBrowsing: true
+
+aISettings:
+  model:
+    modelNameHint: GPT5Chat

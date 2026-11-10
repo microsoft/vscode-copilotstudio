@@ -1,0 +1,10 @@
+mcs.metadata:
+  componentName: Contoso Helpdesk
+kind: GptComponentMetadata
+instructions: "Be helpful."
+gptCapabilities:
+  webBrowsing: true
+
+aISettings:
+  model:
+    modelNameHint: GPT5Chat

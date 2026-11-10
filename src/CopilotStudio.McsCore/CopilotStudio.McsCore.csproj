@@ -28,6 +28,11 @@
     <PackageReference Include="Microsoft.Agents.ObjectModel.PowerFx" />
     <PackageReference Include="System.Collections.Immutable" />
     <PackageReference Include="System.Text.Json" />
+    <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="..\BannedSymbols.txt" />
   </ItemGroup>
 
 </Project>

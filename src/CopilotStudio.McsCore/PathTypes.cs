@@ -263,17 +263,23 @@ public readonly struct DirectoryPath : IEquatable<DirectoryPath>
     public DirectoryPath ResolveRelativeRef(RelativeDirectoryPath relative)
     {
         var path = relative.ToString();
+        var combined = PathHelper.IsAbsolutePath(path) ? path : _value + path;
+        var root = combined.IndexOf(':') == 1 ? 1 : 0;
+        var segments = new List<string>();
 
-        var final = this;
-
-        while (path.StartsWith("../", StringComparison.Ordinal))
+        foreach (var segment in combined.Split('/').Where(segment => segment.Length > 0 && segment != "."))
         {
-            final = final.GetParentDirectoryPath();
-            path = path.Substring(3);
+            if (segment != "..")
+            {
+                segments.Add(segment);
+            }
+            else if (segments.Count > root)
+            {
+                segments.RemoveAt(segments.Count - 1);
+            }
         }
 
-        final = final.GetChildDirectoryPath(path);
-        return final;
+        return new DirectoryPath((combined.StartsWith("//", StringComparison.Ordinal) ? "//" : combined.StartsWith("/", StringComparison.Ordinal) ? "/" : string.Empty) + string.Join("/", segments));
     }
 }
 

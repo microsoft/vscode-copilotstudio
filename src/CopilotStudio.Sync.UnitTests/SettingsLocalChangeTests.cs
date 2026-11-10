@@ -19,6 +19,8 @@ public class SettingsLocalChangeTests
     private const string BotSchemaName = "crf9a_cliagent_S4i9ES";
     private static readonly AgentFilePath SettingsPath = new AgentFilePath("settings.mcs.yml");
 
+    private static readonly string ClassicSettings = AgentWorkspaceHostPushTests.Text(ClassicAgentFixtures.AgentD1("Agent D1"), "Agent D1/settings.mcs.yml");
+
     private const string EmptyStringAgentSettingsJson = """
         {
           "$kind": "AgentSettings",
@@ -238,14 +240,86 @@ public class SettingsLocalChangeTests
         Assert.Equal(SettingsPath.ToString(), change.Uri);
     }
 
+    [Fact]
+    public async Task GetLocalChanges_ImmediatelyAfterCloningAClassicAgent_ReportsNoChange()
+    {
+        var (synchronizer, _, workspace) = await CloneAsync(ClassicBotEntity());
+
+        var (_, changes) = await synchronizer.GetLocalChangesAsync(workspace, await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None), CancellationToken.None);
+
+        Assert.Empty(changes);
+    }
+
+    [Fact]
+    public async Task GetLocalChanges_AfterAClassicSettingsEdit_ReportsOneSettingsChangeWhoseBotKeepsTheCloudsSchemaNameTemplateAndPublishState()
+    {
+        var cloud = ClassicBotEntity();
+        var (synchronizer, accessor, workspace) = await CloneAsync(cloud);
+        WriteFile(accessor, SettingsPath, ReadFile(accessor, SettingsPath).Replace("authenticationMode: Integrated", "authenticationMode: None", StringComparison.Ordinal).Replace("contentModeration: Low", "contentModeration: High", StringComparison.Ordinal).Replace("schemaName: crf9a_AgentD1", "schemaName: crf9a_Other", StringComparison.Ordinal).Replace("template: default-2.1.0", "template: empty-1.0.0", StringComparison.Ordinal).TrimEnd() + "\npublishedOn: 2020-01-01T00:00:00.0000000Z\n");
+
+        var (changeSet, changes) = await synchronizer.GetLocalChangesAsync(workspace, await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None), CancellationToken.None);
+
+        var change = Assert.Single(changes);
+        Assert.Equal(("entity", SettingsPath.ToString(), ChangeType.Update), (change.SchemaName, change.Uri, change.ChangeType));
+        Assert.Equal(AuthoredSettingsPushTests.SettingsOf(CodeSerializer.Deserialize<BotEntity>(ClassicSettings.Replace("authenticationMode: Integrated", "authenticationMode: None", StringComparison.Ordinal).Replace("contentModeration: Low", "contentModeration: High", StringComparison.Ordinal))!), AuthoredSettingsPushTests.SettingsOf(changeSet.Bot!));
+        Assert.Equal(cloud.PublishedOn, changeSet.Bot!.PublishedOn);
+    }
+
+    [Theory]
+    [InlineData("schemaName: crf9a_AgentD1", "schemaName: crf9a_Other")]
+    [InlineData("template: default-2.1.0", "template: empty-1.0.0")]
+    [InlineData("language: 1033", "language: 1033\npublishedOn: 2020-01-01T00:00:00.0000000Z")]
+    public async Task GetLocalChanges_WhenOnlyTheClassicSchemaNameTemplateOrPublishStateIsEdited_ReportsNoChange(string original, string edited)
+    {
+        var (synchronizer, accessor, workspace) = await CloneAsync(ClassicBotEntity());
+        WriteFile(accessor, SettingsPath, ReadFile(accessor, SettingsPath).Replace(original, edited, StringComparison.Ordinal));
+
+        var (_, changes) = await synchronizer.GetLocalChangesAsync(workspace, await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None), CancellationToken.None);
+
+        Assert.Empty(changes);
+    }
+
+    [Fact]
+    public async Task ReadWorkspaceDefinition_OfAClassicAgent_ReadsItsSettingsFileOnce()
+    {
+        var (synchronizer, accessor, workspace) = await CloneAsync(ClassicBotEntity());
+        accessor.Reads.Clear();
+
+        await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None);
+
+        Assert.Single(accessor.Reads, path => path == SettingsPath.ToString());
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("displayName: \"unterminated\n")]
+    [InlineData("displayName: Local\ndisplayName: Other\n")]
+    [InlineData("<<<<<<< ours\ndisplayName: Local\n=======\ndisplayName: Remote\n>>>>>>> theirs\n")]
+    public async Task ReadWorkspaceDefinition_WithAnUnreadableClassicSettingsFile_ReportsExactlyOneDiagnosticForIt(string text)
+    {
+        var (synchronizer, accessor, workspace) = await CloneAsync(ClassicBotEntity());
+        WriteFile(accessor, SettingsPath, text);
+
+        Assert.Equal(SettingsPath.ToString(), Assert.Single((await Assert.ThrowsAsync<WorkspaceValidationException>(() => synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None))).Diagnostics).FilePath);
+    }
+
+    private static BotEntity ClassicBotEntity()
+    {
+        var builder = CodeSerializer.Deserialize<BotEntity>(ClassicSettings)!.ToBuilder();
+        builder.PublishedOn = new DateTime(2026, 9, 10, 15, 58, 14, DateTimeKind.Utc);
+
+        return builder.Build();
+    }
+
+    private static Task<(WorkspaceSynchronizer synchronizer, InMemoryFileAccessor accessor, DirectoryPath workspace)>
+        CloneAsync(string agentSettingsJson) => CloneAsync(CreateCliBotEntityFromCloudJson(agentSettingsJson));
 
     private static async Task<(WorkspaceSynchronizer synchronizer, InMemoryFileAccessor accessor, DirectoryPath workspace)>
-        CloneAsync(string agentSettingsJson)
+        CloneAsync(BotEntity botEntity)
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/settings-phantom-{Guid.NewGuid():N}/");
 
-        var botEntity = CreateCliBotEntityFromCloudJson(agentSettingsJson);
         mockIsland
             .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PvaComponentChangeSet(Array.Empty<BotComponentChange>(), botEntity, "token-1"));

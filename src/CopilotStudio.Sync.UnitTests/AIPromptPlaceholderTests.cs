@@ -120,6 +120,33 @@ public class AIPromptPlaceholderTests
     }
 
     [Fact]
+    public async Task WriteCloudCache_WithReadableAndUnreadableModels_RecordsABaselineOnlyForTheReadableModelAndWritesNothingOutsideTheCloudCache()
+    {
+        var agentId = Guid.Parse("55555555-5555-5555-5555-555555555555");
+        var readableModelId = Guid.Parse("c954d507-529b-4d57-88be-02ebcbacce83");
+        var unreadableModelId = Guid.Parse("b823f6a0-c344-482f-9cd5-dc3c2e6aa959");
+        var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath("c:/test/connect-workspace/");
+        var mockDataverse = CreateDataverseMock(new[]
+        {
+            new AIPromptMetadata { AIModelId = readableModelId, Name = "ReadableModel" },
+            new AIPromptMetadata { AIModelId = unreadableModelId, Name = unreadableModelId.ToString(), IsUnreadableReferencePlaceholder = true },
+        });
+        SetupClonedBot(mockIsland, agentId);
+
+        await synchronizer.WriteCloudCacheAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), mockDataverse.Object, new AgentSyncInfo { AgentId = agentId }, CancellationToken.None);
+
+        var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
+        var botDefinition = ReadText(fileAccessor, ".mcs/botdefinition.json");
+        var baselines = ReadText(fileAccessor, ".mcs/.aiprompts-sync.json");
+        Assert.Contains(readableModelId.ToString(), botDefinition);
+        Assert.Contains(unreadableModelId.ToString(), botDefinition);
+        Assert.Contains(readableModelId.ToString("N"), baselines);
+        Assert.DoesNotContain(unreadableModelId.ToString("N"), baselines);
+        Assert.All(fileAccessor.Files.Keys, key => Assert.StartsWith(".mcs/", key.Replace('\\', '/'), StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Sync_WhenPreviouslyReadableModelBecomesUnreadable_RemovesStaleFolder()
     {
         var agentId = Guid.Parse("33333333-3333-3333-3333-333333333333");

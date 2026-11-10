@@ -203,6 +203,23 @@ public class RemoteBindingSnapshotTests
         Assert.False(synchronizer.FinalizeRetarget(workspace, pushSucceeded: true));
     }
 
+    [Fact]
+    public async Task FinalizeRetarget_PushFailed_WithABackupThatRecordsNoFile_RemovesTheCachedBindingFilesAndDiscardsTheBackup()
+    {
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath("c:/test/workspace/");
+        var fileAccessor = fileAccessorFactory.Create(workspace);
+        fileAccessor.Write(new AgentFilePath(".mcs/.retarget-backup.json"), "null"u8.ToArray());
+        await fileAccessor.WriteAsync(new AgentFilePath(ConnectionDetailsFile), "new-env-binding", CancellationToken.None);
+        await fileAccessor.WriteAsync(new AgentFilePath(".mcs/changetoken.txt"), "new-token", CancellationToken.None);
+
+        Assert.True(synchronizer.FinalizeRetarget(workspace, pushSucceeded: false));
+
+        Assert.Equal("new-env-binding", await fileAccessor.ReadStringAsync(new AgentFilePath(ConnectionDetailsFile), CancellationToken.None));
+        Assert.False(fileAccessor.Exists(new AgentFilePath(".mcs/changetoken.txt")));
+        Assert.False(fileAccessor.Exists(new AgentFilePath(".mcs/.retarget-backup.json")));
+    }
+
     private sealed class ThrowingDeleteFileAccessorFactory : IFileAccessorFactory
     {
         private readonly string _throwOnDeletePath;

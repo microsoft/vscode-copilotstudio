@@ -185,7 +185,7 @@ public static class WorkflowActivationPlanner
     public static string DescribeDraftedForConnectionSetup(string workflowName) =>
         $"Workflow '{workflowName}' was saved as a draft because it binds connection references that have to be set up in this environment first. Set them up, then enable it.";
 
-    /// <summary>Describes a state change the environment did not apply, or an empty string when it did.</summary>
+    /// <summary>Describes a state change the environment did not apply, with any Dataverse failure described by its status and reported error rather than its raw response, or an empty string when it did.</summary>
     /// <param name="outcome">What the environment established.</param>
     /// <param name="workflowName">The workflow the change was requested for.</param>
     /// <param name="activate">Whether the change asked the workflow to run.</param>
@@ -208,10 +208,11 @@ public static class WorkflowActivationPlanner
         }
 
         var requested = activate ? "enabled" : "turned off";
+        var reason = DataverseFailureText.Redact(outcome.Failure);
 
         return outcome.IsUnknown
-            ? $"Workflow '{workflowName}' was saved, but the environment did not confirm whether it was {requested} ({outcome.Failure}). Check its state before relying on it."
-            : $"Workflow '{workflowName}' was saved, but the environment refused to have it {requested} ({outcome.Failure}).";
+            ? $"Workflow '{workflowName}' was saved, but the environment did not confirm whether it was {requested} ({reason}). Check its state before relying on it."
+            : $"Workflow '{workflowName}' was saved, but the environment refused to have it {requested} ({reason}).";
     }
 
     private static async Task<ISet<string>> BoundLogicalNamesAsync(IReadOnlyList<SyncDataverseClient.WorkflowMetadata> workflows, ReferenceReader readReferences, CancellationToken cancellationToken)

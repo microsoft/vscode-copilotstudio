@@ -15,7 +15,7 @@ namespace Microsoft.CopilotStudio.Sync;
 /// <param name="WrittenFiles">The root-relative paths written, definition first.</param>
 public sealed record WorkflowScaffoldedProject(string ProjectFolder, string ProjectRoot, string FolderName, IReadOnlyList<string> WrittenFiles);
 
-/// <summary>Writes a new standalone workflow from the definition template embedded in this assembly.</summary>
+/// <summary>Writes a new standalone workflow from the definition template embedded in this assembly, formatted the way a download writes it.</summary>
 public static class WorkflowScaffolder
 {
     private const string DefinitionResource = "Templates/mcs-workflow/workflow.json";
@@ -32,12 +32,10 @@ public static class WorkflowScaffolder
             throw new ArgumentException("A root is required.", nameof(root));
         }
 
-        RequireValidName(name);
+        WorkflowNaming.Require(name);
 
         var projectFolder = WorkflowWorkspace.ResolveProjectFolder(root, name, workflowId);
         var projectRoot = Path.Combine(root, projectFolder);
-
-        Directory.CreateDirectory(projectRoot);
 
         return new WorkflowScaffoldedProject(projectFolder, projectRoot, $"{projectFolder}/{WorkflowWorkspace.RelativeFolderFor(name, workflowId)}", Scaffold(projectRoot, name, workflowId).Select(path => $"{projectFolder}/{path}").ToArray());
     }
@@ -54,28 +52,34 @@ public static class WorkflowScaffolder
             throw new ArgumentException("A workspace root is required.", nameof(workspaceRoot));
         }
 
-        RequireValidName(name);
+        return Scaffold(WorkflowWorkspace.OpenWorkspace(workspaceRoot), name, workflowId);
+    }
+
+    internal static IReadOnlyList<string> Scaffold(IFileAccessor workspace, string name, Guid workflowId)
+    {
+        if (workspace is null)
+        {
+            throw new ArgumentNullException(nameof(workspace));
+        }
+
+        WorkflowNaming.Require(name);
 
         var relativeFolder = WorkflowWorkspace.RelativeFolderFor(name, workflowId);
-        var folderPath = Path.Combine(WorkflowWorkspace.WorkflowsDirectory(workspaceRoot), WorkflowWorkspace.FolderNameFor(name, workflowId));
-        var definitionPath = Path.Combine(folderPath, WorkflowWorkspace.DefinitionFileName);
-        var metadataPath = Path.Combine(folderPath, WorkflowWorkspace.MetadataFileName);
+        var definitionPath = new AgentFilePath($"{relativeFolder}/{WorkflowWorkspace.DefinitionFileName}");
+        var metadataPath = new AgentFilePath($"{relativeFolder}/{WorkflowWorkspace.MetadataFileName}");
 
-        if (File.Exists(definitionPath) || File.Exists(metadataPath))
+        if (workspace.Exists(definitionPath) || workspace.Exists(metadataPath))
         {
             throw new InvalidOperationException($"A workflow already occupies '{relativeFolder}'.");
         }
 
-        Directory.CreateDirectory(folderPath);
-        WorkflowDefinitionFile.WriteIfChanged(definitionPath, Definition(name));
-        WorkflowDefinitionFile.WriteIfChanged(metadataPath, WorkflowMetadataFile.Write(NewMetadata(name, workflowId, relativeFolder)));
+        WorkflowDefinitionFile.WriteIfChanged(workspace, definitionPath, WorkflowDefinitionFile.Format(Definition(name)));
+        WorkflowDefinitionFile.WriteIfChanged(workspace, metadataPath, WorkflowMetadataFile.Write(NewMetadata(name, workflowId, relativeFolder)));
 
-        var written = new List<string> { $"{relativeFolder}/{WorkflowWorkspace.DefinitionFileName}", $"{relativeFolder}/{WorkflowWorkspace.MetadataFileName}" };
+        var written = new List<string> { definitionPath.ToString(), metadataPath.ToString() };
 
-        if (!WorkflowWorkspace.HasAgentProject(workspaceRoot))
+        if (!WorkflowWorkspace.HasAgentProject(workspace))
         {
-            var workspace = WorkflowWorkspace.OpenWorkspace(workspaceRoot);
-
             if (WorkflowWorkspace.EnsureLayoutMarker(workspace))
             {
                 written.Add(AgentClassifier.WorkspaceLayoutMarkerFileName);
@@ -138,12 +142,4 @@ public static class WorkflowScaffolder
     }
 
     private static string JsonEscape(string value) => JsonEncodedText.Encode(value).ToString();
-
-    private static void RequireValidName(string name)
-    {
-        if (WorkflowNaming.Validate(name) is { } reason)
-        {
-            throw StandaloneWorkflowException.InvalidName(name, reason);
-        }
-    }
 }

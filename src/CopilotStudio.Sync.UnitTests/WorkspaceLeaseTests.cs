@@ -64,6 +64,44 @@ public class WorkspaceLeaseTests
     }
 
     [Fact]
+    public void LeaseTemporaryWorkspace_MemoryBacked_DoesNotTouchTheFileSystem()
+    {
+        using var factory = new ProductionFileAccessorFactory();
+
+        using var lease = factory.LeaseTemporaryWorkspace("mcs-test-");
+
+        Assert.StartsWith("/mcs-test-", lease.Root.ToString(), StringComparison.Ordinal);
+        Assert.False(Directory.Exists(lease.Root.ToString()));
+    }
+
+    [Fact]
+    public void LeaseTemporaryWorkspace_Physical_CreatesAndRemovesTheDirectory()
+    {
+        var factory = new FileAccessorFactory();
+        string rootPath;
+
+        using (var lease = factory.LeaseTemporaryWorkspace("mcs-test-"))
+        {
+            rootPath = lease.Root.ToString();
+            Assert.True(Directory.Exists(rootPath));
+            Write(lease.Accessor, "settings.mcs.yml", "content");
+        }
+
+        Assert.False(Directory.Exists(rootPath));
+    }
+
+    [Fact]
+    public void LeaseTemporaryWorkspace_IssuesDistinctRoots()
+    {
+        using var factory = new ProductionFileAccessorFactory();
+
+        using var first = factory.LeaseTemporaryWorkspace("mcs-test-");
+        using var second = factory.LeaseTemporaryWorkspace("mcs-test-");
+
+        Assert.NotEqual(first.Root.ToString(), second.Root.ToString());
+    }
+
+    [Fact]
     public void LeaseWorkspace_OnPhysicalFactory_DoesNotDeleteCallerContent()
     {
         var rootPath = Path.Combine(Path.GetTempPath(), "mcs-lease-" + Guid.NewGuid().ToString("N").Substring(0, 8));
@@ -214,6 +252,22 @@ public class WorkspaceLeaseTests
         using var second = factory.LeaseWorkspace(root);
 
         Assert.Same(first.Accessor, second.Accessor);
+    }
+
+    [Fact]
+    public void TemporaryWorkspaceDirectory_IsRemovedByWhicheverLeaseIsDisposedLast()
+    {
+        var factory = new FileAccessorFactory();
+
+        var temporary = factory.LeaseTemporaryWorkspace("mcs-test-");
+        var rootPath = temporary.Root.ToString();
+        var second = factory.LeaseWorkspace(temporary.Root);
+
+        temporary.Dispose();
+        Assert.True(Directory.Exists(rootPath));
+
+        second.Dispose();
+        Assert.False(Directory.Exists(rootPath));
     }
 
     [Fact]

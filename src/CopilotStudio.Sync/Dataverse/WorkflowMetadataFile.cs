@@ -1,5 +1,6 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 
+using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.McsCore.Yaml;
 
 namespace Microsoft.CopilotStudio.Sync.Dataverse;
@@ -38,5 +39,17 @@ public static class WorkflowMetadataFile
         }
 
         return McsYamlObjectMapper.DeserializeStrict<SyncDataverseClient.WorkflowMetadata>(yaml);
+    }
+
+    internal static SyncDataverseClient.WorkflowMetadata? TryRead(IFileAccessor fileAccessor, AgentFilePath path)
+    {
+        try
+        {
+            return ConnectionReferenceStore.ReadTextOrNull(fileAccessor, path) is { } yaml ? ReadStrict(yaml) : null;
+        }
+        catch (Exception failure) when (failure is not OperationCanceledException)
+        {
+            return null;
+        }
     }
 }

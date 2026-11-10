@@ -51,13 +51,22 @@ public static class WorkspaceClassifier
     /// <param name="definition">The definition the workspace is attached to, when it has one.</param>
     /// <param name="workspaceRoot">The workspace root to inspect.</param>
     /// <returns>The classification, carrying the workspace kind.</returns>
-    public static AgentClassification Classify(DefinitionBase? definition, string? workspaceRoot)
+    public static AgentClassification Classify(DefinitionBase? definition, string? workspaceRoot) => workspaceRoot is null || string.IsNullOrWhiteSpace(workspaceRoot)
+        ? AgentClassifier.Classify(definition, workspaceRoot) with { Kind = WorkspaceKind.Unknown }
+        : Classify(definition, WorkflowWorkspace.OpenWorkspace(workspaceRoot));
+
+    internal static AgentClassification Classify(DefinitionBase? definition, IFileAccessor fileAccessor)
     {
-        var kind = DetectKind(workspaceRoot);
+        if (fileAccessor is null)
+        {
+            throw new ArgumentNullException(nameof(fileAccessor));
+        }
+
+        var kind = DetectKind(fileAccessor);
 
         return kind == WorkspaceKind.StandaloneWorkflow
             ? Standalone()
-            : AgentClassifier.Classify(definition, workspaceRoot) with { Kind = kind };
+            : AgentClassifier.Classify(definition, fileAccessor) with { Kind = kind };
     }
 
     private static AgentClassification Standalone() =>

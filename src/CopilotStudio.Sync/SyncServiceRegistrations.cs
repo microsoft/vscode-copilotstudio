@@ -37,7 +37,11 @@ public static class SyncServiceRegistrations
         services.AddSingleton(sp => new SyncDataverseClient(sp.GetRequiredService<IDataverseHttpClientAccessor>(), userAgent));
         services.AddSingleton<ISyncDataverseClient>(sp => sp.GetRequiredService<SyncDataverseClient>());
         services.AddSingleton<ISyncComponentCollectionDataverseClient>(sp => sp.GetRequiredService<SyncDataverseClient>());
+        services.AddSingleton<ISyncComponentCollectionLinkDataverseClient>(sp => sp.GetRequiredService<SyncDataverseClient>());
         services.AddSingleton<IStandaloneWorkflowDataverseClient>(sp => sp.GetRequiredService<SyncDataverseClient>());
+        services.AddSingleton<IAgentPublishDataverseClient>(sp => sp.GetRequiredService<SyncDataverseClient>());
+        services.AddSingleton<IAgentChangeProbeDataverseClient>(sp => sp.GetRequiredService<SyncDataverseClient>());
+        services.AddSingleton<IAgentPublishService>(sp => new AgentPublishService(sp.GetRequiredService<IAgentPublishDataverseClient>(), ClockOf(sp)));
         if (storageMode == SyncStorageMode.InMemory)
         {
             services.AddSingleton<IFileAccessorFactory>(_ => new InMemoryFileAccessorFactory(requireSession: true));
@@ -54,6 +58,12 @@ public static class SyncServiceRegistrations
         services.AddSingleton<IConnectionManagementService>(sp => sp.GetRequiredService<WorkspaceSynchronizer>());
         services.AddSingleton<IWorkflowActivationService>(sp => sp.GetRequiredService<WorkspaceSynchronizer>());
         services.AddSingleton<IWorkspaceRetargetService>(sp => sp.GetRequiredService<WorkspaceSynchronizer>());
+        services.AddSingleton<IWorkspaceCloudCacheWriter>(sp => sp.GetRequiredService<WorkspaceSynchronizer>());
         services.AddSingleton<IStandaloneWorkflowSynchronizer, StandaloneWorkflowSynchronizer>();
+        services.AddSingleton<WorkflowActivationPass>();
+        services.AddSingleton(sp => new WorkspaceAttachService(sp.GetRequiredService<IWorkspaceSynchronizer>(), sp.GetRequiredService<IWorkspaceRetargetService>(), sp.GetRequiredService<IWorkspaceCloudCacheWriter>(), sp.GetRequiredService<IOperationContextProvider>(), sp.GetRequiredService<IFileAccessorFactory>(), ClockOf(sp)));
+        services.AddSingleton<IWorkspacePushService>(sp => new WorkspacePushService(sp.GetRequiredService<IWorkspaceSynchronizer>(), sp.GetRequiredService<IWorkspaceRetargetService>(), sp.GetRequiredService<IOperationContextProvider>(), sp.GetRequiredService<IFileAccessorFactory>(), ClockOf(sp)));
     }
+
+    private static TimeProvider ClockOf(IServiceProvider services) => services.GetService<TimeProvider>() ?? TimeProvider.System;
 }

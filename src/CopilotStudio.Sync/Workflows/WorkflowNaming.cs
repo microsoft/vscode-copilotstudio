@@ -27,4 +27,8 @@ public static class WorkflowNaming
 
         return name.Any(char.IsControl) ? "A workflow name cannot hold control characters such as tabs or line breaks." : null;
     }
+
+    internal static string Require(string name) => Validate(name) is { } reason ? throw StandaloneWorkflowException.InvalidName(name, reason) : name;
+
+    internal static string? RequireOverride(string? name) => name is null || string.IsNullOrWhiteSpace(name) ? null : Require(name);
 }

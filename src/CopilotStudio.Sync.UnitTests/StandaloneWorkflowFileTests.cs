@@ -2,7 +2,9 @@
 
 using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync.Dataverse;
+using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace Microsoft.CopilotStudio.Sync.UnitTests;
@@ -937,7 +939,7 @@ public class StandaloneWorkflowFileTests : IDisposable
 
         Assert.Equal(workflowId, found.WorkflowId);
         Assert.Equal(workflowId, (WorkflowMetadataFile.ReadStrict(File.ReadAllText(found.MetadataPath)) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).WorkflowId);
-        Assert.Equal(AgentClassifier.BuildWorkspaceLayoutMarker(), File.ReadAllText(Path.Combine(_root, "agent.sync.yaml")));
+        Assert.Equal(new UTF8Encoding(false).GetBytes(AgentClassifier.BuildWorkspaceLayoutMarker()), File.ReadAllBytes(Path.Combine(_root, "agent.sync.yaml")));
     }
 
     [Fact]
@@ -1058,4 +1060,46 @@ public class StandaloneWorkflowFileTests : IDisposable
 
     [Fact]
     public void Scaffold_RequiresAWorkspaceRoot() => Assert.Throws<ArgumentException>(() => WorkflowScaffolder.Scaffold("  ", "Flow", Guid.NewGuid()));
+
+    [Fact]
+    public async Task ADiskDownload_WithAName_WritesTheCopyUnderThatNameWhileTheCacheKeepsTheServiceNameUntilThePushRenamesTheFlow()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+        var workspace = WorkflowWorkspace.OpenWorkspace(_root);
+        var synchronizer = new StandaloneWorkflowSynchronizer(client);
+        client.Seed(new SyncDataverseClient.WorkflowMetadata { WorkflowId = workflowId, Name = "My Flow", ClientData = "{}", StateCode = 0, StatusCode = 1 });
+
+        await synchronizer.DownloadAsync(workflowId, workspace, "env", CancellationToken.None, new StandaloneWorkflowDownloadOptions { Name = "My Copy" });
+
+        Assert.Equal(WorkflowWorkspace.FolderNameFor("My Copy", workflowId), Assert.Single(WorkflowWorkspace.FindAll(_root)).FolderName);
+        Assert.Equal(("My Flow", "My Flow"), (StandaloneWorkflowCache.Read(workspace, workflowId)!.Name, client.Stored(workflowId)!.Name));
+        Assert.Equal("My Copy", (await synchronizer.UpsertAsync(workspace, "env", CancellationToken.None)).Workflow.Name);
+        Assert.Contains("update", client.Calls);
+        Assert.Equal("My Copy", client.Stored(workflowId)!.Name);
+        Assert.Equal("My Copy", StandaloneWorkflowCache.Read(workspace, workflowId)!.Name);
+        Assert.False(StandaloneWorkflowCache.HasLocalChange(workspace, Assert.Single(WorkflowWorkspace.FindAll(workspace))));
+    }
+
+    [Fact]
+    public async Task ADiskWorkflowWhoseMetadataNameAloneChanged_PushesTheNewNameAndAPullThenMovesItsFolder()
+    {
+        var workflowId = Guid.NewGuid();
+        var client = new FakeStandaloneWorkflowClient();
+        var workspace = WorkflowWorkspace.OpenWorkspace(_root);
+        var synchronizer = new StandaloneWorkflowSynchronizer(client);
+        client.Seed(new SyncDataverseClient.WorkflowMetadata { WorkflowId = workflowId, Name = "Before", ClientData = "{}", StateCode = 0, StatusCode = 1 });
+        var downloaded = await synchronizer.DownloadAsync(workflowId, workspace, "env", CancellationToken.None);
+        var metadataFile = Path.Combine(_root, downloaded.Folder, WorkflowWorkspace.MetadataFileName);
+        File.WriteAllText(metadataFile, Regex.Replace(File.ReadAllText(metadataFile), "^name: Before(?=\\r?$)", "name: After", RegexOptions.Multiline));
+
+        await synchronizer.UpsertAsync(workspace, "env", CancellationToken.None);
+
+        Assert.Equal("After", client.Stored(workflowId)!.Name);
+        Assert.Equal(WorkflowWorkspace.FolderNameFor("Before", workflowId), Assert.Single(WorkflowWorkspace.FindAll(_root)).FolderName);
+        var pulled = await synchronizer.PullAsync(workflowId, workspace, CancellationToken.None);
+        Assert.Equal((WorkflowWorkspace.RelativeFolderFor("After", workflowId), downloaded.Folder), (pulled.Download!.Folder, pulled.Download.PreviousFolder));
+        Assert.Equal("After", (await synchronizer.ReadLocalAsync(workspace, CancellationToken.None)).Name);
+        Assert.Equal(WorkflowWorkspace.FolderNameFor("After", workflowId), Assert.Single(WorkflowWorkspace.FindAll(_root)).FolderName);
+    }
 }

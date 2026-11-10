@@ -66,22 +66,21 @@ public static class WorkflowWorkspace
     public static Guid? WorkflowIdOf(string? folderName) =>
         folderName is { Length: >= IdentifierLength } name && Guid.TryParseExact(name.Substring(name.Length - IdentifierLength), "D", out var workflowId) ? workflowId : null;
 
-    /// <summary>Writes the workspace layout marker unless it is already current.</summary>
+    /// <summary>Writes the workspace layout marker without a byte order mark unless the file already holds its text, with or without one.</summary>
     /// <param name="workspaceRoot">The workspace root to mark.</param>
     /// <returns><see langword="true"/> when the marker changed.</returns>
     public static bool EnsureLayoutMarker(string workspaceRoot) => EnsureLayoutMarker(OpenWorkspace(workspaceRoot));
 
-    /// <summary>Writes the workspace layout marker unless it is already current.</summary>
+    /// <summary>Writes the workspace layout marker without a byte order mark unless the file already holds its text, with or without one.</summary>
     /// <param name="fileAccessor">The workspace to mark.</param>
     /// <returns><see langword="true"/> when the marker changed.</returns>
     public static bool EnsureLayoutMarker(IFileAccessor fileAccessor) =>
-        ConnectionReferenceStore.WriteIfChanged(fileAccessor, LayoutMarkerPath, AgentClassifier.BuildWorkspaceLayoutMarker(), Encoding.UTF8);
+        ConnectionReferenceStore.WriteIfChanged(fileAccessor, LayoutMarkerPath, AgentClassifier.BuildWorkspaceLayoutMarker(), new UTF8Encoding(false));
 
     /// <summary>Opens a workspace root for file access.</summary>
     /// <param name="workspaceRoot">The workspace root directory.</param>
     /// <returns>An accessor rooted at the workspace.</returns>
-    public static IFileAccessor OpenWorkspace(string workspaceRoot) =>
-        new FileAccessorFactory().Create(new DirectoryPath(workspaceRoot.Replace('\\', '/')));
+    public static IFileAccessor OpenWorkspace(string workspaceRoot) => FileAccessorFactory.OpenFolder(workspaceRoot);
 
     /// <summary>Every workflow folder beneath a workspace root, in name order.</summary>
     /// <param name="workspaceRoot">The workspace root to search.</param>
@@ -168,27 +167,29 @@ public static class WorkflowWorkspace
     /// <param name="projectRoot">The candidate project directory.</param>
     /// <param name="workflowId">The workflow the project would hold.</param>
     /// <returns>What the directory offers.</returns>
-    public static WorkflowProjectHost InspectProject(string projectRoot, Guid workflowId)
+    public static WorkflowProjectHost InspectProject(string projectRoot, Guid workflowId) =>
+        string.IsNullOrWhiteSpace(projectRoot) ? WorkflowProjectHost.Free : InspectProject(OpenWorkspace(projectRoot), workflowId);
+
+    internal static WorkflowProjectHost InspectProject(IFileAccessor fileAccessor, Guid workflowId)
     {
-        if (string.IsNullOrWhiteSpace(projectRoot) || !Directory.Exists(projectRoot))
+        if (fileAccessor is null)
+        {
+            throw new ArgumentNullException(nameof(fileAccessor));
+        }
+
+        if (FileAccessorFactory.IsEmpty(fileAccessor))
         {
             return WorkflowProjectHost.Free;
         }
 
-        if (!Directory.EnumerateFileSystemEntries(projectRoot).Any())
-        {
-            return WorkflowProjectHost.Free;
-        }
+        var found = FindAll(fileAccessor);
 
-        var workspace = OpenWorkspace(projectRoot);
-        var found = FindAll(workspace);
-
-        if (HasAgentProject(workspace) || found.Count != 1 || found[0].WorkflowId != workflowId)
+        if (HasAgentProject(fileAccessor) || found.Count != 1 || found[0].WorkflowId != workflowId)
         {
             return WorkflowProjectHost.Occupied;
         }
 
-        return StandaloneWorkflowCache.HasLocalChange(workspace, found[0]) ? WorkflowProjectHost.UnpushedChanges : WorkflowProjectHost.Free;
+        return StandaloneWorkflowCache.HasLocalChange(fileAccessor, found[0]) ? WorkflowProjectHost.UnpushedChanges : WorkflowProjectHost.Free;
     }
 
     /// <summary>Whether a directory is free to hold one workflow's standalone project.</summary>
@@ -212,6 +213,11 @@ public static class WorkflowWorkspace
             throw new ArgumentException("A root is required.", nameof(root));
         }
 
+        return ResolveProjectFolder(new FileAccessorFactory(), FileAccessorFactory.ToDirectoryPath(root), name, workflowId);
+    }
+
+    internal static string ResolveProjectFolder(IFileAccessorFactory fileAccessorFactory, DirectoryPath root, string? name, Guid workflowId)
+    {
         var preferred = ProjectFolderNameFor(name);
 
         if (preferred.Length == 0)
@@ -219,21 +225,21 @@ public static class WorkflowWorkspace
             throw StandaloneWorkflowException.UnusableProjectName(name ?? workflowId.ToString());
         }
 
-        if (Offer(root, preferred, workflowId) is WorkflowProjectHost.Free)
+        if (Offer(fileAccessorFactory, root, preferred, workflowId) is WorkflowProjectHost.Free)
         {
             return preferred;
         }
 
         var disambiguated = FolderNameFor(name, workflowId);
 
-        return Offer(root, disambiguated, workflowId) is WorkflowProjectHost.Free
+        return Offer(fileAccessorFactory, root, disambiguated, workflowId) is WorkflowProjectHost.Free
             ? disambiguated
             : throw StandaloneWorkflowException.ProjectFolderOccupied(disambiguated);
     }
 
-    private static WorkflowProjectHost Offer(string root, string folderName, Guid workflowId)
+    private static WorkflowProjectHost Offer(IFileAccessorFactory fileAccessorFactory, DirectoryPath root, string folderName, Guid workflowId)
     {
-        var host = InspectProject(Path.Combine(root, folderName), workflowId);
+        var host = InspectProject(fileAccessorFactory.Create(root.GetChildDirectoryPath(folderName)), workflowId);
 
         return host is WorkflowProjectHost.UnpushedChanges
             ? throw StandaloneWorkflowException.ProjectHoldsUnpushedChanges(folderName)

@@ -303,6 +303,18 @@ public class NonSeekableAccessorUploadTests
     }
 
     [Fact]
+    public void ReadBytes_OverNonSeekableStream_ReadsEveryByte()
+    {
+        using var inner = new ProductionFileAccessorFactory();
+        var accessor = new NonSeekableReadAccessor(inner.Create(new DirectoryPath("c:/test/non-seekable-read/")));
+        var path = new AgentFilePath("knowledge/files/Doc.txt");
+        var content = Enumerable.Range(0, 200000).Select(index => (byte)(index % 251)).ToArray();
+        accessor.Write(path, content);
+
+        Assert.Equal(content, accessor.ReadBytes(path).ToArray());
+    }
+
+    [Fact]
     public async Task UploadKnowledgeFiles_OverNonSeekableAccessor_DoesNotThrow()
     {
         var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();

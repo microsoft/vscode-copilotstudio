@@ -10,12 +10,84 @@ using static Microsoft.CopilotStudio.Sync.UnitTests.KnowledgeFileTestFixtures;
 
 namespace Microsoft.CopilotStudio.Sync.UnitTests;
 
-public class KnowledgeFileDownloadAtomicityTests
+public sealed class KnowledgeFileDownloadAtomicityTests : IDisposable
 {
     private const int SharingViolationHResult = unchecked((int)0x80070020);
 
     private const string SharingViolationMessage =
         "The process cannot access the file because it is being used by another process.";
+
+    private const string Lines = "Line one\nLine two\n";
+
+    private static readonly string ManyLines = string.Concat(Enumerable.Repeat(Lines, 12000));
+
+    private static readonly byte[] ManyBytes = Enumerable.Range(0, 200000).Select(index => (byte)(index % 251)).ToArray();
+
+    private static readonly DateTime CheckedOutOn = new(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "knowledge-download-" + Guid.NewGuid().ToString("N"));
+
+    public static TheoryData<byte[], byte[]> DownloadsTheCheckoutHolds => new()
+    {
+        { ConnectionReferenceStoreTests.CheckedOut(Lines, "\r\n", byteOrderMark: false), Encoding.UTF8.GetBytes(Lines) },
+        { Encoding.UTF8.GetBytes(Lines), ConnectionReferenceStoreTests.CheckedOut(Lines, "\r\n", byteOrderMark: false) },
+        { ConnectionReferenceStoreTests.CheckedOut(Lines, "\n", byteOrderMark: true), Encoding.UTF8.GetBytes(Lines) },
+        { Encoding.UTF8.GetBytes(Lines), ConnectionReferenceStoreTests.CheckedOut(Lines, "\n", byteOrderMark: true) },
+        { ConnectionReferenceStoreTests.CheckedOut(Lines, "\r\n", byteOrderMark: true), Encoding.UTF8.GetBytes(Lines) },
+        { Encoding.UTF8.GetBytes(Lines), Encoding.UTF8.GetBytes(Lines) },
+        { ClassicAgentFixtures.Icon, ClassicAgentFixtures.Icon },
+        { ConnectionReferenceStoreTests.CheckedOut(ManyLines, "\r\n", byteOrderMark: false), Encoding.UTF8.GetBytes(ManyLines) },
+        { ManyBytes, ManyBytes.ToArray() },
+    };
+
+    public static TheoryData<byte[], byte[]> DownloadsTheCheckoutDoesNotHold => new()
+    {
+        { ConnectionReferenceStoreTests.CheckedOut(Lines, "\r\n", byteOrderMark: false), Encoding.UTF8.GetBytes("Line one\nLine 2\n") },
+        { ClassicAgentFixtures.Icon, ClassicAgentFixtures.Icon.Where((_, index) => index != 4).ToArray() },
+        { Encoding.UTF8.GetBytes("Line\0one\r\n"), Encoding.UTF8.GetBytes("Line\0one\n") },
+        { ManyBytes, ManyBytes.Take(ManyBytes.Length - 1).Append((byte)0).ToArray() },
+        { new byte[] { 0xFF, 0x01, 0x00 }, new byte[] { 0xFF, 0x01 } },
+        { Encoding.UTF8.GetBytes("Line one\rLine two\r"), Encoding.UTF8.GetBytes(Lines) },
+        { Encoding.UTF8.GetBytes("Line one\nLine two"), Encoding.UTF8.GetBytes(Lines) },
+    };
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_root))
+        {
+            Directory.Delete(_root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(DownloadsTheCheckoutHolds))]
+    public async Task DownloadKnowledgeFile_OverAFileHoldingTheDownloadApartFromLineEndsOrAByteOrderMark_KeepsItsBytesAndTimestampAsTheBaselineAndThePushUploadsNothing(byte[] checkedOut, byte[] download)
+    {
+        var (synchronizer, workspace, contentFile) = CheckOutKnowledgeFile(checkedOut);
+
+        Assert.Single(await synchronizer.DownloadKnowledgeFilesAsync(workspace, CreateStreamingMock(destination => destination.WriteAsync(download, 0, download.Length)).Object, schemaNames: null, CancellationToken.None));
+
+        var push = CreateStreamingMock(_ => Task.CompletedTask);
+        Assert.Equal(checkedOut, File.ReadAllBytes(contentFile));
+        Assert.Equal(CheckedOutOn, File.GetLastWriteTimeUtc(contentFile));
+        Assert.Empty(Directory.EnumerateFiles(_root, "*.download.tmp", SearchOption.AllDirectories));
+        Assert.Equal(KnowledgeHashOf(checkedOut), Assert.Single(ReadKnowledgeSyncState(new FileAccessorFactory().Create(workspace))).Value);
+        Assert.Empty(await synchronizer.UploadKnowledgeFilesAsync(workspace, push.Object, CancellationToken.None));
+        push.As<IStreamingKnowledgeFileClient>().Verify(client => client.UploadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Theory]
+    [MemberData(nameof(DownloadsTheCheckoutDoesNotHold))]
+    public async Task DownloadKnowledgeFile_OverAFileHoldingOtherContent_WritesTheDownloadAndRecordsItsHash(byte[] checkedOut, byte[] download)
+    {
+        var (synchronizer, workspace, contentFile) = CheckOutKnowledgeFile(checkedOut);
+
+        Assert.Single(await synchronizer.DownloadKnowledgeFilesAsync(workspace, CreateStreamingMock(destination => destination.WriteAsync(download, 0, download.Length)).Object, schemaNames: null, CancellationToken.None));
+
+        Assert.Equal(download, File.ReadAllBytes(contentFile));
+        Assert.Empty(Directory.EnumerateFiles(_root, "*.download.tmp", SearchOption.AllDirectories));
+        Assert.Equal(KnowledgeHashOf(download), Assert.Single(ReadKnowledgeSyncState(new FileAccessorFactory().Create(workspace))).Value);
+    }
 
     [Fact]
     public async Task DownloadKnowledgeFile_TransferFailsMidStream_LeavesExistingContentIntact()
@@ -150,6 +222,18 @@ public class KnowledgeFileDownloadAtomicityTests
             .ToList();
 
         Assert.DoesNotContain(discoveredNames, name => name.Contains(".download.tmp", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private (WorkspaceSynchronizer Synchronizer, DirectoryPath Workspace, string ContentFile) CheckOutKnowledgeFile(byte[] content)
+    {
+        var files = new FileAccessorFactory();
+        var workspace = new DirectoryPath(_root.Replace('\\', '/') + "/");
+        WriteBotCloudCache(files.Create(workspace), CreateFileComponent("cr1.file.Doc", "Doc.txt", Guid.NewGuid()));
+        var contentFile = Path.Combine(Directory.CreateDirectory(Path.Combine(_root, "knowledge", "files")).FullName, "Doc.txt");
+        File.WriteAllBytes(contentFile, content);
+        File.SetLastWriteTimeUtc(contentFile, CheckedOutOn);
+
+        return (new WorkspaceSynchronizer(new SyncMcsFileParser(LspProjectorService.Instance), files, new Mock<IIslandControlPlaneService>().Object, new TestSyncProgress(new List<string>()), new LspComponentPathResolver()), workspace, contentFile);
     }
 
     private sealed class AlwaysFailReplaceFactory : IFileAccessorFactory

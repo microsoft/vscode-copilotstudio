@@ -1,5 +1,7 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 
+using Microsoft.CopilotStudio.McsCore;
+
 namespace Microsoft.CopilotStudio.Sync;
 
 /// <summary>Derives the folder names workspaces and workflows occupy, identically on every platform.</summary>
@@ -10,8 +12,6 @@ public static class WorkspaceFolderNames
     private const int MaximumSegmentLength = 255;
 
     private static readonly char[] InvalidCharacters = Enumerable.Range(0, 32).Select(code => (char)code).Concat("\"<>|:*?\\/").ToArray();
-
-    private static readonly HashSet<string> ReservedDeviceNames = new(new[] { "CON", "PRN", "AUX", "NUL" }.Concat(Enumerable.Range(1, 9).SelectMany(number => new[] { $"COM{number}", $"LPT{number}" })), StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The folder name a workflow of this name occupies, holding no whitespace, no character a folder name cannot hold on any platform, no reserved device name, and at most 255 characters.</summary>
     /// <param name="name">The workflow name the folder is derived from.</param>
@@ -52,6 +52,6 @@ public static class WorkspaceFolderNames
         var firstDot = folderName.IndexOf('.');
         var stem = (firstDot < 0 ? folderName : folderName.Substring(0, firstDot)).TrimEnd(' ');
 
-        return ReservedDeviceNames.Contains(stem) ? folderName.Insert(stem.Length, "_") : folderName;
+        return SubAgentFolderNaming.IsWindowsReservedName(stem) ? folderName.Insert(stem.Length, "_") : folderName;
     }
 }

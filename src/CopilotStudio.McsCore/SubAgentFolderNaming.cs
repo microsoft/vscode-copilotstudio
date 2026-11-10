@@ -27,7 +27,7 @@ internal static class SubAgentFolderNaming
     /// or its superscript form (<c>\u00B9\u00B2\u00B3</c>). Checked by pattern (not a literal
     /// set) so it stays deterministic across OSes and covers COM0/LPT0 and the superscripts.
     /// </summary>
-    private static bool IsWindowsReservedName(string name)
+    internal static bool IsWindowsReservedName(string name)
     {
         if (name.Length == 3)
         {

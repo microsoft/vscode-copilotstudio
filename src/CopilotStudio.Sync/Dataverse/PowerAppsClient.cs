@@ -8,9 +8,11 @@ using System.Threading;
 
 namespace Microsoft.CopilotStudio.Sync.Dataverse;
 
+/// <summary>Lists connectors and connections through the Power Apps API, or through the Power Platform API when the context names the environment's endpoint.</summary>
 public class PowerAppsClient : IConnectionCatalogClient
 {
     private const string ConnectionsApiVersion = "2016-11-01";
+    private const string PowerPlatformApiVersion = "1";
     private const int MaxCatalogPages = 50;
     private static readonly TimeSpan DefaultRequestTimeout = TimeSpan.FromSeconds(30);
     private readonly HttpClient _httpClient;
@@ -127,9 +129,8 @@ public class PowerAppsClient : IConnectionCatalogClient
 
     private string BuildApisRequestUri(PowerAppsContext context, string pathSuffix)
     {
-        var host = ResolveHost(context.ClusterCategory);
-        var filter = Uri.EscapeDataString($"environment eq {ODataLiteral.Quote(context.EnvironmentId)}");
-        return $"https://{host}/providers/Microsoft.PowerApps/apis{pathSuffix}?api-version={ConnectionsApiVersion}&$filter={filter}";
+        var (apiRoot, apiVersion) = context.PowerPlatformApiEndpoint is { } endpoint ? ($"{endpoint.GetLeftPart(UriPartial.Path).TrimEnd('/')}/connectivity/connectors", PowerPlatformApiVersion) : ($"https://{ResolveHost(context.ClusterCategory)}/providers/Microsoft.PowerApps/apis", ConnectionsApiVersion);
+        return $"{apiRoot}{pathSuffix}?api-version={apiVersion}&$filter={Uri.EscapeDataString($"environment eq {ODataLiteral.Quote(context.EnvironmentId)}")}";
     }
 
     private async Task<T?> SendRequestAsync<T>(string requestUri, string accessToken, string operationLabel, CancellationToken cancellationToken)
@@ -289,9 +290,18 @@ public class PowerAppsClient : IConnectionCatalogClient
 
 public sealed class PowerAppsContext
 {
+    private readonly Uri? _powerPlatformApiEndpoint;
+
     public string AccessToken { get; init; } = string.Empty;
 
     public string EnvironmentId { get; init; } = string.Empty;
 
     public CoreServicesClusterCategory ClusterCategory { get; init; }
+
+    /// <summary>The environment's Power Platform API endpoint, an absolute https URI without query or fragment that routes connector and connection requests through the Power Platform API, or <see langword="null"/> to send them to the cluster category's Power Apps API.</summary>
+    public Uri? PowerPlatformApiEndpoint
+    {
+        get => _powerPlatformApiEndpoint;
+        init => _powerPlatformApiEndpoint = value is null || (value.IsAbsoluteUri && value.Scheme == Uri.UriSchemeHttps && value.Query.Length == 0 && value.Fragment.Length == 0) ? value : throw new ArgumentException("The Power Platform API endpoint must be an absolute https URI without a query or fragment.", nameof(PowerPlatformApiEndpoint));
+    }
 }
