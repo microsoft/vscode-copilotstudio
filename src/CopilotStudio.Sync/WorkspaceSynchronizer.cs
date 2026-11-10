@@ -177,6 +177,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         _pathResolver = pathResolver;
     }
 
+    internal WorkspaceSynchronizer WithFiles(IFileAccessorFactory files) => new(_fileParser, files, _islandControlPlaneService, _syncProgress, _pathResolver);
+
     public async Task CloneChangesAsync(
         DirectoryPath workspaceFolder,
         ReferenceTracker referenceTracker,
@@ -7113,7 +7115,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
     }
 
-    private static void TryAccessorOperation(Action accessorOperation)
+    internal static void TryAccessorOperation(Action accessorOperation)
     {
         try
         {

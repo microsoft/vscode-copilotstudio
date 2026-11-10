@@ -10,6 +10,9 @@ public enum WorkingCopyConflictMode
 
     /// <summary>Keeps the local side of every collision while the other changes of both sides still merge, as a capture that resolves conflicts to the cloud does.</summary>
     Ours = 1,
+
+    /// <summary>Writes both sides of each collision between conflict markers.</summary>
+    Markers = 2,
 }
 
 /// <summary>What a working-copy merge does to one path of the local files.</summary>
@@ -30,8 +33,11 @@ public enum WorkingCopyMergeOutcome
     /// <summary>The merge of both sides' changes replaces the local file.</summary>
     Merged = 4,
 
-    /// <summary>Both sides changed the file in ways that collide, which <see cref="WorkingCopyConflictMode.Report"/> mode reports without producing its content.</summary>
+    /// <summary>Both sides changed the file in ways that collide.</summary>
     Conflicted = 5,
+
+    /// <summary>The incoming file replaces a file the text merge can't settle.</summary>
+    Replaced = 6,
 }
 
 /// <summary>What a working-copy merge does to one path.</summary>
@@ -56,7 +62,7 @@ public static class WorkingCopyMerge
     /// <returns>What happens to each path, and the local files afterwards.</returns>
     public static WorkingCopyMergeResult Merge(IReadOnlyDictionary<string, ReadOnlyMemory<byte>> baseFiles, IReadOnlyDictionary<string, ReadOnlyMemory<byte>> localFiles, IReadOnlyDictionary<string, ReadOnlyMemory<byte>> incomingFiles, WorkingCopyConflictMode mode)
     {
-        if (mode is not (WorkingCopyConflictMode.Report or WorkingCopyConflictMode.Ours))
+        if (mode is not (WorkingCopyConflictMode.Report or WorkingCopyConflictMode.Ours or WorkingCopyConflictMode.Markers))
         {
             throw new ArgumentOutOfRangeException(nameof(mode), mode, "The conflict mode is not one Sync knows.");
         }
@@ -97,15 +103,17 @@ public static class WorkingCopyMerge
 
         if (localVersion?.Text is not { } localText || incomingVersion?.Text is not { } incomingText || baseVersion is { Text: null })
         {
-            return Unsettled(path, mode);
+            return mode == WorkingCopyConflictMode.Markers ? SettleWithoutTextMerge(path, localVersion, incomingVersion) : Unsettled(path, mode);
         }
 
-        var mergedText = ThreeWayTextMerge.Merge(baseVersion?.Text?.Normalized, localText.Normalized, incomingText.Normalized, mode);
+        var mergedText = ThreeWayTextMerge.Merge(baseVersion?.Text?.Normalized, localText.Normalized, incomingText.Normalized, mode, out var conflicted);
 
-        return mergedText is null ? Unsettled(path, mode) : string.Equals(mergedText, localText.Normalized, StringComparison.Ordinal) ? new WorkingCopyMergeEntry(path, WorkingCopyMergeOutcome.Unchanged, null) : new WorkingCopyMergeEntry(path, WorkingCopyMergeOutcome.Merged, Encode(mergedText, localText.Original));
+        return mergedText is null ? Unsettled(path, mode) : string.Equals(mergedText, localText.Normalized, StringComparison.Ordinal) ? new WorkingCopyMergeEntry(path, WorkingCopyMergeOutcome.Unchanged, null) : new WorkingCopyMergeEntry(path, conflicted && mode == WorkingCopyConflictMode.Markers ? WorkingCopyMergeOutcome.Conflicted : WorkingCopyMergeOutcome.Merged, Encode(mergedText, localText.Original));
     }
 
     private static WorkingCopyMergeEntry Unsettled(string path, WorkingCopyConflictMode mode) => new(path, mode == WorkingCopyConflictMode.Report ? WorkingCopyMergeOutcome.Conflicted : WorkingCopyMergeOutcome.Unchanged, null);
+
+    private static WorkingCopyMergeEntry SettleWithoutTextMerge(string path, FileVersion? localVersion, FileVersion? incomingVersion) => localVersion is null || incomingVersion is null ? new(path, WorkingCopyMergeOutcome.Conflicted, incomingVersion?.Content) : new(path, WorkingCopyMergeOutcome.Replaced, incomingVersion.Content);
 
     private static ReadOnlyMemory<byte> Encode(string mergedText, string localText)
     {

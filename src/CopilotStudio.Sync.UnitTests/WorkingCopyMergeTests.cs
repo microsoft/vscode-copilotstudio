@@ -190,7 +190,56 @@ public class WorkingCopyMergeTests
     }
 
     [Theory]
-    [InlineData(2)]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    public void MarkersModeWritesTheConflictMarkersOfSyncsPullInTheLineEndingsOfTheLocalFile(string lineEnd)
+    {
+        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var localText = LocalEdit.Replace("\n", lineEnd);
+        var markedText = sync.MergeStrings(Base, localText, RevisionSameLineEdit);
+
+        var result = MergeText(Base, localText, RevisionSameLineEdit, WorkingCopyConflictMode.Markers);
+
+        Assert.Contains("<<<<<<<", markedText);
+        Assert.DoesNotContain("\n", markedText.Replace(lineEnd, string.Empty));
+        AssertEntry(result, WorkingCopyMergeOutcome.Conflicted, markedText);
+        Assert.Equal(markedText, Read(result.Files[SkillPath]));
+    }
+
+    [Fact]
+    public void MarkersModeMergesChangesOnOtherLines()
+    {
+        AssertEntry(MergeText(Base, LocalEdit, RevisionEdit, WorkingCopyConflictMode.Markers), WorkingCopyMergeOutcome.Merged, "a\nB-local\nc\nd\nE-revision\n");
+    }
+
+    [Theory]
+    [InlineData(new byte[] { 0x00, 0x01 }, new byte[] { 0x00, 0x02 }, new byte[] { 0x00, 0x03 })]
+    [InlineData(null, new byte[] { 0x00, 0x02 }, new byte[] { 0x00, 0x03 })]
+    [InlineData(new byte[] { 0x00, 0x01 }, new byte[] { 0x61, 0x0A }, new byte[] { 0x62, 0x0A })]
+    [InlineData(new byte[] { 0x61, 0x0A }, new byte[] { 0x62, 0x0A }, new byte[] { 0x61, 0xC3, 0x0A })]
+    public void MarkersModeReplacesAFileTheTextMergeCannotSettleWithTheIncomingFile(byte[]? baseContent, byte[] localContent, byte[] incomingContent)
+    {
+        var result = MergeContent(baseContent, localContent, incomingContent, WorkingCopyConflictMode.Markers);
+
+        var entry = Assert.Single(result.Entries);
+        Assert.Equal(WorkingCopyMergeOutcome.Replaced, entry.Outcome);
+        Assert.Equal(incomingContent, entry.Content?.ToArray());
+        Assert.Equal(incomingContent, result.Files[SkillPath].ToArray());
+    }
+
+    [Theory]
+    [InlineData(null, RevisionEdit, RevisionEdit)]
+    [InlineData(LocalEdit, null, null)]
+    public void MarkersModeKeepsTheChangedSideOfAFileTheOtherSideDeleted(string? localText, string? incomingText, string? writtenText)
+    {
+        var result = MergeText(Base, localText, incomingText, WorkingCopyConflictMode.Markers);
+
+        AssertEntry(result, WorkingCopyMergeOutcome.Conflicted, writtenText);
+        Assert.Equal(localText ?? incomingText, Read(result.Files[SkillPath]));
+    }
+
+    [Theory]
+    [InlineData(3)]
     [InlineData(-1)]
     public void RefusesAnUnknownConflictMode(int mode)
     {

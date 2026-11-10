@@ -6,6 +6,7 @@ using Microsoft.Agents.ObjectModel;
 using Microsoft.Agents.Platform.Content;
 using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync.Dataverse;
+using Microsoft.CopilotStudio.Sync.Hosting;
 using Moq;
 using Xunit;
 using static Microsoft.CopilotStudio.Sync.Dataverse.SyncDataverseClient;
@@ -1161,6 +1162,309 @@ public class WorkspaceAttachServiceTests
         }
     }
 
+    [Fact]
+    public async Task ConnectAndMergeAsync_ReadsTheEnvironmentOnceWithTheCallsOfAClone()
+    {
+        using var factory = new ProductionFileAccessorFactory(requireSession: true);
+        using var session = factory.LeaseTemporaryWorkspace("mcs-connect-");
+        var clone = await CloneWithoutCloudCacheAsync(factory, session.Root);
+        clone.Environment.Island.Service.Invocations.Clear();
+
+        await clone.Service.ConnectAndMergeAsync(MergeRequest(clone, SnapshotOf(factory, clone)), clone.Environment.Cloud.Client.Object, CancellationToken.None);
+        var calls = clone.Environment.DataverseCalls();
+        var islandCalls = clone.Environment.Island.Service.Invocations.Select(invocation => invocation.Method.Name).ToArray();
+        clone.Environment.Cloud.Client.Invocations.Clear();
+        clone.Environment.Island.Service.Invocations.Clear();
+        await clone.Environment.CreateHost().CloneAsync(new AgentCloneRequest(HostedCloud.Target(SchemaName), "Contoso Helpdesk", new Dictionary<string, string> { [ToolsSchemaName] = "Shared Tools" }, Array.Empty<string>()), new RecordingAuthProvider(), CancellationToken.None);
+
+        Assert.Equal(clone.Environment.DataverseCalls(), calls);
+        Assert.Equal(clone.Environment.Island.Service.Invocations.Select(invocation => invocation.Method.Name), islandCalls);
+        Assert.Single(calls, nameof(ISyncDataverseClient.GetAgentInfoAsync));
+        Assert.Empty(clone.Environment.Island.Saves);
+    }
+
+    [Fact]
+    public async Task ConnectAndMergeAsync_WritesEachFolderTheCloudCacheOfItsReadWhichConnectAsyncWritesForTheSameCloud()
+    {
+        using var factory = new ProductionFileAccessorFactory(requireSession: true);
+        using var session = factory.LeaseTemporaryWorkspace("mcs-connect-");
+        var clone = await CloneWithoutCloudCacheAsync(factory, session.Root);
+
+        var result = await clone.Service.ConnectAndMergeAsync(MergeRequest(clone, SnapshotOf(factory, clone)), clone.Environment.Cloud.Client.Object, CancellationToken.None);
+        var merged = await FilesOfAsync(factory, clone.AgentFolder, clone.ToolsFolder);
+        factory.Create(clone.AgentFolder).DeleteDirectory(new AgentFilePath(WorkspaceSynchronizer.HiddenRoot));
+        factory.Create(clone.ToolsFolder).DeleteDirectory(new AgentFilePath(WorkspaceSynchronizer.HiddenRoot));
+        await clone.Service.ConnectAsync(clone.Request, clone.Environment.Cloud.Client.Object, CancellationToken.None);
+        var connected = await FilesOfAsync(factory, clone.AgentFolder, clone.ToolsFolder);
+
+        Assert.Equal(clone.AgentId, result.AgentId);
+        Assert.Empty(result.Outcomes);
+        Assert.Empty(result.SkippedCollectionFolders);
+        Assert.Empty(result.AddedCollectionFolders);
+        Assert.Equal(clone.ClonedCache, merged.Where(file => IsCloudCache(file.Key)));
+        Assert.Equal(connected.Where(file => IsCloudCache(file.Key)), merged.Where(file => IsCloudCache(file.Key) && !file.Key.EndsWith("/.connectors-download.json", StringComparison.Ordinal)));
+        Assert.Equal(connected.Where(file => !IsCloudCache(file.Key)), merged.Where(file => !IsCloudCache(file.Key)));
+    }
+
+    [Fact]
+    public async Task ConnectAndMergeAsync_WritesEachOutcomeOfTheMergeAndNeverMergesTheCloudCache()
+    {
+        using var factory = new ProductionFileAccessorFactory(requireSession: true);
+        using var session = factory.LeaseTemporaryWorkspace("mcs-connect-");
+        var clone = await CloneWithoutCloudCacheAsync(factory, session.Root);
+        var agent = factory.Create(clone.AgentFolder);
+        var baseFiles = SnapshotOf(factory, clone);
+        var greeting = TextOf(baseFiles, "Contoso Helpdesk/topics/Greeting.mcs.yml");
+        var settings = TextOf(baseFiles, "Contoso Helpdesk/settings.mcs.yml");
+        var lookup = TextOf(baseFiles, "Shared Tools/topics/Lookup.mcs.yml");
+        var references = TextOf(baseFiles, "Contoso Helpdesk/references.mcs.yml");
+        var agentDefinition = TextOf(baseFiles, "Contoso Helpdesk/agent.mcs.yml");
+        clone.Environment.Island.Seed(clone.AgentId, PushComponentCollectionExclusionTests.Topic($"{SchemaName}.topic.Farewell", "Farewell"));
+        await KeepInBaseAndLocallyAsync(factory.Create(clone.ToolsFolder), baseFiles, "Shared Tools", "topics/Lookup.mcs.yml", "kind: Lookup\n");
+        await KeepInBaseAndLocallyAsync(agent, baseFiles, "Contoso Helpdesk", "topics/Retired.mcs.yml", "kind: AdaptiveDialog\n");
+        baseFiles["Contoso Helpdesk/settings.mcs.yml"] = Encoding.UTF8.GetBytes("# head\r\n" + settings);
+        await WriteAsync(agent, "settings.mcs.yml", "# head\r\n" + settings + "\r\n# local");
+        baseFiles["Contoso Helpdesk/topics/Greeting.mcs.yml"] = Encoding.UTF8.GetBytes("kind: Base\n");
+        await WriteAsync(agent, "topics/Greeting.mcs.yml", "kind: Local\n");
+        baseFiles["Contoso Helpdesk/agent.mcs.yml"] = new byte[] { 0x00, 0x01 };
+        await WriteAsync(agent, "agent.mcs.yml", "# local\n");
+        baseFiles["Contoso Helpdesk/references.mcs.yml"] = Encoding.UTF8.GetBytes("# base\n");
+        agent.Delete(new AgentFilePath("references.mcs.yml"));
+        baseFiles["Contoso Helpdesk/topics/Obsolete.mcs.yml"] = Encoding.UTF8.GetBytes("kind: AdaptiveDialog\n");
+        await WriteAsync(agent, "topics/Obsolete.mcs.yml", "kind: Obsolete\n");
+        baseFiles["Contoso Helpdesk/.mcs/botdefinition.json"] = Encoding.UTF8.GetBytes("{}");
+
+        var result = await clone.Service.ConnectAndMergeAsync(MergeRequest(clone, baseFiles), clone.Environment.Cloud.Client.Object, CancellationToken.None);
+        var files = await FilesOfAsync(factory, clone.AgentFolder, clone.ToolsFolder);
+
+        Assert.Equal(
+            new[]
+            {
+                ("Contoso Helpdesk/agent.mcs.yml", WorkingCopyMergeOutcome.Replaced),
+                ("Contoso Helpdesk/references.mcs.yml", WorkingCopyMergeOutcome.Conflicted),
+                ("Contoso Helpdesk/settings.mcs.yml", WorkingCopyMergeOutcome.Merged),
+                ("Contoso Helpdesk/topics/Farewell.mcs.yml", WorkingCopyMergeOutcome.Added),
+                ("Contoso Helpdesk/topics/Greeting.mcs.yml", WorkingCopyMergeOutcome.Conflicted),
+                ("Contoso Helpdesk/topics/Obsolete.mcs.yml", WorkingCopyMergeOutcome.Conflicted),
+                ("Contoso Helpdesk/topics/Retired.mcs.yml", WorkingCopyMergeOutcome.Deleted),
+                ("Shared Tools/topics/Lookup.mcs.yml", WorkingCopyMergeOutcome.Updated),
+            },
+            result.Outcomes.Select(outcome => (outcome.Key, outcome.Value)).OrderBy(outcome => outcome.Key, StringComparer.Ordinal));
+        Assert.Equal(agentDefinition, files[$"{clone.AgentFolder}agent.mcs.yml"]);
+        Assert.Equal(references, files[$"{clone.AgentFolder}references.mcs.yml"]);
+        Assert.Equal(settings + "\r\n# local", files[$"{clone.AgentFolder}settings.mcs.yml"]);
+        Assert.Equal(greeting, files[$"{clone.AgentFolder}topics/Farewell.mcs.yml"]);
+        Assert.Equal(ComponentWriterDefensiveTests.CreateSyncInfrastructure().sync.MergeStrings("kind: Base\n", "kind: Local\n", greeting + "\n"), files[$"{clone.AgentFolder}topics/Greeting.mcs.yml"]);
+        Assert.Equal("kind: Obsolete\n", files[$"{clone.AgentFolder}topics/Obsolete.mcs.yml"]);
+        Assert.DoesNotContain($"{clone.AgentFolder}topics/Retired.mcs.yml", files.Keys);
+        Assert.Equal(lookup, files[$"{clone.ToolsFolder}topics/Lookup.mcs.yml"]);
+        Assert.Contains("Farewell", files[$"{clone.AgentFolder}{CloudCachePath}"], StringComparison.Ordinal);
+        Assert.Equal(clone.AgentId, (await clone.Synchronizer.GetSyncInfoAsync(clone.AgentFolder)).AgentId);
+        Assert.Equal(clone.ToolsId, (await clone.Synchronizer.GetSyncInfoAsync(clone.ToolsFolder)).ComponentCollectionId);
+    }
+
+    [Fact]
+    public async Task ConnectAndMergeAsync_LeavesLocalFilesThatDifferFromTheAgentOnlyInWhatAPushAndACloneDoNotCarry()
+    {
+        using var factory = new ProductionFileAccessorFactory(requireSession: true);
+        using var session = factory.LeaseTemporaryWorkspace("mcs-connect-");
+        var clone = await CloneWithoutCloudCacheAsync(factory, session.Root);
+        var agent = factory.Create(clone.AgentFolder);
+        var baseFiles = SnapshotOf(factory, clone);
+        var metadataPath = $"{WorkflowWorkspace.RelativeFolderFor("Weather", WorkflowId)}/{WorkflowWorkspace.MetadataFileName}";
+        var activated = TextOf(baseFiles, $"Contoso Helpdesk/{metadataPath}");
+        var draft = activated.Replace("stateCode: 1", "stateCode: 0", StringComparison.Ordinal).Replace("statusCode: 2", "statusCode: 1", StringComparison.Ordinal);
+        await KeepInBaseAndLocallyAsync(agent, baseFiles, "Contoso Helpdesk", metadataPath, draft);
+        await KeepInBaseAndLocallyAsync(agent, baseFiles, "Contoso Helpdesk", "settings.mcs.yml", "\uFEFF" + TextOf(baseFiles, "Contoso Helpdesk/settings.mcs.yml").Replace("\r\n", "\n", StringComparison.Ordinal));
+        var checkedOut = await FilesOfAsync(factory, clone.AgentFolder, clone.ToolsFolder);
+
+        var result = await clone.Service.ConnectAndMergeAsync(MergeRequest(clone, baseFiles), clone.Environment.Cloud.Client.Object, CancellationToken.None);
+
+        Assert.NotEqual(activated, draft);
+        Assert.Empty(result.Outcomes);
+        Assert.Equal(checkedOut, (await FilesOfAsync(factory, clone.AgentFolder, clone.ToolsFolder)).Where(file => !IsCloudCache(file.Key)));
+    }
+
+    [Fact]
+    public async Task ConnectAndMergeAsync_SkipsTheRequestedCollectionsTheAgentDoesNotLinkAndGivesEachLinkedOneTheRequestDoesNotNameAFreeFolder()
+    {
+        using var factory = new ProductionFileAccessorFactory(requireSession: true);
+        using var session = factory.LeaseTemporaryWorkspace("mcs-connect-");
+        var clone = await CloneWithoutCloudCacheAsync(factory, session.Root);
+        var moreId = clone.Environment.SeedCollection("cree9_more", "More Tools", PushComponentCollectionExclusionTests.Topic("cree9_more.topic.Extra", "Extra"));
+        clone.Environment.Link(clone.AgentId, moreId);
+        var zetaFolder = session.Root.GetChildDirectoryPath("Zeta Tools/");
+        var baseFiles = SnapshotOf(factory, clone);
+        await KeepInBaseAndLocallyAsync(factory.Create(zetaFolder), baseFiles, "Zeta Tools", "collection.mcs.yml", "schemaName: cree9_zeta\n");
+        baseFiles["Zeta Tools/topics/Gone.mcs.yml"] = Encoding.UTF8.GetBytes("kind: AdaptiveDialog\n");
+        var zeta = await FilesOfAsync(factory, zetaFolder);
+        var asked = new List<string>();
+
+        var result = await clone.Service.ConnectAndMergeAsync(
+            new WorkspaceConnectMergeRequest
+            {
+                Connect = new WorkspaceConnectRequest { WorkspaceFolder = clone.AgentFolder, DataverseEndpoint = HostedCloud.Organization, EnvironmentId = HostedCloud.EnvironmentId, TenantId = HostedCloud.TenantId, SchemaName = SchemaName, CollectionFolders = new Dictionary<string, DirectoryPath> { [ToolsSchemaName] = clone.ToolsFolder, ["cree9_zeta"] = zetaFolder } },
+                BaseFiles = baseFiles,
+                OccupiedFolders = new[] { "More Tools" },
+                IsFolderTaken = (folder, _) =>
+                {
+                    asked.Add(folder);
+                    return new ValueTask<bool>(folder == "More Tools-2");
+                },
+            },
+            clone.Environment.Cloud.Client.Object,
+            CancellationToken.None);
+        var moreFolder = session.Root.GetChildDirectoryPath("More Tools-3/");
+
+        Assert.Equal(new[] { zetaFolder }, result.SkippedCollectionFolders);
+        Assert.Equal(new[] { moreFolder }, result.AddedCollectionFolders);
+        Assert.Equal(new[] { "More Tools-2", "More Tools-3" }, asked);
+        Assert.Equal(WorkingCopyMergeOutcome.Added, result.Outcomes["More Tools-3/collection.mcs.yml"]);
+        Assert.Equal(WorkingCopyMergeOutcome.Added, result.Outcomes["More Tools-3/topics/Extra.mcs.yml"]);
+        Assert.DoesNotContain(result.Outcomes.Keys, path => path.StartsWith("Zeta Tools/", StringComparison.Ordinal));
+        Assert.Equal(new[] { $"{moreFolder}collection.mcs.yml", $"{moreFolder}topics/Extra.mcs.yml" }, (await FilesOfAsync(factory, moreFolder)).Keys.Where(path => !IsCloudCache(path)));
+        Assert.Equal(moreId, (await clone.Synchronizer.GetSyncInfoAsync(moreFolder)).ComponentCollectionId);
+        Assert.Equal(zeta, await FilesOfAsync(factory, zetaFolder));
+    }
+
+    [Fact]
+    public async Task ConnectAndMergeAsync_WhenAFolderIsConnectedElsewhere_RefusesBeforeWritingAnything()
+    {
+        using var factory = new ProductionFileAccessorFactory(requireSession: true);
+        using var session = factory.LeaseTemporaryWorkspace("mcs-connect-");
+        var clone = await CloneWithoutCloudCacheAsync(factory, session.Root);
+        clone.Environment.Island.Seed(clone.AgentId, PushComponentCollectionExclusionTests.Topic($"{SchemaName}.topic.Farewell", "Farewell"));
+        await clone.Synchronizer.SaveSyncInfoAsync(clone.ToolsFolder, new AgentSyncInfo { ComponentCollectionId = Guid.NewGuid(), DataverseEndpoint = HostedCloud.Organization, EnvironmentId = HostedCloud.EnvironmentId });
+        var content = await FilesOfAsync(factory, clone.AgentFolder, clone.ToolsFolder);
+
+        var failure = await Assert.ThrowsAsync<WorkspaceAttachException>(() => clone.Service.ConnectAndMergeAsync(MergeRequest(clone, SnapshotOf(factory, clone)), clone.Environment.Cloud.Client.Object, CancellationToken.None));
+
+        Assert.Equal(WorkspaceAttachFailure.ConnectBoundToAnotherAgent, failure.Failure);
+        Assert.Equal(clone.AgentId, failure.AgentId);
+        Assert.Contains($"'{clone.ToolsFolder}'", failure.Message, StringComparison.Ordinal);
+        Assert.Equal(content, await FilesOfAsync(factory, clone.AgentFolder, clone.ToolsFolder));
+        Assert.Empty(clone.Environment.Island.Saves);
+    }
+
+    [Fact]
+    public async Task ConnectAndMergeAsync_WhenTheTargetHoldsNoSuchAgent_RefusesBeforeWritingAnything()
+    {
+        await SeedExistingAgentAsync();
+        var content = await FilesOfAsync(_files, Workspace, ToolsFolder);
+
+        var failure = await Assert.ThrowsAsync<WorkspaceAttachException>(() => CreateService().ConnectAndMergeAsync(new WorkspaceConnectMergeRequest { Connect = ConnectRequest(schemaName: "con_missing") }, _environment.Cloud.Client.Object, CancellationToken.None));
+
+        Assert.Equal(WorkspaceAttachFailure.AgentNotFound, failure.Failure);
+        Assert.Contains("'con_missing'", failure.Message, StringComparison.Ordinal);
+        Assert.Equal(new[] { nameof(ISyncDataverseClient.GetAgentIdBySchemaNameAsync) }, _environment.DataverseCalls());
+        Assert.Equal(content, await FilesOfAsync(_files, Workspace, ToolsFolder));
+    }
+
+    [Theory]
+    [InlineData("topics/Greeting.mcs.yml")]
+    [InlineData(".mcs/botdefinition.json")]
+    public async Task ConnectAndMergeAsync_WhenAWriteFails_PutsBackEveryFileAndCloudCacheAndRethrows(string unwritable)
+    {
+        using var factory = new ProductionFileAccessorFactory(requireSession: true);
+        using var session = factory.LeaseTemporaryWorkspace("mcs-connect-");
+        var (clone, baseFiles) = await ConnectedCloneWithChangesAsync(factory, session.Root);
+        var content = await FilesOfAsync(factory, clone.AgentFolder, clone.ToolsFolder);
+        var locked = new IOException("The file is locked.");
+
+        Assert.Same(locked, await Assert.ThrowsAsync<IOException>(() => new WorkspaceAttachService(clone.Synchronizer, clone.Synchronizer, clone.Synchronizer, new OperationContextProvider(), new FailingFolderFactory(factory, clone.AgentFolder, locked, new AgentFilePath(unwritable), null), TimeProvider.System).ConnectAndMergeAsync(MergeRequest(clone, baseFiles), clone.Environment.Cloud.Client.Object, CancellationToken.None)));
+        Assert.Equal(content, await FilesOfAsync(factory, clone.AgentFolder, clone.ToolsFolder));
+    }
+
+    [Fact]
+    public async Task ConnectAndMergeAsync_WhenAFileCannotBePutBack_PutsBackTheOthersAndRethrowsTheOriginalFailure()
+    {
+        using var factory = new ProductionFileAccessorFactory(requireSession: true);
+        using var session = factory.LeaseTemporaryWorkspace("mcs-connect-");
+        var (clone, baseFiles) = await ConnectedCloneWithChangesAsync(factory, session.Root);
+        var content = await FilesOfAsync(factory, clone.AgentFolder, clone.ToolsFolder);
+        var locked = new IOException("The file is locked.");
+
+        Assert.Same(locked, await Assert.ThrowsAsync<IOException>(() => new WorkspaceAttachService(clone.Synchronizer, clone.Synchronizer, clone.Synchronizer, new OperationContextProvider(), new FailingFolderFactory(factory, clone.AgentFolder, locked, CloudCachePath, new AgentFilePath("topics/Farewell.mcs.yml")), TimeProvider.System).ConnectAndMergeAsync(MergeRequest(clone, baseFiles), clone.Environment.Cloud.Client.Object, CancellationToken.None)));
+        var files = await FilesOfAsync(factory, clone.AgentFolder, clone.ToolsFolder);
+        Assert.Equal(content, files.Where(file => file.Key != $"{clone.AgentFolder}topics/Farewell.mcs.yml"));
+        Assert.Contains($"{clone.AgentFolder}topics/Farewell.mcs.yml", files.Keys);
+    }
+
+    [Fact]
+    public async Task ConnectAndMergeAsync_ThroughTheSynchronizer_ClonesInMemoryAndOpensNoFolderButTheConnectedOnes()
+    {
+        var factory = new RecordingFileAccessorFactory();
+        using var session = factory.LeaseTemporaryWorkspace("mcs-connect-");
+        var clone = await CloneWithoutCloudCacheAsync(factory, session.Root);
+        clone.Environment.Island.Seed(clone.AgentId, PushComponentCollectionExclusionTests.Topic($"{SchemaName}.topic.Farewell", "Farewell"));
+        var baseFiles = SnapshotOf(factory, clone);
+        while (factory.Opened.TryDequeue(out _))
+        {
+        }
+
+        var result = await clone.Service.ConnectAndMergeAsync(MergeRequest(clone, baseFiles), clone.Environment.Cloud.Client.Object, CancellationToken.None);
+
+        Assert.Equal(new[] { ("Contoso Helpdesk/topics/Farewell.mcs.yml", WorkingCopyMergeOutcome.Added) }, result.Outcomes.Select(outcome => (outcome.Key, outcome.Value)));
+        Assert.All(factory.Opened, root => Assert.Contains(root, new[] { clone.AgentFolder.ToString(), clone.ToolsFolder.ToString() }));
+    }
+
+    [Fact]
+    public async Task ConnectAndMergeAsync_WithASynchronizerThatIsNotSyncs_ClonesThroughItIntoAWorkspaceOfTheFileFactory()
+    {
+        using var factory = new ProductionFileAccessorFactory(requireSession: true);
+        using var session = factory.LeaseTemporaryWorkspace("mcs-connect-");
+        var clone = await CloneWithoutCloudCacheAsync(factory, session.Root);
+        clone.Environment.Island.Seed(clone.AgentId, PushComponentCollectionExclusionTests.Topic($"{SchemaName}.topic.Farewell", "Farewell"));
+        var cloned = new List<DirectoryPath>();
+        var synchronizer = new Mock<IWorkspaceSynchronizer>(MockBehavior.Strict);
+        synchronizer.Setup(sync => sync.SaveSyncInfoAsync(It.IsAny<DirectoryPath>(), It.IsAny<AgentSyncInfo>())).Returns<DirectoryPath, AgentSyncInfo>(clone.Synchronizer.SaveSyncInfoAsync);
+        synchronizer.Setup(sync => sync.IsSyncInfoAvailable(It.IsAny<DirectoryPath>())).Returns<DirectoryPath>(clone.Synchronizer.IsSyncInfoAvailable);
+        synchronizer.Setup(sync => sync.ApplyTouchupsAsync(It.IsAny<DirectoryPath>(), It.IsAny<ReferenceTracker>(), It.IsAny<CancellationToken>())).Returns<DirectoryPath, ReferenceTracker, CancellationToken>(clone.Synchronizer.ApplyTouchupsAsync);
+        synchronizer.Setup(sync => sync.CloneChangesAsync(It.IsAny<DirectoryPath>(), It.IsAny<ReferenceTracker>(), It.IsAny<AuthoringOperationContextBase>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>())).Returns<DirectoryPath, ReferenceTracker, AuthoringOperationContextBase, ISyncDataverseClient, AgentSyncInfo, CancellationToken>((folder, tracker, context, client, syncInfo, cancellationToken) =>
+        {
+            cloned.Add(folder);
+            return clone.Synchronizer.CloneChangesAsync(folder, tracker, context, client, syncInfo, cancellationToken);
+        });
+
+        var result = await new WorkspaceAttachService(synchronizer.Object, clone.Synchronizer, clone.Synchronizer, new OperationContextProvider(), factory, TimeProvider.System).ConnectAndMergeAsync(MergeRequest(clone, SnapshotOf(factory, clone)), clone.Environment.Cloud.Client.Object, CancellationToken.None);
+
+        Assert.Equal(new[] { ("Contoso Helpdesk/topics/Farewell.mcs.yml", WorkingCopyMergeOutcome.Added) }, result.Outcomes.Select(outcome => (outcome.Key, outcome.Value)));
+        Assert.Equal(2, cloned.Count);
+        Assert.DoesNotContain(cloned, folder => folder == clone.AgentFolder || folder == clone.ToolsFolder);
+        Assert.Equal(clone.AgentId, (await clone.Synchronizer.GetSyncInfoAsync(clone.AgentFolder)).AgentId);
+    }
+
+    [Fact]
+    public async Task ConnectAndMergeAsync_WithoutARequestOrAClient_Throws()
+    {
+        var service = CreateService();
+
+        Assert.Equal("request", (await Assert.ThrowsAsync<ArgumentNullException>(() => service.ConnectAndMergeAsync(null!, _environment.Cloud.Client.Object, CancellationToken.None))).ParamName);
+        Assert.Equal("request", (await Assert.ThrowsAsync<ArgumentNullException>(() => service.ConnectAndMergeAsync(new WorkspaceConnectMergeRequest { Connect = null! }, _environment.Cloud.Client.Object, CancellationToken.None))).ParamName);
+        Assert.Equal("dataverseClient", (await Assert.ThrowsAsync<ArgumentNullException>(() => service.ConnectAndMergeAsync(new WorkspaceConnectMergeRequest { Connect = ConnectRequest() }, null!, CancellationToken.None))).ParamName);
+        Assert.Empty(_environment.Cloud.Client.Invocations);
+    }
+
+    public static TheoryData<WorkspaceConnectMergeRequest> IncompleteMergeRequests() => new()
+    {
+        new WorkspaceConnectMergeRequest { Connect = ConnectRequest(schemaName: " ") },
+        new WorkspaceConnectMergeRequest { Connect = ConnectRequest(collectionFolders: new Dictionary<string, DirectoryPath> { [ToolsSchemaName] = Workspace }) },
+        new WorkspaceConnectMergeRequest { Connect = ConnectRequest(), BaseFiles = null! },
+        new WorkspaceConnectMergeRequest { Connect = ConnectRequest(collectionFolders: new Dictionary<string, DirectoryPath> { [ToolsSchemaName] = new("elsewhere/Shared Tools/") }) },
+    };
+
+    [Theory]
+    [MemberData(nameof(IncompleteMergeRequests))]
+    public async Task ConnectAndMergeAsync_WithAnIncompleteRequest_RefusesBeforeTouchingAnything(WorkspaceConnectMergeRequest request)
+    {
+        await SeedExistingAgentAsync();
+        var content = await FilesOfAsync(_files, Workspace, ToolsFolder);
+
+        Assert.Equal("request", (await Assert.ThrowsAsync<ArgumentException>(() => CreateService().ConnectAndMergeAsync(request, _environment.Cloud.Client.Object, CancellationToken.None))).ParamName);
+        Assert.Empty(_environment.Cloud.Client.Invocations);
+        Assert.Equal(content, await FilesOfAsync(_files, Workspace, ToolsFolder));
+    }
+
     private static void FailRead(ConnectableClone clone, string failingRead, Exception failure)
     {
         if (failingRead == nameof(ISyncDataverseClient.DownloadAllWorkflowsForAgentAsync))
@@ -1341,4 +1645,99 @@ public class WorkspaceAttachServiceTests
     }
 
     private static bool IsCloudCache(string path) => path.Contains($"/{WorkspaceSynchronizer.HiddenRoot}/", StringComparison.Ordinal);
+
+    private static async Task<(ConnectableClone Clone, Dictionary<string, ReadOnlyMemory<byte>> BaseFiles)> ConnectedCloneWithChangesAsync(IFileAccessorFactory factory, DirectoryPath root)
+    {
+        var clone = await ConnectedCloneAsync(factory, root);
+        var agent = factory.Create(clone.AgentFolder);
+        var baseFiles = SnapshotOf(factory, clone);
+        clone.Environment.Island.Seed(clone.AgentId, PushComponentCollectionExclusionTests.Topic($"{SchemaName}.topic.Farewell", "Farewell"));
+        await KeepInBaseAndLocallyAsync(agent, baseFiles, "Contoso Helpdesk", "topics/Greeting.mcs.yml", "kind: Old\n");
+        await KeepInBaseAndLocallyAsync(agent, baseFiles, "Contoso Helpdesk", "topics/Retired.mcs.yml", "kind: AdaptiveDialog\n");
+
+        return (clone, baseFiles);
+    }
+
+    private static WorkspaceConnectMergeRequest MergeRequest(ConnectableClone clone, IReadOnlyDictionary<string, ReadOnlyMemory<byte>> baseFiles) => new() { Connect = clone.Request, BaseFiles = baseFiles };
+
+    private static Dictionary<string, ReadOnlyMemory<byte>> SnapshotOf(IFileAccessorFactory factory, ConnectableClone clone) => WorkspaceSnapshotFiles.Read("Contoso Helpdesk", new[] { new KeyValuePair<string, IFileAccessor>("Contoso Helpdesk", factory.Create(clone.AgentFolder)), new KeyValuePair<string, IFileAccessor>("Shared Tools", factory.Create(clone.ToolsFolder)) }).Files.ToDictionary(file => file.Key, file => file.Value, StringComparer.Ordinal);
+
+    private static string TextOf(IReadOnlyDictionary<string, ReadOnlyMemory<byte>> files, string path) => Encoding.UTF8.GetString(files[path].ToArray());
+
+    private static async Task KeepInBaseAndLocallyAsync(IFileAccessor folder, Dictionary<string, ReadOnlyMemory<byte>> baseFiles, string folderName, string path, string text)
+    {
+        baseFiles[$"{folderName}/{path}"] = Encoding.UTF8.GetBytes(text);
+        await WriteAsync(folder, path, text);
+    }
+
+    private sealed class FailingFolderFactory : IFileAccessorFactory
+    {
+        private readonly IFileAccessorFactory _files;
+
+        private readonly DirectoryPath _folder;
+
+        private readonly Exception _failure;
+
+        private readonly AgentFilePath? _unwritable;
+
+        private readonly AgentFilePath? _undeletable;
+
+        public FailingFolderFactory(IFileAccessorFactory files, DirectoryPath folder, Exception failure, AgentFilePath? unwritable, AgentFilePath? undeletable)
+        {
+            _files = files;
+            _folder = folder;
+            _failure = failure;
+            _unwritable = unwritable;
+            _undeletable = undeletable;
+        }
+
+        public bool IsMemoryBacked => _files.IsMemoryBacked;
+
+        public IFileAccessor Create(DirectoryPath root) => root == _folder ? new FailingFolder(_files.Create(root), _failure, _unwritable, _undeletable) : _files.Create(root);
+
+        public void Release(DirectoryPath root) => _files.Release(root);
+    }
+
+    private sealed class FailingFolder : IFileAccessor
+    {
+        private readonly IFileAccessor _folder;
+
+        private readonly Exception _failure;
+
+        private readonly AgentFilePath? _unwritable;
+
+        private readonly AgentFilePath? _undeletable;
+
+        public FailingFolder(IFileAccessor folder, Exception failure, AgentFilePath? unwritable, AgentFilePath? undeletable)
+        {
+            _folder = folder;
+            _failure = failure;
+            _unwritable = unwritable;
+            _undeletable = undeletable;
+        }
+
+        public bool Exists(AgentFilePath path) => _folder.Exists(path);
+
+        public void CreateHiddenDirectory(AgentFilePath path) => _folder.CreateHiddenDirectory(path);
+
+        public Stream OpenWrite(AgentFilePath path) => path == _unwritable ? throw _failure : _folder.OpenWrite(path);
+
+        public Stream OpenRead(AgentFilePath path) => _folder.OpenRead(path);
+
+        public void Delete(AgentFilePath path)
+        {
+            if (path == _undeletable)
+            {
+                throw _failure;
+            }
+
+            _folder.Delete(path);
+        }
+
+        public void DeleteDirectory(AgentFilePath path) => _folder.DeleteDirectory(path);
+
+        public void Replace(AgentFilePath sourcePath, AgentFilePath targetPath) => _folder.Replace(sourcePath, targetPath);
+
+        public IEnumerable<AgentFilePath> ListFiles(string? relativeFolder = null, string filePattern = "*.*") => _folder.ListFiles(relativeFolder, filePattern);
+    }
 }

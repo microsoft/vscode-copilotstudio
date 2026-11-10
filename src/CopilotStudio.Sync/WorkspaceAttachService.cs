@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using Microsoft.Agents.ObjectModel;
 using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync.Dataverse;
+using Microsoft.CopilotStudio.Sync.Hosting;
 
 namespace Microsoft.CopilotStudio.Sync;
 
@@ -104,6 +105,38 @@ public sealed class WorkspaceConnectResult
 
     /// <summary>The schema names of the component collections the environment does not hold, whose folders the connect left as they were.</summary>
     public IReadOnlyList<string> SkippedCollections { get; init; } = Array.Empty<string>();
+}
+
+/// <summary>What connecting a workspace to an agent and merging the agent's content into it needs.</summary>
+public sealed class WorkspaceConnectMergeRequest
+{
+    /// <summary>The folders to connect and the agent to connect them to.</summary>
+    public WorkspaceConnectRequest Connect { get; init; } = new();
+
+    /// <summary>The merge's base files, keyed by path relative to the project folder.</summary>
+    public IReadOnlyDictionary<string, ReadOnlyMemory<byte>> BaseFiles { get; init; } = new Dictionary<string, ReadOnlyMemory<byte>>();
+
+    /// <summary>The top-level folders a new collection folder must not take.</summary>
+    public IReadOnlyCollection<string> OccupiedFolders { get; init; } = Array.Empty<string>();
+
+    /// <summary>Tells whether a top-level folder name considered for a new collection folder is taken.</summary>
+    public Func<string, CancellationToken, ValueTask<bool>>? IsFolderTaken { get; init; }
+}
+
+/// <summary>What connecting a workspace to an agent and merging the agent's content into it did.</summary>
+public sealed class WorkspaceConnectMergeResult
+{
+    /// <summary>The agent the workspace is now connected to.</summary>
+    public Guid AgentId { get; init; }
+
+    /// <summary>The requested collection folders whose collections the agent doesn't link.</summary>
+    public IReadOnlyList<DirectoryPath> SkippedCollectionFolders { get; init; } = Array.Empty<DirectoryPath>();
+
+    /// <summary>The folders added for the collections the agent links but the request doesn't name.</summary>
+    public IReadOnlyList<DirectoryPath> AddedCollectionFolders { get; init; } = Array.Empty<DirectoryPath>();
+
+    /// <summary>What the merge did to each path it didn't leave unchanged, keyed as the base files are.</summary>
+    public IReadOnlyDictionary<string, WorkingCopyMergeOutcome> Outcomes { get; init; } = new Dictionary<string, WorkingCopyMergeOutcome>();
 }
 
 /// <summary>Binds a workspace to an agent in a target environment, either attaching it, which creates the agent only when its schema name is free after pushing custom connectors, the declared connection references re-pointed at them, workflows as drafts and AI prompts, or connecting it and its component-collection folders to an agent that already exists without writing anything to the target.</summary>
@@ -269,11 +302,7 @@ public sealed class WorkspaceAttachService
         return new AttachTarget(created.AgentId, created.SchemaName ?? request.SchemaName, Created: true, Adopted: false);
     }
 
-    /// <summary>Connects the workspace and the component-collection folders whose collections the environment holds to an agent that already exists, writing each folder's .mcs only from fresh reads of the environment without writing to it or touching content, refreshing a folder already connected to the same agent or collection there, refusing with <see cref="WorkspaceAttachException"/> before any write when a folder is connected elsewhere, and leaving every folder's .mcs as it was when the connect fails.</summary>
-    /// <param name="request">What to connect and the agent to connect it to.</param>
-    /// <param name="dataverseClient">The client, already targeting the environment in the request.</param>
-    /// <param name="cancellationToken">Cancels the connect.</param>
-    public async Task<WorkspaceConnectResult> ConnectAsync(WorkspaceConnectRequest request, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+    private static Uri RequireConnectable(WorkspaceConnectRequest? request, ISyncDataverseClient? dataverseClient)
     {
         if (request is null)
         {
@@ -297,11 +326,144 @@ public sealed class WorkspaceAttachService
             throw new ArgumentException("The workspace and every component collection need folders of their own.", nameof(request));
         }
 
-        var agentId = await WorkspaceCloneSequence.FindAgentAsync(dataverseClient, null, request.SchemaName, _ => WorkspaceAttachException.ConnectAgentNotFound(request.SchemaName, request.EnvironmentId), cancellationToken).ConfigureAwait(false);
+        return dataverseEndpoint;
+    }
+
+    /// <summary>Connects the workspace and the component-collection folders whose collections the environment holds to an agent that already exists, writing each folder's .mcs only from fresh reads of the environment without writing to it or touching content, refreshing a folder already connected to the same agent or collection there, refusing with <see cref="WorkspaceAttachException"/> before any write when a folder is connected elsewhere, and leaving every folder's .mcs as it was when the connect fails.</summary>
+    /// <param name="request">What to connect and the agent to connect it to.</param>
+    /// <param name="dataverseClient">The client, already targeting the environment in the request.</param>
+    /// <param name="cancellationToken">Cancels the connect.</param>
+    public async Task<WorkspaceConnectResult> ConnectAsync(WorkspaceConnectRequest request, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+    {
+        var dataverseEndpoint = RequireConnectable(request, dataverseClient);
+        var agentId = await WorkspaceCloneSequence.FindAgentAsync(dataverseClient, null, request.SchemaName, AgentNotFound(request), cancellationToken).ConfigureAwait(false);
         var collections = request.CollectionFolders.Count == 0 ? ImmutableDictionary<string, ComponentCollectionInfo>.Empty : await ComponentCollectionFolders.LinkClientOf(dataverseClient).GetComponentCollectionsBySchemaNamesAsync(request.CollectionFolders.Keys, cancellationToken).ConfigureAwait(false);
         var syncInfo = await WorkspaceCloneSequence.ForAgentAsync(dataverseClient, agentId, dataverseEndpoint, request.EnvironmentId, request.TenantId, cancellationToken).ConfigureAwait(false);
         var targets = request.CollectionFolders.Where(collection => collections.ContainsKey(collection.Key)).Select(collection => new ConnectTarget(collection.Value, WorkspaceCloneSequence.ForComponentCollection(syncInfo, collections[collection.Key].Id))).Prepend(new ConnectTarget(request.WorkspaceFolder, syncInfo)).ToArray();
         await RefuseFoldersConnectedElsewhereAsync(request, agentId, targets).ConfigureAwait(false);
+        await ConnectFoldersAsync(targets, async target => await _cloudCacheWriter.WriteCloudCacheAsync(target.Folder, await _operationContexts.GetAsync(target.SyncInfo).ConfigureAwait(false), dataverseClient, target.SyncInfo, cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+
+        return new WorkspaceConnectResult
+        {
+            AgentId = agentId,
+            SkippedCollections = request.CollectionFolders.Keys.Where(schemaName => !collections.ContainsKey(schemaName)).ToArray(),
+        };
+    }
+
+    /// <summary>Connects the workspace and its collection folders to an agent, merging in the agent's content.</summary>
+    /// <param name="request">What to connect, and the merge's base files.</param>
+    /// <param name="dataverseClient">The client, already targeting the environment in the request.</param>
+    /// <param name="cancellationToken">Cancels the connect.</param>
+    public async Task<WorkspaceConnectMergeResult> ConnectAndMergeAsync(WorkspaceConnectMergeRequest request, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+    {
+        if (request is null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
+        var connect = request.Connect;
+        var dataverseEndpoint = RequireConnectable(connect, dataverseClient);
+        var projectFolder = connect.WorkspaceFolder.GetParentDirectoryPath();
+
+        if (request.BaseFiles is null || connect.CollectionFolders.Values.Any(folder => folder.GetParentDirectoryPath() != projectFolder))
+        {
+            throw new ArgumentException("The request has to give the base files, and every component collection a folder beside the workspace.", nameof(request));
+        }
+
+        var read = await ReadAsync(request, dataverseEndpoint, dataverseClient, cancellationToken).ConfigureAwait(false);
+        var clone = read.Cloned;
+        var folders = clone.Folders.ToDictionary(folder => folder, folder => projectFolder.GetChildDirectoryPath(folder), StringComparer.Ordinal);
+        var targets = clone.Collections.Select(collection => new ConnectTarget(folders[collection.Folder], WorkspaceCloneSequence.ForComponentCollection(clone.SyncInfo, collection.Id))).Prepend(new ConnectTarget(connect.WorkspaceFolder, clone.SyncInfo)).ToArray();
+        await RefuseFoldersConnectedElsewhereAsync(connect, clone.AgentId, targets).ConfigureAwait(false);
+        var workspaces = folders.ToDictionary(folder => folder.Key, folder => _fileAccessorFactory.Create(folder.Value), StringComparer.Ordinal);
+        var localFiles = WorkspaceSnapshotFiles.Read(clone.Folder, workspaces).Files;
+        var merge = WorkingCopyMerge.Merge(request.BaseFiles, localFiles, PushRoundTrip.ToComparedForm(read.Files, request.BaseFiles, isAgent: true), WorkingCopyConflictMode.Markers);
+        var attempted = new List<string>();
+
+        try
+        {
+            foreach (var entry in merge.Entries.Where(entry => entry.Outcome == WorkingCopyMergeOutcome.Deleted || entry.Content is not null))
+            {
+                attempted.Add(entry.Path);
+                Put(workspaces, entry.Path, merge.Files);
+            }
+
+            await ConnectFoldersAsync(targets, target => WriteFiles(_fileAccessorFactory.Create(target.Folder), read.CloudCaches[NameOf(target.Folder)]), cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            foreach (var path in attempted)
+            {
+                WorkspaceSynchronizer.TryAccessorOperation(() => Put(workspaces, path, localFiles));
+            }
+
+            throw;
+        }
+
+        return new WorkspaceConnectMergeResult
+        {
+            AgentId = clone.AgentId,
+            SkippedCollectionFolders = connect.CollectionFolders.Values.Where(folder => !folders.ContainsKey(NameOf(folder))).ToArray(),
+            AddedCollectionFolders = clone.Collections.Select(collection => folders[collection.Folder]).Where(folder => !connect.CollectionFolders.Values.Contains(folder)).ToArray(),
+            Outcomes = merge.Entries.Where(entry => entry.Outcome != WorkingCopyMergeOutcome.Unchanged).ToDictionary(entry => entry.Path, entry => entry.Outcome, StringComparer.Ordinal),
+        };
+    }
+
+    private static Func<DataverseRequestException?, Exception> AgentNotFound(WorkspaceConnectRequest request) => _ => WorkspaceAttachException.ConnectAgentNotFound(request.SchemaName, request.EnvironmentId);
+
+    private static string NameOf(DirectoryPath folder) => folder.GetRelativeTo(folder.GetParentDirectoryPath()).ToString().TrimEnd(WorkspaceSnapshotFiles.Separator);
+
+    private static IReadOnlyDictionary<AgentFilePath, ReadOnlyMemory<byte>> CloudCacheOf(IFileAccessor folder) => folder.ListFiles(WorkspaceSynchronizer.HiddenRoot).Where(path => path != WorkspaceSynchronizer.ConnectionDetailsPath).ToDictionary(path => path, path => folder.ReadBytes(path));
+
+    private static Task WriteFiles(IFileAccessor folder, IReadOnlyDictionary<AgentFilePath, ReadOnlyMemory<byte>> files)
+    {
+        foreach (var file in files)
+        {
+            folder.Write(file.Key, file.Value);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private static void Put(IReadOnlyDictionary<string, IFileAccessor> workspaces, string path, IReadOnlyDictionary<string, ReadOnlyMemory<byte>> files)
+    {
+        var folder = WorkspaceSnapshotFiles.FolderOf(path);
+        var workspace = workspaces[folder];
+        var relativePath = WorkspaceSnapshotFiles.PathIn(folder, path);
+
+        if (files.TryGetValue(path, out var content))
+        {
+            workspace.Write(relativePath, content);
+        }
+        else
+        {
+            workspace.Delete(relativePath);
+        }
+    }
+
+    private async Task<MergeRead> ReadAsync(WorkspaceConnectMergeRequest request, Uri dataverseEndpoint, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+    {
+        var connect = request.Connect;
+        using var space = OpenCloneSpace(dataverseClient);
+        var clone = await AgentClonePipeline.CloneAsync(space, new AgentCloneRequest(new AgentSyncTarget(dataverseEndpoint, connect.EnvironmentId, connect.TenantId, null, connect.SchemaName, string.Empty, string.Empty), NameOf(connect.WorkspaceFolder), connect.CollectionFolders.ToDictionary(collection => collection.Key, collection => NameOf(collection.Value)), request.OccupiedFolders) { IsFolderTaken = request.IsFolderTaken }, null, AgentNotFound(connect), cancellationToken).ConfigureAwait(false);
+
+        return new MergeRead(clone, clone.Read(space.Open).Files, clone.Folders.ToDictionary(folder => folder, folder => CloudCacheOf(space.Open(folder)), StringComparer.Ordinal));
+    }
+
+    private CloneSpace OpenCloneSpace(ISyncDataverseClient dataverseClient)
+    {
+        if (_synchronizer is not WorkspaceSynchronizer synchronizer)
+        {
+            return new CloneSpace(dataverseClient, _operationContexts, _synchronizer, _fileAccessorFactory);
+        }
+
+        var memory = new InMemoryFileAccessorFactory();
+
+        return new CloneSpace(dataverseClient, _operationContexts, synchronizer.WithFiles(memory), memory);
+    }
+
+    private async Task ConnectFoldersAsync(IEnumerable<ConnectTarget> targets, Func<ConnectTarget, Task> writeCloudCacheAsync, CancellationToken cancellationToken)
+    {
         var bindings = new List<KeyValuePair<DirectoryPath, RemoteBindingSnapshot?>>();
 
         try
@@ -310,7 +472,7 @@ public sealed class WorkspaceAttachService
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 bindings.Add(new KeyValuePair<DirectoryPath, RemoteBindingSnapshot?>(target.Folder, _fileAccessorFactory.Create(target.Folder).ListFiles(WorkspaceSynchronizer.HiddenRoot).Any() ? _retargetService.ResetRemoteBindingState(target.Folder) : null));
-                await _cloudCacheWriter.WriteCloudCacheAsync(target.Folder, await _operationContexts.GetAsync(target.SyncInfo).ConfigureAwait(false), dataverseClient, target.SyncInfo, cancellationToken).ConfigureAwait(false);
+                await writeCloudCacheAsync(target).ConfigureAwait(false);
                 await _synchronizer.SaveSyncInfoAsync(target.Folder, target.SyncInfo).ConfigureAwait(false);
             }
         }
@@ -323,12 +485,6 @@ public sealed class WorkspaceAttachService
 
             throw;
         }
-
-        return new WorkspaceConnectResult
-        {
-            AgentId = agentId,
-            SkippedCollections = request.CollectionFolders.Keys.Where(schemaName => !collections.ContainsKey(schemaName)).ToArray(),
-        };
     }
 
     private async Task RefuseFoldersConnectedElsewhereAsync(WorkspaceConnectRequest request, Guid agentId, IEnumerable<ConnectTarget> targets)
@@ -441,4 +597,34 @@ public sealed class WorkspaceAttachService
     private sealed record AttachTarget(Guid AgentId, string SchemaName, bool Created, bool Adopted);
 
     private sealed record ConnectTarget(DirectoryPath Folder, AgentSyncInfo SyncInfo);
+
+    private sealed record MergeRead(AgentClone Cloned, IReadOnlyDictionary<string, ReadOnlyMemory<byte>> Files, IReadOnlyDictionary<string, IReadOnlyDictionary<AgentFilePath, ReadOnlyMemory<byte>>> CloudCaches);
+
+    private sealed class CloneSpace : IAgentCloneSpace, IDisposable
+    {
+        private const string LeasePrefix = "mcs-connect-merge-";
+
+        private readonly IWorkspaceLease _lease;
+
+        public CloneSpace(ISyncDataverseClient dataverse, IOperationContextProvider operationContexts, IWorkspaceSynchronizer synchronizer, IFileAccessorFactory files)
+        {
+            Dataverse = dataverse;
+            OperationContexts = operationContexts;
+            Synchronizer = synchronizer;
+            Files = files;
+            _lease = files.LeaseTemporaryWorkspace(LeasePrefix);
+        }
+
+        public ISyncDataverseClient Dataverse { get; }
+
+        public IOperationContextProvider OperationContexts { get; }
+
+        public IWorkspaceSynchronizer Synchronizer { get; }
+
+        public IFileAccessorFactory Files { get; }
+
+        public DirectoryPath Root => _lease.Root;
+
+        public void Dispose() => _lease.Dispose();
+    }
 }

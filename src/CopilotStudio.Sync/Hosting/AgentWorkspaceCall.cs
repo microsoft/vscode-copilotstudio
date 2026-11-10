@@ -63,7 +63,7 @@ internal sealed class AgentWorkspaceCallFactory
     }
 }
 
-internal sealed class AgentWorkspaceCall : IAsyncDisposable
+internal sealed class AgentWorkspaceCall : IAsyncDisposable, IAgentCloneSpace
 {
     private const string SessionPrefix = "agent-host-";
 
@@ -126,10 +126,6 @@ internal sealed class AgentWorkspaceCall : IAsyncDisposable
     public string Stage { get; private set; } = AgentPushStages.Agent;
 
     public DirectoryPath Root => _lease.Root;
-
-    public DirectoryPath FolderOf(string folder) => _lease.Root.GetChildDirectoryPath(folder);
-
-    public IFileAccessor Open(string folder) => Files.Create(FolderOf(folder));
 
     public async Task<AgentChangeProbe?> ProbeOrNullAsync(Guid? botId, string schemaName, CancellationToken cancellationToken)
     {

@@ -8,15 +8,19 @@ internal static class WorkspaceSnapshotFiles
 {
     public const char Separator = '/';
 
+    public static string FolderOf(string path) => path.Substring(0, path.IndexOf(Separator));
+
+    public static AgentFilePath PathIn(string folder, string path) => new(path.Substring(folder.Length + 1));
+
     public static void Write(IFileAccessorFactory files, DirectoryPath root, AgentWorkspaceSnapshot snapshot)
     {
-        foreach (var folder in snapshot.Files.GroupBy(file => file.Key.Substring(0, file.Key.IndexOf(Separator)), StringComparer.Ordinal))
+        foreach (var folder in snapshot.Files.GroupBy(file => FolderOf(file.Key), StringComparer.Ordinal))
         {
             var workspace = files.Create(root.GetChildDirectoryPath(folder.Key));
 
             foreach (var file in folder)
             {
-                workspace.Write(new AgentFilePath(file.Key.Substring(folder.Key.Length + 1)), file.Value);
+                workspace.Write(PathIn(folder.Key, file.Key), file.Value);
             }
         }
     }
@@ -43,7 +47,7 @@ internal static class WorkspaceSnapshotFiles
 
         foreach (var file in snapshot.Files.Where(file => file.Key.StartsWith(prefix, StringComparison.Ordinal)))
         {
-            workspace.Write(new AgentFilePath(file.Key.Substring(prefix.Length)), file.Value);
+            workspace.Write(PathIn(folder, file.Key), file.Value);
         }
 
         return workspace;
