@@ -167,6 +167,28 @@ public class WorkspaceValidationGateTests
         Assert.StartsWith("1 workspace file could not be read:", failure.Message, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(1, "1 workspace file uses environment variables that are missing in the target environment:")]
+    [InlineData(2, "2 workspace files use environment variables that are missing in the target environment:")]
+    public void WorkspaceValidationException_OnlyMissingDependencies_UsesMissingEnvironmentVariableHeader(int fileCount, string expectedHeader)
+    {
+        var failure = new WorkspaceValidationException([.. Enumerable.Range(1, fileCount).Select(index => new WorkspaceDiagnostic($"topics/Topic{index}.mcs.yml", "Missing.", 0, 0, WorkspaceDiagnosticKind.MissingDependency))]);
+
+        Assert.StartsWith(expectedHeader + Environment.NewLine, failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WorkspaceValidationException_MissingDependencyAlongsideUnreadableFile_KeepsUnreadableHeader()
+    {
+        var failure = new WorkspaceValidationException(
+        [
+            new WorkspaceDiagnostic("topics/One.mcs.yml", "Missing.", 0, 0, WorkspaceDiagnosticKind.MissingDependency),
+            new WorkspaceDiagnostic("topics/Two.mcs.yml", "Unreadable.", 0, 0),
+        ]);
+
+        Assert.StartsWith("2 workspace files could not be read:", failure.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void WorkspaceDiagnostic_SummarizeWithExplicitHeader_DeduplicatesBeforeFormatting()
     {

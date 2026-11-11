@@ -23,6 +23,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         private readonly CopilotStudio.Sync.IIslandControlPlaneService _islandControlPlaneService;
         private readonly CopilotStudio.Sync.IWorkspaceSynchronizer _workspaceSynchronizer;
         private readonly CopilotStudio.Sync.IWorkspaceRetargetService _retargetService;
+        private readonly CopilotStudio.Sync.IEnvironmentVariableDependencyValidator _environmentVariableDependencyValidator;
         private readonly ITokenManager _dataverseTokenManager;
         private readonly ILspLogger _logger;
         private readonly CopilotStudio.Sync.IOperationContextProvider _operationContextProvider;
@@ -34,22 +35,12 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
         public bool MutatesSolutionState => true;
 
-        public ReattachAgentHandler(
-            CopilotStudio.Sync.IIslandControlPlaneService islandControlPlaneService,
-            CopilotStudio.Sync.IWorkspaceSynchronizer workspaceSynchronizer,
-            CopilotStudio.Sync.IWorkspaceRetargetService retargetService,
-            ITokenManager dataverseTokenManager,
-            ISyncDataverseClient dataverseClient,
-            ISyncComponentCollectionDataverseClient componentCollectionDataverseClient,
-            LspDataverseHttpClientAccessor dataverseHttpClientAccessor,
-            CopilotStudio.Sync.IStandaloneWorkflowSynchronizer standaloneSynchronizer,
-            IFileAccessorFactory fileAccessorFactory,
-            CopilotStudio.Sync.IOperationContextProvider operationContextProvider,
-            ILspLogger logger)
+        public ReattachAgentHandler(CopilotStudio.Sync.IIslandControlPlaneService islandControlPlaneService, CopilotStudio.Sync.IWorkspaceSynchronizer workspaceSynchronizer, CopilotStudio.Sync.IWorkspaceRetargetService retargetService, CopilotStudio.Sync.IEnvironmentVariableDependencyValidator environmentVariableDependencyValidator, ITokenManager dataverseTokenManager, ISyncDataverseClient dataverseClient, ISyncComponentCollectionDataverseClient componentCollectionDataverseClient, LspDataverseHttpClientAccessor dataverseHttpClientAccessor, CopilotStudio.Sync.IStandaloneWorkflowSynchronizer standaloneSynchronizer, IFileAccessorFactory fileAccessorFactory, CopilotStudio.Sync.IOperationContextProvider operationContextProvider, ILspLogger logger)
         {
             _islandControlPlaneService = islandControlPlaneService;
             _workspaceSynchronizer = workspaceSynchronizer ?? throw new ArgumentNullException(nameof(workspaceSynchronizer));
             _retargetService = retargetService ?? throw new ArgumentNullException(nameof(retargetService));
+            _environmentVariableDependencyValidator = environmentVariableDependencyValidator ?? throw new ArgumentNullException(nameof(environmentVariableDependencyValidator));
             _dataverseTokenManager = dataverseTokenManager ?? throw new ArgumentNullException(nameof(dataverseTokenManager));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _operationContextProvider = operationContextProvider ?? throw new ArgumentNullException(nameof(operationContextProvider));
@@ -139,6 +130,12 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 if (!classification.Allows(SyncOperation.Reattach))
                 {
                     return CreateErrorResponse(400, AuthoringSupportGate.DescribeBlocked(classification, SyncOperation.Reattach), defaultSyncInfo);
+                }
+
+                var missingDependencies = await _environmentVariableDependencyValidator.ValidateEnvironmentVariableDependenciesAsync(workspaceFolder, workspace.Definition, _dataverseClient, cancellationToken);
+                if (!missingDependencies.IsDefaultOrEmpty)
+                {
+                    throw new WorkspaceValidationException(missingDependencies);
                 }
 
                 var schemaCloudId = isComponentCollectionWorkspace

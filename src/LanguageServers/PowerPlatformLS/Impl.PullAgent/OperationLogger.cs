@@ -118,8 +118,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             using (LspRequestContext.SuppressOutputContext())
             using (LspRequestContext.WithDuration(durationMs, _logger))
             {
-                _logger.LogError("[Req: {reqId}] Sync operation {outcome}: {syncFunction}. " + ex.Message,
-                    reqId, "failed", activity);
+                _logger.LogError("[Req: {reqId}] Sync operation {outcome}: {syncFunction}. {errorMessage}",
+                    reqId, "failed", activity, ex.Message);
             }
         }
     }

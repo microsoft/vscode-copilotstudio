@@ -21,7 +21,6 @@
     using System;
     using System.Collections.Generic;
     using System.Collections.Immutable;
-    using System.Globalization;
     using System.Threading;
     using System.Threading.Tasks;
 
@@ -135,24 +134,9 @@
         {
             public IFeatureConfiguration GetConfiguration(Guid azureAdTenantId, string environmentId)
             {
-                return new FakeFeatureConfiguration();
+                return DefaultFeatureConfiguration.Instance;
             }
         }
-
-        internal class FakeFeatureConfiguration : IFeatureConfiguration
-        {
-            public CultureInfo? CultureInfoOverride => null;
-
-            public long GetInt64Value(string settingName, long defaultValue) => defaultValue;
-
-            public string GetStringValue(string settingName, string defaultValue) => defaultValue;
-
-            public bool IsEnvironmentFeatureEnabled(string featureName, bool defaultValue) => defaultValue;
-
-            public bool IsTenantFeatureEnabled(string featureName, bool defaultValue) => defaultValue;
-        }
-
-
 
         internal class FakeAuthoringStatisticLogger : IAuthoringStatisticLogger
         {
@@ -247,7 +231,7 @@
         {
             public IExpressionSyntaxAnalyzer GetExpressionSyntaxAnalyzer(Guid azureAdTenantId, string environmentId)
             {
-                return new PowerFxSyntaxAnalyzer(new FakeFeatureConfiguration());
+                return new PowerFxSyntaxAnalyzer(DefaultFeatureConfiguration.Instance);
             }
         }
         #endregion

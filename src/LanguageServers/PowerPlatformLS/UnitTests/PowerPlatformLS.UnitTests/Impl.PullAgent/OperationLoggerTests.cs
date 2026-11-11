@@ -82,6 +82,25 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
             Assert.DoesNotContain("duration=", errorLog);
         }
 
+        [Theory]
+        [InlineData("Save failed: {\"error\":{\"code\":\"0x80040265\",\"message\":\"Component validation failed.\"}}")]
+        [InlineData("Missing value for {parameterName}")]
+        [InlineData("Unexpected token '}'")]
+        [InlineData("Expected a closing brace after {")]
+        public async Task ExecuteAsync_Rethrows_Original_Exception_When_Message_Contains_Braces(string message)
+        {
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => _logger.ExecuteAsync<int>("ContentAuthoringService.SaveChangesAsync", async () =>
+            {
+                await Task.Yield();
+                throw new InvalidOperationException(message);
+            }));
+
+            Assert.Equal(message, exception.Message);
+            var errorLog = Assert.Single(_testLogger.Error);
+            Assert.Contains("Sync operation failed: ContentAuthoringService.SaveChangesAsync", errorLog);
+            Assert.EndsWith($". {message}", errorLog);
+        }
+
         [Fact]
         public void Execute_Includes_RequestId_From_LspRequestContext()
         {

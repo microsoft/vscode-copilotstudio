@@ -18,7 +18,11 @@ public sealed class WorkspaceValidationException : Exception
 
     /// <summary>Builds the summary used for <see cref="Exception.Message"/>, formatting each diagnostic with <paramref name="format"/>.</summary>
     public static string Describe(ImmutableArray<WorkspaceDiagnostic> diagnostics, Func<WorkspaceDiagnostic, string> format)
-        => WorkspaceDiagnostic.Summarize(count => $"{count} workspace {(count == 1 ? "file" : "files")} could not be read:", diagnostics, format);
+        => WorkspaceDiagnostic.Summarize(!diagnostics.IsDefaultOrEmpty && diagnostics.All(diagnostic => diagnostic.Kind == WorkspaceDiagnosticKind.MissingDependency) ? DescribeMissingDependencyHeader : DescribeUnreadableFileHeader, diagnostics, format);
+
+    private static string DescribeUnreadableFileHeader(int count) => $"{count} workspace {(count == 1 ? "file" : "files")} could not be read:";
+
+    private static string DescribeMissingDependencyHeader(int count) => $"{count} workspace {(count == 1 ? "file uses" : "files use")} environment variables that are missing in the target environment:";
 
     private static string BuildMessage(ImmutableArray<WorkspaceDiagnostic> diagnostics) => Describe(diagnostics, static diagnostic => diagnostic.ToString());
 }

@@ -10,6 +10,7 @@ using Moq;
 using System.Collections.Immutable;
 using Xunit;
 using static Microsoft.CopilotStudio.Sync.Dataverse.SyncDataverseClient;
+using static Microsoft.CopilotStudio.Sync.UnitTests.EnvironmentVariableTestFixtures;
 
 namespace Microsoft.CopilotStudio.Sync.UnitTests;
 
@@ -122,6 +123,126 @@ public class EnvironmentVariableProjectionTests
         var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
         var envVarFiles = fileAccessor.Files.Keys.Where(k => k.StartsWith("environmentvariables/")).ToList();
         Assert.Empty(envVarFiles);
+    }
+
+    [Fact]
+    public async Task Clone_ProjectsReferencedSharedEnvironmentVariables_ButNotUnreferencedOrManagedOnes()
+    {
+        var (dataverse, lookups) = CreateDataverse(TargetEnvironmentVariable("cr9f2_managed", isManaged: true));
+
+        var (_, fileAccessor, _, _) = await CloneAsync(
+            dataverse,
+            new[] { CreateTopic("Greeting", SharedActivity + " {Env.cr9f2_managed}") },
+            CreateEnvironmentVariable(OwnedSchemaName),
+            CreateEnvironmentVariable(SharedSchemaName),
+            CreateEnvironmentVariable("cr9f2_managed"),
+            CreateEnvironmentVariable("cr9f2_unreferenced"));
+
+        Assert.True(fileAccessor.Exists(GetPath(OwnedSchemaName)));
+        Assert.True(fileAccessor.Exists(SharedPath));
+        Assert.False(fileAccessor.Exists(GetPath("cr9f2_managed")));
+        Assert.False(fileAccessor.Exists(GetPath("cr9f2_unreferenced")));
+        Assert.Equal(new[] { "cr9f2_managed", SharedSchemaName }, Assert.Single(lookups).OrderBy(name => name, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task Clone_ProjectedSharedEnvironmentVariable_RoundTripsTheCloudDefinition()
+    {
+        var shared = CreateEnvironmentVariable(SharedSchemaName, value: "current");
+        var (dataverse, _) = CreateDataverse();
+
+        var (_, fileAccessor, _, _) = await CloneAsync(dataverse, new[] { CreateTopic("Greeting", SharedActivity) }, shared);
+
+        Assert.True(shared.Equals(ReadEnvironmentVariableFile(fileAccessor, SharedPath), NodeComparison.Structural));
+        Assert.True(shared.Equals(Assert.Single(ReadCache(fileAccessor).EnvironmentVariables, environmentVariable => environmentVariable.SchemaName.Value == SharedSchemaName), NodeComparison.Structural));
+    }
+
+    [Fact]
+    public async Task Pull_WhenLocalTopicStartsReferencingSharedEnvironmentVariable_ProjectsIt()
+    {
+        var (dataverse, _) = CreateDataverse();
+        var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(dataverse, new[] { CreateTopic("Greeting", UnreferencedActivity) }, CreateEnvironmentVariable(SharedSchemaName));
+        Assert.False(fileAccessor.Exists(SharedPath));
+        ReplaceText(fileAccessor, FindTopicPath(fileAccessor), "Topic.unused", "Env.cr9f2_shared");
+
+        await PullAsync(synchronizer, island, workspace, dataverse, CreateChangeSet("token-2"));
+
+        Assert.True(fileAccessor.Exists(SharedPath));
+    }
+
+    [Fact]
+    public async Task Pull_WhenNoComponentReferencesSharedEnvironmentVariable_RemovesItsFile()
+    {
+        var (dataverse, _) = CreateDataverse();
+        var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(dataverse, new[] { CreateTopic("Greeting", SharedActivity) }, CreateEnvironmentVariable(SharedSchemaName));
+        Assert.True(fileAccessor.Exists(SharedPath));
+        ReplaceText(fileAccessor, FindTopicPath(fileAccessor), "Env.cr9f2_shared", "Topic.unused");
+
+        await PullAsync(synchronizer, island, workspace, dataverse, CreateChangeSet("token-2"));
+
+        Assert.False(fileAccessor.Exists(SharedPath));
+    }
+
+    [Fact]
+    public async Task Pull_WhenCloudChangesProjectedSharedEnvironmentVariable_OverwritesItsFile()
+    {
+        var shared = CreateEnvironmentVariable(SharedSchemaName);
+        var (dataverse, lookups) = CreateDataverse();
+        var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(dataverse, new[] { CreateTopic("Greeting", SharedActivity) }, shared);
+        lookups.Clear();
+
+        await PullAsync(synchronizer, island, workspace, dataverse, CreateChangeSet("token-2", environmentVariableChanges: new[] { new EnvironmentVariableUpdate(shared.WithDefaultValue("two")) }));
+
+        Assert.Equal("two", ReadEnvironmentVariableFile(fileAccessor, SharedPath).DefaultValue);
+        Assert.Empty(lookups);
+    }
+
+    [Theory]
+    [InlineData(OwnedSchemaName, UnreferencedActivity)]
+    [InlineData(SharedSchemaName, SharedActivity)]
+    public async Task Pull_WhenCloudDeletesEnvironmentVariable_RemovesItsFile(string schemaName, string activity)
+    {
+        var environmentVariable = CreateEnvironmentVariable(schemaName, value: "current");
+        var (dataverse, _) = CreateDataverse();
+        var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(dataverse, new[] { CreateTopic("Greeting", activity) }, environmentVariable);
+        Assert.True(fileAccessor.Exists(GetPath(schemaName)));
+
+        await PullAsync(synchronizer, island, workspace, dataverse, CreateChangeSet("token-2", environmentVariableChanges: new[] { new EnvironmentVariableDelete(environmentVariable.Id, (environmentVariable.ValueComponent ?? throw new Xunit.Sdk.XunitException("Expected a value.")).Id, environmentVariable.Version) }));
+
+        Assert.False(fileAccessor.Exists(GetPath(schemaName)));
+    }
+
+    [Fact]
+    public async Task RetargetSync_KeepsProjectedSharedEnvironmentVariableThatTargetComponentsDoNotReference()
+    {
+        var (synchronizer, fileAccessorFactory, island) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath($"c:/test/environment-variables-{Guid.NewGuid():N}/");
+        var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
+        WriteEnvironmentVariableFile(fileAccessor, CreateEnvironmentVariable(SharedSchemaName, defaultValue: "source"));
+        var original = fileAccessor.Files[SharedPath.ToString()];
+        SetupRemoteChanges(island, CreateChangeSet("token-1", environmentVariableChanges: new[] { new EnvironmentVariableInsert(CreateEnvironmentVariable(SharedSchemaName, defaultValue: "target")) }, bot: CreateBotEntity()));
+        var (dataverse, _) = CreateDataverse();
+
+        await synchronizer.SyncWorkspaceAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), changeToken: null, updateWorkspaceDirectory: true, dataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, cloudFlowMetadata: null, CancellationToken.None);
+
+        Assert.Equal(original, fileAccessor.Files[SharedPath.ToString()]);
+    }
+
+    [Fact]
+    public async Task GetRemoteChanges_WhenCloudChangesProjectedSharedEnvironmentVariable_ReportsUpdateWithoutWritingCache()
+    {
+        var shared = CreateEnvironmentVariable(SharedSchemaName);
+        var (dataverse, _) = CreateDataverse();
+        var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(dataverse, new[] { CreateTopic("Greeting", SharedActivity) }, shared);
+        var cache = fileAccessor.Files[CachePath.ToString()];
+        SetupRemoteChanges(island, CreateChangeSet("token-2", environmentVariableChanges: new[] { new EnvironmentVariableUpdate(shared.WithDefaultValue("two")) }));
+
+        var (_, changes) = await synchronizer.GetRemoteChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), dataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
+
+        var change = Assert.Single(changes, change => change.SchemaName == SharedSchemaName);
+        Assert.Equal(ChangeType.Update, change.ChangeType);
+        Assert.Equal(SharedPath.ToString(), change.Uri);
+        Assert.Equal(cache, fileAccessor.Files[CachePath.ToString()]);
     }
 
     private static EnvironmentVariableDefinition CreateEnvVar(string schemaName, string? displayName = null)

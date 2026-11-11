@@ -298,6 +298,35 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             Assert.Equal(0, synchronizer.SavedSyncInfoCount);
         }
 
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public async Task ReattachAgentMissingEnvironmentVariablesReturns400BeforeChangingAnythingTest(bool retarget)
+        {
+            var context = CreateTestSetup();
+            context.Request.AllowRetarget = retarget;
+            context.Request.ConflictResolution = RetargetConflictResolution.ReuseExisting;
+            var dataverseClient = new MockDataverseClient();
+            var synchronizer = retarget ? new TestWorkspaceSynchronizerSyncInfoExists() : new TestWorkspaceSynchronizer();
+            var validator = new Mock<IEnvironmentVariableDependencyValidator>();
+            validator
+                .Setup(v => v.ValidateEnvironmentVariableDependenciesAsync(It.IsAny<Microsoft.CopilotStudio.McsCore.DirectoryPath>(), It.IsAny<DefinitionBase>(), dataverseClient, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(ImmutableArray.Create(new WorkspaceDiagnostic(TopicsPath, "Environment variable 'cr9f2_shared' does not exist in the target environment.", 0, 0, WorkspaceDiagnosticKind.MissingDependency)));
+            var handler = TestHandlerFactory.CreateHandler(dataverseClient, synchronizer, CreateOperationProvider(), environmentVariableDependencyValidator: validator.Object);
+
+            var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
+
+            Assert.Equal(400, response.Code);
+            Assert.StartsWith("1 workspace file uses environment variables that are missing in the target environment:", response.Message, StringComparison.Ordinal);
+            Assert.Contains($"<pii type=\"WORKSPACE FILE DETAILS\" encoded=\"true\">{TopicsPath}</pii>", response.Message, StringComparison.Ordinal);
+            validator.Verify(v => v.ValidateEnvironmentVariableDependenciesAsync(It.IsAny<Microsoft.CopilotStudio.McsCore.DirectoryPath>(), It.IsAny<DefinitionBase>(), dataverseClient, It.IsAny<CancellationToken>()), Times.Once);
+            Assert.False(dataverseClient.CreateNewAgentCalled);
+            Assert.False(synchronizer.ReattachCalled);
+            Assert.Equal(0, synchronizer.ResetRemoteBindingStateCount);
+            Assert.Equal(0, synchronizer.PersistRetargetBackupCount);
+            Assert.Equal(0, synchronizer.SavedSyncInfoCount);
+        }
+
         [Fact]
         public async Task ReattachAgentDoesNotBindConnectionsTest()
         {
@@ -1051,7 +1080,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
 
     internal static class TestHandlerFactory
     {
-        public static ReattachAgentHandler CreateHandler(ISyncDataverseClient dataverseClient, IWorkspaceSynchronizer workspace, IOperationContextProvider opProvider, ILspLogger? logger = null, ISyncComponentCollectionDataverseClient? componentCollectionDataverseClient = null, IStandaloneWorkflowSynchronizer? standaloneSynchronizer = null, Microsoft.CopilotStudio.McsCore.IFileAccessorFactory? fileAccessorFactory = null)
+        public static ReattachAgentHandler CreateHandler(ISyncDataverseClient dataverseClient, IWorkspaceSynchronizer workspace, IOperationContextProvider opProvider, ILspLogger? logger = null, ISyncComponentCollectionDataverseClient? componentCollectionDataverseClient = null, IStandaloneWorkflowSynchronizer? standaloneSynchronizer = null, Microsoft.CopilotStudio.McsCore.IFileAccessorFactory? fileAccessorFactory = null, IEnvironmentVariableDependencyValidator? environmentVariableDependencyValidator = null)
         {
             var mockAuthProvider = new Mock<ISyncAuthProvider>();
             mockAuthProvider.Setup(a => a.AcquireTokenAsync(It.IsAny<Uri>(), It.IsAny<CancellationToken>())).ReturnsAsync("mock-token");
@@ -1060,6 +1089,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
                 new Mock<IIslandControlPlaneService>().Object,
                 workspace,
                 (IWorkspaceRetargetService)workspace,
+                environmentVariableDependencyValidator ?? Mock.Of<IEnvironmentVariableDependencyValidator>(),
                 new TestTokenManager(),
                 dataverseClient,
                 componentCollectionDataverseClient ?? dataverseClient as ISyncComponentCollectionDataverseClient ?? Mock.Of<ISyncComponentCollectionDataverseClient>(),
