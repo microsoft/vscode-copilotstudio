@@ -230,11 +230,7 @@ namespace Microsoft.CopilotStudio.McsCore
 
             try
             {
-                var entity = CodeSerializer.Deserialize<BotEntity>(File.ReadAllText(settingsPath));
-                if (entity != null && DetectAuthoringShape(entity) == AuthoringShape.CliCopilot)
-                {
-                    return WorkspaceLayout.CliLayered;
-                }
+                return LayoutOf(CodeSerializer.Deserialize<BotEntity>(File.ReadAllText(settingsPath)));
             }
             catch
             {
@@ -244,6 +240,8 @@ namespace Microsoft.CopilotStudio.McsCore
 
             return WorkspaceLayout.ClassicMcs;
         }
+
+        private static WorkspaceLayout LayoutOf(BotEntity? entity) => entity != null && DetectAuthoringShape(entity) == AuthoringShape.CliCopilot ? WorkspaceLayout.CliLayered : WorkspaceLayout.ClassicMcs;
 
         /// <summary>
         /// Maps a <see cref="WorkspaceLayout"/> to the authoring shape it was authored as.
@@ -273,10 +271,12 @@ namespace Microsoft.CopilotStudio.McsCore
         /// <summary>
         /// <see cref="DetectWorkspaceLayout(string)"/> resolved over an <see cref="IFileAccessor"/>.
         /// </summary>
-        public static WorkspaceLayout DetectWorkspaceLayout(IFileAccessor fileAccessor)
-        {
-            var contentLayout = DetectWorkspaceLayoutFromContent(fileAccessor);
+        public static WorkspaceLayout DetectWorkspaceLayout(IFileAccessor fileAccessor) => LayoutConfirmedByMarker(fileAccessor, DetectWorkspaceLayoutFromContent(fileAccessor));
 
+        internal static AuthoringShape DetectAuthoringShapeFromFolder(IFileAccessor fileAccessor, BotEntity entity) => InferAuthoringShape(LayoutConfirmedByMarker(fileAccessor, LayoutOf(entity)));
+
+        private static WorkspaceLayout LayoutConfirmedByMarker(IFileAccessor fileAccessor, WorkspaceLayout contentLayout)
+        {
             var markerPath = new AgentFilePath(WorkspaceLayoutMarkerFileName);
             if (fileAccessor.Exists(markerPath))
             {
@@ -309,11 +309,7 @@ namespace Microsoft.CopilotStudio.McsCore
 
             try
             {
-                var entity = CodeSerializer.Deserialize<BotEntity>(ReadAllTextOrEmpty(fileAccessor, settingsPath));
-                if (entity != null && DetectAuthoringShape(entity) == AuthoringShape.CliCopilot)
-                {
-                    return WorkspaceLayout.CliLayered;
-                }
+                return LayoutOf(CodeSerializer.Deserialize<BotEntity>(ReadAllTextOrEmpty(fileAccessor, settingsPath)));
             }
             catch
             {

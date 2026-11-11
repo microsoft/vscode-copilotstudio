@@ -118,6 +118,8 @@ internal static class LspProjection
 
     private static readonly string[] CliToolDotInfixBlocklist = { "tool" };
 
+    private static readonly Rule SettingsRule = new(".BotSettingsComponent.", "settings/", false);
+
     /// <summary>
     /// All projection rules keyed by element type.
     /// </summary>
@@ -224,11 +226,11 @@ internal static class LspProjection
             // Settings
             {
                 typeof(BotSettingsBase),
-                new Rule(".BotSettingsComponent.", "settings/", false)
+                SettingsRule
             },
             {
                 typeof(BotSettingsComponent),
-                new Rule(".BotSettingsComponent.", "settings/", false)
+                SettingsRule
             },
 
             // Entities
@@ -343,6 +345,14 @@ internal static class LspProjection
             {
                 typeof(FileAttachmentComponent),
                 new Rule(FileAttachmentInfix, "capabilities/knowledge/files/", true, new[] { "file" }, PreserveBotPrefixedFiles: true)
+            },
+            {
+                typeof(BotSettingsBase),
+                SettingsRule
+            },
+            {
+                typeof(BotSettingsComponent),
+                SettingsRule
             },
         }.ToFrozenDictionary();
 

@@ -272,15 +272,15 @@ internal static class AiPromptProjection
         }
 
         var encoded = new StringBuilder(name.Length * 2);
-        foreach (var c in name)
+        foreach (var character in name)
         {
-            if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))
+            if (AsciiCharacters.IsLetterOrDigit(character))
             {
-                encoded.Append(c);
+                encoded.Append(character);
             }
             else
             {
-                encoded.Append('_').Append(((int)c).ToString("X4", System.Globalization.CultureInfo.InvariantCulture));
+                encoded.Append('_').Append(((int)character).ToString("X4", System.Globalization.CultureInfo.InvariantCulture));
             }
         }
 

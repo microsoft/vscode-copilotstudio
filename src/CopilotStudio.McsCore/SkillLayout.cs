@@ -249,7 +249,7 @@ internal static class SkillLayout
 
     internal static string MintBundleSchemaName(string folderName, string botName)
     {
-        var stem = new string(folderName.Where(character => character <= 127 && char.IsLetterOrDigit(character)).ToArray());
+        var stem = new string(folderName.Where(AsciiCharacters.IsLetterOrDigit).ToArray());
         stem = stem.Length == 0 ? "skill" : stem;
         return $"{botName}{LspProjection.FileAttachmentInfix}{stem}{McsFileParserCore.HashStringToGuid(folderName).ToString("N").Substring(0, 8)}zip";
     }

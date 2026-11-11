@@ -11,20 +11,24 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Microsoft.CopilotStudio.McsCore.Yaml;
+using Microsoft.CopilotStudio.Sync.Copy;
 
 namespace Microsoft.CopilotStudio.Sync.Dataverse;
 
-public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowDataverseClient, ISyncComponentCollectionDataverseClient, IStreamingKnowledgeFileClient, ICustomConnectorOperations
+public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowDataverseClient, ISyncComponentCollectionDataverseClient, IStreamingKnowledgeFileClient, ICustomConnectorOperations, ICopyDataverseClient
 {
     private readonly IDataverseHttpClientAccessor _httpClientAccessor;
     private readonly AsyncLocal<string> _dataverseUrl = new();
     private readonly ConcurrentDictionary<string, bool> _connectorVersionChecks = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, string> _connectorEnvironmentSuffixes = new(StringComparer.OrdinalIgnoreCase);
     private string DataverseUrl => _dataverseUrl.Value
         ?? throw new InvalidOperationException("Dataverse URL is not set. Call SetDataverseUrl before making API calls.");
 
     private string ConnectorsUrl => $"{DataverseUrl}/api/data/v9.2/connectors";
 
     private const int BatchSize = 50;
+
+    private const int ConnectorSuffixSampleSize = 50;
 
     private const string ConnectorColumns = "connectorid,name,displayname,description,connectorinternalid,openapidefinition,connectionparameters,connectionparametersets,policytemplateinstances,iconbrandcolor,iconblob,connectortype,statecode,statuscode,ismanaged,componentstate,createdon,modifiedon,versionnumber";
 
@@ -117,6 +121,51 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
 
         return response.ToAgentInfo();
     }
+
+    /// <inheritdoc />
+    public virtual async Task<IReadOnlyList<string>> FindComponentSchemaNamesAsync(string schemaNamePrefix, int maximumCount, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(schemaNamePrefix))
+        {
+            throw new ArgumentException("A schema name prefix is required.", nameof(schemaNamePrefix));
+        }
+
+        return Rows(await SendAsync<JsonElement>(HttpMethod.Get, $"{DataverseUrl}/api/data/v9.2/botcomponents?$select=schemaname&$top={Math.Max(1, maximumCount)}&$filter={Uri.EscapeDataString($"startswith(schemaname,{ODataLiteral.LikePattern(schemaNamePrefix)})")}", null, expectReturn: false, cancellationToken).ConfigureAwait(false)).Select(row => TextOf(row, "schemaname")).OfType<string>().Where(schema => schema.Length > 0).ToArray();
+    }
+
+    /// <inheritdoc />
+    public virtual Task<IReadOnlyCollection<Guid>> FindExistingWorkflowIdsAsync(IEnumerable<Guid> workflowIds, CancellationToken cancellationToken) => FindExistingIdsAsync("workflows", "workflowid", workflowIds, cancellationToken);
+
+    /// <inheritdoc />
+    public virtual Task<IReadOnlyCollection<Guid>> FindExistingAIModelIdsAsync(IEnumerable<Guid> modelIds, CancellationToken cancellationToken) => FindExistingIdsAsync("msdyn_aimodels", "msdyn_aimodelid", modelIds, cancellationToken);
+
+    /// <inheritdoc />
+    public virtual Task<IReadOnlyCollection<Guid>> FindExistingConnectorIdsAsync(IEnumerable<Guid> connectorIds, CancellationToken cancellationToken) => FindExistingIdsAsync("connectors", "connectorid", connectorIds, cancellationToken);
+
+    private async Task<IReadOnlyCollection<Guid>> FindExistingIdsAsync(string entitySet, string keyColumn, IEnumerable<Guid> identifiers, CancellationToken cancellationToken)
+    {
+        var found = new HashSet<Guid>();
+
+        foreach (var batch in (identifiers ?? Enumerable.Empty<Guid>()).Where(identifier => identifier != Guid.Empty).Distinct().Chunk(BatchSize))
+        {
+            var filter = string.Join(" or ", batch.Select(identifier => $"{keyColumn} eq {identifier:D}"));
+            var response = await SendAsync<JsonElement>(HttpMethod.Get, $"{DataverseUrl}/api/data/v9.2/{entitySet}?$select={keyColumn}&$filter={Uri.EscapeDataString(filter)}", null, expectReturn: false, cancellationToken).ConfigureAwait(false);
+
+            foreach (var row in Rows(response))
+            {
+                if (Guid.TryParse(TextOf(row, keyColumn), out var identifier))
+                {
+                    found.Add(identifier);
+                }
+            }
+        }
+
+        return found;
+    }
+
+    private static IEnumerable<JsonElement> Rows(JsonElement response) => response.ValueKind == JsonValueKind.Object && response.TryGetProperty("value", out var rows) && rows.ValueKind == JsonValueKind.Array ? rows.EnumerateArray().Where(row => row.ValueKind == JsonValueKind.Object).ToArray() : Array.Empty<JsonElement>();
+
+    private static string? TextOf(JsonElement row, string column) => row.ValueKind == JsonValueKind.Object && row.TryGetProperty(column, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
     public virtual async Task<ComponentCollectionInfo> CreateComponentCollectionAsync(string displayName, string schemaName, CancellationToken cancellationToken)
     {
@@ -328,27 +377,18 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
 
     public virtual Task<CustomConnectorMetadata[]> GetConnectorVersionsByIdsAsync(IReadOnlyCollection<Guid> connectorIds, CancellationToken cancellationToken) => ReadConnectorsAsync(BuildConnectorQueryUrls((connectorIds ?? Array.Empty<Guid>()).Where(connectorId => connectorId != Guid.Empty).Distinct().Select(connectorId => $"connectorid eq {connectorId}"), ConnectorVersionColumns, string.Empty), cancellationToken);
 
-    private async Task<CustomConnectorMetadata[]> QueryConnectorsByInternalIdsAsync(IEnumerable<string> connectorInternalIds, bool isManaged, string select, CancellationToken cancellationToken)
-    {
-        if (connectorInternalIds == null)
-        {
-            return Array.Empty<CustomConnectorMetadata>();
-        }
-
-        return await ReadConnectorsAsync(BuildConnectorQueryUrls(connectorInternalIds.Where(internalId => !string.IsNullOrWhiteSpace(internalId)).Select(internalId => internalId.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Select(internalId => $"connectorinternalid eq {ODataLiteral.Quote(internalId)}"), select, isManaged ? string.Empty : " and ismanaged eq false"), cancellationToken).ConfigureAwait(false);
-    }
+    private Task<CustomConnectorMetadata[]> QueryConnectorsByInternalIdsAsync(IEnumerable<string> connectorInternalIds, bool isManaged, string select, CancellationToken cancellationToken) => ReadConnectorsAsync(BuildConnectorQueryUrls(DistinctNonBlankTrimmedValues(connectorInternalIds).Select(internalId => $"connectorinternalid eq {ODataLiteral.Quote(internalId)}"), select, isManaged ? string.Empty : " and ismanaged eq false"), cancellationToken);
 
     private IEnumerable<string> BuildConnectorQueryUrls(IEnumerable<string> filterClauses, string select, string filterSuffix) => filterClauses.ToList().Chunk(BatchSize).Select(batch => $"{ConnectorsUrl}?$select={select}&$filter={Uri.EscapeDataString($"({string.Join(" or ", batch)}){filterSuffix}")}");
 
-    public virtual async Task<CustomConnectorMetadata[]> GetConnectorsByInternalIdPrefixAsync(string connectorInternalIdPrefix, CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(connectorInternalIdPrefix))
-        {
-            return Array.Empty<CustomConnectorMetadata>();
-        }
+    public virtual Task<CustomConnectorMetadata[]> GetConnectorsByInternalIdPrefixAsync(string connectorInternalIdPrefix, CancellationToken cancellationToken) => QueryConnectorsByInternalIdPrefixesAsync(new[] { connectorInternalIdPrefix }, cancellationToken);
 
-        return await ReadConnectorsAsync(new[] { $"{ConnectorsUrl}?$select=connectorid,name,displayname,connectorinternalid,connectortype,ismanaged,modifiedon&$filter={Uri.EscapeDataString($"startswith(connectorinternalid,{ODataLiteral.LikePattern(connectorInternalIdPrefix)})")}" }, cancellationToken).ConfigureAwait(false);
-    }
+    /// <inheritdoc />
+    public virtual Task<CustomConnectorMetadata[]> FindConnectorsByInternalIdPrefixesAsync(IEnumerable<string> prefixes, CancellationToken cancellationToken) => QueryConnectorsByInternalIdPrefixesAsync(prefixes, cancellationToken);
+
+    private Task<CustomConnectorMetadata[]> QueryConnectorsByInternalIdPrefixesAsync(IEnumerable<string> prefixes, CancellationToken cancellationToken) => ReadConnectorsAsync(BuildConnectorQueryUrls(DistinctNonBlankTrimmedValues(prefixes).Select(prefix => $"startswith(connectorinternalid,{ODataLiteral.LikePattern(prefix)})"), "connectorid,name,displayname,connectorinternalid,connectortype,ismanaged,modifiedon", string.Empty), cancellationToken);
+
+    private static IEnumerable<string> DistinctNonBlankTrimmedValues(IEnumerable<string>? values) => (values ?? Enumerable.Empty<string>()).Where(value => !string.IsNullOrWhiteSpace(value)).Select(value => value.Trim()).Distinct(StringComparer.OrdinalIgnoreCase);
 
     private async Task<CustomConnectorMetadata[]> ReadConnectorsAsync(IEnumerable<string> firstPageUrls, CancellationToken cancellationToken)
     {
@@ -381,6 +421,28 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
 
         return results.ToArray();
     }
+
+    /// <inheritdoc />
+    public virtual async Task<string?> FindConnectorEnvironmentSuffixAsync(CancellationToken cancellationToken)
+    {
+        if (_connectorEnvironmentSuffixes.TryGetValue(DataverseUrl, out var known))
+        {
+            return known;
+        }
+
+        var suffixes = Rows(await SendAsync<JsonElement>(HttpMethod.Get, $"{DataverseUrl}/api/data/v9.2/connectors?$select=name,displayname,connectorinternalid&$filter={Uri.EscapeDataString($"ismanaged eq false and startswith(connectorinternalid,{ODataLiteral.LikePattern(CustomConnectorInternalId.PlatformPrefix)})")}&$top={ConnectorSuffixSampleSize}", null, expectReturn: false, cancellationToken).ConfigureAwait(false)).Select(ConformingSuffixOf).OfType<string>().Distinct(StringComparer.Ordinal).ToArray();
+
+        if (suffixes.Length != 1)
+        {
+            return null;
+        }
+
+        _connectorEnvironmentSuffixes[DataverseUrl] = suffixes[0];
+
+        return suffixes[0];
+    }
+
+    private static string? ConformingSuffixOf(JsonElement row) => TextOf(row, "name") is { } name && TextOf(row, "displayname") is { } displayName && TextOf(row, "connectorinternalid") is { } internalId ? CustomConnectorInternalId.ConformingSuffixOf(name, displayName, internalId) : null;
 
     public virtual async Task<bool> UpsertConnectorAsync(CustomConnectorMetadata connector, CancellationToken cancellationToken)
     {

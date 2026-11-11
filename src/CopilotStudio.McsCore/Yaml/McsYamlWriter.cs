@@ -151,7 +151,7 @@ internal static class McsYamlWriter
         }
     }
 
-    private static string FormatScalar(string value)
+    internal static string FormatScalar(string value)
     {
         if (value.Length == 0)
         {
