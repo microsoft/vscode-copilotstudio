@@ -685,6 +685,24 @@ public class PushConcurrencyRetryTests
     }
 
     [Fact]
+    public async Task PushLocalChanges_WhenRetryingAfterARefresh_KeepsAnEditedSharedEnvironmentVariableThatNoComponentReferences()
+    {
+        var agentId = Guid.NewGuid();
+        var farewellId = Guid.NewGuid();
+        var shared = EnvironmentVariableTestFixtures.CreateEnvironmentVariable(EnvironmentVariableTestFixtures.SharedSchemaName, defaultValue: "https://original");
+        var cloudCache = new BotDefinition().WithEntity(BuildBot(agentId, "Agent", version: 1)).WithComponents(new[] { CreateTopic("Farewell", "farewellOriginal", farewellId) }).WithEnvironmentVariables(new[] { shared });
+
+        var (fileAccessor, sentChangesets) = await PushAfterRemoteRefreshAsync(
+            cloudCache,
+            new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentUpdate(CreateTopic("Farewell", "farewellCloud", farewellId)) }, BuildBot(agentId, "Agent", version: 1), "token-2"),
+            cloudCache.WithEnvironmentVariables(new[] { shared.WithDefaultValue("https://local") }));
+
+        Assert.Equal(2, sentChangesets.Count);
+        Assert.Equal("https://local", (Assert.IsType<EnvironmentVariableUpdate>(Assert.Single(sentChangesets[1].EnvironmentVariableChanges)).EnvironmentVariable ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).DefaultValue);
+        Assert.Contains("farewellCloud", await ReadAsync(fileAccessor, "topics/Farewell.mcs.yml"), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task PushLocalChanges_WhenRetryingAfterARefresh_KeepsConnectionReferencesChangedInTheCloudOrOnDisk()
     {
         var bot = new BotEntity.Builder { SchemaName = new BotEntitySchemaName(AgentSchema), CdsBotId = Guid.NewGuid(), Template = "cliagent-1.0.0" }.Build();

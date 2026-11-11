@@ -212,6 +212,222 @@ public class EnvironmentVariableProjectionTests
         Assert.False(fileAccessor.Exists(GetPath(schemaName)));
     }
 
+    [Theory]
+    [InlineData(SharedSchemaName, SharedActivity)]
+    [InlineData(OwnedSchemaName, UnreferencedActivity)]
+    public async Task Pull_WhenTheCloudRepeatsAnUnchangedEnvironmentVariable_KeepsTheLocalEditAndCachesTheServerCopy(string schemaName, string activity)
+    {
+        var environmentVariable = CreateEnvironmentVariable(schemaName, value: "current").WithVersion(200);
+        var serverCopy = environmentVariable.WithVersion(201);
+        var (dataverse, _) = CreateDataverse();
+        var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(dataverse, new[] { CreateTopic("Greeting", activity) }, environmentVariable);
+        WriteEnvironmentVariableFile(fileAccessor, environmentVariable.WithDefaultValue("edited"));
+        var editedFile = fileAccessor.Files[GetPath(schemaName).ToString()];
+
+        await PullAsync(synchronizer, island, workspace, dataverse, CreateChangeSet("token-2", environmentVariableChanges: new[] { new EnvironmentVariableUpdate(serverCopy) }));
+
+        Assert.Equal(editedFile, fileAccessor.Files[GetPath(schemaName).ToString()]);
+        Assert.True(serverCopy.Equals(Assert.Single(ReadCache(fileAccessor).EnvironmentVariables), NodeComparison.Structural));
+    }
+
+    [Fact]
+    public async Task Pull_WhenNoComponentReferencesAnEditedSharedEnvironmentVariable_KeepsItsFileForTheNextPush()
+    {
+        var shared = CreateEnvironmentVariable(SharedSchemaName);
+        var (dataverse, _) = CreateDataverse();
+        var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(dataverse, new[] { CreateTopic("Greeting", SharedActivity) }, shared);
+        WriteEnvironmentVariableFile(fileAccessor, shared.WithDefaultValue("edited"));
+        ReplaceText(fileAccessor, FindTopicPath(fileAccessor), "Env.cr9f2_shared", "Topic.unused");
+
+        await PullAsync(synchronizer, island, workspace, dataverse, CreateChangeSet("token-2"));
+
+        var (changeSet, _) = await synchronizer.GetLocalChangesAsync(workspace, await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None), CancellationToken.None);
+        Assert.Equal("edited", (Assert.IsType<EnvironmentVariableUpdate>(Assert.Single(changeSet.EnvironmentVariableChanges)).EnvironmentVariable ?? throw new Xunit.Sdk.XunitException("Expected an environment variable.")).DefaultValue);
+    }
+
+    [Theory]
+    [InlineData(SharedSchemaName, SharedActivity, false)]
+    [InlineData(SharedSchemaName, SharedActivity, true)]
+    [InlineData(OwnedSchemaName, UnreferencedActivity, false)]
+    public async Task Pull_WhenLocalAndCloudEditDifferentEnvironmentVariableFields_WritesBothEditsWithoutAConflict(string schemaName, string activity, bool removeReference)
+    {
+        var environmentVariable = CreateEnvironmentVariable(schemaName, value: "current").WithVersion(200);
+        var serverCopy = environmentVariable.WithDisplayName("Cloud").WithVersion(201);
+        var (dataverse, _) = CreateDataverse();
+        var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(dataverse, new[] { CreateTopic("Greeting", activity) }, environmentVariable);
+        WriteEnvironmentVariableFile(fileAccessor, environmentVariable.WithDefaultValue("local"));
+        if (removeReference)
+        {
+            ReplaceText(fileAccessor, FindTopicPath(fileAccessor), "Env.cr9f2_shared", "Topic.unused");
+        }
+
+        var conflicts = new List<WorkspaceDiagnostic>();
+
+        await PullAsync(synchronizer, island, workspace, dataverse, CreateChangeSet("token-2", environmentVariableChanges: new[] { new EnvironmentVariableUpdate(serverCopy) }), conflicts);
+
+        var merged = ReadEnvironmentVariableFile(fileAccessor, GetPath(schemaName));
+        Assert.Equal("local", merged.DefaultValue);
+        Assert.Equal("Cloud", merged.DisplayName);
+        Assert.Equal("current", merged.ValueComponent?.Value);
+        Assert.Equal(serverCopy.Version, merged.Version);
+        Assert.Empty(conflicts);
+        Assert.True(serverCopy.Equals(Assert.Single(ReadCache(fileAccessor).EnvironmentVariables), NodeComparison.Structural));
+    }
+
+    [Theory]
+    [InlineData(SharedSchemaName, SharedActivity)]
+    [InlineData(OwnedSchemaName, UnreferencedActivity)]
+    public async Task Pull_WhenLocalAndCloudEditTheSameEnvironmentVariableField_WritesAConflictThatBlocksTheNextRead(string schemaName, string activity)
+    {
+        var environmentVariable = CreateEnvironmentVariable(schemaName, value: "current").WithVersion(200);
+        var serverCopy = environmentVariable.WithDefaultValue("cloud").WithVersion(201);
+        var (dataverse, _) = CreateDataverse();
+        var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(dataverse, new[] { CreateTopic("Greeting", activity) }, environmentVariable);
+        WriteEnvironmentVariableFile(fileAccessor, environmentVariable.WithDefaultValue("local"));
+        var conflicts = new List<WorkspaceDiagnostic>();
+
+        await PullAsync(synchronizer, island, workspace, dataverse, CreateChangeSet("token-2", environmentVariableChanges: new[] { new EnvironmentVariableUpdate(serverCopy) }), conflicts);
+
+        var path = GetPath(schemaName).ToString();
+        var text = ReadText(fileAccessor, GetPath(schemaName));
+        Assert.True(McsConflictMarkers.Contains(text));
+        Assert.Contains("defaultValue: local", text, StringComparison.Ordinal);
+        Assert.Contains("defaultValue: cloud", text, StringComparison.Ordinal);
+        var diagnostic = Assert.Single(conflicts);
+        Assert.Equal(path, diagnostic.FilePath);
+        Assert.Equal(WorkspaceDiagnosticKind.MergeConflict, diagnostic.Kind);
+        Assert.Equal(McsConflictMarkers.FindFirstMarkerLine(text), diagnostic.Line);
+        Assert.True(serverCopy.Equals(Assert.Single(ReadCache(fileAccessor).EnvironmentVariables), NodeComparison.Structural));
+        var failure = await Assert.ThrowsAsync<WorkspaceValidationException>(() => synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None));
+        Assert.Equal(path, Assert.Single(failure.Diagnostics).FilePath);
+    }
+
+    [Theory]
+    [InlineData(SharedSchemaName, SharedActivity)]
+    [InlineData(OwnedSchemaName, UnreferencedActivity)]
+    public async Task Pull_WhenCloudDeletesALocallyEditedEnvironmentVariable_KeepsTheEditInAConflict(string schemaName, string activity)
+    {
+        var environmentVariable = CreateEnvironmentVariable(schemaName, value: "current");
+        var (dataverse, _) = CreateDataverse();
+        var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(dataverse, new[] { CreateTopic("Greeting", activity) }, environmentVariable);
+        WriteEnvironmentVariableFile(fileAccessor, environmentVariable.WithDefaultValue("local"));
+        var conflicts = new List<WorkspaceDiagnostic>();
+
+        await PullAsync(synchronizer, island, workspace, dataverse, CreateChangeSet("token-2", environmentVariableChanges: new[] { new EnvironmentVariableDelete(environmentVariable.Id, (environmentVariable.ValueComponent ?? throw new Xunit.Sdk.XunitException("Expected a value.")).Id, environmentVariable.Version) }), conflicts);
+
+        var text = ReadText(fileAccessor, GetPath(schemaName));
+        Assert.True(McsConflictMarkers.Contains(text));
+        Assert.Contains("defaultValue: local", text, StringComparison.Ordinal);
+        Assert.Equal(GetPath(schemaName).ToString(), Assert.Single(conflicts).FilePath);
+        Assert.Empty(ReadCache(fileAccessor).EnvironmentVariables);
+    }
+
+    [Theory]
+    [InlineData(OwnedSchemaName, UnreferencedActivity, false)]
+    [InlineData(OwnedSchemaName, UnreferencedActivity, true)]
+    [InlineData(SharedSchemaName, SharedActivity, false)]
+    [InlineData(SharedSchemaName, SharedActivity, true)]
+    public async Task Pull_WhenTheCloudRecreatesAnUnchangedEnvironmentVariable_KeepsItsFileAndBindsItToTheNewDefinition(string schemaName, string activity, bool editLocally)
+    {
+        var environmentVariable = CreateEnvironmentVariable(schemaName, value: "current");
+        var recreated = CreateEnvironmentVariable(schemaName, value: "current");
+        var (dataverse, lookups) = CreateDataverse();
+        var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(dataverse, new[] { CreateTopic("Greeting", activity) }, environmentVariable);
+        var defaultValue = editLocally ? "edited" : environmentVariable.DefaultValue;
+        if (editLocally)
+        {
+            WriteEnvironmentVariableFile(fileAccessor, environmentVariable.WithDefaultValue(defaultValue));
+        }
+
+        lookups.Clear();
+        var conflicts = new List<WorkspaceDiagnostic>();
+
+        await PullAsync(synchronizer, island, workspace, dataverse, CreateChangeSet("token-2", environmentVariableChanges: new EnvironmentVariableChange[] { new EnvironmentVariableDelete(environmentVariable.Id, (environmentVariable.ValueComponent ?? throw new Xunit.Sdk.XunitException("Expected a value.")).Id, environmentVariable.Version), new EnvironmentVariableInsert(recreated) }), conflicts);
+
+        Assert.Equal(defaultValue, ReadEnvironmentVariableFile(fileAccessor, GetPath(schemaName)).DefaultValue);
+        Assert.Empty(conflicts);
+        Assert.Empty(lookups);
+        Assert.True(recreated.Equals(Assert.Single(ReadCache(fileAccessor).EnvironmentVariables), NodeComparison.Structural));
+        var (changeSet, _) = await synchronizer.GetLocalChangesAsync(workspace, await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None), CancellationToken.None);
+        Assert.Equal(editLocally ? new[] { recreated.Id.Value } : Array.Empty<Guid>(), changeSet.EnvironmentVariableChanges.Select(change => (Assert.IsType<EnvironmentVariableUpdate>(change).EnvironmentVariable ?? throw new Xunit.Sdk.XunitException("Expected an environment variable.")).Id.Value));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Pull_WhenTheCloudRecreatesALocallyEditedEnvironmentVariable_MergesTheEditIntoTheNewDefinitionInAnyOrder(bool deleteFirst)
+    {
+        var environmentVariable = CreateEnvironmentVariable(SharedSchemaName, value: "current");
+        var recreated = CreateEnvironmentVariable(SharedSchemaName, value: "current").WithDisplayName("Cloud");
+        var (dataverse, _) = CreateDataverse();
+        var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(dataverse, new[] { CreateTopic("Greeting", SharedActivity) }, environmentVariable);
+        WriteEnvironmentVariableFile(fileAccessor, environmentVariable.WithDefaultValue("local"));
+        var delete = new EnvironmentVariableDelete(environmentVariable.Id, (environmentVariable.ValueComponent ?? throw new Xunit.Sdk.XunitException("Expected a value.")).Id, environmentVariable.Version);
+        var insert = new EnvironmentVariableInsert(recreated);
+        var conflicts = new List<WorkspaceDiagnostic>();
+
+        await PullAsync(synchronizer, island, workspace, dataverse, CreateChangeSet("token-2", environmentVariableChanges: deleteFirst ? new EnvironmentVariableChange[] { delete, insert } : new EnvironmentVariableChange[] { insert, delete }), conflicts);
+
+        var text = ReadText(fileAccessor, GetPath(SharedSchemaName));
+        Assert.False(McsConflictMarkers.Contains(text));
+        var merged = ReadEnvironmentVariableFile(fileAccessor, GetPath(SharedSchemaName));
+        Assert.Equal("local", merged.DefaultValue);
+        Assert.Equal("Cloud", merged.DisplayName);
+        Assert.Empty(conflicts);
+    }
+
+    [Fact]
+    public async Task ReadWorkspaceDefinition_ConflictedEnvironmentVariableFile_ReportsItAndKeepsTheCachedCopy()
+    {
+        var environmentVariable = CreateEnvironmentVariable(OwnedSchemaName, value: "current");
+        var (dataverse, _) = CreateDataverse();
+        var (synchronizer, fileAccessor, _, workspace) = await CloneAsync(dataverse, new[] { CreateTopic("Greeting", UnreferencedActivity) }, environmentVariable);
+        WriteText(fileAccessor, GetPath(OwnedSchemaName), McsConflictMarkers.Build("defaultValue: local", "defaultValue: cloud"));
+        var diagnostics = new SyncDiagnosticsCollector();
+
+        var definition = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: false, diagnostics, validate: false);
+
+        var diagnostic = Assert.Single(diagnostics.Diagnostics);
+        Assert.Equal(GetPath(OwnedSchemaName).ToString(), diagnostic.FilePath);
+        Assert.Equal(WorkspaceDiagnosticKind.MergeConflict, diagnostic.Kind);
+        Assert.True(environmentVariable.Equals(Assert.Single(definition.EnvironmentVariables), NodeComparison.Structural));
+    }
+
+    [Fact]
+    public async Task DiscardLocalChanges_ConflictedEnvironmentVariableFile_RestoresTheCachedCopy()
+    {
+        var (dataverse, _) = CreateDataverse();
+        var (synchronizer, fileAccessor, _, workspace) = await CloneAsync(dataverse, new[] { CreateTopic("Greeting", UnreferencedActivity) }, CreateEnvironmentVariable(OwnedSchemaName, value: "current"));
+        var clonedFile = fileAccessor.Files[GetPath(OwnedSchemaName).ToString()];
+        WriteText(fileAccessor, GetPath(OwnedSchemaName), McsConflictMarkers.Build("defaultValue: local", "defaultValue: cloud"));
+
+        var (_, unreadable) = await synchronizer.ReadWorkspaceDefinitionForDiscardAsync(workspace, CancellationToken.None);
+        var result = synchronizer.DiscardLocalChanges(workspace, unreadable);
+
+        var change = Assert.Single(unreadable);
+        Assert.Equal(ChangeType.Update, change.ChangeType);
+        Assert.Equal(OwnedSchemaName, change.SchemaName);
+        Assert.Equal(GetPath(OwnedSchemaName).ToString(), change.Uri);
+        Assert.Equal(1, result.Restored);
+        Assert.Equal(0, result.Deleted);
+        Assert.Equal(clonedFile, fileAccessor.Files[GetPath(OwnedSchemaName).ToString()]);
+    }
+
+    [Fact]
+    public async Task DiscardLocalChanges_UnreadableNewEnvironmentVariableFile_DeletesIt()
+    {
+        var (dataverse, _) = CreateDataverse();
+        var (synchronizer, fileAccessor, _, workspace) = await CloneAsync(dataverse, new[] { CreateTopic("Greeting", UnreferencedActivity) });
+        WriteText(fileAccessor, GetPath(OwnedSchemaName), McsConflictMarkers.Build("defaultValue: local", "defaultValue: cloud"));
+
+        var (_, unreadable) = await synchronizer.ReadWorkspaceDefinitionForDiscardAsync(workspace, CancellationToken.None);
+        var result = synchronizer.DiscardLocalChanges(workspace, unreadable);
+
+        Assert.Equal(ChangeType.Create, Assert.Single(unreadable).ChangeType);
+        Assert.Equal(1, result.Deleted);
+        Assert.False(fileAccessor.Exists(GetPath(OwnedSchemaName)));
+    }
+
     [Fact]
     public async Task RetargetSync_KeepsProjectedSharedEnvironmentVariableThatTargetComponentsDoNotReference()
     {

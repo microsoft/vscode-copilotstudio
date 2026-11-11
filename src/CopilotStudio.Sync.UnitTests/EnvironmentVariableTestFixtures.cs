@@ -118,10 +118,10 @@ internal static class EnvironmentVariableTestFixtures
 
     internal static IEnumerable<BotComponentChange> ConfirmComponentChanges(PvaComponentChangeSet changeSet) => changeSet.BotComponentChanges.Select(change => change is BotComponentInsert { Component: { } component } ? new BotComponentInsert(component.WithId(Guid.NewGuid())) : change);
 
-    internal static async Task PullAsync(WorkspaceSynchronizer synchronizer, Mock<IIslandControlPlaneService> island, DirectoryPath workspace, Mock<ISyncDataverseClient> dataverse, PvaComponentChangeSet remoteChangeSet)
+    internal static async Task PullAsync(WorkspaceSynchronizer synchronizer, Mock<IIslandControlPlaneService> island, DirectoryPath workspace, Mock<ISyncDataverseClient> dataverse, PvaComponentChangeSet remoteChangeSet, ICollection<WorkspaceDiagnostic>? conflicts = null)
     {
         SetupRemoteChanges(island, remoteChangeSet);
-        await synchronizer.PullExistingChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None), dataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
+        await synchronizer.PullExistingChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None), dataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None, conflicts: conflicts);
     }
 
     internal static void ClearCloudCache(IFileAccessor fileAccessor) => WorkspaceSynchronizer.WriteCloudCache(fileAccessor, ReadCache(fileAccessor).WithComponents(Array.Empty<BotComponentBase>()).WithEnvironmentVariables(Array.Empty<EnvironmentVariableDefinition>()));

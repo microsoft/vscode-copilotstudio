@@ -435,6 +435,27 @@ public class EnvironmentVariablePushTests
         Assert.Equal(projected ? 0 : 1, lookups.Count);
     }
 
+    [Fact]
+    public async Task ValidateDependencies_ComponentsFromReferencedCollections_AreLeftToTheCollectionPreflight()
+    {
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var agentFolder = new DirectoryPath($"c:/test/environment-variables-{Guid.NewGuid():N}/Agent/");
+        var collectionTopic = CreateTopic("Collected", "{Env.cr9f2_collected}");
+        var collectionAccessor = fileAccessorFactory.Create(agentFolder.ResolveRelativeRef(new RelativeDirectoryPath("../Collection/")));
+        var collection = CodeSerializer.Deserialize<BotComponentCollection>("schemaName: bot_componentcollection_cc\ndisplayName: CC") ?? throw new Xunit.Sdk.XunitException("Expected a component collection.");
+        WorkspaceSynchronizer.WriteCloudCache(collectionAccessor, new BotComponentCollectionDefinition().WithComponentCollection(collection).WithComponents(new[] { collectionTopic }));
+        WriteText(collectionAccessor, new AgentFilePath($"topics/{collectionTopic.SchemaNameString}.mcs.yml"), "mcs.metadata:\n  componentName: Collected\nkind: AdaptiveDialog\n");
+        WriteText(fileAccessorFactory.Create(agentFolder), new AgentFilePath("references.mcs.yml"), "componentCollections:\n  - schemaName:\n    directory: ../Collection/\n");
+        var collectionOwnedTopic = CreateTopic("Owned", "{Env.cr9f2_ownedbycollection}").ToBuilder();
+        collectionOwnedTopic.ParentBotComponentCollectionId = new BotComponentCollectionId(Guid.NewGuid());
+        var (dataverse, lookups) = CreateDataverse();
+
+        var diagnostics = await synchronizer.ValidateEnvironmentVariableDependenciesAsync(agentFolder, new BotDefinition().WithEntity(CreateBotEntity()).WithComponents(new[] { CreateTopic("Greeting", SharedActivity), collectionTopic, collectionOwnedTopic.Build() }), dataverse.Object, CancellationToken.None);
+
+        Assert.Equal(new[] { SharedSchemaName }, Assert.Single(lookups));
+        Assert.Contains($"'{SharedSchemaName}'", Assert.Single(diagnostics).Message, StringComparison.Ordinal);
+    }
+
     private static async Task PushLocalChangesAsync(WorkspaceSynchronizer synchronizer, DirectoryPath workspace, Mock<ISyncDataverseClient> dataverse, DefinitionBase? workspaceDefinition = null) => await synchronizer.PushLocalChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), workspaceDefinition ?? await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None), dataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, cloudFlowMetadata: null, aiPrompts: ImmutableArray<AIPromptMetadata>.Empty, CancellationToken.None);
 
     private static void AssertMissingDependency(WorkspaceDiagnostic diagnostic, AgentFilePath expectedPath, string expectedMessage)
