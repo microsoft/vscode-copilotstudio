@@ -30,16 +30,34 @@ public static class CopyIdentityKinds
 /// <param name="Destination">The identity the copy uses instead.</param>
 public sealed record CopyIdentityMapping(string Kind, string Source, string Destination);
 
-/// <summary>What <see cref="IWorkspaceCopyService.PrepareAsync"/> needs to turn a copied workspace into a new agent.</summary>
+/// <summary>The kinds of workspace a copy prepares.</summary>
+public static class CopyWorkspaceKinds
+{
+    /// <summary>A Copilot Studio agent workspace.</summary>
+    public const string Agent = "agent";
+
+    /// <summary>A standalone workflow workspace, which holds one cloud flow and no agent.</summary>
+    public const string Workflow = "workflow";
+}
+
+/// <summary>What <see cref="IWorkspaceCopyService.PrepareAsync"/> needs to turn a copied workspace into a new agent or workflow.</summary>
 public sealed record CopyPreparationRequest
 {
     /// <summary>The staged copy of the source workspace, without its cloud cache, which is rewritten in place.</summary>
     public string WorkspacePath { get; init; } = string.Empty;
 
+    /// <summary>The kind of workspace the staged copy holds, one of <see cref="CopyWorkspaceKinds"/>.</summary>
+    public string WorkspaceKind { get; init; } = CopyWorkspaceKinds.Agent;
+
+    internal bool IsWorkflowCopy => string.Equals(WorkspaceKind, CopyWorkspaceKinds.Workflow, StringComparison.Ordinal);
+
     /// <summary>The schema name the source agent is expected to carry, when known.</summary>
     public string? SourceSchemaName { get; init; }
 
-    /// <summary>The new agent's display name.</summary>
+    /// <summary>The workflow a standalone workflow workspace is expected to hold, when known.</summary>
+    public Guid? SourceWorkflowId { get; init; }
+
+    /// <summary>The new agent's display name, or the new workflow's name.</summary>
     public string DisplayName { get; init; } = string.Empty;
 
     /// <summary>The new agent's root schema name.</summary>
@@ -100,6 +118,9 @@ public static class CopyAuditCodes
 
     /// <summary>The agent's display name breaks a rule Copilot Studio enforces.</summary>
     public const string AgentNameUnsupported = "agent-name-unsupported";
+
+    /// <summary>The new workflow's name breaks a rule Dataverse enforces.</summary>
+    public const string WorkflowNameUnsupported = "workflow-name-unsupported";
 }
 
 /// <summary>One problem the effective-identity audit found.</summary>

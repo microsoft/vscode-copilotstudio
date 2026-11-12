@@ -4,10 +4,10 @@ using Microsoft.CopilotStudio.Sync.Dataverse;
 
 namespace Microsoft.CopilotStudio.Sync.Copy;
 
-/// <summary>Prepares a copied agent workspace as a new agent of its own.</summary>
+/// <summary>Prepares a copied agent or standalone workflow workspace as a new agent or workflow of its own.</summary>
 public interface IWorkspaceCopyService
 {
-    /// <summary>Rewrites a staged workspace into a new agent and audits the result, reading only the target environment the request names.</summary>
+    /// <summary>Rewrites a staged workspace into a new agent or workflow and audits the result, reading only the target environment the request names.</summary>
     /// <param name="request">What to copy, and into what.</param>
     /// <param name="cancellationToken">Cancels the preparation.</param>
     /// <returns>What was written, and the audit that passed.</returns>
@@ -43,12 +43,17 @@ internal sealed class WorkspaceCopyService : IWorkspaceCopyService
             throw new ArgumentNullException(nameof(request));
         }
 
+        if (request.WorkspaceKind is not (CopyWorkspaceKinds.Agent or CopyWorkspaceKinds.Workflow))
+        {
+            throw new ArgumentException($"A copy prepares an '{CopyWorkspaceKinds.Agent}' or a '{CopyWorkspaceKinds.Workflow}' workspace, not '{request.WorkspaceKind}'.", nameof(request));
+        }
+
         var prepared = await WorkspaceCopyTransform.RunAsync(request, cancellationToken).ConfigureAwait(false);
-        var audit = await _auditor.AuditWorkspaceAsync(request.WorkspacePath, prepared.Identities, cancellationToken).ConfigureAwait(false);
+        var audit = await _auditor.AuditWorkspaceAsync(request, prepared.Identities, cancellationToken).ConfigureAwait(false);
 
         if (audit.Passed && request.TargetEnvironment is { } environment)
         {
-            audit = audit.Merge(await _auditor.AuditEnvironmentAsync(prepared.Identities, environment, cancellationToken).ConfigureAwait(false));
+            audit = audit.Merge(await _auditor.AuditEnvironmentAsync(request, prepared.Identities, environment, cancellationToken).ConfigureAwait(false));
         }
 
         return audit.Passed ? prepared with { Audit = prepared.Audit.Merge(audit) } : throw new CopyPreparationException(audit.Blockers);

@@ -54,4 +54,10 @@ public interface ICopyDataverseClient
     /// <param name="cancellationToken">Cancels the read.</param>
     /// <returns>The matching connectors.</returns>
     Task<CustomConnectorMetadata[]> FindConnectorsByInternalIdPrefixesAsync(IEnumerable<string> prefixes, CancellationToken cancellationToken);
+
+    /// <summary>Finds the unmanaged cloud flows that carry a name, compared ignoring case.</summary>
+    /// <param name="name">The name to look for.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The flows with the name, at most one.</returns>
+    Task<IReadOnlyList<SyncDataverseClient.WorkflowSummary>> FindCloudFlowsNamedAsync(string name, CancellationToken cancellationToken);
 }

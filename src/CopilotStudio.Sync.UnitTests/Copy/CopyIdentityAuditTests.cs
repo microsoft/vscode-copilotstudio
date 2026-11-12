@@ -16,6 +16,8 @@ public class CopyIdentityAuditTests
     private static readonly Guid OwnedWorkflow = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000002");
     private static readonly Guid OwnedModel = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000004");
     private static readonly Guid OwnedConnector = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000005");
+    private static readonly Guid SecondWorkflow = Guid.Parse("0f1e2d3c-4b5a-4968-8776-655443322110");
+    private static readonly CopyPreparationRequest AgentCopyRequest = new();
 
     [Fact]
     public async Task AuditWorkspace_AComponentCallingTheSourceWorkflowAgain_IsALeftover()
@@ -25,7 +27,7 @@ public class CopyIdentityAuditTests
         var workflowCopy = Destination(prepared, CopyIdentityKinds.Workflow);
         workspace.Write("actions/ClassicFlow.mcs.yml", workspace.Read("actions/ClassicFlow.mcs.yml").Replace(workflowCopy, CopyTestWorkspace.ClassicWorkflowId.ToString("D"), StringComparison.Ordinal));
 
-        var report = await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(workspace.Root, prepared.Identities, CancellationToken.None);
+        var report = await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(workspace.Request(), prepared.Identities, CancellationToken.None);
 
         var finding = Assert.Single(report.Blockers);
         Assert.Equal(CopyAuditCodes.LeftoverSourceIdentity, finding.Code);
@@ -39,7 +41,7 @@ public class CopyIdentityAuditTests
         var prepared = await CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None);
         workspace.Write(CopyTestWorkspace.TeamsToolFile, workspace.Read(CopyTestWorkspace.TeamsToolFile).Replace(Destination(prepared, CopyIdentityKinds.Schema) + ".cr.shared_teams", CopyTestWorkspace.CliTeamsReference, StringComparison.Ordinal));
 
-        var report = await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(workspace.Root, prepared.Identities, CancellationToken.None);
+        var report = await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(workspace.Request(), prepared.Identities, CancellationToken.None);
 
         Assert.Contains(report.Blockers, finding => finding.Code == CopyAuditCodes.LeftoverSourceIdentity && finding.Path == CopyTestWorkspace.TeamsToolFile);
     }
@@ -53,7 +55,7 @@ public class CopyIdentityAuditTests
         var metadataPath = "workflows/" + workspace.Folder("workflows", Guid.Parse(Destination(prepared, CopyIdentityKinds.Workflow))) + "/metadata.yml";
         workspace.Write(metadataPath, workspace.Read(metadataPath).Replace(weatherCopy, CopyTestWorkspace.ClassicWeatherReference, StringComparison.Ordinal), preamble: true);
 
-        var report = await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(workspace.Root, prepared.Identities, CancellationToken.None);
+        var report = await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(workspace.Request(), prepared.Identities, CancellationToken.None);
 
         Assert.Contains(report.Blockers, finding => finding.Code == CopyAuditCodes.LeftoverSourceIdentity && finding.Path == metadataPath);
     }
@@ -65,7 +67,7 @@ public class CopyIdentityAuditTests
         var prepared = await CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None);
         workspace.Write("actions/Unknown.mcs.yml", "mcs.metadata:\n  componentName: Unknown\nkind: TaskDialog\naction:\n  kind: InvokeAIBuilderModelTaskAction\n  aIModelId: 99999999-2222-3333-4444-555555555555\n\noutputMode: All\n");
 
-        var report = await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(workspace.Root, prepared.Identities, CancellationToken.None);
+        var report = await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(workspace.Request(), prepared.Identities, CancellationToken.None);
 
         Assert.Contains(report.Blockers, finding => finding.Code == CopyAuditCodes.UnresolvedReference && finding.Path == "actions/Unknown.mcs.yml");
     }
@@ -77,7 +79,7 @@ public class CopyIdentityAuditTests
         var prepared = await CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None);
         workspace.Write("knowledge/cr9_other.topic.Foreign_abc123.mcs.yml", "mcs.metadata:\n  componentName: Foreign\nkind: KnowledgeSourceConfiguration\nsource:\n  kind: SharePointSearchSource\n  site: https://contoso.sharepoint.com/sites/foreign\n");
 
-        var report = await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(workspace.Root, prepared.Identities, CancellationToken.None);
+        var report = await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(workspace.Request(), prepared.Identities, CancellationToken.None);
 
         Assert.Contains(report.Blockers, finding => finding.Code == CopyAuditCodes.ForeignComponentSchema && finding.Message.Contains("cr9_other.topic.Foreign_abc123", StringComparison.Ordinal));
     }
@@ -89,7 +91,7 @@ public class CopyIdentityAuditTests
         var prepared = await CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None);
         workspace.Write(CopyTestWorkspace.ClassicKnowledgeFile, "mcs.metadata:\n  componentName: Handbook\nkind: KnowledgeSourceConfiguration\nsource:\n  kind: SharePointSearchSource\n  site: https://contoso.sharepoint.com/sites/handbook\n");
 
-        var report = await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(workspace.Root, prepared.Identities, CancellationToken.None);
+        var report = await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(workspace.Request(), prepared.Identities, CancellationToken.None);
 
         Assert.Contains(report.Blockers, finding => finding.Code == CopyAuditCodes.LeftoverSourceIdentity && finding.Message.Contains("cr2_classic.topic.Handbook_abc123", StringComparison.Ordinal));
     }
@@ -101,7 +103,7 @@ public class CopyIdentityAuditTests
         var prepared = await CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None);
         var identities = prepared.Identities.Select(mapping => mapping.Kind == CopyIdentityKinds.Schema ? mapping with { Destination = "cr1_" + new string('x', 97) } : mapping).ToArray();
 
-        var report = await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(workspace.Root, identities, CancellationToken.None);
+        var report = await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(workspace.Request(), identities, CancellationToken.None);
 
         Assert.Contains(report.Blockers, finding => finding.Code == CopyAuditCodes.SchemaTooLong);
     }
@@ -116,7 +118,7 @@ public class CopyIdentityAuditTests
         var topicName = new string('t', topicNameLength);
         workspace.Write($"topics/{topicName}.mcs.yml", workspace.Read("topics/Greeting.mcs.yml"));
 
-        var report = await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(workspace.Root, prepared.Identities, CancellationToken.None);
+        var report = await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(workspace.Request(), prepared.Identities, CancellationToken.None);
 
         var finding = Assert.Single(report.Blockers);
         Assert.Equal(CopyAuditCodes.SchemaTooLong, finding.Code);
@@ -134,7 +136,7 @@ public class CopyIdentityAuditTests
         WorkspaceSynchronizer.WriteCloudCache(WorkflowWorkspace.OpenWorkspace(workspace.Root), new BotDefinition().WithEntity(agent).WithComponents(new[] { Topic(greeting), Topic(greeting) }));
         workspace.Write(".mcs/conn.json", "{}");
 
-        var report = await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(workspace.Root, prepared.Identities, CancellationToken.None);
+        var report = await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(workspace.Request(), prepared.Identities, CancellationToken.None);
 
         var finding = Assert.Single(report.Blockers);
         Assert.Equal(CopyAuditCodes.Unreadable, finding.Code);
@@ -152,7 +154,7 @@ public class CopyIdentityAuditTests
         var prepared = await CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None);
         workspace.Write("settings.mcs.yml", workspace.Read("settings.mcs.yml").Replace($"displayName: {CopyTestWorkspace.DestinationDisplayName}\n", $"displayName: {displayName}\n", StringComparison.Ordinal));
 
-        var report = await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(workspace.Root, prepared.Identities, CancellationToken.None);
+        var report = await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(workspace.Request(), prepared.Identities, CancellationToken.None);
 
         var finding = Assert.Single(report.Blockers);
         Assert.Equal(CopyAuditCodes.AgentNameUnsupported, finding.Code);
@@ -168,12 +170,107 @@ public class CopyIdentityAuditTests
         var workflowFolder = "workflows/" + workspace.Folder("workflows", Guid.Parse(Destination(prepared, CopyIdentityKinds.Workflow)));
         workspace.AddPromptRun(workflowFolder, CopyTestWorkspace.PromptModelId);
 
-        var report = await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(workspace.Root, prepared.Identities, CancellationToken.None);
+        var report = await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(workspace.Request(), prepared.Identities, CancellationToken.None);
 
         var finding = Assert.Single(report.Blockers);
         Assert.Equal(CopyAuditCodes.LeftoverSourceIdentity, finding.Code);
         Assert.Equal(workflowFolder + "/workflow.json", finding.Path);
         Assert.Contains(CopyTestWorkspace.PromptModelId.ToString("D"), finding.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AuditWorkspace_WorkflowCopy_PassesAPreparedCopy()
+    {
+        using var workspace = CopyTestWorkspace.StandaloneWorkflow();
+        var request = workspace.Request();
+
+        var report = await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(request, (await CopyTestWorkspace.CreateService().PrepareAsync(request, CancellationToken.None)).Identities, CancellationToken.None);
+
+        Assert.True(report.Passed);
+        Assert.Empty(report.ComponentSchemaNames);
+    }
+
+    [Theory]
+    [InlineData("two flows")]
+    [InlineData("metadata naming another id")]
+    [InlineData("name push refuses")]
+    public async Task AuditWorkspace_WorkflowCopy_ReadsTheCopyAsItsFirstDeployWill(string damage)
+    {
+        using var workspace = CopyTestWorkspace.StandaloneWorkflow();
+        var request = workspace.Request();
+        var prepared = await CopyTestWorkspace.CreateService().PrepareAsync(request, CancellationToken.None);
+        var workflowCopy = Destination(prepared, CopyIdentityKinds.Workflow);
+        var workflowFolder = workspace.CopiedWorkflowFolder(prepared);
+        var metadataPath = workflowFolder + "/metadata.yml";
+        var secondFolder = WorkflowWorkspace.RelativeFolderFor("Second", SecondWorkflow);
+
+        switch (damage)
+        {
+            case "two flows":
+                workspace.Write(secondFolder + "/workflow.json", workspace.Read(workflowFolder + "/workflow.json"));
+                workspace.Write(secondFolder + "/metadata.yml", workspace.Read(metadataPath).Replace(workflowCopy, SecondWorkflow.ToString("D"), StringComparison.Ordinal));
+                break;
+            case "metadata naming another id":
+                workspace.Write(metadataPath, workspace.Read(metadataPath).Replace($"workflowId: {workflowCopy}", $"workflowId: {SecondWorkflow:D}", StringComparison.Ordinal), preamble: true);
+                break;
+            case "name push refuses":
+                workspace.Write(metadataPath, workspace.Read(metadataPath).Replace($"name: {CopyTestWorkspace.StandaloneWorkflowCopyName}\n", $"name: {new string('n', WorkflowNaming.MaximumLength + 1)}\n", StringComparison.Ordinal), preamble: true);
+                break;
+        }
+
+        var report = await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(request, prepared.Identities, CancellationToken.None);
+
+        Assert.Equal(new CopyAuditFinding(CopyAuditCodes.Unreadable, await workspace.PushReaderFailureAsync()), Assert.Single(report.Blockers));
+    }
+
+    [Theory]
+    [InlineData("metadata")]
+    [InlineData("declaration")]
+    public async Task AuditWorkspace_WorkflowCopy_FindsALeftoverSourceReference(string place)
+    {
+        using var workspace = CopyTestWorkspace.StandaloneWorkflow();
+        var request = workspace.Request();
+        var prepared = await CopyTestWorkspace.CreateService().PrepareAsync(request, CancellationToken.None);
+        var referenceCopy = prepared.Identities.Single(mapping => mapping.Source == CopyTestWorkspace.HexSuffixedReference).Destination;
+        var file = place == "metadata" ? workspace.CopiedWorkflowFolder(prepared) + "/metadata.yml" : $"infrastructure/connections/{referenceCopy}.sync.yaml";
+        workspace.Write(file, workspace.Read(file).Replace(referenceCopy, CopyTestWorkspace.HexSuffixedReference, StringComparison.Ordinal), preamble: workspace.HasPreamble(file));
+
+        var finding = Assert.Single((await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(request, prepared.Identities, CancellationToken.None)).Blockers);
+        Assert.Equal(CopyAuditCodes.LeftoverSourceIdentity, finding.Code);
+        Assert.Equal(file, finding.Path);
+        Assert.EndsWith($" still names the source's connection reference {CopyTestWorkspace.HexSuffixedReference}.", finding.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(CopyWorkspaceKinds.Agent)]
+    [InlineData(CopyWorkspaceKinds.Workflow)]
+    public async Task AuditWorkspace_FindsAFolderThatStillCarriesTheSourceWorkflowId(string kind)
+    {
+        using var workspace = kind == CopyWorkspaceKinds.Workflow ? CopyTestWorkspace.StandaloneWorkflow() : CopyTestWorkspace.Cli();
+        var request = workspace.Request();
+        var prepared = await CopyTestWorkspace.CreateService().PrepareAsync(request, CancellationToken.None);
+        var workflow = prepared.Identities.Single(mapping => mapping.Kind == CopyIdentityKinds.Workflow);
+        var workflowFolder = workspace.CopiedWorkflowFolder(prepared);
+        var leftoverFolder = workflowFolder.Replace(workflow.Destination, workflow.Source, StringComparison.Ordinal);
+        Directory.Move(workspace.Path(workflowFolder), workspace.Path(leftoverFolder));
+        workspace.Write(leftoverFolder + "/metadata.yml", workspace.Read(leftoverFolder + "/metadata.yml").Replace(workflow.Destination, workflow.Source, StringComparison.Ordinal), preamble: true);
+
+        Assert.Contains(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The workflow folder still names the source's workflow {workflow.Source} instead of its copy.", leftoverFolder), (await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(request, prepared.Identities, CancellationToken.None)).Blockers);
+    }
+
+    [Theory]
+    [InlineData(CopyWorkspaceKinds.Agent)]
+    [InlineData(CopyWorkspaceKinds.Workflow)]
+    public async Task AuditWorkspace_FindsASourceReferenceLeftInAWorkflowDefinition(string kind)
+    {
+        using var workspace = kind == CopyWorkspaceKinds.Workflow ? CopyTestWorkspace.StandaloneWorkflow() : CopyTestWorkspace.Cli();
+        var request = workspace.Request();
+        var prepared = await CopyTestWorkspace.CreateService().PrepareAsync(request, CancellationToken.None);
+        var reference = prepared.Identities.First(mapping => mapping.Kind == CopyIdentityKinds.ConnectionReference);
+        var definitionPath = workspace.CopiedWorkflowFolder(prepared) + "/workflow.json";
+        workspace.Write(definitionPath, workspace.Read(definitionPath).Replace($"\"{reference.Destination}\"", $"\"{reference.Source}\"", StringComparison.Ordinal), preamble: true);
+
+        Assert.Equal(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The workflow definition still names the source's connection reference {reference.Source} instead of its copy.", definitionPath), Assert.Single((await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(request, prepared.Identities, CancellationToken.None)).Blockers));
     }
 
     [Fact]
@@ -278,7 +375,7 @@ public class CopyIdentityAuditTests
     {
         var client = CopyTestWorkspace.FreeEnvironment();
 
-        var report = await CopyTestWorkspace.CreateAuditor().AuditEnvironmentAsync(Identities(), client.Object, CancellationToken.None);
+        var report = await CopyTestWorkspace.CreateAuditor().AuditEnvironmentAsync(AgentCopyRequest, Identities(), client.Object, CancellationToken.None);
 
         Assert.True(report.Passed);
         Assert.Empty(report.Notices);
@@ -298,7 +395,7 @@ public class CopyIdentityAuditTests
     {
         var client = CopyTestWorkspace.FreeEnvironment();
 
-        var report = await CopyTestWorkspace.CreateAuditor().AuditEnvironmentAsync(Identities().Where(mapping => mapping.Kind != CopyIdentityKinds.ConnectorInternalId).ToArray(), client.Object, CancellationToken.None);
+        var report = await CopyTestWorkspace.CreateAuditor().AuditEnvironmentAsync(AgentCopyRequest, Identities().Where(mapping => mapping.Kind != CopyIdentityKinds.ConnectorInternalId).ToArray(), client.Object, CancellationToken.None);
 
         Assert.True(report.Passed);
         client.Verify(environment => environment.FindConnectorEnvironmentSuffixAsync(It.IsAny<CancellationToken>()), Times.Never);
@@ -310,7 +407,7 @@ public class CopyIdentityAuditTests
     {
         var client = CopyTestWorkspace.FreeEnvironment(environmentSuffix: "c57fa9bfea132312");
 
-        var report = await CopyTestWorkspace.CreateAuditor().AuditEnvironmentAsync(Identities(), client.Object, CancellationToken.None);
+        var report = await CopyTestWorkspace.CreateAuditor().AuditEnvironmentAsync(AgentCopyRequest, Identities(), client.Object, CancellationToken.None);
 
         var finding = Assert.Single(report.Blockers);
         Assert.Equal(CopyAuditCodes.UnsupportedResource, finding.Code);
@@ -323,7 +420,7 @@ public class CopyIdentityAuditTests
     {
         var client = CopyTestWorkspace.FreeEnvironment(environmentSuffix: null);
 
-        var report = await CopyTestWorkspace.CreateAuditor().AuditEnvironmentAsync(Identities(), client.Object, CancellationToken.None);
+        var report = await CopyTestWorkspace.CreateAuditor().AuditEnvironmentAsync(AgentCopyRequest, Identities(), client.Object, CancellationToken.None);
 
         var finding = Assert.Single(report.Blockers);
         Assert.Equal(CopyAuditCodes.UnsupportedResource, finding.Code);
@@ -338,7 +435,7 @@ public class CopyIdentityAuditTests
         var lookalike = new CustomConnectorMetadata { ConnectorId = Guid.NewGuid(), ConnectorInternalId = OwnedInternalIdPrefix + "extra-5fd6c23f2bd6bf7828" };
         var client = CopyTestWorkspace.FreeEnvironment(connectorsWithThePrefix: new[] { holder, lookalike });
 
-        var report = await CopyTestWorkspace.CreateAuditor().AuditEnvironmentAsync(Identities(), client.Object, CancellationToken.None);
+        var report = await CopyTestWorkspace.CreateAuditor().AuditEnvironmentAsync(AgentCopyRequest, Identities(), client.Object, CancellationToken.None);
 
         var finding = Assert.Single(report.Blockers);
         Assert.Equal(CopyAuditCodes.IdentityTaken, finding.Code);
@@ -352,7 +449,7 @@ public class CopyIdentityAuditTests
         var client = CopyTestWorkspace.FreeEnvironment();
         client.Setup(environment => environment.GetAgentIdBySchemaNameAsync(DestinationSchema, It.IsAny<CancellationToken>())).ReturnsAsync(holder);
 
-        var report = await CopyTestWorkspace.CreateAuditor().AuditEnvironmentAsync(Identities(), client.Object, CancellationToken.None);
+        var report = await CopyTestWorkspace.CreateAuditor().AuditEnvironmentAsync(AgentCopyRequest, Identities(), client.Object, CancellationToken.None);
 
         var finding = Assert.Single(report.Blockers);
         Assert.Equal(CopyAuditCodes.IdentityTaken, finding.Code);
@@ -366,7 +463,7 @@ public class CopyIdentityAuditTests
         var client = CopyTestWorkspace.FreeEnvironment();
         client.Setup(environment => environment.FindComponentSchemaNamesAsync(DestinationSchema + ".", It.IsAny<int>(), It.IsAny<CancellationToken>())).ReturnsAsync(new[] { DestinationSchema + ".topic.Greeting" });
 
-        var report = await CopyTestWorkspace.CreateAuditor().AuditEnvironmentAsync(Identities(), client.Object, CancellationToken.None);
+        var report = await CopyTestWorkspace.CreateAuditor().AuditEnvironmentAsync(AgentCopyRequest, Identities(), client.Object, CancellationToken.None);
 
         var finding = Assert.Single(report.Blockers);
         Assert.Equal(CopyAuditCodes.IdentityTaken, finding.Code);
@@ -378,7 +475,7 @@ public class CopyIdentityAuditTests
     {
         var client = CopyTestWorkspace.FreeEnvironment(existingWorkflows: new[] { OwnedWorkflow }, existingModels: new[] { OwnedModel }, existingConnectors: new[] { OwnedConnector }, existingReferences: new[] { OwnedReference });
 
-        var report = await CopyTestWorkspace.CreateAuditor().AuditEnvironmentAsync(Identities(), client.Object, CancellationToken.None);
+        var report = await CopyTestWorkspace.CreateAuditor().AuditEnvironmentAsync(AgentCopyRequest, Identities(), client.Object, CancellationToken.None);
 
         Assert.Equal(
             new[]

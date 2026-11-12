@@ -52,7 +52,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
 
     private static readonly HashSet<string> WorkflowActivationStateColumns = new(StringComparer.OrdinalIgnoreCase) { "statecode", "statuscode" };
 
-    private const string UnmanagedCloudFlowFilter = "category eq 5 and type eq 1 and ismanaged eq false";
+    private static readonly string UnmanagedCloudFlowFilter = $"category eq {CloudFlowCodes.Category} and type eq {CloudFlowCodes.Type} and ismanaged eq false";
 
     private const string FormattedValuesPreference = "odata.include-annotations=\"OData.Community.Display.V1.FormattedValue\"";
 
@@ -595,15 +595,8 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
             return Array.Empty<WorkflowSummary>();
         }
 
-        var requestUrl = $"{DataverseUrl}/api/data/v9.2/workflows?$select={string.Join(",", WorkflowSummaryColumns)}&$filter={Uri.EscapeDataString(string.IsNullOrWhiteSpace(nameFilter) ? UnmanagedCloudFlowFilter : $"{UnmanagedCloudFlowFilter} and contains(name,{ODataLiteral.LikePattern((nameFilter ?? string.Empty).Trim())})")}";
-
-        if (maximumCount > 0)
-        {
-            requestUrl += $"&$top={maximumCount}";
-        }
-
         var summaries = new List<WorkflowSummary>();
-        var nextUrl = requestUrl;
+        var nextUrl = UnmanagedCloudFlowsUrl(string.IsNullOrWhiteSpace(nameFilter) ? null : $"contains(name,{ODataLiteral.LikePattern((nameFilter ?? string.Empty).Trim())})", maximumCount);
 
         while (nextUrl is { Length: > 0 })
         {
@@ -629,6 +622,11 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
 
         return summaries.ToArray();
     }
+
+    /// <inheritdoc />
+    public virtual async Task<IReadOnlyList<WorkflowSummary>> FindCloudFlowsNamedAsync(string name, CancellationToken cancellationToken) => (await SendAsync<ODataResponse<WorkflowSummary>>(HttpMethod.Get, UnmanagedCloudFlowsUrl($"name eq {ODataLiteral.Quote(name)}", 1), null, false, cancellationToken).ConfigureAwait(false))?.Value?.ToArray() ?? Array.Empty<WorkflowSummary>();
+
+    private string UnmanagedCloudFlowsUrl(string? nameCondition, int? maximumCount) => $"{DataverseUrl}/api/data/v9.2/workflows?$select={string.Join(",", WorkflowSummaryColumns)}&$filter={Uri.EscapeDataString(nameCondition is null ? UnmanagedCloudFlowFilter : $"{UnmanagedCloudFlowFilter} and {nameCondition}")}{(maximumCount > 0 ? $"&$top={maximumCount}" : string.Empty)}";
 
     public virtual async Task<bool> DeleteWorkflowAsync(Guid workflowId, CancellationToken cancellationToken)
     {

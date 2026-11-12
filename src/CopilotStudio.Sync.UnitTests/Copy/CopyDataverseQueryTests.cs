@@ -122,6 +122,18 @@ public class CopyDataverseQueryTests
         Assert.Equal("https://test.crm.dynamics.com/api/data/v9.2/connectors?$select=connectorid,name,displayname,connectorinternalid,connectortype,ismanaged,modifiedon&$filter=(startswith(connectorinternalid,'shared[_]o''brien-5f'))", Uri.UnescapeDataString(Assert.Single(requests).Uri));
     }
 
+    [Fact]
+    public async Task FindCloudFlowsNamed_QueriesUnmanagedCloudFlowsByExactNameOnce()
+    {
+        var workflowId = Guid.NewGuid();
+        var (client, requests) = Create(_ => Json(HttpStatusCode.OK, $"{{\"value\":[{{\"workflowid\":\"{workflowId}\",\"name\":\"o'brien's 50%_off approvals\"}}]}}"));
+
+        var flow = Assert.Single(await client.FindCloudFlowsNamedAsync("O'Brien's 50%_off approvals", CancellationToken.None));
+        Assert.Equal(workflowId, flow.WorkflowId);
+        Assert.Equal("o'brien's 50%_off approvals", flow.Name);
+        Assert.Equal("https://test.crm.dynamics.com/api/data/v9.2/workflows?$select=workflowid,name,description,statecode,statuscode,modifiedon&$filter=category eq 5 and type eq 1 and ismanaged eq false and name eq 'O''Brien''s 50%_off approvals'&$top=1", Uri.UnescapeDataString(Assert.Single(requests).Uri));
+    }
+
     [Theory]
     [InlineData(false, " and ismanaged eq false")]
     [InlineData(true, "")]

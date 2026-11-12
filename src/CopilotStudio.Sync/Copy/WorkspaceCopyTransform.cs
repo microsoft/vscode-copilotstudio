@@ -25,7 +25,9 @@ internal sealed class WorkspaceCopyTransform
 
     internal static readonly HashSet<string> WorkflowKeys = new(StringComparer.Ordinal) { "flowId", "workflowId" };
 
-    internal static readonly HashSet<string> ConnectionReferenceKeys = new(StringComparer.Ordinal) { "connectionReference", "connectionReferenceLogicalName" };
+    internal const string ConnectionReferenceLogicalNameKey = "connectionReferenceLogicalName";
+
+    internal static readonly HashSet<string> ConnectionReferenceKeys = new(StringComparer.Ordinal) { "connectionReference", ConnectionReferenceLogicalNameKey };
 
     internal const string AIModelKey = "aIModelId";
 
@@ -117,6 +119,20 @@ internal sealed class WorkspaceCopyTransform
         return Encoding.UTF8.GetString(CopyTextEdits.WithoutPreamble(bytes));
     }
 
+    internal static async Task<SyncDataverseClient.WorkflowMetadata?> ReadStandaloneWorkflowAsync(IFileAccessor workspace, List<CopyAuditFinding> blockers, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await StandaloneWorkflowSynchronizer.ReadFolderAsync(workspace, cancellationToken).ConfigureAwait(false);
+        }
+        catch (StandaloneWorkflowException failure)
+        {
+            blockers.Add(new CopyAuditFinding(CopyAuditCodes.Unreadable, failure.Message));
+
+            return null;
+        }
+    }
+
     private static bool IsContentYaml(string relative)
     {
         var leaf = relative.Substring(relative.LastIndexOf('/') + 1);
@@ -136,12 +152,24 @@ internal sealed class WorkspaceCopyTransform
 
     private async Task<CopyPreparationResult> RunAsync(CancellationToken cancellationToken)
     {
-        ReadRoot();
+        if (_request.IsWorkflowCopy)
+        {
+            await ReadWorkflowRootAsync(cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            ReadAgentRoot();
+        }
+
         var inventory = TakeInventory(cancellationToken);
 
         if (_blockers.Count == 0)
         {
-            Classify(inventory);
+            if (!_request.IsWorkflowCopy)
+            {
+                Classify(inventory);
+            }
+
             await AllocateAsync(inventory, cancellationToken).ConfigureAwait(false);
         }
 
@@ -156,7 +184,11 @@ internal sealed class WorkspaceCopyTransform
         RewriteWorkflows(cancellationToken);
         RewritePrompts();
         RewriteConnectors();
-        RenameSourceRootedPaths();
+
+        if (!_request.IsWorkflowCopy)
+        {
+            RenameSourceRootedPaths();
+        }
 
         return new CopyPreparationResult
         {
@@ -167,7 +199,7 @@ internal sealed class WorkspaceCopyTransform
         };
     }
 
-    private void ReadRoot()
+    private void ReadAgentRoot()
     {
         var settingsPath = Path.Combine(_root, SettingsFileName);
 
@@ -206,6 +238,53 @@ internal sealed class WorkspaceCopyTransform
         }
     }
 
+    private async Task ReadWorkflowRootAsync(CancellationToken cancellationToken)
+    {
+        var workspace = WorkflowWorkspace.OpenWorkspace(_root);
+
+        if (WorkflowWorkspace.HasAgentProject(workspace))
+        {
+            _blockers.Add(new CopyAuditFinding(CopyAuditCodes.Unreadable, "The workspace holds an agent project, so it is not a standalone workflow."));
+            throw new CopyPreparationException(_blockers.ToArray());
+        }
+
+        if (WorkflowWorkspace.HasIncompleteWorkflow(workspace))
+        {
+            _blockers.Add(new CopyAuditFinding(CopyAuditCodes.Unreadable, "A workflow folder is missing its definition or its metadata."));
+            throw new CopyPreparationException(_blockers.ToArray());
+        }
+
+        if (await ReadStandaloneWorkflowAsync(workspace, _blockers, cancellationToken).ConfigureAwait(false) is not { } source)
+        {
+            throw new CopyPreparationException(_blockers.ToArray());
+        }
+
+        if (_request.SourceWorkflowId is { } sourceWorkflowId && sourceWorkflowId != source.WorkflowId)
+        {
+            _blockers.Add(new CopyAuditFinding(CopyAuditCodes.Unreadable, $"The workspace holds workflow {source.WorkflowId}, not the selected source {sourceWorkflowId}."));
+        }
+
+        if (source.Category != CloudFlowCodes.Category || source.Type != CloudFlowCodes.Type)
+        {
+            _blockers.Add(new CopyAuditFinding(CopyAuditCodes.UnsupportedResource, source.Category is { } category && source.Type is { } type ? $"The workflow is not a cloud flow (category {category}, type {type}), so it cannot be copied." : "The workflow's metadata does not name its category and type, so a copy cannot be created as a cloud flow."));
+        }
+
+        if (WorkflowNaming.Validate(_request.DisplayName) is { } reason)
+        {
+            _blockers.Add(new CopyAuditFinding(CopyAuditCodes.WorkflowNameUnsupported, $"The new workflow's name cannot be used: {reason}"));
+        }
+
+        if (string.Equals(_request.DisplayName, source.Name, StringComparison.OrdinalIgnoreCase))
+        {
+            _blockers.Add(new CopyAuditFinding(CopyAuditCodes.IdentityTaken, $"The new name '{_request.DisplayName}' is the source workflow's own name."));
+        }
+
+        if (_blockers.Count > 0)
+        {
+            throw new CopyPreparationException(_blockers.ToArray());
+        }
+    }
+
     private Inventory TakeInventory(CancellationToken cancellationToken)
     {
         var inventory = new Inventory();
@@ -234,24 +313,27 @@ internal sealed class WorkspaceCopyTransform
             CollectWorkflowDefinitionReferences(inventory, File.ReadAllBytes(workflow.DefinitionPath), $"{folder}/{WorkflowWorkspace.DefinitionFileName}");
         }
 
-        foreach (var prompt in AgentWorkspaceResources.PromptFolders(_root))
+        if (!_request.IsWorkflowCopy)
         {
-            if (!File.Exists(Path.Combine(prompt.FolderPath, AiPromptLayout.MetadataFileName)) || ReadMetadata(Path.Combine(prompt.FolderPath, AiPromptLayout.MetadataFileName), $"{AiPromptLayout.FolderName}/{prompt.FolderName}/{AiPromptLayout.MetadataFileName}") is not { } metadata)
+            foreach (var prompt in AgentWorkspaceResources.PromptFolders(_root))
             {
-                continue;
+                if (!File.Exists(Path.Combine(prompt.FolderPath, AiPromptLayout.MetadataFileName)) || ReadMetadata(Path.Combine(prompt.FolderPath, AiPromptLayout.MetadataFileName), $"{AiPromptLayout.FolderName}/{prompt.FolderName}/{AiPromptLayout.MetadataFileName}") is not { } metadata)
+                {
+                    continue;
+                }
+
+                var promptPath = Path.Combine(prompt.FolderPath, AiPromptLayout.PromptFileName);
+                var promptName = File.Exists(promptPath) ? AiPromptProjection.TryReadPromptName(ReadText(promptPath, out _)) : null;
+                var name = promptName ?? (metadata.TryGetValue("name", out var value) && value is string text && text.Length > 0 ? text : prompt.FolderName);
+                inventory.Prompts.Add(new PromptEntry(prompt.ModelId, prompt.FolderName, name, File.Exists(promptPath)));
             }
 
-            var promptPath = Path.Combine(prompt.FolderPath, AiPromptLayout.PromptFileName);
-            var promptName = File.Exists(promptPath) ? AiPromptProjection.TryReadPromptName(ReadText(promptPath, out _)) : null;
-            var name = promptName ?? (metadata.TryGetValue("name", out var value) && value is string text && text.Length > 0 ? text : prompt.FolderName);
-            inventory.Prompts.Add(new PromptEntry(prompt.ModelId, prompt.FolderName, name, File.Exists(promptPath)));
-        }
-
-        foreach (var folder in AgentWorkspaceResources.ConnectorFolders(_root))
-        {
-            if (ReadConnector(folder) is { } connector)
+            foreach (var folder in AgentWorkspaceResources.ConnectorFolders(_root))
             {
-                inventory.Connectors.Add(connector);
+                if (ReadConnector(folder) is { } connector)
+                {
+                    inventory.Connectors.Add(connector);
+                }
             }
         }
 
@@ -267,18 +349,21 @@ internal sealed class WorkspaceCopyTransform
             _blockers.Add(new CopyAuditFinding(CopyAuditCodes.Unreadable, $"A connection reference declaration could not be parsed ({failure.Message}), so the copy's references cannot be declared."));
         }
 
-        foreach (var relative in ContentYamlFiles(_root))
+        if (!_request.IsWorkflowCopy)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            inventory.ContentFiles.Add(relative);
+            foreach (var relative in ContentYamlFiles(_root))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                inventory.ContentFiles.Add(relative);
 
-            try
-            {
-                CopyTextEdits.VisitYaml(relative, ReadText(Path.Combine(_root, relative), out _), scalar => CollectComponentReference(inventory, relative, scalar));
-            }
-            catch (Exception failure) when (failure is not OperationCanceledException)
-            {
-                _blockers.Add(new CopyAuditFinding(CopyAuditCodes.Unreadable, $"The file could not be parsed ({failure.Message}), so its identities cannot be rewritten.", relative));
+                try
+                {
+                    CopyTextEdits.VisitYaml(relative, ReadText(Path.Combine(_root, relative), out _), scalar => CollectComponentReference(inventory, relative, scalar));
+                }
+                catch (Exception failure) when (failure is not OperationCanceledException)
+                {
+                    _blockers.Add(new CopyAuditFinding(CopyAuditCodes.Unreadable, $"The file could not be parsed ({failure.Message}), so its identities cannot be rewritten.", relative));
+                }
             }
         }
 
@@ -318,26 +403,17 @@ internal sealed class WorkspaceCopyTransform
     {
         try
         {
-            using var document = JsonDocument.Parse(CopyTextEdits.WithoutPreamble(definition).AsMemory(), new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+            using var document = JsonDocument.Parse(CopyTextEdits.WithoutPreamble(definition).AsMemory(), WorkflowDefinitionFile.StrictJson);
 
-            if (!document.RootElement.TryGetProperty("properties", out var properties) || !properties.TryGetProperty(WorkflowReferencesKey, out var references) || references.ValueKind != JsonValueKind.Object)
+            if (!WorkflowDefinitionFile.TryGetConnectionReferences(document.RootElement, out var references))
             {
-                return;
+                _blockers.Add(new CopyAuditFinding(CopyAuditCodes.Unreadable, "The workflow definition declares its connection references in a shape a push cannot read, so they cannot be rewritten.", relative));
             }
 
-            foreach (var reference in references.EnumerateObject())
+            foreach (var reference in references)
             {
-                if (!reference.Value.TryGetProperty("connection", out var connection) || !connection.TryGetProperty("connectionReferenceLogicalName", out var logicalName) || logicalName.GetString() is not { Length: > 0 } name)
-                {
-                    continue;
-                }
-
-                inventory.WorkflowReferences.Add(name);
-
-                if (reference.Value.TryGetProperty("api", out var api) && api.TryGetProperty("name", out var apiName) && apiName.GetString() is { Length: > 0 } connectorInternalId)
-                {
-                    inventory.WorkflowReferenceConnectors[name] = ConnectorApiPrefix + connectorInternalId;
-                }
+                inventory.WorkflowReferences.Add(reference.LogicalName);
+                inventory.WorkflowReferenceConnectors[reference.LogicalName] = ConnectorApiPrefix + reference.ConnectorInternalId;
             }
         }
         catch (JsonException failure)
@@ -432,12 +508,15 @@ internal sealed class WorkspaceCopyTransform
 
     private async Task AllocateAsync(Inventory inventory, CancellationToken cancellationToken)
     {
-        _identities.Add(new CopyIdentityMapping(CopyIdentityKinds.Schema, _sourceSchema, _destinationSchema));
+        if (!_request.IsWorkflowCopy)
+        {
+            _identities.Add(new CopyIdentityMapping(CopyIdentityKinds.Schema, _sourceSchema, _destinationSchema));
+        }
 
         foreach (var workflow in inventory.Workflows)
         {
             var destinationId = Guid.NewGuid();
-            var destinationName = ResourceName(workflow.Name);
+            var destinationName = _request.IsWorkflowCopy ? _request.DisplayName : ResourceName(workflow.Name);
             _workflows[workflow.Id] = new WorkflowCopy(workflow, destinationId, destinationName, WorkflowWorkspace.FolderNameFor(destinationName, destinationId));
             _identities.Add(new CopyIdentityMapping(CopyIdentityKinds.Workflow, workflow.Id.ToString("D"), destinationId.ToString("D")));
         }
@@ -544,7 +623,7 @@ internal sealed class WorkspaceCopyTransform
 
             if (candidate.Length > MaximumConnectionReferenceNameLength)
             {
-                _blockers.Add(new CopyAuditFinding(CopyAuditCodes.SchemaTooLong, $"The connection reference {source} would be renamed to {candidate}, which is longer than {MaximumConnectionReferenceNameLength} characters. Choose a shorter schema name."));
+                _blockers.Add(new CopyAuditFinding(CopyAuditCodes.SchemaTooLong, $"The connection reference {source} would be renamed to {candidate}, which is longer than {MaximumConnectionReferenceNameLength} characters.{(_request.IsWorkflowCopy ? string.Empty : " Choose a shorter schema name.")}"));
 
                 return null;
             }
@@ -563,6 +642,11 @@ internal sealed class WorkspaceCopyTransform
     private string CandidateReferenceName(string source)
     {
         var named = NameCopiedConnectors(source);
+
+        if (_request.IsWorkflowCopy)
+        {
+            return RefreshTrailingSuffix(named);
+        }
 
         if (MapSchema(named, _sourceSchema, _destinationSchema) is { } rerooted && !_allocatedReferenceNames.Contains(rerooted))
         {
@@ -854,7 +938,7 @@ internal sealed class WorkspaceCopyTransform
             return _connectorInternalIds.TryGetValue(json.Value, out var renamedKey) ? renamedKey : null;
         }
 
-        if (string.Equals(json.OwnerProperty, "connectionReferenceLogicalName", StringComparison.Ordinal))
+        if (string.Equals(json.OwnerProperty, ConnectionReferenceLogicalNameKey, StringComparison.Ordinal))
         {
             return _connectionReferenceRenames.TryGetValue(json.Value, out var reference) ? reference : null;
         }

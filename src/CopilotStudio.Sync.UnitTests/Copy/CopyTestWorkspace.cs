@@ -26,21 +26,33 @@ internal sealed class CopyTestWorkspace : IDisposable
     public const string ConnectorFolder = "connectors/cr1_5Fweather-20plus-7c1d3e5f-9a2b-4c6d-8e0f-1a3b5c7d9e2f";
     public const string ConnectorToolFile = "capabilities/tools/Getforecast_q7R.mcs.yml";
     public const string TeamsToolFile = "capabilities/tools/Getasection_fcU.mcs.yml";
+    public const string StandaloneWorkflowName = "Approve expenses";
+    public const string StandaloneWorkflowCopyName = "Approve expenses copy";
+    public const string AgentRootedReference = "cre98_AgentA1.shared_commondataserviceforapps.787379aebbb2450a96f20e20d71bfd30";
+    public const string HexSuffixedReference = "new_sharedcommondataserviceforapps_275f6bca";
+    public const string UnsuffixedReference = "new_sharedoffice365";
 
     public static readonly Guid ClassicWorkflowId = Guid.Parse("94945b98-fe8c-f111-8077-7ced8d702753");
     public static readonly Guid CliWorkflowId = Guid.Parse("6e5229e3-e343-f111-88b5-7ced8d3b6119");
     public static readonly Guid PromptModelId = Guid.Parse("3b5436b4-d7b4-4389-96e8-107446c9094a");
     public static readonly Guid ConnectorId = Guid.Parse("7c1d3e5f-9a2b-4c6d-8e0f-1a3b5c7d9e2f");
+    public static readonly Guid StandaloneWorkflowId = Guid.Parse("b6cf03a8-d3ee-5321-a464-e415cfc53b75");
+    public static readonly Guid CalledPromptId = Guid.Parse("775d9f81-18d5-587f-abf4-ff8f9f744804");
+    public static readonly Guid ChildWorkflowId = Guid.Parse("5d2b7e1c-8a4f-4c3e-9b6d-0f1e2a3b4c5d");
+    public static readonly string StandaloneWorkflowFolder = WorkflowWorkspace.RelativeFolderFor(StandaloneWorkflowName, StandaloneWorkflowId);
 
-    private CopyTestWorkspace(string root, string sourceSchema)
+    private CopyTestWorkspace(string root, string sourceSchema, string kind = CopyWorkspaceKinds.Agent)
     {
         Root = root;
         SourceSchema = sourceSchema;
+        Kind = kind;
     }
 
     public string Root { get; }
 
     public string SourceSchema { get; }
+
+    public string Kind { get; }
 
     public static CopyTestWorkspace Classic()
     {
@@ -74,13 +86,26 @@ internal sealed class CopyTestWorkspace : IDisposable
         return workspace;
     }
 
+    public static CopyTestWorkspace StandaloneWorkflow()
+    {
+        var workspace = new CopyTestWorkspace(NewRoot(), string.Empty, CopyWorkspaceKinds.Workflow);
+        workspace.Write(AgentClassifier.WorkspaceLayoutMarkerFileName, AgentClassifier.BuildWorkspaceLayoutMarker());
+        workspace.Write(WorkflowWorkspace.ProjectFileName, WorkflowWorkspace.BuildProjectFile());
+        workspace.Write(StandaloneWorkflowFolder + "/metadata.yml", $"jsonFileName: {StandaloneWorkflowFolder}/workflow.json\nworkflowId: {StandaloneWorkflowId:D}\nname: {StandaloneWorkflowName}\ntype: 1\ndescription: Routes each expense report to its approver.\nsubprocess: false\ncategory: 5\nmode: 0\nscope: 4\nonDemand: false\ntriggerOnCreate: false\ntriggerOnDelete: false\nasyncAutodelete: false\nsyncWorkflowLogOnFailure: false\nstateCode: 1\nstatusCode: 2\nrunAs: 1\nisTransacted: true\nintroducedVersion: 1.0\nisCustomizable:\n  value: true\n  canBeChanged: true\n  managedPropertyLogicalName: iscustomizableanddeletable\nbusinessProcessType: 0\nisCustomProcessingStepAllowedForOtherPublishers:\n  value: true\n  canBeChanged: true\n  managedPropertyLogicalName: canbedeleted\nmodernFlowType: 1\nprimaryEntity: none\nconnectionReferences:\n- {AgentRootedReference}\n- {HexSuffixedReference}\n- {UnsuffixedReference}\n", preamble: true);
+        workspace.Write(StandaloneWorkflowFolder + "/workflow.json", "{\n  \"properties\": {\n    \"connectionReferences\": {\n      \"shared_commondataserviceforapps\": {\n        \"api\": {\n          \"name\": \"shared_commondataserviceforapps\"\n        },\n        \"connection\": {\n          \"connectionReferenceLogicalName\": \"" + AgentRootedReference + "\"\n        },\n        \"runtimeSource\": \"embedded\"\n      },\n      \"shared_commondataserviceforapps_1\": {\n        \"api\": {\n          \"name\": \"shared_commondataserviceforapps\"\n        },\n        \"connection\": {\n          \"connectionReferenceLogicalName\": \"" + HexSuffixedReference + "\"\n        },\n        \"runtimeSource\": \"embedded\"\n      },\n      \"shared_office365\": {\n        \"api\": {\n          \"name\": \"shared_office365\"\n        },\n        \"connection\": {\n          \"connectionReferenceLogicalName\": \"" + UnsuffixedReference + "\"\n        },\n        \"runtimeSource\": \"embedded\"\n      }\n    },\n    \"definition\": {\n      \"contentVersion\": \"1.0.0.0\",\n      \"triggers\": {\n        \"manual\": {\n          \"type\": \"Request\",\n          \"kind\": \"Button\"\n        }\n      },\n      \"actions\": {\n        \"Run_a_prompt\": {\n          \"type\": \"OpenApiConnection\",\n          \"inputs\": {\n            \"parameters\": {\n              \"recordId\": \"" + CalledPromptId.ToString("D") + "\"\n            },\n            \"host\": {\n              \"apiId\": \"providers/Microsoft.ProcessSimple/operationGroups/aibuilder\",\n              \"operationId\": \"aibuilderpredict_customprompt\"\n            }\n          }\n        },\n        \"Run_a_Child_Flow\": {\n          \"type\": \"Workflow\",\n          \"inputs\": {\n            \"host\": {\n              \"workflowReferenceName\": \"" + ChildWorkflowId.ToString("D") + "\"\n            }\n          },\n          \"runAfter\": {\n            \"Run_a_prompt\": [\n              \"Succeeded\"\n            ]\n          }\n        }\n      }\n    }\n  },\n  \"schemaVersion\": \"1.0.0.0\"\n}\n", preamble: true);
+        workspace.Write($"infrastructure/connections/{AgentRootedReference}.sync.yaml", $"connectionReferences:\n  - connectionReferenceLogicalName: {AgentRootedReference}\n    connectorId: /providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps\n");
+        workspace.Write($"infrastructure/connections/{HexSuffixedReference}.sync.yaml", $"connectionReferences:\n  - connectionReferenceLogicalName: {HexSuffixedReference}\n    connectorId: /providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps\n", preamble: true);
+
+        return workspace;
+    }
+
     public static WorkspaceSynchronizer CreateSynchronizer() => new(new SyncMcsFileParser(LspProjectorService.Instance), new FileAccessorFactory(), new Mock<IIslandControlPlaneService>(MockBehavior.Strict).Object, new TestSyncProgress(new List<string>()), new LspComponentPathResolver());
 
     public static IWorkspaceCopyService CreateService() => new WorkspaceCopyService(CreateSynchronizer());
 
     public static CopyIdentityAuditor CreateAuditor() => new(CreateSynchronizer());
 
-    public static Mock<ICopyDataverseClient> FreeEnvironment(Guid[]? existingWorkflows = null, Guid[]? existingModels = null, Guid[]? existingConnectors = null, string[]? existingReferences = null, string? environmentSuffix = "d6c23f2bd6bf7828", CustomConnectorMetadata[]? connectorsWithThePrefix = null)
+    public static Mock<ICopyDataverseClient> FreeEnvironment(Guid[]? existingWorkflows = null, Guid[]? existingModels = null, Guid[]? existingConnectors = null, string[]? existingReferences = null, string? environmentSuffix = "d6c23f2bd6bf7828", CustomConnectorMetadata[]? connectorsWithThePrefix = null, SyncDataverseClient.WorkflowSummary[]? cloudFlowsWithTheName = null)
     {
         var workflows = new HashSet<Guid>(existingWorkflows ?? Array.Empty<Guid>());
         var models = new HashSet<Guid>(existingModels ?? Array.Empty<Guid>());
@@ -95,11 +120,19 @@ internal sealed class CopyTestWorkspace : IDisposable
         client.Setup(environment => environment.FindConnectorEnvironmentSuffixAsync(It.IsAny<CancellationToken>())).ReturnsAsync(environmentSuffix);
         client.Setup(environment => environment.FindConnectorsByInternalIdPrefixesAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>())).ReturnsAsync(connectorsWithThePrefix ?? Array.Empty<CustomConnectorMetadata>());
         client.Setup(environment => environment.GetConnectionReferencesByLogicalNamesAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>())).ReturnsAsync((IEnumerable<string> names, CancellationToken _) => names.Where(references.Contains).Select(name => new SyncDataverseClient.ConnectionReferenceInfo { ConnectionReferenceLogicalName = name }).ToArray());
+        client.Setup(environment => environment.FindCloudFlowsNamedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(cloudFlowsWithTheName ?? Array.Empty<SyncDataverseClient.WorkflowSummary>());
 
         return client;
     }
 
-    public CopyPreparationRequest Request(string? destinationSchema = null, string? sourceDefinitionPath = null) => new()
+    public CopyPreparationRequest Request(string? destinationSchema = null, string? sourceDefinitionPath = null) => Kind == CopyWorkspaceKinds.Workflow ? new CopyPreparationRequest
+    {
+        WorkspacePath = Root,
+        WorkspaceKind = CopyWorkspaceKinds.Workflow,
+        SourceWorkflowId = StandaloneWorkflowId,
+        DisplayName = StandaloneWorkflowCopyName,
+        CapturedInTargetEnvironment = true,
+    } : new CopyPreparationRequest
     {
         WorkspacePath = Root,
         SourceSchemaName = SourceSchema,
@@ -144,6 +177,12 @@ internal sealed class CopyTestWorkspace : IDisposable
     }
 
     public string Folder(string parent, Guid identifier) => Directory.EnumerateDirectories(Path(parent)).Select(System.IO.Path.GetFileName).OfType<string>().Single(name => name.EndsWith(identifier.ToString("D"), StringComparison.OrdinalIgnoreCase));
+
+    public string CopiedWorkflowFolder(CopyPreparationResult result) => "workflows/" + Folder("workflows", Guid.Parse(result.Identities.Single(mapping => mapping.Kind == CopyIdentityKinds.Workflow).Destination));
+
+    public IReadOnlyList<string> Snapshot() => Directory.EnumerateFiles(Root, "*", SearchOption.AllDirectories).Select(path => System.IO.Path.GetRelativePath(Root, path).Replace('\\', '/') + ":" + Convert.ToBase64String(File.ReadAllBytes(path))).OrderBy(entry => entry, StringComparer.Ordinal).ToArray();
+
+    public async Task<string> PushReaderFailureAsync() => (await Xunit.Assert.ThrowsAsync<StandaloneWorkflowException>(() => StandaloneWorkflowSynchronizer.ReadFolderAsync(WorkflowWorkspace.OpenWorkspace(Root), CancellationToken.None))).Message;
 
     public void AddPromptRun(string workflowFolder, Guid modelId) => Write(workflowFolder + "/workflow.json", Read(workflowFolder + "/workflow.json").Replace("\"actions\": {}", "\"actions\": {\n        \"Run_a_prompt\": {\n          \"type\": \"OpenApiConnection\",\n          \"inputs\": {\n            \"parameters\": {\n              \"recordId\": \"" + modelId.ToString("D") + "\"\n            },\n            \"host\": {\n              \"apiId\": \"providers/Microsoft.ProcessSimple/operationGroups/aibuilder\",\n              \"operationId\": \"aibuilderpredict_customprompt\"\n            }\n          }\n        }\n      }", StringComparison.Ordinal), preamble: true);
 

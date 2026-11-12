@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.CopilotStudio.Sync.Copy;
+using Microsoft.CopilotStudio.Sync.Dataverse;
 using Moq;
 using Xunit;
 
@@ -20,6 +21,25 @@ public class WorkspaceCopyPreparationTests
     private const string ClassicConnectorToolFile = "actions/WeatherPlus-WeatherPlus.mcs.yml";
 
     private static readonly Guid DuplicateConnectorId = Guid.Parse("8b261c24-156b-425c-ae48-4b40e060cd27");
+
+    private static readonly Guid OtherWorkflowId = Guid.Parse("0f1e2d3c-4b5a-4968-8776-655443322110");
+
+    public static TheoryData<string, string?, string?> NewWorkflowNames => new()
+    {
+        { new string('n', WorkflowNaming.MaximumLength + 1), CopyAuditCodes.WorkflowNameUnsupported, "The new workflow's name cannot be used: A workflow name can hold at most 100 characters, and this one holds 101." },
+        { "Approve\texpenses", CopyAuditCodes.WorkflowNameUnsupported, "The new workflow's name cannot be used: A workflow name cannot hold control characters such as tabs or line breaks." },
+        { "APPROVE EXPENSES", CopyAuditCodes.IdentityTaken, "The new name 'APPROVE EXPENSES' is the source workflow's own name." },
+        { new string('n', WorkflowNaming.MaximumLength), null, null },
+    };
+
+    public static TheoryData<string, string, string?> MetadataValuesTheCopyCannotRewrite => new()
+    {
+        { "\nname: Approve expenses\n", "\nname: >-\n  Approve expenses\n", "The copy is still named 'Approve expenses', not 'Approve expenses copy': the source's metadata.yml writes the name in a form the copy cannot rewrite. Write it on one line and copy again." },
+        { "\nstateCode: 1\n", "\nstateCode: >-\n  1\n", "The copy is not a draft (stateCode 0, statusCode 1): the source's metadata.yml writes the state in a form the copy cannot rewrite. Write it on one line and copy again." },
+        { "\nstatusCode: 2\n", "\nstatusCode: |-\n  2\n", "The copy is not a draft (stateCode 0, statusCode 1): the source's metadata.yml writes the state in a form the copy cannot rewrite. Write it on one line and copy again." },
+        { "\nstateCode: 1\nstatusCode: 2\n", "\nstateCode: >-\n  0\nstatusCode: |-\n  1\n", null },
+        { "\nstateCode: 1\nstatusCode: 2\n", "\n", null },
+    };
 
     [Fact]
     public async Task Prepare_ClassicCopy_RewritesOwnedIdentitiesAndCopiesDependencies()
@@ -649,7 +669,410 @@ public class WorkspaceCopyPreparationTests
         Assert.Contains(CopyTestWorkspace.DestinationSchemaFor(CopyTestWorkspace.CliSchema) + ".BotSettingsComponent.Default_FeedbackCollectionBotSettings_jsNFOl", result.Audit.ComponentSchemaNames);
     }
 
+    [Fact]
+    public async Task Prepare_WorkflowCopy_GivesTheFlowANewIdFolderAndNameAsADraft()
+    {
+        using var workspace = CopyTestWorkspace.StandaloneWorkflow();
+
+        var result = await CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None);
+
+        var workflowCopy = Guid.Parse(Destination(result, CopyIdentityKinds.Workflow, CopyTestWorkspace.StandaloneWorkflowId.ToString("D")));
+        var workflowFolder = WorkflowWorkspace.RelativeFolderFor(CopyTestWorkspace.StandaloneWorkflowCopyName, workflowCopy);
+        var metadata = workspace.Read(workflowFolder + "/metadata.yml");
+        Assert.True(result.Audit.Passed);
+        Assert.NotEqual(CopyTestWorkspace.StandaloneWorkflowId, workflowCopy);
+        Assert.False(workspace.Exists(CopyTestWorkspace.StandaloneWorkflowFolder));
+        Assert.Equal(workspace.Path(workflowFolder), Assert.Single(Directory.EnumerateDirectories(workspace.Path("workflows"))));
+        Assert.Contains(result.RenamedPaths, renamed => renamed.Source == CopyTestWorkspace.StandaloneWorkflowFolder && renamed.Destination == workflowFolder);
+        Assert.Contains($"\nworkflowId: {workflowCopy:D}\n", metadata, StringComparison.Ordinal);
+        Assert.Contains("\nname: Approve expenses copy\n", metadata, StringComparison.Ordinal);
+        Assert.StartsWith($"jsonFileName: {workflowFolder}/workflow.json\n", metadata, StringComparison.Ordinal);
+        Assert.Contains("\nstateCode: 0\n", metadata, StringComparison.Ordinal);
+        Assert.Contains("\nstatusCode: 1\n", metadata, StringComparison.Ordinal);
+        Assert.Equal(new[] { CopyTestWorkspace.StandaloneWorkflowCopyName }, result.DraftWorkflows);
+        Assert.Equal(new[] { CopyIdentityKinds.Workflow, CopyIdentityKinds.ConnectionReference, CopyIdentityKinds.ConnectionReference, CopyIdentityKinds.ConnectionReference }, result.Identities.Select(mapping => mapping.Kind));
+    }
+
+    [Fact]
+    public async Task Prepare_WorkflowCopy_RenamesEachReferenceInMetadataDefinitionAndDeclarations()
+    {
+        using var workspace = CopyTestWorkspace.StandaloneWorkflow();
+
+        var result = await CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None);
+
+        var agentRootedCopy = Destination(result, CopyIdentityKinds.ConnectionReference, CopyTestWorkspace.AgentRootedReference);
+        var hexSuffixedCopy = Destination(result, CopyIdentityKinds.ConnectionReference, CopyTestWorkspace.HexSuffixedReference);
+        var unsuffixedCopy = Destination(result, CopyIdentityKinds.ConnectionReference, CopyTestWorkspace.UnsuffixedReference);
+        var workflowFolder = workspace.CopiedWorkflowFolder(result);
+        var metadata = workspace.Read(workflowFolder + "/metadata.yml");
+        var definition = workspace.Read(workflowFolder + "/workflow.json");
+        Assert.True(result.Audit.Passed);
+        Assert.Matches(@"^cre98_AgentA1\.shared_commondataserviceforapps\.[0-9a-f]{32}$", agentRootedCopy);
+        Assert.NotEqual(CopyTestWorkspace.AgentRootedReference, agentRootedCopy);
+        Assert.Matches("^new_sharedcommondataserviceforapps_[0-9a-f]{8}$", hexSuffixedCopy);
+        Assert.NotEqual(CopyTestWorkspace.HexSuffixedReference, hexSuffixedCopy);
+        Assert.Matches("^new_sharedoffice365_[0-9a-f]{8}$", unsuffixedCopy);
+
+        foreach (var (source, copy) in new[] { (CopyTestWorkspace.AgentRootedReference, agentRootedCopy), (CopyTestWorkspace.HexSuffixedReference, hexSuffixedCopy), (CopyTestWorkspace.UnsuffixedReference, unsuffixedCopy) })
+        {
+            Assert.Contains($"\n- {copy}\n", metadata, StringComparison.Ordinal);
+            Assert.DoesNotContain($"\n- {source}\n", metadata, StringComparison.Ordinal);
+            Assert.Contains($"\"connectionReferenceLogicalName\": \"{copy}\"", definition, StringComparison.Ordinal);
+            Assert.DoesNotContain($"\"{source}\"", definition, StringComparison.Ordinal);
+            Assert.Contains($"connectionReferenceLogicalName: {copy}", workspace.Read($"infrastructure/connections/{copy}.sync.yaml"), StringComparison.Ordinal);
+            Assert.False(workspace.Exists($"infrastructure/connections/{source}.sync.yaml"));
+        }
+
+        Assert.Contains(result.RenamedPaths, renamed => renamed.Source == $"infrastructure/connections/{CopyTestWorkspace.AgentRootedReference}.sync.yaml" && renamed.Destination == $"infrastructure/connections/{agentRootedCopy}.sync.yaml");
+        Assert.Contains(result.RenamedPaths, renamed => renamed.Source == $"infrastructure/connections/{CopyTestWorkspace.HexSuffixedReference}.sync.yaml" && renamed.Destination == $"infrastructure/connections/{hexSuffixedCopy}.sync.yaml");
+        Assert.DoesNotContain(result.RenamedPaths, renamed => renamed.Destination == $"infrastructure/connections/{unsuffixedCopy}.sync.yaml");
+        Assert.Contains($"infrastructure/connections/{unsuffixedCopy}.sync.yaml", result.RewrittenFiles);
+        Assert.Equal(3, Directory.EnumerateFiles(workspace.Path("infrastructure/connections")).Count());
+        Assert.EndsWith("connectorId: /providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps", workspace.Read($"infrastructure/connections/{agentRootedCopy}.sync.yaml").TrimEnd(), StringComparison.Ordinal);
+        Assert.EndsWith("connectorId: /providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps", workspace.Read($"infrastructure/connections/{hexSuffixedCopy}.sync.yaml").TrimEnd(), StringComparison.Ordinal);
+        Assert.EndsWith("connectorId: /providers/Microsoft.PowerApps/apis/shared_office365", workspace.Read($"infrastructure/connections/{unsuffixedCopy}.sync.yaml").TrimEnd(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Prepare_WorkflowCopy_DeclaresAReferenceWithoutAnApiUnderTheConnectorItsKeyNames()
+    {
+        using var workspace = CopyTestWorkspace.StandaloneWorkflow();
+        var definitionPath = CopyTestWorkspace.StandaloneWorkflowFolder + "/workflow.json";
+        workspace.Write(definitionPath, workspace.Read(definitionPath).Replace("\"shared_office365\": {\n        \"api\": {\n          \"name\": \"shared_office365\"\n        },\n", "\"shared_office365\": {\n", StringComparison.Ordinal), preamble: true);
+
+        var result = await CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None);
+
+        var unsuffixedCopy = Destination(result, CopyIdentityKinds.ConnectionReference, CopyTestWorkspace.UnsuffixedReference);
+        var copiedDefinition = workspace.Read(workspace.CopiedWorkflowFolder(result) + "/workflow.json");
+        Assert.True(result.Audit.Passed);
+        Assert.DoesNotContain("\"name\": \"shared_office365\"", copiedDefinition, StringComparison.Ordinal);
+        Assert.Contains($"\"connectionReferenceLogicalName\": \"{unsuffixedCopy}\"", copiedDefinition, StringComparison.Ordinal);
+        Assert.EndsWith("connectorId: /providers/Microsoft.PowerApps/apis/shared_office365", workspace.Read($"infrastructure/connections/{unsuffixedCopy}.sync.yaml").TrimEnd(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Prepare_WorkflowCopy_KeepsCallsToResourcesItDoesNotHoldAndReportsNothing()
+    {
+        using var workspace = CopyTestWorkspace.StandaloneWorkflow();
+
+        var result = await CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None);
+
+        var definition = workspace.Read(workspace.CopiedWorkflowFolder(result) + "/workflow.json");
+        Assert.True(result.Audit.Passed);
+        Assert.Empty(result.Audit.Notices);
+        Assert.Contains($"\"recordId\": \"{CopyTestWorkspace.CalledPromptId:D}\"", definition, StringComparison.Ordinal);
+        Assert.Contains($"\"workflowReferenceName\": \"{CopyTestWorkspace.ChildWorkflowId:D}\"", definition, StringComparison.Ordinal);
+        Assert.DoesNotContain(result.Identities, mapping => mapping.Source == CopyTestWorkspace.CalledPromptId.ToString("D") || mapping.Source == CopyTestWorkspace.ChildWorkflowId.ToString("D"));
+    }
+
+    [Fact]
+    public async Task Prepare_WorkflowCopy_IgnoresTheAgentOnlyRequestFields()
+    {
+        using var workspace = CopyTestWorkspace.StandaloneWorkflow();
+        workspace.Write("botdefinition.json", "{\"$kind\":\"BotDefinition\",\"dataverseTableSearches\":[{\"id\":\"x\"}]}");
+
+        var result = await CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request() with { SourceSchemaName = "cr9_other", SchemaName = "cr9_copy", SourceDefinitionPath = workspace.Path("botdefinition.json") }, CancellationToken.None);
+
+        Assert.True(result.Audit.Passed);
+        Assert.DoesNotContain(result.Identities, mapping => mapping.Kind == CopyIdentityKinds.Schema);
+        Assert.StartsWith("cre98_AgentA1.shared_commondataserviceforapps.", Destination(result, CopyIdentityKinds.ConnectionReference, CopyTestWorkspace.AgentRootedReference), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Prepare_WorkflowCopy_LeavesEveryOtherByteAlone()
+    {
+        using var workspace = CopyTestWorkspace.StandaloneWorkflow();
+        workspace.Write("notes.yml", $"connectionReference: {CopyTestWorkspace.HexSuffixedReference}\nworkflowId: {CopyTestWorkspace.StandaloneWorkflowId:D}\n");
+        var untouched = new[] { "agent.sync.yaml", "workflow.sync.yaml", "notes.yml" }.ToDictionary(relative => relative, relative => File.ReadAllBytes(workspace.Path(relative)));
+        var originalMetadata = workspace.Read(CopyTestWorkspace.StandaloneWorkflowFolder + "/metadata.yml");
+        var originalDefinition = workspace.Read(CopyTestWorkspace.StandaloneWorkflowFolder + "/workflow.json");
+
+        var result = await CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None);
+
+        var workflowCopy = Destination(result, CopyIdentityKinds.Workflow, CopyTestWorkspace.StandaloneWorkflowId.ToString("D"));
+        var workflowFolder = workspace.CopiedWorkflowFolder(result);
+        var references = result.Identities.Where(mapping => mapping.Kind == CopyIdentityKinds.ConnectionReference).ToArray();
+        Assert.True(result.Audit.Passed);
+        Assert.All(untouched, file => Assert.Equal(file.Value, File.ReadAllBytes(workspace.Path(file.Key))));
+        Assert.Equal(
+            references.Aggregate(
+                originalMetadata
+                    .Replace($"jsonFileName: {CopyTestWorkspace.StandaloneWorkflowFolder}/", $"jsonFileName: {workflowFolder}/", StringComparison.Ordinal)
+                    .Replace($"\nworkflowId: {CopyTestWorkspace.StandaloneWorkflowId:D}\n", $"\nworkflowId: {workflowCopy}\n", StringComparison.Ordinal)
+                    .Replace("\nname: Approve expenses\n", "\nname: Approve expenses copy\n", StringComparison.Ordinal)
+                    .Replace("\nstateCode: 1\n", "\nstateCode: 0\n", StringComparison.Ordinal)
+                    .Replace("\nstatusCode: 2\n", "\nstatusCode: 1\n", StringComparison.Ordinal),
+                (text, mapping) => text.Replace($"\n- {mapping.Source}\n", $"\n- {mapping.Destination}\n", StringComparison.Ordinal)),
+            workspace.Read(workflowFolder + "/metadata.yml"));
+        Assert.Equal(references.Aggregate(originalDefinition, (text, mapping) => text.Replace($"\"connectionReferenceLogicalName\": \"{mapping.Source}\"", $"\"connectionReferenceLogicalName\": \"{mapping.Destination}\"", StringComparison.Ordinal)), workspace.Read(workflowFolder + "/workflow.json"));
+        Assert.True(workspace.HasPreamble(workflowFolder + "/metadata.yml"));
+        Assert.True(workspace.HasPreamble(workflowFolder + "/workflow.json"));
+        Assert.True(workspace.HasPreamble($"infrastructure/connections/{Destination(result, CopyIdentityKinds.ConnectionReference, CopyTestWorkspace.HexSuffixedReference)}.sync.yaml"));
+        Assert.False(workspace.HasPreamble($"infrastructure/connections/{Destination(result, CopyIdentityKinds.ConnectionReference, CopyTestWorkspace.AgentRootedReference)}.sync.yaml"));
+    }
+
+    [Fact]
+    public async Task Prepare_WorkflowCopy_LeavesPromptAndConnectorFoldersAlone()
+    {
+        using var workspace = CopyTestWorkspace.StandaloneWorkflow();
+        var promptFolder = $"prompts/Summarize-{CopyTestWorkspace.CalledPromptId:D}";
+        workspace.Write(promptFolder + "/metadata.yml", $"aIModelId: {CopyTestWorkspace.CalledPromptId:D}\nname: Summarize\n", preamble: true);
+        workspace.Write(promptFolder + "/prompt.json", "{\n  \"name\": \"Summarize\",\n  \"instruction\": \"Summarize the expense report.\"\n}\n");
+        workspace.Write("prompts/Draft-9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d/metadata.yml", "aIModelId: 9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d\nname: Draft\n");
+        workspace.WriteConnectorFolder(CopyTestWorkspace.ConnectorFolder, CopyTestWorkspace.ConnectorId, CopyTestWorkspace.ConnectorName, "Weather Plus", CopyTestWorkspace.ConnectorInternalId, "weather.example.com", null);
+        var resources = workspace.Snapshot().Where(IsPromptOrConnectorFile).ToArray();
+
+        var result = await CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None);
+
+        Assert.True(result.Audit.Passed);
+        Assert.Equal(6, resources.Length);
+        Assert.Equal(resources, workspace.Snapshot().Where(IsPromptOrConnectorFile));
+        Assert.Equal(new[] { CopyIdentityKinds.Workflow, CopyIdentityKinds.ConnectionReference }, result.Identities.Select(mapping => mapping.Kind).Distinct());
+        Assert.Contains($"\"recordId\": \"{CopyTestWorkspace.CalledPromptId:D}\"", workspace.Read(workspace.CopiedWorkflowFolder(result) + "/workflow.json"), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("agent project")]
+    [InlineData("half-written flow")]
+    [InlineData("no flow")]
+    [InlineData("two flows")]
+    [InlineData("unparseable metadata")]
+    [InlineData("metadata naming another id")]
+    [InlineData("another source")]
+    public async Task Prepare_WorkflowCopy_RefusesALayoutItCannotCopy(string layout)
+    {
+        using var workspace = CopyTestWorkspace.StandaloneWorkflow();
+        var request = workspace.Request();
+        var metadataPath = CopyTestWorkspace.StandaloneWorkflowFolder + "/metadata.yml";
+        var secondFolder = WorkflowWorkspace.RelativeFolderFor("Second", OtherWorkflowId);
+
+        switch (layout)
+        {
+            case "agent project":
+                workspace.Write("settings.mcs.yml", "displayName: Approvals\nschemaName: cre98_approvals\n");
+                break;
+            case "half-written flow":
+                workspace.Write(secondFolder + "/workflow.json", "{}\n");
+                break;
+            case "no flow":
+                workspace.Delete(CopyTestWorkspace.StandaloneWorkflowFolder);
+                break;
+            case "two flows":
+                workspace.Write(secondFolder + "/workflow.json", workspace.Read(CopyTestWorkspace.StandaloneWorkflowFolder + "/workflow.json"));
+                workspace.Write(secondFolder + "/metadata.yml", workspace.Read(metadataPath).Replace(CopyTestWorkspace.StandaloneWorkflowId.ToString("D"), OtherWorkflowId.ToString("D"), StringComparison.Ordinal));
+                break;
+            case "unparseable metadata":
+                workspace.Write(metadataPath, "workflowId: [unclosed\n");
+                break;
+            case "metadata naming another id":
+                workspace.Write(metadataPath, workspace.Read(metadataPath).Replace($"workflowId: {CopyTestWorkspace.StandaloneWorkflowId:D}", $"workflowId: {OtherWorkflowId:D}", StringComparison.Ordinal), preamble: true);
+                break;
+            case "another source":
+                request = request with { SourceWorkflowId = OtherWorkflowId };
+                break;
+        }
+
+        var expected = layout switch
+        {
+            "agent project" => "The workspace holds an agent project, so it is not a standalone workflow.",
+            "half-written flow" => "A workflow folder is missing its definition or its metadata.",
+            "another source" => $"The workspace holds workflow {CopyTestWorkspace.StandaloneWorkflowId}, not the selected source {OtherWorkflowId}.",
+            _ => await workspace.PushReaderFailureAsync(),
+        };
+        var before = workspace.Snapshot();
+
+        Assert.Equal(new CopyAuditFinding(CopyAuditCodes.Unreadable, expected), Assert.Single((await Assert.ThrowsAsync<CopyPreparationException>(() => CopyTestWorkspace.CreateService().PrepareAsync(request, CancellationToken.None))).Findings));
+        Assert.Equal(before, workspace.Snapshot());
+    }
+
+    [Theory]
+    [InlineData("\ncategory: 5\n", "\ncategory: 0\n", "The workflow is not a cloud flow (category 0, type 1), so it cannot be copied.")]
+    [InlineData("\ncategory: 5\n", "\ncategory: 6\n", "The workflow is not a cloud flow (category 6, type 1), so it cannot be copied.")]
+    [InlineData("\ntype: 1\n", "\ntype: 2\n", "The workflow is not a cloud flow (category 5, type 2), so it cannot be copied.")]
+    [InlineData("\ntype: 1\n", "\ntype: 3\n", "The workflow is not a cloud flow (category 5, type 3), so it cannot be copied.")]
+    [InlineData("\ncategory: 5\n", "\n", "The workflow's metadata does not name its category and type, so a copy cannot be created as a cloud flow.")]
+    [InlineData("\ntype: 1\n", "\n", "The workflow's metadata does not name its category and type, so a copy cannot be created as a cloud flow.")]
+    public async Task Prepare_WorkflowCopy_RefusesAFlowThatIsNotACloudFlow(string code, string replacement, string message)
+    {
+        using var workspace = CopyTestWorkspace.StandaloneWorkflow();
+        var metadataPath = CopyTestWorkspace.StandaloneWorkflowFolder + "/metadata.yml";
+        workspace.Write(metadataPath, workspace.Read(metadataPath).Replace(code, replacement, StringComparison.Ordinal), preamble: true);
+        var before = workspace.Snapshot();
+
+        Assert.Equal(new CopyAuditFinding(CopyAuditCodes.UnsupportedResource, message), Assert.Single((await Assert.ThrowsAsync<CopyPreparationException>(() => CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None))).Findings));
+        Assert.Equal(before, workspace.Snapshot());
+    }
+
+    [Theory]
+    [InlineData("{\"properties\":{\"connectionReferences\":[]}}")]
+    [InlineData("{\"properties\":{\"connectionReferences\":{\"shared_office365\":\"not an object\"}}}")]
+    [InlineData("[]")]
+    public async Task Prepare_WorkflowCopy_WithADefinitionWhoseReferencesPushCannotRead_IsRefused(string definition)
+    {
+        using var workspace = CopyTestWorkspace.StandaloneWorkflow();
+        var definitionPath = CopyTestWorkspace.StandaloneWorkflowFolder + "/workflow.json";
+        workspace.Write(definitionPath, definition);
+        var before = workspace.Snapshot();
+
+        Assert.Equal(new CopyAuditFinding(CopyAuditCodes.Unreadable, "The workflow definition declares its connection references in a shape a push cannot read, so they cannot be rewritten.", definitionPath), Assert.Single((await Assert.ThrowsAsync<CopyPreparationException>(() => CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None))).Findings));
+        Assert.Equal(before, workspace.Snapshot());
+    }
+
+    [Theory]
+    [InlineData("{\n  \"properties\": {", "{\n  // Routes each expense report to its approver.\n  \"properties\": {")]
+    [InlineData("\"schemaVersion\": \"1.0.0.0\"\n}", "\"schemaVersion\": \"1.0.0.0\",\n}")]
+    public async Task Prepare_WorkflowCopy_WithADefinitionADeployCannotParse_IsRefused(string strictJson, string relaxedJson)
+    {
+        using var workspace = CopyTestWorkspace.StandaloneWorkflow();
+        var definitionPath = CopyTestWorkspace.StandaloneWorkflowFolder + "/workflow.json";
+        workspace.Write(definitionPath, workspace.Read(definitionPath).Replace(strictJson, relaxedJson, StringComparison.Ordinal), preamble: true);
+        var before = workspace.Snapshot();
+
+        var finding = Assert.Single((await Assert.ThrowsAsync<CopyPreparationException>(() => CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None))).Findings);
+        Assert.Equal(CopyAuditCodes.Unreadable, finding.Code);
+        Assert.Equal(definitionPath, finding.Path);
+        Assert.Matches(@"^The workflow definition is not valid JSON \(.+\), so its connection references cannot be rewritten\.$", finding.Message);
+        Assert.Equal(before, workspace.Snapshot());
+    }
+
+    [Theory]
+    [MemberData(nameof(NewWorkflowNames))]
+    public async Task Prepare_WorkflowCopy_RefusesANameTheServiceWouldRefuse(string name, string? code, string? message)
+    {
+        using var workspace = CopyTestWorkspace.StandaloneWorkflow();
+
+        Assert.Equal(code is null ? Array.Empty<CopyAuditFinding>() : new[] { new CopyAuditFinding(code, message ?? string.Empty) }, await FindingsOfAsync(workspace.Request() with { DisplayName = name }));
+    }
+
+    [Theory]
+    [MemberData(nameof(MetadataValuesTheCopyCannotRewrite))]
+    public async Task Prepare_WorkflowCopy_RefusesACopyItCannotNameOrMakeADraft(string value, string replacement, string? message)
+    {
+        using var workspace = CopyTestWorkspace.StandaloneWorkflow();
+        var metadataPath = CopyTestWorkspace.StandaloneWorkflowFolder + "/metadata.yml";
+        workspace.Write(metadataPath, workspace.Read(metadataPath).Replace(value, replacement, StringComparison.Ordinal), preamble: true);
+
+        Assert.Equal(message is null ? Array.Empty<CopyAuditFinding>() : new[] { new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, message) }, await FindingsOfAsync(workspace.Request()));
+    }
+
+    [Fact]
+    public async Task Prepare_WorkflowCopy_WithAReferenceTooLongToRefresh_IsBlockedWithoutSchemaAdvice()
+    {
+        using var workspace = CopyTestWorkspace.StandaloneWorkflow();
+        var longReference = "new_" + new string('x', 188);
+        workspace.Write($"infrastructure/connections/{longReference}.sync.yaml", $"connectionReferences:\n  - connectionReferenceLogicalName: {longReference}\n    connectorId: /providers/Microsoft.PowerApps/apis/shared_office365\n");
+        var before = workspace.Snapshot();
+
+        var finding = Assert.Single((await Assert.ThrowsAsync<CopyPreparationException>(() => CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None))).Findings);
+        Assert.Equal(CopyAuditCodes.SchemaTooLong, finding.Code);
+        Assert.Matches($"^The connection reference {longReference} would be renamed to {longReference}_[0-9a-f]{{8}}, which is longer than 200 characters\\.$", finding.Message);
+        Assert.Equal(before, workspace.Snapshot());
+    }
+
+    [Fact]
+    public async Task Prepare_AgentKindOnAWorkflowWorkspace_IsRefusedAsToday()
+    {
+        using var workspace = CopyTestWorkspace.StandaloneWorkflow();
+
+        Assert.Equal(new CopyAuditFinding(CopyAuditCodes.Unreadable, "The workspace has no settings.mcs.yml, so it is not an agent workspace.", "settings.mcs.yml"), Assert.Single((await Assert.ThrowsAsync<CopyPreparationException>(() => CopyTestWorkspace.CreateService().PrepareAsync(new CopyPreparationRequest { WorkspacePath = workspace.Root, DisplayName = CopyTestWorkspace.StandaloneWorkflowCopyName, SchemaName = "cre98_approveexpensescopy" }, CancellationToken.None))).Findings));
+    }
+
+    [Fact]
+    public async Task Prepare_WithAnUnknownWorkspaceKind_ThrowsBeforeReadingAnything()
+    {
+        var target = new Mock<ICopyDataverseClient>(MockBehavior.Strict);
+
+        var failure = await Assert.ThrowsAsync<ArgumentException>(() => CopyTestWorkspace.CreateService().PrepareAsync(new CopyPreparationRequest { WorkspacePath = Path.Combine(Path.GetTempPath(), "copytests-missing-" + Guid.NewGuid().ToString("N")), WorkspaceKind = "flow", DisplayName = CopyTestWorkspace.StandaloneWorkflowCopyName, TargetEnvironment = target.Object }, CancellationToken.None));
+
+        Assert.Equal("request", failure.ParamName);
+        Assert.StartsWith("A copy prepares an 'agent' or a 'workflow' workspace, not 'flow'.", failure.Message, StringComparison.Ordinal);
+        target.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task Prepare_WorkflowCopy_WithATargetEnvironment_ReadsFlowIdsReferenceNamesAndTheName()
+    {
+        using var workspace = CopyTestWorkspace.StandaloneWorkflow();
+        var target = CopyTestWorkspace.FreeEnvironment();
+
+        var result = await CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request() with { TargetEnvironment = target.Object }, CancellationToken.None);
+
+        var workflowCopy = Guid.Parse(Destination(result, CopyIdentityKinds.Workflow, CopyTestWorkspace.StandaloneWorkflowId.ToString("D")));
+        var referenceCopies = result.Identities.Where(mapping => mapping.Kind == CopyIdentityKinds.ConnectionReference).Select(mapping => mapping.Destination).ToArray();
+        Assert.True(result.Audit.Passed);
+        Assert.Equal(3, referenceCopies.Length);
+        target.Verify(environment => environment.FindCloudFlowsNamedAsync(CopyTestWorkspace.StandaloneWorkflowCopyName, It.IsAny<CancellationToken>()), Times.Once);
+        target.Verify(environment => environment.FindExistingWorkflowIdsAsync(It.Is<IEnumerable<Guid>>(identifiers => identifiers.SequenceEqual(new[] { workflowCopy })), It.IsAny<CancellationToken>()), Times.Once);
+        target.Verify(environment => environment.GetConnectionReferencesByLogicalNamesAsync(It.Is<IEnumerable<string>>(names => names.SequenceEqual(referenceCopies)), It.IsAny<CancellationToken>()), Times.Once);
+        target.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData(CopyIdentityKinds.Workflow, "The workflow ")]
+    [InlineData(CopyIdentityKinds.ConnectionReference, "The connection reference ")]
+    public async Task Prepare_WorkflowCopy_WhoseNewIdentityIsTaken_AsksToCopyTheWorkflowAgain(string takenKind, string subject)
+    {
+        using var workspace = CopyTestWorkspace.StandaloneWorkflow();
+        var target = CopyTestWorkspace.FreeEnvironment();
+
+        if (takenKind == CopyIdentityKinds.Workflow)
+        {
+            target.Setup(environment => environment.FindExistingWorkflowIdsAsync(It.IsAny<IEnumerable<Guid>>(), It.IsAny<CancellationToken>())).ReturnsAsync((IEnumerable<Guid> identifiers, CancellationToken _) => identifiers.ToArray());
+        }
+        else
+        {
+            target.Setup(environment => environment.GetConnectionReferencesByLogicalNamesAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>())).ReturnsAsync((IEnumerable<string> names, CancellationToken _) => names.Select(name => new SyncDataverseClient.ConnectionReferenceInfo { ConnectionReferenceLogicalName = name }).ToArray());
+        }
+
+        var failure = await Assert.ThrowsAsync<CopyPreparationException>(() => CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request() with { TargetEnvironment = target.Object }, CancellationToken.None));
+
+        Assert.Equal(takenKind == CopyIdentityKinds.Workflow ? 1 : 3, failure.Findings.Count);
+        Assert.All(failure.Findings, finding =>
+        {
+            Assert.Equal(CopyAuditCodes.IdentityTaken, finding.Code);
+            Assert.StartsWith(subject, finding.Message, StringComparison.Ordinal);
+            Assert.EndsWith(" this copy would create already exists in the environment. Copy the workflow again.", finding.Message, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public async Task Prepare_WorkflowCopy_UnderANameAnotherFlowHas_IsRefused()
+    {
+        using var workspace = CopyTestWorkspace.StandaloneWorkflow();
+        var target = CopyTestWorkspace.FreeEnvironment(cloudFlowsWithTheName: new[] { new SyncDataverseClient.WorkflowSummary { WorkflowId = OtherWorkflowId, Name = "approve EXPENSES copy" } });
+
+        Assert.Equal(new CopyAuditFinding(CopyAuditCodes.IdentityTaken, $"The environment already has a workflow named 'approve EXPENSES copy' ({OtherWorkflowId}). Copy the workflow again under another name."), Assert.Single((await Assert.ThrowsAsync<CopyPreparationException>(() => CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request() with { TargetEnvironment = target.Object }, CancellationToken.None))).Findings));
+        target.Verify(environment => environment.FindCloudFlowsNamedAsync(CopyTestWorkspace.StandaloneWorkflowCopyName, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Prepare_WorkflowCopy_HonorsCancellation()
+    {
+        using var workspace = CopyTestWorkspace.StandaloneWorkflow();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var before = workspace.Snapshot();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), cancellation.Token));
+
+        Assert.Equal(before, workspace.Snapshot());
+    }
+
     private static string Destination(CopyPreparationResult result, string kind, string source) => result.Identities.Single(mapping => mapping.Kind == kind && string.Equals(mapping.Source, source, StringComparison.OrdinalIgnoreCase)).Destination;
+
+    private static bool IsPromptOrConnectorFile(string snapshotEntry) => snapshotEntry.StartsWith("prompts/", StringComparison.Ordinal) || snapshotEntry.StartsWith("connectors/", StringComparison.Ordinal);
+
+    private static async Task<IReadOnlyList<CopyAuditFinding>> FindingsOfAsync(CopyPreparationRequest request)
+    {
+        try
+        {
+            return (await CopyTestWorkspace.CreateService().PrepareAsync(request, CancellationToken.None)).Audit.Blockers;
+        }
+        catch (CopyPreparationException failure)
+        {
+            return failure.Findings;
+        }
+    }
 
     private static void WriteSecondConnector(CopyTestWorkspace workspace) => workspace.Write("connectors/cr1_5Fmaps-2c1d3e5f-9a2b-4c6d-8e0f-1a3b5c7d9e2f/metadata.yml", "{\n  \"connectorid\": \"2c1d3e5f-9a2b-4c6d-8e0f-1a3b5c7d9e2f\",\n  \"name\": \"cr1_5Fmaps\",\n  \"displayname\": \"Maps\",\n  \"connectorinternalid\": \"" + SecondConnectorInternalId + "\",\n  \"connectortype\": 1\n}");
 

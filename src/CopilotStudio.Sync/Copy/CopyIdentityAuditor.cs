@@ -17,10 +17,30 @@ internal sealed class CopyIdentityAuditor
         _synchronizer = synchronizer ?? throw new ArgumentNullException(nameof(synchronizer));
     }
 
-    public async Task<CopyAuditReport> AuditWorkspaceAsync(string workspaceRoot, IReadOnlyList<CopyIdentityMapping> identities, CancellationToken cancellationToken)
+    public async Task<CopyAuditReport> AuditWorkspaceAsync(CopyPreparationRequest request, IReadOnlyList<CopyIdentityMapping> identities, CancellationToken cancellationToken)
     {
         var blockers = new List<CopyAuditFinding>();
-        var workspace = await ReadWorkspaceAsync(workspaceRoot, validate: true, checkKnowledgeFiles: true, blockers, cancellationToken).ConfigureAwait(false);
+
+        if (request.IsWorkflowCopy)
+        {
+            var copy = await WorkspaceCopyTransform.ReadStandaloneWorkflowAsync(WorkflowWorkspace.OpenWorkspace(request.WorkspacePath), blockers, cancellationToken).ConfigureAwait(false);
+
+            if (copy is not null && !string.Equals(copy.Name, request.DisplayName, StringComparison.Ordinal))
+            {
+                blockers.Add(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The copy is still named '{copy.Name}', not '{request.DisplayName}': the source's metadata.yml writes the name in a form the copy cannot rewrite. Write it on one line and copy again."));
+            }
+
+            if (copy is { StateCode: not (null or 0) } or { StatusCode: not (null or 1) })
+            {
+                blockers.Add(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, "The copy is not a draft (stateCode 0, statusCode 1): the source's metadata.yml writes the state in a form the copy cannot rewrite. Write it on one line and copy again."));
+            }
+
+            AuditTypedIdentities(request.WorkspacePath, identities, null, blockers, cancellationToken);
+
+            return new CopyAuditReport { Blockers = blockers.Distinct().ToArray() };
+        }
+
+        var workspace = await ReadWorkspaceAsync(request.WorkspacePath, validate: true, checkKnowledgeFiles: true, blockers, cancellationToken).ConfigureAwait(false);
         var componentSchemas = workspace.ComponentSchemas.Distinct(StringComparer.Ordinal).OrderBy(schema => schema, StringComparer.Ordinal).ToArray();
         var (_, sourceSchema, destinationSchema) = SchemaMappingOf(identities);
         var budget = SchemaNameBudget(componentSchemas, destinationSchema);
@@ -57,7 +77,7 @@ internal sealed class CopyIdentityAuditor
             }
         }
 
-        AuditTypedIdentities(workspaceRoot, identities, blockers, cancellationToken);
+        AuditTypedIdentities(request.WorkspacePath, identities, sourceSchema, blockers, cancellationToken);
 
         return new CopyAuditReport
         {
@@ -68,31 +88,40 @@ internal sealed class CopyIdentityAuditor
 
     internal static int SchemaNameBudget(IEnumerable<string> componentSchemas, string rootSchema) => SchemaNameValidator.MaximumLength - componentSchemas.Where(schema => WorkspaceCopyTransform.IsSourceRooted(schema, rootSchema)).Select(schema => schema.Length - rootSchema.Length).DefaultIfEmpty(0).Max();
 
-    public async Task<CopyAuditReport> AuditEnvironmentAsync(IReadOnlyList<CopyIdentityMapping> identities, ICopyDataverseClient client, CancellationToken cancellationToken)
+    public async Task<CopyAuditReport> AuditEnvironmentAsync(CopyPreparationRequest request, IReadOnlyList<CopyIdentityMapping> identities, ICopyDataverseClient client, CancellationToken cancellationToken)
     {
         var blockers = new List<CopyAuditFinding>();
-        var destinationSchema = SchemaMappingOf(identities).Destination;
-        var schemaOwner = await client.GetAgentIdBySchemaNameAsync(destinationSchema, cancellationToken).ConfigureAwait(false);
 
-        if (schemaOwner != Guid.Empty)
+        if (!request.IsWorkflowCopy)
         {
-            blockers.Add(new CopyAuditFinding(CopyAuditCodes.IdentityTaken, $"An agent with the schema name {destinationSchema} already exists in the environment ({schemaOwner}). Copy the agent again with another schema name."));
-        }
-        else
-        {
-            var prefixed = await client.FindComponentSchemaNamesAsync(destinationSchema + ".", ComponentPrefixProbeCount, cancellationToken).ConfigureAwait(false);
+            var destinationSchema = SchemaMappingOf(identities).Destination;
+            var schemaOwner = await client.GetAgentIdBySchemaNameAsync(destinationSchema, cancellationToken).ConfigureAwait(false);
 
-            if (prefixed.Count > 0)
+            if (schemaOwner != Guid.Empty)
             {
-                blockers.Add(new CopyAuditFinding(CopyAuditCodes.IdentityTaken, $"Components named under {destinationSchema} already exist in the environment (for example {prefixed[0]}). Copy the agent again with another schema name."));
+                blockers.Add(new CopyAuditFinding(CopyAuditCodes.IdentityTaken, $"An agent with the schema name {destinationSchema} already exists in the environment ({schemaOwner}). Copy the agent again with another schema name."));
+            }
+            else
+            {
+                var prefixed = await client.FindComponentSchemaNamesAsync(destinationSchema + ".", ComponentPrefixProbeCount, cancellationToken).ConfigureAwait(false);
+
+                if (prefixed.Count > 0)
+                {
+                    blockers.Add(new CopyAuditFinding(CopyAuditCodes.IdentityTaken, $"Components named under {destinationSchema} already exist in the environment (for example {prefixed[0]}). Copy the agent again with another schema name."));
+                }
             }
         }
+        else if ((await client.FindCloudFlowsNamedAsync(request.DisplayName, cancellationToken).ConfigureAwait(false)).FirstOrDefault() is { } namesake)
+        {
+            blockers.Add(new CopyAuditFinding(CopyAuditCodes.IdentityTaken, $"The environment already has a workflow named '{namesake.Name}' ({namesake.WorkflowId}). Copy the workflow again under another name."));
+        }
 
-        await AuditGuidsAsync(identities, CopyIdentityKinds.Workflow, "workflow", client.FindExistingWorkflowIdsAsync, blockers, cancellationToken).ConfigureAwait(false);
-        await AuditGuidsAsync(identities, CopyIdentityKinds.AIModel, "AI prompt", client.FindExistingAIModelIdsAsync, blockers, cancellationToken).ConfigureAwait(false);
-        await AuditGuidsAsync(identities, CopyIdentityKinds.Connector, "custom connector", client.FindExistingConnectorIdsAsync, blockers, cancellationToken).ConfigureAwait(false);
+        var advice = request.IsWorkflowCopy ? "Copy the workflow again." : "Copy the agent again.";
+        await AuditGuidsAsync(identities, CopyIdentityKinds.Workflow, "workflow", client.FindExistingWorkflowIdsAsync, advice, blockers, cancellationToken).ConfigureAwait(false);
+        await AuditGuidsAsync(identities, CopyIdentityKinds.AIModel, "AI prompt", client.FindExistingAIModelIdsAsync, advice, blockers, cancellationToken).ConfigureAwait(false);
+        await AuditGuidsAsync(identities, CopyIdentityKinds.Connector, "custom connector", client.FindExistingConnectorIdsAsync, advice, blockers, cancellationToken).ConfigureAwait(false);
         await AuditConnectorInternalIdsAsync(identities, client, blockers, cancellationToken).ConfigureAwait(false);
-        await AuditConnectionReferencesAsync(identities, client, blockers, cancellationToken).ConfigureAwait(false);
+        await AuditConnectionReferencesAsync(identities, client, request.IsWorkflowCopy ? advice : "Copy the agent again with another schema name.", blockers, cancellationToken).ConfigureAwait(false);
 
         return new CopyAuditReport { Blockers = blockers };
     }
@@ -123,9 +152,8 @@ internal sealed class CopyIdentityAuditor
         }
     }
 
-    private static void AuditTypedIdentities(string workspaceRoot, IReadOnlyList<CopyIdentityMapping> identities, List<CopyAuditFinding> blockers, CancellationToken cancellationToken)
+    private static void AuditTypedIdentities(string workspaceRoot, IReadOnlyList<CopyIdentityMapping> identities, string? sourceSchema, List<CopyAuditFinding> blockers, CancellationToken cancellationToken)
     {
-        var sourceSchema = SchemaMappingOf(identities).Source;
         var replacedReferences = new HashSet<string>(SourceIdentities(identities, CopyIdentityKinds.ConnectionReference), StringComparer.OrdinalIgnoreCase);
         var replacedWorkflows = GuidSet(SourceIdentities(identities, CopyIdentityKinds.Workflow));
         var replacedModels = GuidSet(SourceIdentities(identities, CopyIdentityKinds.AIModel));
@@ -134,7 +162,12 @@ internal sealed class CopyIdentityAuditor
         var localWorkflows = new HashSet<Guid>(workflows.Select(workflow => workflow.WorkflowId));
         var localModels = new HashSet<Guid>(AgentWorkspaceResources.PromptFolders(workspaceRoot).Select(prompt => prompt.ModelId));
 
-        foreach (var relative in WorkspaceCopyTransform.ContentYamlFiles(workspaceRoot).Concat(AgentWorkspaceResources.DeclarationFiles(workspaceRoot)).Concat(CopiedWorkflowFiles(workflows, WorkflowWorkspace.MetadataFileName)).Distinct(StringComparer.Ordinal))
+        foreach (var leftover in workflows.Where(workflow => replacedWorkflows.Contains(workflow.WorkflowId)))
+        {
+            blockers.Add(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The workflow folder still names the source's workflow {leftover.WorkflowId} instead of its copy.", $"{WorkflowWorkspace.WorkflowsFolderName}/{leftover.FolderName}"));
+        }
+
+        foreach (var relative in (sourceSchema is null ? Enumerable.Empty<string>() : WorkspaceCopyTransform.ContentYamlFiles(workspaceRoot)).Concat(AgentWorkspaceResources.DeclarationFiles(workspaceRoot)).Concat(CopiedWorkflowFiles(workflows, WorkflowWorkspace.MetadataFileName)).Distinct(StringComparer.Ordinal))
         {
             Visit(relative, () => CopyTextEdits.VisitYaml(relative, WorkspaceCopyTransform.ReadText(Path.Combine(workspaceRoot, relative), out _), scalar => AuditScalar(scalar, relative)));
         }
@@ -160,9 +193,18 @@ internal sealed class CopyIdentityAuditor
 
         void AuditDefinitionString(CopyJsonString json, string relative)
         {
-            if (!json.IsPropertyName && Guid.TryParse(json.Value, out var modelId) && replacedModels.Contains(modelId))
+            if (json.IsPropertyName)
+            {
+                return;
+            }
+
+            if (Guid.TryParse(json.Value, out var modelId) && replacedModels.Contains(modelId))
             {
                 blockers.Add(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The workflow definition still calls the source's AI prompt {modelId} instead of its copy.", relative));
+            }
+            else if (string.Equals(json.OwnerProperty, WorkspaceCopyTransform.ConnectionReferenceLogicalNameKey, StringComparison.Ordinal) && replacedReferences.Contains(json.Value))
+            {
+                blockers.Add(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The workflow definition still names the source's connection reference {json.Value} instead of its copy.", relative));
             }
         }
 
@@ -175,7 +217,7 @@ internal sealed class CopyIdentityAuditor
                 return;
             }
 
-            if (WorkspaceCopyTransform.IsSourceRooted(value, sourceSchema))
+            if (sourceSchema is not null && WorkspaceCopyTransform.IsSourceRooted(value, sourceSchema))
             {
                 blockers.Add(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The field {scalar.Key} still names the source agent's identity {value}.", relative));
                 return;
@@ -238,7 +280,7 @@ internal sealed class CopyIdentityAuditor
 
     private static IEnumerable<CopyIdentityMapping> OfKind(IEnumerable<CopyIdentityMapping> identities, string kind) => identities.Where(mapping => string.Equals(mapping.Kind, kind, StringComparison.Ordinal));
 
-    private static async Task AuditGuidsAsync(IReadOnlyList<CopyIdentityMapping> identities, string kind, string label, Func<IEnumerable<Guid>, CancellationToken, Task<IReadOnlyCollection<Guid>>> findExisting, List<CopyAuditFinding> blockers, CancellationToken cancellationToken)
+    private static async Task AuditGuidsAsync(IReadOnlyList<CopyIdentityMapping> identities, string kind, string label, Func<IEnumerable<Guid>, CancellationToken, Task<IReadOnlyCollection<Guid>>> findExisting, string advice, List<CopyAuditFinding> blockers, CancellationToken cancellationToken)
     {
         var owned = GuidSet(DestinationIdentities(identities, kind));
 
@@ -251,7 +293,7 @@ internal sealed class CopyIdentityAuditor
 
         foreach (var taken in owned.Where(existing.Contains))
         {
-            blockers.Add(new CopyAuditFinding(CopyAuditCodes.IdentityTaken, $"The {label} {taken} this copy would create already exists in the environment. Copy the agent again."));
+            blockers.Add(new CopyAuditFinding(CopyAuditCodes.IdentityTaken, $"The {label} {taken} this copy would create already exists in the environment. {advice}"));
         }
     }
 
@@ -284,7 +326,7 @@ internal sealed class CopyIdentityAuditor
         }
     }
 
-    private static async Task AuditConnectionReferencesAsync(IReadOnlyList<CopyIdentityMapping> identities, ICopyDataverseClient client, List<CopyAuditFinding> blockers, CancellationToken cancellationToken)
+    private static async Task AuditConnectionReferencesAsync(IReadOnlyList<CopyIdentityMapping> identities, ICopyDataverseClient client, string advice, List<CopyAuditFinding> blockers, CancellationToken cancellationToken)
     {
         var owned = DestinationIdentities(identities, CopyIdentityKinds.ConnectionReference).ToArray();
 
@@ -298,7 +340,7 @@ internal sealed class CopyIdentityAuditor
 
         foreach (var name in owned.Where(existing.Contains))
         {
-            blockers.Add(new CopyAuditFinding(CopyAuditCodes.IdentityTaken, $"The connection reference {name} this copy would create already exists in the environment. Copy the agent again with another schema name."));
+            blockers.Add(new CopyAuditFinding(CopyAuditCodes.IdentityTaken, $"The connection reference {name} this copy would create already exists in the environment. {advice}"));
         }
     }
 }
