@@ -12,6 +12,7 @@ public interface IWorkspaceCopyService
     /// <param name="cancellationToken">Cancels the preparation.</param>
     /// <returns>What was written, and the audit that passed.</returns>
     /// <exception cref="CopyPreparationException">The workspace cannot be copied; the caller discards the staged copy.</exception>
+    /// <exception cref="ArgumentException">The request names an unknown workspace kind, or an agent copy names an invalid schema name.</exception>
     Task<CopyPreparationResult> PrepareAsync(CopyPreparationRequest request, CancellationToken cancellationToken);
 
     /// <summary>Proposes a schema name for a copy that keeps every component schema of the staged workspace within the Dataverse limit.</summary>
@@ -46,6 +47,11 @@ internal sealed class WorkspaceCopyService : IWorkspaceCopyService
         if (request.WorkspaceKind is not (CopyWorkspaceKinds.Agent or CopyWorkspaceKinds.Workflow))
         {
             throw new ArgumentException($"A copy prepares an '{CopyWorkspaceKinds.Agent}' or a '{CopyWorkspaceKinds.Workflow}' workspace, not '{request.WorkspaceKind}'.", nameof(request));
+        }
+
+        if (!request.IsWorkflowCopy && !SchemaNameValidator.IsValid(request.SchemaName))
+        {
+            throw new ArgumentException($"An agent copy needs a schema name of at most {SchemaNameValidator.MaximumLength} ASCII letters, digits, and the characters _ - . {{ }} !, not '{request.SchemaName}'.", nameof(request));
         }
 
         var prepared = await WorkspaceCopyTransform.RunAsync(request, cancellationToken).ConfigureAwait(false);

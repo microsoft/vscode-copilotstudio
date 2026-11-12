@@ -41,6 +41,17 @@ public class WorkspaceCopyPreparationTests
         { "\nstateCode: 1\nstatusCode: 2\n", "\n", null },
     };
 
+    public static TheoryData<string> SchemaNamesAnAgentCopyCannotTake => new() { "../../escaped", "cr1_copy/escaped", "cr1_copy\\escaped", "cr1 copy", string.Empty, new string('x', SchemaNameValidator.MaximumLength + 1) };
+
+    public static TheoryData<bool, string, string, bool> WorkflowStatesAnAgentCopyCannotRewrite => new()
+    {
+        { true, "\nstateCode: 1\n", "\nstateCode: |-\n  1\n", true },
+        { true, "\nstatusCode: 2\n", "\nstatusCode: >-\n  2\n", true },
+        { false, "\nstateCode: 1\n", "\nstateCode: |-\n  1\n", true },
+        { false, "\nstatusCode: 2\n", "\nstatusCode: >-\n  2\n", true },
+        { true, "\nstateCode: 1\nstatusCode: 2\n", "\nstateCode: >-\n  0\nstatusCode: |-\n  1\n", false },
+    };
+
     [Fact]
     public async Task Prepare_ClassicCopy_RewritesOwnedIdentitiesAndCopiesDependencies()
     {
@@ -669,6 +680,86 @@ public class WorkspaceCopyPreparationTests
         Assert.Contains(CopyTestWorkspace.DestinationSchemaFor(CopyTestWorkspace.CliSchema) + ".BotSettingsComponent.Default_FeedbackCollectionBotSettings_jsNFOl", result.Audit.ComponentSchemaNames);
     }
 
+    [Theory]
+    [InlineData("activity: cr2_classic\n", true)]
+    [InlineData("customKey: cr2_classic.topic.Greeting\n", true)]
+    [InlineData("customKey: |\n  cr2_classic.topic.Greeting\n", true)]
+    [InlineData("customKey: |+\n  cr2_classic.topic.Greeting\n\n", true)]
+    [InlineData("description: cr2_classic. Answers questions about expenses.\n", false)]
+    public async Task Prepare_ClassicCopy_RefusesASourceRootedValueItDoesNotRewriteOnlyWhenItIsShapedLikeAnIdentity(string notes, bool refused)
+    {
+        using var workspace = CopyTestWorkspace.Classic();
+        workspace.Write("notes.yml", notes);
+
+        Assert.Equal(refused ? new[] { $"{CopyAuditCodes.LeftoverSourceIdentity} notes.yml" } : Array.Empty<string>(), (await FindingsOfAsync(workspace.Request())).Select(finding => $"{finding.Code} {finding.Path}"));
+        Assert.Equal(notes, workspace.Read("notes.yml"));
+    }
+
+    [Theory]
+    [MemberData(nameof(WorkflowStatesAnAgentCopyCannotRewrite))]
+    public async Task Prepare_AgentCopy_RefusesAWorkflowItCannotMakeADraft(bool classic, string value, string replacement, bool refused)
+    {
+        using var workspace = classic ? CopyTestWorkspace.Classic() : CopyTestWorkspace.Cli();
+        var metadataPath = (classic ? CopyTestWorkspace.ClassicWorkflowFolder : CopyTestWorkspace.CliWorkflowFolder) + "/metadata.yml";
+        workspace.Write(metadataPath, workspace.Read(metadataPath).Replace(value, replacement, StringComparison.Ordinal), preamble: true);
+
+        var findings = await FindingsOfAsync(workspace.Request());
+
+        var copiedMetadataPath = "workflows/" + Path.GetFileName(Assert.Single(Directory.EnumerateDirectories(workspace.Path("workflows")))) + "/metadata.yml";
+        Assert.Equal(refused ? new[] { new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, "The copy is not a draft (stateCode 0, statusCode 1): the source's metadata.yml writes the state in a form the copy cannot rewrite. Write it on one line and copy again.", copiedMetadataPath) } : Array.Empty<CopyAuditFinding>(), findings);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Prepare_AgentCopyOfAFlowWhoseMetadataWritesItsIdAsABlock_IsRefusedAsStillNamingTheSourceFlow(bool classic)
+    {
+        using var workspace = classic ? CopyTestWorkspace.Classic() : CopyTestWorkspace.Cli();
+        var sourceWorkflowId = classic ? CopyTestWorkspace.ClassicWorkflowId : CopyTestWorkspace.CliWorkflowId;
+        var metadataPath = (classic ? CopyTestWorkspace.ClassicWorkflowFolder : CopyTestWorkspace.CliWorkflowFolder) + "/metadata.yml";
+        workspace.Write(metadataPath, workspace.Read(metadataPath).Replace($"\nworkflowId: {sourceWorkflowId:D}\n", $"\nworkflowId: |-\n  {sourceWorkflowId:D}\n", StringComparison.Ordinal), preamble: true);
+
+        var failure = await Assert.ThrowsAsync<CopyPreparationException>(() => CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None));
+
+        var copiedWorkflow = Assert.Single(WorkflowWorkspace.FindAll(workspace.Root));
+        Assert.Equal(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The copy still names workflow {sourceWorkflowId:D}, not its own {copiedWorkflow.WorkflowId:D}: the source's metadata.yml writes the id in a form the copy cannot rewrite. Write it on one line and copy again.", $"workflows/{copiedWorkflow.FolderName}/metadata.yml"), Assert.Single(failure.Findings));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Prepare_AgentCopyOfAFlowCallingAChildFlow_CallsTheChildsCopyOnlyWhenTheAgentHoldsTheChild(bool holdsTheChild)
+    {
+        using var workspace = CopyTestWorkspace.Classic();
+        var childWorkflowId = CopyTestWorkspace.ChildWorkflowId.ToString("D");
+        workspace.AddChildFlowRun(CopyTestWorkspace.ClassicWorkflowFolder, CopyTestWorkspace.ChildWorkflowId);
+
+        if (holdsTheChild)
+        {
+            workspace.WriteWorkflow($"workflows/ChildFlow-{childWorkflowId}", CopyTestWorkspace.ChildWorkflowId, "Child Flow", CopyTestWorkspace.ClassicTeamsReference, CopyTestWorkspace.ClassicWeatherReference);
+        }
+
+        var result = await CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None);
+
+        var parentDefinition = "workflows/" + workspace.Folder("workflows", Guid.Parse(Destination(result, CopyIdentityKinds.Workflow, CopyTestWorkspace.ClassicWorkflowId.ToString("D")))) + "/workflow.json";
+        Assert.True(result.Audit.Passed);
+        Assert.Empty(result.Audit.Notices);
+        Assert.Contains($"\"workflowReferenceName\": \"{(holdsTheChild ? Destination(result, CopyIdentityKinds.Workflow, childWorkflowId) : childWorkflowId)}\"", workspace.Read(parentDefinition), StringComparison.Ordinal);
+        Assert.Equal(holdsTheChild ? Array.Empty<string>() : new[] { parentDefinition }, Mentioning(workspace, childWorkflowId));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Prepare_AgentCopyWhoseSettingsWriteTheNameAsABlock_IsRefusedAsStillNamedAfterTheSource(bool classic)
+    {
+        using var workspace = classic ? CopyTestWorkspace.Classic() : CopyTestWorkspace.Cli();
+        var sourceName = classic ? "Classic Source" : "Cli Source";
+        workspace.Write("settings.mcs.yml", workspace.Read("settings.mcs.yml").Replace($"displayName: {sourceName}\n", $"displayName: |-\n  {sourceName}\n", StringComparison.Ordinal));
+
+        Assert.Equal(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The copy is still named '{sourceName}', not '{CopyTestWorkspace.DestinationDisplayName}': the source's settings.mcs.yml writes the name in a form the copy cannot rewrite. Write it on one line and copy again.", "settings.mcs.yml"), Assert.Single((await Assert.ThrowsAsync<CopyPreparationException>(() => CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None))).Findings));
+    }
+
     [Fact]
     public async Task Prepare_WorkflowCopy_GivesTheFlowANewIdFolderAndNameAsADraft()
     {
@@ -989,6 +1080,23 @@ public class WorkspaceCopyPreparationTests
         target.VerifyNoOtherCalls();
     }
 
+    [Theory]
+    [MemberData(nameof(SchemaNamesAnAgentCopyCannotTake))]
+    public async Task Prepare_AgentCopyUnderAnInvalidSchemaName_ThrowsBeforeTouchingAnything(string schemaName)
+    {
+        using var workspace = CopyTestWorkspace.Classic();
+        var besideTheWorkspace = Path.GetDirectoryName(workspace.Root) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.");
+        var neighbors = Directory.EnumerateFileSystemEntries(besideTheWorkspace, "escaped*").ToArray();
+        var before = workspace.Snapshot();
+
+        var failure = await Assert.ThrowsAsync<ArgumentException>(() => CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(destinationSchema: schemaName), CancellationToken.None));
+
+        Assert.Equal("request", failure.ParamName);
+        Assert.StartsWith($"An agent copy needs a schema name of at most 100 ASCII letters, digits, and the characters _ - . {{ }} !, not '{schemaName}'.", failure.Message, StringComparison.Ordinal);
+        Assert.Equal(before, workspace.Snapshot());
+        Assert.Equal(neighbors, Directory.EnumerateFileSystemEntries(besideTheWorkspace, "escaped*"));
+    }
+
     [Fact]
     public async Task Prepare_WorkflowCopy_WithATargetEnvironment_ReadsFlowIdsReferenceNamesAndTheName()
     {
@@ -1061,6 +1169,8 @@ public class WorkspaceCopyPreparationTests
     private static string Destination(CopyPreparationResult result, string kind, string source) => result.Identities.Single(mapping => mapping.Kind == kind && string.Equals(mapping.Source, source, StringComparison.OrdinalIgnoreCase)).Destination;
 
     private static bool IsPromptOrConnectorFile(string snapshotEntry) => snapshotEntry.StartsWith("prompts/", StringComparison.Ordinal) || snapshotEntry.StartsWith("connectors/", StringComparison.Ordinal);
+
+    private static IEnumerable<string> Mentioning(CopyTestWorkspace workspace, string text) => Directory.EnumerateFileSystemEntries(workspace.Root, "*", SearchOption.AllDirectories).Select(path => Path.GetRelativePath(workspace.Root, path).Replace('\\', '/')).Where(relative => relative.Contains(text, StringComparison.OrdinalIgnoreCase) || (File.Exists(workspace.Path(relative)) && workspace.Read(relative).Contains(text, StringComparison.OrdinalIgnoreCase))).OrderBy(relative => relative, StringComparer.Ordinal);
 
     private static async Task<IReadOnlyList<CopyAuditFinding>> FindingsOfAsync(CopyPreparationRequest request)
     {

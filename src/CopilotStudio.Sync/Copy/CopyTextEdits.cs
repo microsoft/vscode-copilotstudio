@@ -54,15 +54,6 @@ internal static class CopyTextEdits
 
     private static readonly JsonReaderOptions JsonOptions = new() { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
 
-    public static void VisitYaml(string text, Action<CopyYamlScalar> visit)
-    {
-        RewriteYaml(text, scalar =>
-        {
-            visit(scalar);
-            return null;
-        });
-    }
-
     public static void VisitYaml(string relativePath, string text, Action<CopyYamlScalar> visit)
     {
         RewriteYaml(relativePath, text, scalar =>
@@ -76,7 +67,9 @@ internal static class CopyTextEdits
 
     public static bool IsMcsFile(string relativePath) => relativePath.EndsWith(".mcs.yml", StringComparison.OrdinalIgnoreCase);
 
-    public static byte[] WithoutPreamble(byte[] content) => HasPreamble(content) ? content.Skip(Utf8Preamble.Length).ToArray() : content;
+    public static ReadOnlyMemory<byte> WithoutPreamble(byte[] content) => content.AsMemory(PreambleLength(content));
+
+    public static int PreambleLength(byte[] content) => HasPreamble(content) ? Utf8Preamble.Length : 0;
 
     public static string RewriteMcsYaml(string text, Func<CopyYamlScalar, string?> replace)
     {
@@ -162,10 +155,9 @@ internal static class CopyTextEdits
 
     public static byte[] RewriteJson(byte[] content, Func<CopyJsonString, string?> replace)
     {
-        var hasPreamble = HasPreamble(content);
-        var body = WithoutPreamble(content);
+        var bodyStart = PreambleLength(content);
         var edits = new List<(int Start, int Length, byte[] Replacement)>();
-        var reader = new Utf8JsonReader(body, JsonOptions);
+        var reader = new Utf8JsonReader(content.AsSpan(bodyStart), JsonOptions);
         var owners = new Stack<string?>();
         string? pendingProperty = null;
 
@@ -175,7 +167,7 @@ internal static class CopyTextEdits
             {
                 case JsonTokenType.PropertyName:
                     var name = reader.GetString() ?? string.Empty;
-                    AddJsonEdit(edits, ref reader, replace(new CopyJsonString(owners.Count > 0 ? owners.Peek() : null, name, isPropertyName: true, owners.Count)), name);
+                    AddJsonEdit(edits, ref reader, bodyStart, replace(new CopyJsonString(owners.Count > 0 ? owners.Peek() : null, name, isPropertyName: true, owners.Count)), name);
                     pendingProperty = name;
                     break;
                 case JsonTokenType.StartObject:
@@ -190,7 +182,7 @@ internal static class CopyTextEdits
                     break;
                 case JsonTokenType.String:
                     var value = reader.GetString() ?? string.Empty;
-                    AddJsonEdit(edits, ref reader, replace(new CopyJsonString(pendingProperty ?? (owners.Count > 0 ? owners.Peek() : null), value, isPropertyName: false, owners.Count)), value);
+                    AddJsonEdit(edits, ref reader, bodyStart, replace(new CopyJsonString(pendingProperty ?? (owners.Count > 0 ? owners.Peek() : null), value, isPropertyName: false, owners.Count)), value);
                     pendingProperty = null;
                     break;
                 default:
@@ -205,22 +197,16 @@ internal static class CopyTextEdits
         }
 
         using var output = new MemoryStream(content.Length);
-
-        if (hasPreamble)
-        {
-            output.Write(Utf8Preamble, 0, Utf8Preamble.Length);
-        }
-
         var position = 0;
 
         foreach (var (start, length, replacement) in edits)
         {
-            output.Write(body, position, start - position);
+            output.Write(content, position, start - position);
             output.Write(replacement, 0, replacement.Length);
             position = start + length;
         }
 
-        output.Write(body, position, body.Length - position);
+        output.Write(content, position, content.Length - position);
 
         return output.ToArray();
     }
@@ -234,7 +220,7 @@ internal static class CopyTextEdits
         });
     }
 
-    private static void AddJsonEdit(List<(int Start, int Length, byte[] Replacement)> edits, ref Utf8JsonReader reader, string? replacement, string original)
+    private static void AddJsonEdit(List<(int Start, int Length, byte[] Replacement)> edits, ref Utf8JsonReader reader, int bodyStart, string? replacement, string original)
     {
         if (replacement is null || string.Equals(replacement, original, StringComparison.Ordinal))
         {
@@ -242,7 +228,7 @@ internal static class CopyTextEdits
         }
 
         var encoded = "\"" + JsonEncodedText.Encode(replacement, JavaScriptEncoder.UnsafeRelaxedJsonEscaping).ToString() + "\"";
-        edits.Add(((int)reader.TokenStartIndex, reader.ValueSpan.Length + 2, Encoding.UTF8.GetBytes(encoded)));
+        edits.Add((bodyStart + (int)reader.TokenStartIndex, reader.ValueSpan.Length + 2, Encoding.UTF8.GetBytes(encoded)));
     }
 
     private static void VisitNode(McsYamlNode node, bool atRoot, string text, Func<CopyYamlScalar, string?> replace, List<(int Start, int End, string Replacement)> edits)
@@ -318,14 +304,7 @@ internal static class CopyTextEdits
             return;
         }
 
-        var formatted = raw[0] switch
-        {
-            '\'' => "'" + replacement.Replace("'", "''") + "'",
-            '"' => "\"" + replacement.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"",
-            _ => McsYamlWriter.FormatScalar(replacement),
-        };
-
-        edits.Add((start, start + raw.Length, formatted));
+        edits.Add((start, start + raw.Length, McsYamlWriter.FormatReplacementScalar(replacement, raw)));
     }
 
     private static string Apply(string text, List<(int Start, int End, string Replacement)> edits)

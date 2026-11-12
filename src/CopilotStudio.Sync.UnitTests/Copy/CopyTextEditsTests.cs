@@ -8,6 +8,24 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests.Copy;
 
 public class CopyTextEditsTests
 {
+    public static TheoryData<string, string> ReplacementsForEveryQuoteStyle
+    {
+        get
+        {
+            var data = new TheoryData<string, string>();
+
+            foreach (var original in new[] { "Old", "'Old'", "\"Old\"" })
+            {
+                foreach (var replacement in new[] { "Line\nbreak", "Tab\there", "Start\u0001", "It's", "Say \"hi\"", "Back\\slash", "Support, East", "[a]", "Team {b}" })
+                {
+                    data.Add(original, replacement);
+                }
+            }
+
+            return data;
+        }
+    }
+
     [Fact]
     public void RewriteMcsYaml_KeepsQuoteStylesAndEverythingElse()
     {
@@ -56,6 +74,21 @@ public class CopyTextEditsTests
         var parsed = McsYamlReader.Parse(rewritten);
         Assert.Equal("needs: quoting # really", parsed["name"]);
         Assert.Equal("value", parsed["keep"]);
+    }
+
+    [Theory]
+    [MemberData(nameof(ReplacementsForEveryQuoteStyle))]
+    public void RewriteYaml_WritesAReplacementThatReadsBackExactlyInBlockAndFlowMappings(string original, string replacement)
+    {
+        var block = McsYamlReader.Parse(CopyTextEdits.RewriteYaml($"name: {original}\nkeep: value\n", scalar => scalar.Key == "name" ? replacement : null));
+        var flow = McsYamlReader.Parse(CopyTextEdits.RewriteYaml($"{{name: {original}, other: x}}\n", scalar => scalar.Key == "name" ? replacement : null));
+
+        Assert.Equal(2, block.Count);
+        Assert.Equal(replacement, block["name"]);
+        Assert.Equal("value", block["keep"]);
+        Assert.Equal(2, flow.Count);
+        Assert.Equal(replacement, flow["name"]);
+        Assert.Equal("x", flow["other"]);
     }
 
     [Fact]
@@ -118,9 +151,9 @@ public class CopyTextEditsTests
         var embedded = Encoding.UTF8.GetBytes("{}").Concat(Encoding.UTF8.GetPreamble()).ToArray();
 
         Assert.True(CopyTextEdits.HasPreamble(withPreamble));
-        Assert.Equal(Encoding.UTF8.GetBytes("{}"), CopyTextEdits.WithoutPreamble(withPreamble));
+        Assert.Equal(Encoding.UTF8.GetBytes("{}"), CopyTextEdits.WithoutPreamble(withPreamble).ToArray());
         Assert.False(CopyTextEdits.HasPreamble(embedded));
-        Assert.Same(embedded, CopyTextEdits.WithoutPreamble(embedded));
+        Assert.Equal(embedded, CopyTextEdits.WithoutPreamble(embedded).ToArray());
         Assert.False(CopyTextEdits.HasPreamble(Array.Empty<byte>()));
     }
 

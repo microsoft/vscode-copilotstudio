@@ -1927,7 +1927,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var existingSchemaNames = definition.Components.Select(c => c.SchemaNameString).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        newComponents = ScanForNewKnowledgeFiles(fileAccessor, definition, existingSchemaNames, cancellationToken);
+        newComponents = ScanForNewKnowledgeFiles(fileAccessor, definition, existingSchemaNames, droppedSchemaNames: new HashSet<string>(), cancellationToken);
 
         if (newComponents.Count == 0)
         {
@@ -2116,7 +2116,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             dialog: new InlineAgentSkill.Builder().Build());
     }
 
-    private List<BotComponentBase> ScanForNewKnowledgeFiles(IFileAccessor fileAccessor, DefinitionBase definition, HashSet<string> existingSchemaNames, CancellationToken cancellationToken)
+    private List<BotComponentBase> ScanForNewKnowledgeFiles(IFileAccessor fileAccessor, DefinitionBase definition, HashSet<string> existingSchemaNames, HashSet<string> droppedSchemaNames, CancellationToken cancellationToken)
     {
         var newComponents = new List<BotComponentBase>();
         var folderOverrides = BuildComponentFolderOverrides(fileAccessor, definition);
@@ -2222,7 +2222,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                     );
                 }
 
-                if (!existingSchemaNames.Add(schemaName))
+                if (!ClaimSchemaName(existingSchemaNames, droppedSchemaNames, schemaName))
                 {
                     continue;
                 }
@@ -7779,6 +7779,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         var updatedComponents = new List<BotComponentBase>();
         var existingSchemaNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var droppedSchemaNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var readComponentPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var readFolderOverrides = BuildComponentFolderOverrides(fileAccessor, definition);
 
@@ -7829,6 +7830,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
                 // Classic, or an adopted CLI .mcs.yml layout: the user deleted the
                 // file -> drop the component (synthesize delete intent). [delete-safety]
+                droppedSchemaNames.Add(component.SchemaNameString);
                 continue;
             }
 
@@ -7939,7 +7941,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
                     if (component != null && error == null)
                     {
-                        AddNewComponent(updatedComponents, existingSchemaNames, newComponentFiles, readDiagnostics, component, localFile);
+                        AddNewComponent(updatedComponents, existingSchemaNames, droppedSchemaNames, newComponentFiles, readDiagnostics, component, localFile);
                     }
                 }
             }
@@ -7950,7 +7952,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             // new files the user authored locally (no cloud-cache match).
             // Mirrors the classic new-file scan but uses the route-specific
             // filename → schemaName projections (TryProjectSchemaNameFromFilePath).
-            ScanForNewCliFiles(fileAccessor, definition, updatedComponents, existingSchemaNames, readDiagnostics, diagnostics, cancellationToken);
+            ScanForNewCliFiles(fileAccessor, definition, updatedComponents, existingSchemaNames, droppedSchemaNames, readDiagnostics, diagnostics, cancellationToken);
         }
 
         if (checkKnowledgeFiles)
@@ -7958,7 +7960,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             var diskSkills = updatedComponents.Where(component => component is DialogComponent { Dialog: InlineAgentSkill }).ToImmutableArray();
             var scanComponents = definition.Components.Where(component => component is not DialogComponent { Dialog: InlineAgentSkill }).Concat(diskSkills).ToImmutableArray();
             var scanDefinition = DetectNewLocalSkills(fileAccessor, definition.WithComponents(scanComponents), definition, out var synthesizedSkills);
-            var newKnowledgeComponents = ScanForNewKnowledgeFiles(fileAccessor, scanDefinition, existingSchemaNames, cancellationToken);
+            var newKnowledgeComponents = ScanForNewKnowledgeFiles(fileAccessor, scanDefinition, existingSchemaNames, droppedSchemaNames, cancellationToken);
 
             // ! The filter excludes skills without a schema name before building the lookup.
             var resolvedSkillsBySchema = scanDefinition.Components.Where(component => component is DialogComponent { Dialog: InlineAgentSkill } && !string.IsNullOrEmpty(component.SchemaNameString)).ToDictionary(component => component.SchemaNameString!, component => component, StringComparer.OrdinalIgnoreCase);
@@ -8227,14 +8229,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     /// components). Each discovered file is compiled with the CLI projection shape
     /// so its schema name is derived from the CLI rules, mirroring the writer exactly.
     /// </summary>
-    private void ScanForNewCliFiles(
-        IFileAccessor fileAccessor,
-        DefinitionBase definition,
-        List<BotComponentBase> updatedComponents,
-        HashSet<string> existingSchemaNames,
-        List<WorkspaceDiagnostic> readDiagnostics,
-        SyncDiagnosticsCollector? diagnostics,
-        CancellationToken cancellationToken)
+    private void ScanForNewCliFiles(IFileAccessor fileAccessor, DefinitionBase definition, List<BotComponentBase> updatedComponents, HashSet<string> existingSchemaNames, HashSet<string> droppedSchemaNames, List<WorkspaceDiagnostic> readDiagnostics, SyncDiagnosticsCollector? diagnostics, CancellationToken cancellationToken)
     {
         var knownPaths = definition.Components
             .Select(c => ResolveOnDiskComponentPath(fileAccessor, new AgentFilePath(_pathResolver.GetComponentPath(c, definition)), c, definition).ToString())
@@ -8279,15 +8274,15 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 var (component, error) = _fileParser.CompileFile(file, element, projectionContext, AuthoringShape.CliCopilot, SkillLayout.ParseMetadata(yaml).SchemaName);
                 if (component != null && error == null)
                 {
-                    AddNewComponent(updatedComponents, existingSchemaNames, newComponentFiles, readDiagnostics, component, file);
+                    AddNewComponent(updatedComponents, existingSchemaNames, droppedSchemaNames, newComponentFiles, readDiagnostics, component, file);
                 }
             }
         }
     }
 
-    private static void AddNewComponent(List<BotComponentBase> updatedComponents, HashSet<string> existingSchemaNames, Dictionary<string, string> newComponentFiles, List<WorkspaceDiagnostic> readDiagnostics, BotComponentBase component, AgentFilePath file)
+    private static void AddNewComponent(List<BotComponentBase> updatedComponents, HashSet<string> existingSchemaNames, HashSet<string> droppedSchemaNames, Dictionary<string, string> newComponentFiles, List<WorkspaceDiagnostic> readDiagnostics, BotComponentBase component, AgentFilePath file)
     {
-        if (existingSchemaNames.Add(component.SchemaNameString))
+        if (ClaimSchemaName(existingSchemaNames, droppedSchemaNames, component.SchemaNameString))
         {
             newComponentFiles[component.SchemaNameString] = file.ToString();
             updatedComponents.Add(component);
@@ -8297,6 +8292,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             readDiagnostics.Add(RepeatedSchemaDiagnostic(component.SchemaNameString, firstFile, file.ToString()));
         }
     }
+
+    private static bool ClaimSchemaName(HashSet<string> existingSchemaNames, HashSet<string> droppedSchemaNames, string schemaName) => existingSchemaNames.Add(schemaName) || droppedSchemaNames.Remove(schemaName);
 
     private static WorkspaceDiagnostic RepeatedSchemaDiagnostic(string schemaName, string firstPath, string secondPath) => new(secondPath, $"The component schema name {schemaName} is {(string.Equals(firstPath, secondPath, StringComparison.Ordinal) ? $"read twice from {secondPath}" : $"defined by both {firstPath} and {secondPath}")}, so a push would create it twice.", 0, 0);
 

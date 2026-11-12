@@ -79,22 +79,9 @@ internal sealed class WorkspaceCopyTransform
         _destinationSchema = request.SchemaName;
     }
 
-    /// <summary>Rewrites the staged workspace in place.</summary>
-    /// <param name="request">What to copy, and into what.</param>
-    /// <param name="cancellationToken">Cancels the transform between files.</param>
-    /// <returns>What the transform wrote.</returns>
-    /// <exception cref="CopyPreparationException">The workspace holds something the copy cannot handle; nothing was rewritten.</exception>
     public static Task<CopyPreparationResult> RunAsync(CopyPreparationRequest request, CancellationToken cancellationToken) => new WorkspaceCopyTransform(request).RunAsync(cancellationToken);
 
-    internal static string? MapSchema(string value, string sourceSchema, string destinationSchema)
-    {
-        if (string.Equals(value, sourceSchema, StringComparison.Ordinal))
-        {
-            return destinationSchema;
-        }
-
-        return value.StartsWith(sourceSchema + ".", StringComparison.Ordinal) ? destinationSchema + value.Substring(sourceSchema.Length) : null;
-    }
+    internal static string? MapSchema(string value, string sourceSchema, string destinationSchema) => IsSourceRooted(value, sourceSchema) ? destinationSchema + value.Substring(sourceSchema.Length) : null;
 
     internal static bool IsSourceRooted(string value, string sourceSchema) => string.Equals(value, sourceSchema, StringComparison.Ordinal) || value.StartsWith(sourceSchema + ".", StringComparison.Ordinal);
 
@@ -114,9 +101,10 @@ internal sealed class WorkspaceCopyTransform
     internal static string ReadText(string path, out bool hasPreamble)
     {
         var bytes = File.ReadAllBytes(path);
-        hasPreamble = CopyTextEdits.HasPreamble(bytes);
+        var bodyStart = CopyTextEdits.PreambleLength(bytes);
+        hasPreamble = bodyStart > 0;
 
-        return Encoding.UTF8.GetString(CopyTextEdits.WithoutPreamble(bytes));
+        return Encoding.UTF8.GetString(bytes, bodyStart, bytes.Length - bodyStart);
     }
 
     internal static async Task<SyncDataverseClient.WorkflowMetadata?> ReadStandaloneWorkflowAsync(IFileAccessor workspace, List<CopyAuditFinding> blockers, CancellationToken cancellationToken)
@@ -201,9 +189,7 @@ internal sealed class WorkspaceCopyTransform
 
     private void ReadAgentRoot()
     {
-        var settingsPath = Path.Combine(_root, SettingsFileName);
-
-        if (!File.Exists(settingsPath))
+        if (!File.Exists(Path.Combine(_root, SettingsFileName)))
         {
             _blockers.Add(new CopyAuditFinding(CopyAuditCodes.Unreadable, $"The workspace has no {SettingsFileName}, so it is not an agent workspace.", SettingsFileName));
             throw new CopyPreparationException(_blockers.ToArray());
@@ -403,7 +389,7 @@ internal sealed class WorkspaceCopyTransform
     {
         try
         {
-            using var document = JsonDocument.Parse(CopyTextEdits.WithoutPreamble(definition).AsMemory(), WorkflowDefinitionFile.StrictJson);
+            using var document = JsonDocument.Parse(CopyTextEdits.WithoutPreamble(definition), WorkflowDefinitionFile.StrictJson);
 
             if (!WorkflowDefinitionFile.TryGetConnectionReferences(document.RootElement, out var references))
             {
@@ -494,7 +480,7 @@ internal sealed class WorkspaceCopyTransform
 
         try
         {
-            using var document = JsonDocument.Parse(CopyTextEdits.WithoutPreamble(File.ReadAllBytes(_request.SourceDefinitionPath)).AsMemory());
+            using var document = JsonDocument.Parse(CopyTextEdits.WithoutPreamble(File.ReadAllBytes(_request.SourceDefinitionPath)));
 
             return document.RootElement.ValueKind != JsonValueKind.Object ? Array.Empty<string>() : document.RootElement.EnumerateObject().Where(property => !LinkedDefinitionKinds.Contains(property.Name) && property.Value.ValueKind == JsonValueKind.Array && property.Value.GetArrayLength() > 0).Select(property => property.Name).ToArray();
         }
@@ -539,9 +525,7 @@ internal sealed class WorkspaceCopyTransform
                 continue;
             }
 
-            var latest = latestConnectors[internalId];
-
-            if (latest != connector)
+            if (latestConnectors[internalId] != connector)
             {
                 _duplicateConnectorFolders.Add($"{CustomConnectorLayout.FolderName}/{connector.FolderName}");
                 continue;
@@ -608,7 +592,7 @@ internal sealed class WorkspaceCopyTransform
 
         foreach (var addition in _declarationAdditions.Keys.ToArray())
         {
-            if (!declared.Contains(addition) && ConnectorOf(inventory, addition) is null)
+            if (ConnectorOf(inventory, addition) is null)
             {
                 _blockers.Add(new CopyAuditFinding(CopyAuditCodes.UnresolvedReference, $"The connection reference {addition} is used but not declared, and no workflow names its connector, so its copy cannot be declared."));
             }
@@ -782,27 +766,22 @@ internal sealed class WorkspaceCopyTransform
 
         if (inventory.ReferencesByFile.TryGetValue(relative, out var references))
         {
-            foreach (var names in references.Select(CopiedResourceNames).OfType<(string SourceName, string DestinationName)>())
+            foreach (var copied in references.Select(CopiedResource).OfType<(string SourceName, string DestinationName, Guid DestinationId)>())
             {
-                renamedDisplayNames[names.SourceName] = names.DestinationName;
+                renamedDisplayNames[copied.SourceName] = copied.DestinationName;
             }
         }
 
         return renamedDisplayNames;
     }
 
-    private (string SourceName, string DestinationName)? CopiedResourceNames(Guid resource) => _workflows.TryGetValue(resource, out var workflow) ? (workflow.Source.Name, workflow.DestinationName) : _prompts.TryGetValue(resource, out var prompt) ? (prompt.Source.Name, prompt.DestinationName) : null;
+    private (string SourceName, string DestinationName, Guid DestinationId)? CopiedResource(Guid resource) => _workflows.TryGetValue(resource, out var workflow) ? (workflow.Source.Name, workflow.DestinationName, workflow.DestinationId) : _prompts.TryGetValue(resource, out var prompt) ? (prompt.Source.Name, prompt.DestinationName, prompt.DestinationId) : null;
 
     private string? MapComponentScalar(CopyYamlScalar scalar)
     {
         if (SchemaKeys.Contains(scalar.Key))
         {
             return MapSchema(scalar.Value, _sourceSchema, _destinationSchema);
-        }
-
-        if (ConnectionReferenceKeys.Contains(scalar.Key))
-        {
-            return _connectionReferenceRenames.TryGetValue(scalar.Value, out var reference) ? reference : null;
         }
 
         if (WorkflowKeys.Contains(scalar.Key))
@@ -815,14 +794,14 @@ internal sealed class WorkspaceCopyTransform
             return MapGuid(scalar.Value, source => _prompts.TryGetValue(source, out var copy) ? copy.DestinationId : null);
         }
 
-        return string.Equals(scalar.Key, ConnectorKey, StringComparison.Ordinal) ? MapConnectorPath(scalar.Value) : null;
+        return MapConnectionScalar(scalar, _connectionReferenceRenames);
     }
 
-    private string? MapDeclarationScalar(CopyYamlScalar scalar, IReadOnlyDictionary<string, string> names)
+    private string? MapConnectionScalar(CopyYamlScalar scalar, IReadOnlyDictionary<string, string> connectionReferenceRenames)
     {
         if (ConnectionReferenceKeys.Contains(scalar.Key))
         {
-            return names.TryGetValue(scalar.Value, out var renamed) ? renamed : null;
+            return connectionReferenceRenames.TryGetValue(scalar.Value, out var renamed) ? renamed : null;
         }
 
         return string.Equals(scalar.Key, ConnectorKey, StringComparison.Ordinal) ? MapConnectorPath(scalar.Value) : null;
@@ -841,15 +820,8 @@ internal sealed class WorkspaceCopyTransform
             if (_declarationRenames.TryGetValue(logicalName, out var renamed))
             {
                 var target = CliAgentConnectionsWriter.InfrastructureConnectionsFolder + "/" + CliAgentConnectionsWriter.ComputeConnectionFileName(renamed);
-                WriteText(relative, CopyTextEdits.RewriteYaml(relative, text, scalar => MapDeclarationScalar(scalar, _declarationRenames)), hasPreamble);
+                WriteText(relative, CopyTextEdits.RewriteYaml(relative, text, scalar => MapConnectionScalar(scalar, _declarationRenames)), hasPreamble);
                 MovePath(relative, target);
-            }
-
-            if (_declarationAdditions.TryGetValue(logicalName, out var added))
-            {
-                var additions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [logicalName] = added };
-                var target = CliAgentConnectionsWriter.InfrastructureConnectionsFolder + "/" + CliAgentConnectionsWriter.ComputeConnectionFileName(added);
-                WriteText(target, CopyTextEdits.RewriteYaml(relative, text, scalar => MapDeclarationScalar(scalar, additions)), hasPreamble);
             }
         }
 
@@ -861,11 +833,11 @@ internal sealed class WorkspaceCopyTransform
             var connector = MapConnectorPath(ConnectorOf(inventory, addition.Key) ?? string.Empty) ?? ConnectorOf(inventory, addition.Key) ?? string.Empty;
             var reference = new ConnectionReference(connectionReferenceLogicalName: addition.Value, connectionId: string.Empty, connectorId: connector);
 
-            if (cliLayout && inventory.Declarations.All(declaration => !string.Equals(declaration.LogicalName, addition.Key, StringComparison.OrdinalIgnoreCase)))
+            if (cliLayout)
             {
                 WriteText(CliAgentConnectionsWriter.InfrastructureConnectionsFolder + "/" + CliAgentConnectionsWriter.ComputeConnectionFileName(addition.Value), ConnectionReferenceStore.Serialize(new[] { reference }), hasPreamble: false);
             }
-            else if (!cliLayout)
+            else
             {
                 classicAdditions.Add(reference);
             }
@@ -882,7 +854,7 @@ internal sealed class WorkspaceCopyTransform
             return;
         }
 
-        var classicText = CopyTextEdits.RewriteYaml(ClassicConnectionReferencesFileName, ReadText(classicPath, out var classicPreamble), scalar => MapDeclarationScalar(scalar, _declarationRenames));
+        var classicText = CopyTextEdits.RewriteYaml(ClassicConnectionReferencesFileName, ReadText(classicPath, out var classicPreamble), scalar => MapConnectionScalar(scalar, _declarationRenames));
 
         if (classicAdditions.Count > 0)
         {
@@ -943,12 +915,7 @@ internal sealed class WorkspaceCopyTransform
             return _connectionReferenceRenames.TryGetValue(json.Value, out var reference) ? reference : null;
         }
 
-        if (Guid.TryParse(json.Value, out var modelId) && _prompts.TryGetValue(modelId, out var prompt))
-        {
-            return prompt.DestinationId.ToString("D");
-        }
-
-        return _connectorInternalIds.TryGetValue(json.Value, out var internalId) ? internalId : MapConnectorPath(json.Value);
+        return MapGuid(json.Value, source => CopiedResource(source)?.DestinationId) ?? (_connectorInternalIds.TryGetValue(json.Value, out var internalId) ? internalId : MapConnectorPath(json.Value));
     }
 
     private void RewritePrompts()

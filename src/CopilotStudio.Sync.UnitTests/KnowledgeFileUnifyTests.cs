@@ -13,6 +13,8 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests;
 
 public class KnowledgeFileUnifyTests
 {
+    private const string GreetingSchema = "cr931_HRAgent.topic.Greeting";
+
     private static readonly byte[] FileBytes = Encoding.UTF8.GetBytes("col1,col2\n1,2\n");
 
     private static readonly BotEntity Agent = new BotEntity.Builder { SchemaName = new BotEntitySchemaName("cr1_agent"), CdsBotId = Guid.NewGuid() }.Build();
@@ -396,6 +398,45 @@ public class KnowledgeFileUnifyTests
         Assert.EndsWith(", so a push would create it twice.", Assert.Single(diagnostics.Diagnostics).Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task ReadWorkspace_ASyncedClassicTopicMovedIntoASubfolder_KeepsItWithoutADelete()
+    {
+        var (_, _, accessor, synchronizer, workspace) = await CliAgentRoundTripReadTests.PushFixtureAsClone("HRAgent");
+        await MoveAsync(accessor, "topics/Greeting.mcs.yml", "topics/archive/Greeting.mcs.yml", await accessor.ReadStringAsync(new AgentFilePath("topics/Greeting.mcs.yml"), CancellationToken.None));
+
+        var read = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
+        var (changeSet, _) = await synchronizer.GetLocalChangesAsync(workspace, read, new Mock<ISyncDataverseClient>().Object, MakeSyncInfo(), CancellationToken.None);
+
+        Assert.Single(read.Components, component => component.SchemaNameString == GreetingSchema);
+        Assert.Empty(changeSet.BotComponentChanges.OfType<BotComponentDelete>());
+    }
+
+    [Fact]
+    public async Task ReadWorkspace_AMovedClassicTopicAndAnotherNewFileWithItsSchema_KeepsOneAndReportsBoth()
+    {
+        var (_, _, accessor, synchronizer, workspace) = await CliAgentRoundTripReadTests.PushFixtureAsClone("HRAgent");
+        var greeting = await accessor.ReadStringAsync(new AgentFilePath("topics/Greeting.mcs.yml"), CancellationToken.None);
+        await MoveAsync(accessor, "topics/Greeting.mcs.yml", "topics/archive/Greeting.mcs.yml", greeting);
+        await accessor.WriteAsync(new AgentFilePath("topics/copies/Greeting.mcs.yml"), greeting, CancellationToken.None);
+
+        Assert.Single((await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true, new SyncDiagnosticsCollector(), validate: false)).Components, component => component.SchemaNameString == GreetingSchema);
+        await AssertRefusedNamingBothAsync(synchronizer, workspace, "topics/archive/Greeting.mcs.yml", "topics/copies/Greeting.mcs.yml");
+    }
+
+    [Fact]
+    public async Task ReadWorkspace_AnAdoptedCliToolRenamedInItsFolder_KeepsItWithoutADelete()
+    {
+        const string classifySodiumLevel = "Default_draft_rxzs_q.tool.ClassifySodiumlevel";
+        var (_, _, accessor, synchronizer, workspace) = await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
+        await MoveAsync(accessor, "capabilities/tools/ClassifySodiumlevel.mcs.yml", "capabilities/tools/SodiumClassifier.mcs.yml", $"mcs.metadata:\n  componentName: Classify Sodium level\n  schemaName: {classifySodiumLevel}\nkind: WorkflowTool\nworkflowId: 7b9d7530-37d4-575c-ec55-b770b96b1eba\n");
+
+        var read = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
+        var (changeSet, _) = await synchronizer.GetLocalChangesAsync(workspace, read, new Mock<ISyncDataverseClient>().Object, MakeSyncInfo(), CancellationToken.None);
+
+        Assert.Single(read.Components, component => component.SchemaNameString == classifySodiumLevel);
+        Assert.Empty(changeSet.BotComponentChanges.OfType<BotComponentDelete>());
+    }
+
     [Theory]
     [InlineData("cr1_agent.topic.GREETING", "is defined by both topics/Greeting.mcs.yml and topics/GREETING.mcs.yml, so a push would create it twice.")]
     [InlineData("cr1_agent.topic.Greeting", "is read twice from topics/Greeting.mcs.yml, so a push would create it twice.")]
@@ -445,6 +486,12 @@ public class KnowledgeFileUnifyTests
     }
 
     private static string TwinTool(string schemaName) => $"mcs.metadata:\n  componentName: Twin\n  schemaName: {schemaName}\nkind: ConnectorTool\nauthMode: Invoker\nconnectionReference: cr.shared_teams\nconnectorId: /providers/Microsoft.PowerApps/apis/shared_teams\noperationId: GetSection\n";
+
+    private static async Task MoveAsync(InMemoryFileAccessor accessor, string source, string destination, string content)
+    {
+        await accessor.WriteAsync(new AgentFilePath(destination), content, CancellationToken.None);
+        accessor.Delete(new AgentFilePath(source));
+    }
 
     private static async Task AssertRefusedNamingBothAsync(WorkspaceSynchronizer synchronizer, DirectoryPath workspace, string firstFile, string secondFile)
     {

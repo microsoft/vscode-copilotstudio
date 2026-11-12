@@ -96,18 +96,6 @@ public class CopyIdentityAuditTests
         Assert.Contains(report.Blockers, finding => finding.Code == CopyAuditCodes.LeftoverSourceIdentity && finding.Message.Contains("cr2_classic.topic.Handbook_abc123", StringComparison.Ordinal));
     }
 
-    [Fact]
-    public async Task AuditWorkspace_ADestinationSchemaOverTheLimit_IsTooLong()
-    {
-        using var workspace = CopyTestWorkspace.Cli();
-        var prepared = await CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None);
-        var identities = prepared.Identities.Select(mapping => mapping.Kind == CopyIdentityKinds.Schema ? mapping with { Destination = "cr1_" + new string('x', 97) } : mapping).ToArray();
-
-        var report = await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(workspace.Request(), identities, CancellationToken.None);
-
-        Assert.Contains(report.Blockers, finding => finding.Code == CopyAuditCodes.SchemaTooLong);
-    }
-
     [Theory]
     [InlineData(80, "Choose a schema name of at most 13 characters.")]
     [InlineData(95, "Shorten the component's name; no schema name leaves it room.")]
@@ -145,10 +133,10 @@ public class CopyIdentityAuditTests
     }
 
     [Theory]
-    [InlineData("\"\"", "is required")]
-    [InlineData("Help <desk>", "contains < or >")]
-    [InlineData("A display name far longer than Copilot Studio accepts", "is 53 characters long")]
-    public async Task AuditWorkspace_AnAgentNameCopilotStudioRefuses_IsBlocked(string displayName, string problem)
+    [InlineData("Cli Source", "Cli Source")]
+    [InlineData("team copy", "team copy")]
+    [InlineData("\"\"", "")]
+    public async Task AuditWorkspace_AnAgentStillNamedOtherThanTheCopy_IsALeftover(string displayName, string effectiveName)
     {
         using var workspace = CopyTestWorkspace.Cli();
         var prepared = await CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None);
@@ -156,10 +144,7 @@ public class CopyIdentityAuditTests
 
         var report = await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(workspace.Request(), prepared.Identities, CancellationToken.None);
 
-        var finding = Assert.Single(report.Blockers);
-        Assert.Equal(CopyAuditCodes.AgentNameUnsupported, finding.Code);
-        Assert.Equal("settings.mcs.yml", finding.Path);
-        Assert.StartsWith("The agent's display name " + problem, finding.Message, StringComparison.Ordinal);
+        Assert.Equal(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The copy is still named '{effectiveName}', not '{CopyTestWorkspace.DestinationDisplayName}': the source's settings.mcs.yml writes the name in a form the copy cannot rewrite. Write it on one line and copy again.", "settings.mcs.yml"), Assert.Single(report.Blockers));
     }
 
     [Fact]
@@ -176,6 +161,17 @@ public class CopyIdentityAuditTests
         Assert.Equal(CopyAuditCodes.LeftoverSourceIdentity, finding.Code);
         Assert.Equal(workflowFolder + "/workflow.json", finding.Path);
         Assert.Contains(CopyTestWorkspace.PromptModelId.ToString("D"), finding.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AuditWorkspace_ACopiedFlowStillCallingASourceWorkflow_IsBlocked()
+    {
+        using var workspace = CopyTestWorkspace.Classic();
+        var prepared = await CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None);
+        var workflowFolder = "workflows/" + workspace.Folder("workflows", Guid.Parse(Destination(prepared, CopyIdentityKinds.Workflow)));
+        workspace.AddChildFlowRun(workflowFolder, CopyTestWorkspace.ClassicWorkflowId);
+
+        Assert.Equal(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The workflow definition still calls the source's workflow {CopyTestWorkspace.ClassicWorkflowId} instead of its copy.", workflowFolder + "/workflow.json"), Assert.Single((await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(workspace.Request(), prepared.Identities, CancellationToken.None)).Blockers));
     }
 
     [Fact]

@@ -184,7 +184,9 @@ internal sealed class CopyTestWorkspace : IDisposable
 
     public async Task<string> PushReaderFailureAsync() => (await Xunit.Assert.ThrowsAsync<StandaloneWorkflowException>(() => StandaloneWorkflowSynchronizer.ReadFolderAsync(WorkflowWorkspace.OpenWorkspace(Root), CancellationToken.None))).Message;
 
-    public void AddPromptRun(string workflowFolder, Guid modelId) => Write(workflowFolder + "/workflow.json", Read(workflowFolder + "/workflow.json").Replace("\"actions\": {}", "\"actions\": {\n        \"Run_a_prompt\": {\n          \"type\": \"OpenApiConnection\",\n          \"inputs\": {\n            \"parameters\": {\n              \"recordId\": \"" + modelId.ToString("D") + "\"\n            },\n            \"host\": {\n              \"apiId\": \"providers/Microsoft.ProcessSimple/operationGroups/aibuilder\",\n              \"operationId\": \"aibuilderpredict_customprompt\"\n            }\n          }\n        }\n      }", StringComparison.Ordinal), preamble: true);
+    public void AddPromptRun(string workflowFolder, Guid modelId) => AddAction(workflowFolder, "\"Run_a_prompt\": {\n          \"type\": \"OpenApiConnection\",\n          \"inputs\": {\n            \"parameters\": {\n              \"recordId\": \"" + modelId.ToString("D") + "\"\n            },\n            \"host\": {\n              \"apiId\": \"providers/Microsoft.ProcessSimple/operationGroups/aibuilder\",\n              \"operationId\": \"aibuilderpredict_customprompt\"\n            }\n          }\n        }");
+
+    public void AddChildFlowRun(string workflowFolder, Guid childWorkflowId) => AddAction(workflowFolder, "\"Run_a_Child_Flow\": {\n          \"type\": \"Workflow\",\n          \"inputs\": {\n            \"host\": {\n              \"workflowReferenceName\": \"" + childWorkflowId.ToString("D") + "\"\n            }\n          }\n        }");
 
     public void WriteConnector(string internalId = ConnectorInternalId, string displayName = "Weather Plus", long? version = null)
     {
@@ -216,11 +218,13 @@ internal sealed class CopyTestWorkspace : IDisposable
         return root;
     }
 
-    private void WriteWorkflow(string folder, Guid workflowId, string name, string dualUseReference, string workflowOnlyReference)
+    public void WriteWorkflow(string folder, Guid workflowId, string name, string dualUseReference, string workflowOnlyReference)
     {
         Write(folder + "/metadata.yml", $"jsonFileName: {folder}/workflow.json\nworkflowId: {workflowId:D}\nname: {name}\ntype: 1\ncategory: 5\nstateCode: 1\nstatusCode: 2\nmodernFlowType: 1\nprimaryEntity: none\nconnectionReferences:\n- {dualUseReference}\n- {workflowOnlyReference}\n", preamble: true);
         Write(folder + "/workflow.json", "{\n  \"properties\": {\n    \"connectionReferences\": {\n      \"shared_teams\": {\n        \"api\": {\n          \"name\": \"shared_teams\"\n        },\n        \"connection\": {\n          \"connectionReferenceLogicalName\": \"" + dualUseReference + "\"\n        },\n        \"runtimeSource\": \"invoker\"\n      },\n      \"shared_msnweather\": {\n        \"api\": {\n          \"name\": \"shared_msnweather\"\n        },\n        \"connection\": {\n          \"connectionReferenceLogicalName\": \"" + workflowOnlyReference + "\"\n        },\n        \"runtimeSource\": \"invoker\"\n      }\n    },\n    \"definition\": {\n      \"contentVersion\": \"1.0.0.0\",\n      \"triggers\": {\n        \"manual\": {\n          \"type\": \"Request\",\n          \"kind\": \"Skills\"\n        }\n      },\n      \"actions\": {}\n    }\n  },\n  \"schemaVersion\": \"1.0.0.0\"\n}\n", preamble: true);
     }
+
+    private void AddAction(string workflowFolder, string action) => Write(workflowFolder + "/workflow.json", Read(workflowFolder + "/workflow.json").Replace("\"actions\": {}", "\"actions\": {\n        " + action + "\n      }", StringComparison.Ordinal), preamble: true);
 
     private void WritePrompt()
     {

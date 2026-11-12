@@ -25,15 +25,12 @@ internal sealed class CopyIdentityAuditor
         {
             var copy = await WorkspaceCopyTransform.ReadStandaloneWorkflowAsync(WorkflowWorkspace.OpenWorkspace(request.WorkspacePath), blockers, cancellationToken).ConfigureAwait(false);
 
-            if (copy is not null && !string.Equals(copy.Name, request.DisplayName, StringComparison.Ordinal))
+            if (copy is not null)
             {
-                blockers.Add(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The copy is still named '{copy.Name}', not '{request.DisplayName}': the source's metadata.yml writes the name in a form the copy cannot rewrite. Write it on one line and copy again."));
+                AuditName(copy.Name, request.DisplayName, WorkflowWorkspace.MetadataFileName, null, blockers);
             }
 
-            if (copy is { StateCode: not (null or 0) } or { StatusCode: not (null or 1) })
-            {
-                blockers.Add(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, "The copy is not a draft (stateCode 0, statusCode 1): the source's metadata.yml writes the state in a form the copy cannot rewrite. Write it on one line and copy again."));
-            }
+            AuditDraft(copy, null, blockers);
 
             AuditTypedIdentities(request.WorkspacePath, identities, null, blockers, cancellationToken);
 
@@ -45,14 +42,9 @@ internal sealed class CopyIdentityAuditor
         var (_, sourceSchema, destinationSchema) = SchemaMappingOf(identities);
         var budget = SchemaNameBudget(componentSchemas, destinationSchema);
 
-        if (workspace.Agent is { } agent && AgentNameValidator.FindProblem(agent.DisplayName) is { } problem)
+        if (workspace.Agent is { } agent)
         {
-            blockers.Add(new CopyAuditFinding(CopyAuditCodes.AgentNameUnsupported, $"The agent's display name {problem}.", WorkspaceCopyTransform.SettingsFileName));
-        }
-
-        if (destinationSchema.Length > SchemaNameValidator.MaximumLength)
-        {
-            blockers.Add(new CopyAuditFinding(CopyAuditCodes.SchemaTooLong, $"The schema name {destinationSchema} is longer than {SchemaNameValidator.MaximumLength} characters."));
+            AuditName(agent.DisplayName, request.DisplayName, WorkspaceCopyTransform.SettingsFileName, WorkspaceCopyTransform.SettingsFileName, blockers);
         }
 
         foreach (var duplicate in workspace.ComponentSchemas.GroupBy(schema => schema, StringComparer.OrdinalIgnoreCase).Where(group => group.Count() > 1))
@@ -167,12 +159,17 @@ internal sealed class CopyIdentityAuditor
             blockers.Add(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The workflow folder still names the source's workflow {leftover.WorkflowId} instead of its copy.", $"{WorkflowWorkspace.WorkflowsFolderName}/{leftover.FolderName}"));
         }
 
-        foreach (var relative in (sourceSchema is null ? Enumerable.Empty<string>() : WorkspaceCopyTransform.ContentYamlFiles(workspaceRoot)).Concat(AgentWorkspaceResources.DeclarationFiles(workspaceRoot)).Concat(CopiedWorkflowFiles(workflows, WorkflowWorkspace.MetadataFileName)).Distinct(StringComparer.Ordinal))
+        foreach (var relative in (sourceSchema is null ? Enumerable.Empty<string>() : WorkspaceCopyTransform.ContentYamlFiles(workspaceRoot)).Concat(AgentWorkspaceResources.DeclarationFiles(workspaceRoot)).Distinct(StringComparer.Ordinal))
         {
             Visit(relative, () => CopyTextEdits.VisitYaml(relative, WorkspaceCopyTransform.ReadText(Path.Combine(workspaceRoot, relative), out _), scalar => AuditScalar(scalar, relative)));
         }
 
-        foreach (var relative in CopiedWorkflowFiles(workflows, WorkflowWorkspace.DefinitionFileName))
+        foreach (var (workflow, relative) in CopiedWorkflowFiles(workflows, WorkflowWorkspace.MetadataFileName))
+        {
+            Visit(relative, () => AuditWorkflowMetadata(WorkspaceCopyTransform.ReadText(Path.Combine(workspaceRoot, relative), out _), relative, workflow.WorkflowId));
+        }
+
+        foreach (var (_, relative) in CopiedWorkflowFiles(workflows, WorkflowWorkspace.DefinitionFileName))
         {
             Visit(relative, () => CopyTextEdits.VisitJson(File.ReadAllBytes(Path.Combine(workspaceRoot, relative)), json => AuditDefinitionString(json, relative)));
         }
@@ -191,6 +188,21 @@ internal sealed class CopyIdentityAuditor
             }
         }
 
+        void AuditWorkflowMetadata(string text, string relative, Guid folderWorkflowId)
+        {
+            CopyTextEdits.VisitYaml(relative, text, scalar => AuditScalar(scalar, relative));
+
+            if (sourceSchema is not null && WorkflowMetadataFile.ReadStrict(text) is { } metadata)
+            {
+                AuditDraft(metadata, relative, blockers);
+
+                if (metadata.WorkflowId != folderWorkflowId)
+                {
+                    blockers.Add(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The copy still names workflow {metadata.WorkflowId}, not its own {folderWorkflowId}: the source's {WorkflowWorkspace.MetadataFileName} writes the id in a form the copy cannot rewrite. Write it on one line and copy again.", relative));
+                }
+            }
+        }
+
         void AuditDefinitionString(CopyJsonString json, string relative)
         {
             if (json.IsPropertyName)
@@ -198,9 +210,9 @@ internal sealed class CopyIdentityAuditor
                 return;
             }
 
-            if (Guid.TryParse(json.Value, out var modelId) && replacedModels.Contains(modelId))
+            if (Guid.TryParse(json.Value, out var resourceId) && (replacedModels.Contains(resourceId) ? "AI prompt" : replacedWorkflows.Contains(resourceId) ? "workflow" : null) is { } resource)
             {
-                blockers.Add(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The workflow definition still calls the source's AI prompt {modelId} instead of its copy.", relative));
+                blockers.Add(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The workflow definition still calls the source's {resource} {resourceId} instead of its copy.", relative));
             }
             else if (string.Equals(json.OwnerProperty, WorkspaceCopyTransform.ConnectionReferenceLogicalNameKey, StringComparison.Ordinal) && replacedReferences.Contains(json.Value))
             {
@@ -217,7 +229,7 @@ internal sealed class CopyIdentityAuditor
                 return;
             }
 
-            if (sourceSchema is not null && WorkspaceCopyTransform.IsSourceRooted(value, sourceSchema))
+            if (sourceSchema is not null && WorkspaceCopyTransform.IsSourceRooted(value, sourceSchema) && SchemaNameValidator.IsValid(value.Trim()))
             {
                 blockers.Add(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The field {scalar.Key} still names the source agent's identity {value}.", relative));
                 return;
@@ -268,7 +280,23 @@ internal sealed class CopyIdentityAuditor
         }
     }
 
-    private static IEnumerable<string> CopiedWorkflowFiles(IReadOnlyList<WorkflowFolder> workflows, string fileName) => workflows.Select(workflow => $"{WorkflowWorkspace.WorkflowsFolderName}/{workflow.FolderName}/{fileName}");
+    private static void AuditName(string? effectiveName, string requestedName, string file, string? path, List<CopyAuditFinding> blockers)
+    {
+        if (!string.Equals(effectiveName, requestedName, StringComparison.Ordinal))
+        {
+            blockers.Add(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The copy is still named '{effectiveName}', not '{requestedName}': the source's {file} writes the name in a form the copy cannot rewrite. Write it on one line and copy again.", path));
+        }
+    }
+
+    private static void AuditDraft(SyncDataverseClient.WorkflowMetadata? workflow, string? path, List<CopyAuditFinding> blockers)
+    {
+        if (workflow is { StateCode: not (null or 0) } or { StatusCode: not (null or 1) })
+        {
+            blockers.Add(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The copy is not a draft (stateCode 0, statusCode 1): the source's {WorkflowWorkspace.MetadataFileName} writes the state in a form the copy cannot rewrite. Write it on one line and copy again.", path));
+        }
+    }
+
+    private static IEnumerable<(WorkflowFolder Workflow, string Relative)> CopiedWorkflowFiles(IReadOnlyList<WorkflowFolder> workflows, string fileName) => workflows.Select(workflow => (workflow, $"{WorkflowWorkspace.WorkflowsFolderName}/{workflow.FolderName}/{fileName}"));
 
     private static HashSet<Guid> GuidSet(IEnumerable<string> values) => new(values.Select(value => Guid.TryParse(value, out var parsed) ? parsed : Guid.Empty).Where(value => value != Guid.Empty));
 
