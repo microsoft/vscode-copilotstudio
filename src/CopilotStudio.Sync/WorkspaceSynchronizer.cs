@@ -4880,7 +4880,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             var isProjected = projectedFiles.TryGetValue(schemaName, out var projectedPath);
             if (!referencedNames.Contains(schemaName))
             {
-                if (isProjected && previousCloudSnapshot is not null && await MatchesCloudCopyAsync(fileAccessor, projectedPath, environmentVariable, previousCloudSnapshot, cancellationToken).ConfigureAwait(false))
+                if (isProjected && previousCloudSnapshot is not null && MatchesCloudCopy(fileAccessor, projectedPath, environmentVariable, previousCloudSnapshot))
                 {
                     fileAccessor.Delete(projectedPath);
                 }
@@ -4929,11 +4929,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private static EnvironmentVariableDefinition? DeserializeEnvironmentVariable(string yaml) => McsYamlValidator.Deserialize(yaml, typeof(EnvironmentVariableDefinition), null) as EnvironmentVariableDefinition;
 
-    private static async Task<bool> MatchesCloudCopyAsync(IFileAccessor fileAccessor, AgentFilePath path, EnvironmentVariableDefinition cloudEnvironmentVariable, DefinitionBase previousCloudSnapshot, CancellationToken cancellationToken)
+    private static bool MatchesCloudCopy(IFileAccessor fileAccessor, AgentFilePath path, EnvironmentVariableDefinition cloudEnvironmentVariable, DefinitionBase? previousCloudSnapshot)
     {
         try
         {
-            return await ReadEnvironmentVariableFileAsync(fileAccessor, path, cancellationToken).ConfigureAwait(false) is { } environmentVariable && (HasSameContent(environmentVariable, cloudEnvironmentVariable) || previousCloudSnapshot.TryGetEnvironmentVariableDefinitionBySchemaName(cloudEnvironmentVariable.SchemaName, out var previousCloudEnvironmentVariable) && HasSameContent(environmentVariable, previousCloudEnvironmentVariable));
+            using var reader = new StreamReader(fileAccessor.OpenRead(path));
+            return DeserializeEnvironmentVariable(reader.ReadToEnd()) is { } environmentVariable && (HasSameContent(environmentVariable, cloudEnvironmentVariable) || previousCloudSnapshot is not null && previousCloudSnapshot.TryGetEnvironmentVariableDefinitionBySchemaName(cloudEnvironmentVariable.SchemaName, out var previousCloudEnvironmentVariable) && HasSameContent(environmentVariable, previousCloudEnvironmentVariable));
         }
         catch (Exception failure) when (IsUnreadableFileFailure(failure))
         {
@@ -5229,8 +5230,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     public virtual void RestoreRemoteBindingState(DirectoryPath workspaceFolder, RemoteBindingSnapshot snapshot)
     {
         var fileAccessor = this.OpenWorkspace(workspaceFolder);
+        var projectedEnvironmentVariablePaths = ListEnvironmentVariableFilesProjectedSince(fileAccessor, snapshot);
 
-        var affectedPaths = RemoteBindingFilePaths.Append(ConnectionDetailsPath).Concat(snapshot.Files.Select(file => file.Path)).Distinct().ToArray();
+        var affectedPaths = RemoteBindingFilePaths.Append(ConnectionDetailsPath).Concat(snapshot.Files.Select(file => file.Path)).Concat(projectedEnvironmentVariablePaths).Distinct().ToArray();
         var preImage = ImmutableArray.CreateBuilder<RemoteBindingFile>();
         foreach (var path in affectedPaths)
         {
@@ -5242,7 +5244,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         try
         {
-            foreach (var path in RemoteBindingFilePaths)
+            foreach (var path in RemoteBindingFilePaths.Concat(projectedEnvironmentVariablePaths))
             {
                 fileAccessor.Delete(path);
             }
@@ -5262,6 +5264,19 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 WriteAllBytes(fileAccessor, file.Path, file.Content);
             }
             throw;
+        }
+    }
+
+    private static AgentFilePath[] ListEnvironmentVariableFilesProjectedSince(IFileAccessor fileAccessor, RemoteBindingSnapshot snapshot)
+    {
+        try
+        {
+            var capturedPaths = new HashSet<string>(snapshot.Files.Select(file => file.Path.ToString()), StringComparer.OrdinalIgnoreCase);
+            return ReadCloudCacheSnapshot(fileAccessor, allowMissing: true) is { } cloudSnapshot ? ListEnvironmentVariableFiles(fileAccessor).Where(file => !capturedPaths.Contains(file.Value.ToString()) && cloudSnapshot.TryGetEnvironmentVariableDefinitionBySchemaName(file.Key, out var cloudEnvironmentVariable) && MatchesCloudCopy(fileAccessor, file.Value, cloudEnvironmentVariable, previousCloudSnapshot: null)).Select(file => file.Value).ToArray() : Array.Empty<AgentFilePath>();
+        }
+        catch (Exception failure) when (failure is JsonException || IsUnreadableFileFailure(failure))
+        {
+            return Array.Empty<AgentFilePath>();
         }
     }
 

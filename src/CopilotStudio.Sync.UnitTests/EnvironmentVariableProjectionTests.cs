@@ -559,6 +559,42 @@ public class EnvironmentVariableProjectionTests
     }
 
     [Fact]
+    public async Task RetargetRollback_RemovesTheUneditedEnvironmentVariableFilesTheRetargetProjectedAndKeepsOtherLocalFiles()
+    {
+        var (synchronizer, fileAccessor, island, workspace) = CreateWorkspace();
+        var edited = CreateEnvironmentVariable("cr123.edited", value: "target");
+        SetupRemoteChanges(island, CreateChangeSet("token-1", environmentVariableChanges: new[] { new EnvironmentVariableInsert(CreateEnvironmentVariable(OwnedSchemaName, value: "target")), new EnvironmentVariableInsert(edited) }, bot: CreateBotEntity()));
+        var (dataverse, _) = CreateDataverse();
+        synchronizer.PersistRetargetBackup(workspace, synchronizer.ResetRemoteBindingState(workspace));
+        await RetargetSyncAsync(synchronizer, workspace, dataverse);
+        Assert.True(fileAccessor.Exists(GetPath(OwnedSchemaName)));
+        WriteEnvironmentVariableFile(fileAccessor, edited.WithDefaultValue("edited during the retarget"));
+        WriteEnvironmentVariableFile(fileAccessor, CreateEnvironmentVariable("cr123.local", value: "local"));
+
+        Assert.True(synchronizer.FinalizeRetarget(workspace, pushSucceeded: false));
+
+        Assert.False(fileAccessor.Exists(GetPath(OwnedSchemaName)));
+        Assert.True(fileAccessor.Exists(GetPath("cr123.edited")));
+        Assert.True(fileAccessor.Exists(GetPath("cr123.local")));
+    }
+
+    [Fact]
+    public async Task RetargetRollback_WhenTheCachedCloudCopyIsUnreadable_RestoresTheBindingAndKeepsTheEnvironmentVariableFiles()
+    {
+        var (synchronizer, fileAccessor, island, workspace) = CreateWorkspace();
+        SetupRemoteChanges(island, CreateChangeSet("token-1", environmentVariableChanges: new[] { new EnvironmentVariableInsert(CreateEnvironmentVariable(OwnedSchemaName, value: "target")) }, bot: CreateBotEntity()));
+        var (dataverse, _) = CreateDataverse();
+        synchronizer.PersistRetargetBackup(workspace, synchronizer.ResetRemoteBindingState(workspace));
+        await RetargetSyncAsync(synchronizer, workspace, dataverse);
+        WriteText(fileAccessor, CachePath, "{ not json");
+
+        Assert.True(synchronizer.FinalizeRetarget(workspace, pushSucceeded: false));
+
+        Assert.True(fileAccessor.Exists(GetPath(OwnedSchemaName)));
+        Assert.False(fileAccessor.Exists(CachePath));
+    }
+
+    [Fact]
     public async Task GetRemoteChanges_WhenCloudChangesProjectedSharedEnvironmentVariable_ReportsUpdateWithoutWritingCache()
     {
         var shared = CreateEnvironmentVariable(SharedSchemaName);
