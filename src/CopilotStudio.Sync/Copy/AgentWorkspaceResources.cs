@@ -1,6 +1,5 @@
 // Copyright (C) Microsoft Corporation. All rights reserved.
 
-using System.Text.Json;
 using Microsoft.CopilotStudio.McsCore;
 
 namespace Microsoft.CopilotStudio.Sync.Copy;
@@ -72,15 +71,7 @@ public static class AgentWorkspaceResources
     {
         var metadataPath = Path.Combine(folder, CustomConnectorLayout.MetadataFileName);
 
-        if (!File.Exists(metadataPath))
-        {
-            return null;
-        }
-
-        using var document = JsonDocument.Parse(WorkspaceCopyTransform.ReadText(metadataPath, out _));
-        var metadata = document.RootElement;
-
-        return metadata.ValueKind == JsonValueKind.Object && metadata.TryGetProperty("connectorid", out var identifier) && Guid.TryParse(identifier.GetString(), out var connectorId) ? new WorkspaceConnector(connectorId, Path.GetFileName(folder), StringOf(metadata, "name"), StringOf(metadata, "displayname"), StringOf(metadata, "connectorinternalid"), NumberOf(metadata, "versionnumber")) : null;
+        return File.Exists(metadataPath) && WorkspaceSynchronizer.ParseLocalConnector(WorkspaceCopyTransform.ReadText(metadataPath, out _), Path.GetFileName(folder)) is { } metadata ? new WorkspaceConnector(metadata.ConnectorId, Path.GetFileName(folder), metadata.Name, metadata.DisplayName, metadata.ConnectorInternalId, metadata.VersionNumber) : null;
     }
 
     internal static IEnumerable<string> DeclarationFiles(string root)
@@ -104,10 +95,6 @@ public static class AgentWorkspaceResources
     }
 
     internal static IReadOnlyList<WorkspaceDeclaration> ReadDeclarations(string root, string relative) => ConnectionReferenceStore.ParseFlat(WorkspaceCopyTransform.ReadText(Path.Combine(root, relative), out _)).Where(reference => !string.IsNullOrEmpty(reference.ConnectionReferenceLogicalName.Value)).Select(reference => new WorkspaceDeclaration(relative, reference.ConnectionReferenceLogicalName.Value, reference.ConnectorId.ToString())).ToArray();
-
-    private static string? StringOf(JsonElement element, string property) => element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
-
-    private static long? NumberOf(JsonElement element, string property) => element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var number) ? number : null;
 
     private static Guid IdentifierOf(AgentWorkspaceResource resource) => Guid.TryParse(resource.Identity, out var identifier) ? identifier : Guid.Empty;
 

@@ -136,6 +136,16 @@ public class CopyTextEditsTests
     }
 
     [Fact]
+    public void VisitJson_ReportsThePathOfEveryNameAndString()
+    {
+        var visited = new List<string>();
+
+        CopyTextEdits.VisitJson(Encoding.UTF8.GetBytes("{\"a\": {\"b\": \"x\", \"c\": [\"y\", {\"d\": \"z\"}]}, \"e\": \"w\"}"), json => visited.Add($"{(json.IsPropertyName ? "name" : "value")} {json.Value} {string.Join("/", json.Path)}"));
+
+        Assert.Equal(new[] { "name a a", "name b a/b", "value x a/b", "name c a/c", "value y a/c/[]", "name d a/c/[]/d", "value z a/c/[]/d", "name e e", "value w e" }, visited);
+    }
+
+    [Fact]
     public void RemoveRootProperty_RemovesOnlyARootScalarLine()
     {
         Assert.Equal("a: 1\nnested:\n  publishedOn: keep\n", CopyTextEdits.RemoveRootProperty("a: 1\npublishedOn: 2026-01-01T00:00:00Z\nnested:\n  publishedOn: keep\n", "publishedOn"));

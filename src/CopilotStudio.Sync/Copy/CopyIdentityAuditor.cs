@@ -149,14 +149,20 @@ internal sealed class CopyIdentityAuditor
         var replacedReferences = new HashSet<string>(SourceIdentities(identities, CopyIdentityKinds.ConnectionReference), StringComparer.OrdinalIgnoreCase);
         var replacedWorkflows = GuidSet(SourceIdentities(identities, CopyIdentityKinds.Workflow));
         var replacedModels = GuidSet(SourceIdentities(identities, CopyIdentityKinds.AIModel));
-        var replacedConnectors = new HashSet<string>(SourceIdentities(identities, CopyIdentityKinds.ConnectorInternalId), StringComparer.OrdinalIgnoreCase);
+        var replacedConnectorIds = GuidSet(SourceIdentities(identities, CopyIdentityKinds.Connector));
+        var replacedConnectorInternalIds = new HashSet<string>(SourceIdentities(identities, CopyIdentityKinds.ConnectorInternalId), StringComparer.OrdinalIgnoreCase);
         var workflows = WorkflowWorkspace.FindAll(workspaceRoot);
+        var prompts = AgentWorkspaceResources.PromptFolders(workspaceRoot).ToArray();
         var localWorkflows = new HashSet<Guid>(workflows.Select(workflow => workflow.WorkflowId));
-        var localModels = new HashSet<Guid>(AgentWorkspaceResources.PromptFolders(workspaceRoot).Select(prompt => prompt.ModelId));
+        var localModels = new HashSet<Guid>(prompts.Select(prompt => prompt.ModelId));
 
-        foreach (var leftover in workflows.Where(workflow => replacedWorkflows.Contains(workflow.WorkflowId)))
+        blockers.AddRange(workflows.Where(workflow => replacedWorkflows.Contains(workflow.WorkflowId)).Select(workflow => LeftoverFolder("workflow", workflow.WorkflowId.ToString("D"), $"{WorkflowWorkspace.WorkflowsFolderName}/{workflow.FolderName}")));
+        blockers.AddRange(prompts.Where(prompt => replacedModels.Contains(prompt.ModelId)).Select(prompt => LeftoverFolder("AI prompt", prompt.ModelId.ToString("D"), $"{AiPromptLayout.FolderName}/{prompt.FolderName}")));
+
+        foreach (var folder in AgentWorkspaceResources.ConnectorFolders(workspaceRoot))
         {
-            blockers.Add(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The workflow folder still names the source's workflow {leftover.WorkflowId} instead of its copy.", $"{WorkflowWorkspace.WorkflowsFolderName}/{leftover.FolderName}"));
+            var relative = $"{CustomConnectorLayout.FolderName}/{Path.GetFileName(folder)}";
+            Visit($"{relative}/{CustomConnectorLayout.MetadataFileName}", () => AuditConnector(AgentWorkspaceResources.ReadConnector(folder), relative));
         }
 
         foreach (var relative in (sourceSchema is null ? Enumerable.Empty<string>() : WorkspaceCopyTransform.ContentYamlFiles(workspaceRoot)).Concat(AgentWorkspaceResources.DeclarationFiles(workspaceRoot)).Distinct(StringComparer.Ordinal))
@@ -171,7 +177,7 @@ internal sealed class CopyIdentityAuditor
 
         foreach (var (_, relative) in CopiedWorkflowFiles(workflows, WorkflowWorkspace.DefinitionFileName))
         {
-            Visit(relative, () => CopyTextEdits.VisitJson(File.ReadAllBytes(Path.Combine(workspaceRoot, relative)), json => AuditDefinitionString(json, relative)));
+            Visit(relative, () => AuditDefinition(File.ReadAllBytes(Path.Combine(workspaceRoot, relative)), relative));
         }
 
         void Visit(string relative, Action audit)
@@ -203,16 +209,30 @@ internal sealed class CopyIdentityAuditor
             }
         }
 
-        void AuditDefinitionString(CopyJsonString json, string relative)
+        void AuditConnector(WorkspaceConnector? connector, string relative)
+        {
+            if (connector is not null && (replacedConnectorIds.Contains(connector.Id) ? connector.Id.ToString("D") : connector.InternalId is { } internalId && replacedConnectorInternalIds.Contains(internalId) ? internalId : null) is { } leftover)
+            {
+                blockers.Add(LeftoverFolder("custom connector", leftover, relative));
+            }
+        }
+
+        void AuditDefinition(byte[] content, string relative)
+        {
+            var references = WorkflowDefinitionReferences.Find(content);
+            CopyTextEdits.VisitJson(content, json => AuditDefinitionString(json, relative, references));
+        }
+
+        void AuditDefinitionString(CopyJsonString json, string relative, IReadOnlyList<WorkflowDefinitionReference> references)
         {
             if (json.IsPropertyName)
             {
                 return;
             }
 
-            if (Guid.TryParse(json.Value, out var resourceId) && (replacedModels.Contains(resourceId) ? "AI prompt" : replacedWorkflows.Contains(resourceId) ? "workflow" : null) is { } resource)
+            if (WorkflowDefinitionReferences.KindAt(references, json.Path) is { } kind && Guid.TryParse(json.Value, out var resourceId) && (kind == CopyIdentityKinds.AIModel ? replacedModels : replacedWorkflows).Contains(resourceId))
             {
-                blockers.Add(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The workflow definition still calls the source's {resource} {resourceId} instead of its copy.", relative));
+                blockers.Add(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The workflow definition still calls the source's {(kind == CopyIdentityKinds.AIModel ? "AI prompt" : "workflow")} {resourceId} instead of its copy.", relative));
             }
             else if (string.Equals(json.OwnerProperty, WorkspaceCopyTransform.ConnectionReferenceLogicalNameKey, StringComparison.Ordinal) && replacedReferences.Contains(json.Value))
             {
@@ -273,7 +293,7 @@ internal sealed class CopyIdentityAuditor
                 return;
             }
 
-            if (string.Equals(scalar.Key, WorkspaceCopyTransform.ConnectorKey, StringComparison.Ordinal) && WorkspaceCopyTransform.ConnectorInternalIdOf(value) is { } internalId && replacedConnectors.Contains(internalId))
+            if (string.Equals(scalar.Key, WorkspaceCopyTransform.ConnectorKey, StringComparison.Ordinal) && WorkspaceCopyTransform.ConnectorInternalIdOf(value) is { } internalId && replacedConnectorInternalIds.Contains(internalId))
             {
                 blockers.Add(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The field {scalar.Key} still names the source's custom connector {internalId} instead of its copy.", relative));
             }
@@ -295,6 +315,8 @@ internal sealed class CopyIdentityAuditor
             blockers.Add(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The copy is not a draft (stateCode 0, statusCode 1): the source's {WorkflowWorkspace.MetadataFileName} writes the state in a form the copy cannot rewrite. Write it on one line and copy again.", path));
         }
     }
+
+    private static CopyAuditFinding LeftoverFolder(string label, string identity, string path) => new(CopyAuditCodes.LeftoverSourceIdentity, $"The {label} folder still names the source's {label} {identity} instead of its copy.", path);
 
     private static IEnumerable<(WorkflowFolder Workflow, string Relative)> CopiedWorkflowFiles(IReadOnlyList<WorkflowFolder> workflows, string fileName) => workflows.Select(workflow => (workflow, $"{WorkflowWorkspace.WorkflowsFolderName}/{workflow.FolderName}/{fileName}"));
 

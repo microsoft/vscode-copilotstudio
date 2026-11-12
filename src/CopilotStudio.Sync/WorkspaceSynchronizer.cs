@@ -97,6 +97,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private static readonly JsonSerializerOptions IndentedJsonOptions = new() { WriteIndented = true };
 
+    private static readonly JsonSerializerOptions LocalConnectorJsonOptions = new() { PropertyNameCaseInsensitive = true };
+
     private static readonly Task<ImmutableArray<Change>> NoChangesTask = Task.FromResult(ImmutableArray<Change>.Empty);
 
     private static readonly Regex AiModelIdReferenceRegex = new Regex(@"aIModelId\s*:\s*([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", RegexOptions.Compiled);
@@ -9691,15 +9693,16 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private static string DescribeConnectorChangedInTheCloud(string name) => $"Failed to push custom connector '{name}': it changed in the cloud since it was last synced. Get the latest changes, or overwrite the cloud copy.";
 
-    private static async Task<CustomConnectorMetadata?> LoadLocalConnectorAsync(IFileAccessor fileAccessor, string folder, CancellationToken cancellationToken)
+    internal static CustomConnectorMetadata? ParseLocalConnector(string metadataText, string folderName)
     {
-        var connector = await TryLoadLocalConnectorAsync(fileAccessor, folder, cancellationToken).ConfigureAwait(false);
-        if (connector != null && connector.ConnectorId == Guid.Empty)
+        var connector = JsonSerializer.Deserialize<CustomConnectorMetadata>(metadataText, LocalConnectorJsonOptions);
+
+        if (connector is not null && connector.ConnectorId == Guid.Empty)
         {
-            connector.ConnectorId = ComponentFolderName.ExtractTrailingGuid(GetComponentFolderName(folder)) ?? Guid.Empty;
+            connector.ConnectorId = ComponentFolderName.ExtractTrailingGuid(folderName) ?? Guid.Empty;
         }
 
-        return connector == null || connector.ConnectorId == Guid.Empty ? null : connector;
+        return connector is null || connector.ConnectorId == Guid.Empty ? null : connector;
     }
 
     private async Task WriteConnectorFolderIfUnchangedAsync(IFileAccessor fileAccessor, ConnectorFolderContent content, LocalConnector localConnector, CancellationToken cancellationToken)
@@ -9806,7 +9809,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         internal IReadOnlyDictionary<string, string> Files => SyncedAssetKind.ToFiles(new (string, string?)[] { (CustomConnectorLayout.MetadataFileName, Metadata), (CustomConnectorLayout.OpenApiDefinitionFileName, OpenApiDefinition), (CustomConnectorLayout.ConnectionParametersFileName, ConnectionParameters), (CustomConnectorLayout.PolicyTemplateInstancesFileName, PolicyTemplateInstances), (CustomConnectorLayout.IconFileName, Icon == null ? null : Convert.ToBase64String(Icon)) });
     }
 
-    private static async Task<CustomConnectorMetadata?> TryLoadLocalConnectorAsync(IFileAccessor fileAccessor, string folder, CancellationToken cancellationToken)
+    private static async Task<CustomConnectorMetadata?> LoadLocalConnectorAsync(IFileAccessor fileAccessor, string folder, CancellationToken cancellationToken)
     {
         var meta = await TryReadConnectorMetadataAsync(fileAccessor, folder, cancellationToken).ConfigureAwait(false);
         if (meta == null)
@@ -9842,7 +9845,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         try
         {
-            return JsonSerializer.Deserialize<CustomConnectorMetadata>(metadataText, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            return ParseLocalConnector(metadataText, GetComponentFolderName(folder));
         }
         catch (JsonException)
         {

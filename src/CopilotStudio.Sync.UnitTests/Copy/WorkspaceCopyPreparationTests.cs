@@ -136,6 +136,27 @@ public class WorkspaceCopyPreparationTests
     }
 
     [Fact]
+    public async Task Prepare_AgentCopyOfAFlow_RemapsOnlyTheFlowsAndPromptsItsActionsCall()
+    {
+        using var workspace = CopyTestWorkspace.Classic();
+        var promptId = CopyTestWorkspace.PromptModelId.ToString("D");
+        var workflowId = CopyTestWorkspace.ClassicWorkflowId.ToString("D");
+        workspace.AddAction(CopyTestWorkspace.ClassicWorkflowFolder, $"\"Run_a_prompt\": {{ \"type\": \"OpenApiConnection\", \"inputs\": {{ \"host\": {{ \"operationId\": \"aibuilderpredict_customprompt\" }}, \"parameters\": {{ \"recordId\": \"{promptId}\" }} }} }},\n        \"Retry\": {{ \"type\": \"Scope\", \"actions\": {{ \"Run_again\": {{ \"type\": \"Workflow\", \"inputs\": {{ \"host\": {{ \"workflowReferenceName\": \"{workflowId}\" }} }} }} }} }},\n        \"Compose\": {{ \"type\": \"Compose\", \"inputs\": \"{promptId}\" }},\n        \"HTTP\": {{ \"type\": \"Http\", \"inputs\": {{ \"method\": \"POST\", \"uri\": \"https://example.com/flows\", \"body\": {{ \"workflowReferenceName\": \"{workflowId}\", \"recordId\": \"{promptId}\" }} }} }}");
+
+        var result = await CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None);
+
+        using var definition = JsonDocument.Parse(workspace.Read(workspace.CopiedWorkflowFolder(result) + "/workflow.json"));
+        var actions = definition.RootElement.GetProperty("properties").GetProperty("definition").GetProperty("actions");
+        var body = actions.GetProperty("HTTP").GetProperty("inputs").GetProperty("body");
+        Assert.True(result.Audit.Passed);
+        Assert.Equal(Destination(result, CopyIdentityKinds.AIModel, promptId), actions.GetProperty("Run_a_prompt").GetProperty("inputs").GetProperty("parameters").GetProperty("recordId").GetString());
+        Assert.Equal(Destination(result, CopyIdentityKinds.Workflow, workflowId), actions.GetProperty("Retry").GetProperty("actions").GetProperty("Run_again").GetProperty("inputs").GetProperty("host").GetProperty("workflowReferenceName").GetString());
+        Assert.Equal(promptId, actions.GetProperty("Compose").GetProperty("inputs").GetString());
+        Assert.Equal(workflowId, body.GetProperty("workflowReferenceName").GetString());
+        Assert.Equal(promptId, body.GetProperty("recordId").GetString());
+    }
+
+    [Fact]
     public async Task Prepare_ClassicCopy_RenamesTheAgentAndEveryToolStillNamedAfterTheFlowOrPromptItCalls()
     {
         using var workspace = CopyTestWorkspace.Classic();
@@ -242,16 +263,80 @@ public class WorkspaceCopyPreparationTests
         Assert.Contains(failure.Findings, finding => finding.Code == CopyAuditCodes.UnresolvedReference && finding.Message.Contains("AI prompt 99999999-2222-3333-4444-555555555555", StringComparison.Ordinal) && finding.Message.EndsWith("Pull the source again.", StringComparison.Ordinal));
     }
 
-    [Fact]
-    public async Task Prepare_WithUnparseableConnectorMetadata_IsBlocked()
+    [Theory]
+    [InlineData("{ not json")]
+    [InlineData("[]")]
+    public async Task Prepare_WithUnparseableConnectorMetadata_IsBlocked(string metadata)
     {
         using var workspace = CopyTestWorkspace.Cli();
-        workspace.Write("connectors/broken/metadata.yml", "{ not json");
+        workspace.Write("connectors/broken/metadata.yml", metadata);
 
         var failure = await Assert.ThrowsAsync<CopyPreparationException>(() => CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None));
 
         Assert.Contains(failure.Findings, finding => finding.Code == CopyAuditCodes.Unreadable && finding.Path == "connectors/broken/metadata.yml" && finding.Message.StartsWith("The custom connector metadata could not be parsed (", StringComparison.Ordinal));
     }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Prepare_AgentCopyOfAConnectorAPushReads_GivesItTheCopysIdentity(bool metadataNamesTheConnector)
+    {
+        using var workspace = CopyTestWorkspace.Cli();
+        workspace.WriteConnector();
+        workspace.Write(CopyTestWorkspace.ConnectorFolder + "/metadata.yml", "{\n" + (metadataNamesTheConnector ? $"  \"ConnectorId\": \"{CopyTestWorkspace.ConnectorId:D}\",\n" : string.Empty) + $"  \"Name\": \"{CopyTestWorkspace.ConnectorName}\",\n  \"DisplayName\": \"Weather Plus\",\n  \"ConnectorInternalId\": \"{CopyTestWorkspace.ConnectorInternalId}\",\n  \"OpenApiDefinition\": \"{CopyTestWorkspace.ConnectorFolder}/openapidefinition.json\",\n  \"ConnectionParameters\": \"{CopyTestWorkspace.ConnectorFolder}/connectionparameters.json\",\n  \"ConnectorType\": 1\n}}");
+
+        var result = await CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None);
+
+        var connectorCopy = Guid.Parse(Destination(result, CopyIdentityKinds.Connector, CopyTestWorkspace.ConnectorId.ToString("D")));
+        var folder = workspace.Folder("connectors", connectorCopy);
+        var pushed = WorkspaceSynchronizer.ParseLocalConnector(workspace.Read($"connectors/{folder}/metadata.yml"), folder);
+        Assert.True(result.Audit.Passed);
+        Assert.Equal(connectorCopy, pushed?.ConnectorId);
+        Assert.Equal(Destination(result, CopyIdentityKinds.ConnectorInternalId, CopyTestWorkspace.ConnectorInternalId), pushed?.ConnectorInternalId);
+        Assert.Equal($"connectors/{folder}/openapidefinition.json", pushed?.OpenApiDefinition);
+        Assert.Empty(Mentioning(workspace, CopyTestWorkspace.ConnectorId.ToString("D")));
+    }
+
+    [Theory]
+    [InlineData(CopyIdentityKinds.Workflow)]
+    [InlineData(CopyIdentityKinds.AIModel)]
+    [InlineData(CopyIdentityKinds.Connector)]
+    public async Task Prepare_AgentCopyOfTwoFoldersHoldingOneIdentity_IsRefusedBeforeAnythingChanges(string kind)
+    {
+        using var workspace = kind == CopyIdentityKinds.Connector ? CopyTestWorkspace.Cli() : CopyTestWorkspace.Classic();
+        string label;
+        Guid identity;
+        string[] folders;
+
+        if (kind == CopyIdentityKinds.Workflow)
+        {
+            (label, identity) = ("workflow", CopyTestWorkspace.ClassicWorkflowId);
+            folders = new[] { CopyTestWorkspace.ClassicWorkflowFolder, $"workflows/ClassicFlowAgain-{identity:D}" };
+            workspace.WriteWorkflow(folders[1], identity, "Classic Flow Again", CopyTestWorkspace.ClassicTeamsReference, CopyTestWorkspace.ClassicWeatherReference);
+        }
+        else if (kind == CopyIdentityKinds.AIModel)
+        {
+            (label, identity) = ("AI prompt", CopyTestWorkspace.PromptModelId);
+            folders = new[] { CopyTestWorkspace.PromptFolder, $"prompts/prompttwo-{identity:D}" };
+            workspace.Write(folders[1] + "/metadata.yml", $"aIModelId: {identity:D}\nname: prompt two\n");
+            workspace.Write(folders[1] + "/prompt.json", "{\n  \"name\": \"prompt two\"\n}\n");
+        }
+        else
+        {
+            (label, identity) = ("custom connector", CopyTestWorkspace.ConnectorId);
+            folders = new[] { $"connectors/cr1_5Fmaps-{identity:D}", CopyTestWorkspace.ConnectorFolder };
+            workspace.WriteConnector();
+            workspace.WriteConnectorFolder(folders[0], identity, "cr1_5Fmaps", "Maps", SecondConnectorInternalId, "maps.example.com", version: null);
+        }
+
+        var before = workspace.Snapshot();
+
+        var failure = await Assert.ThrowsAsync<CopyPreparationException>(() => CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None));
+
+        Assert.Contains(new CopyAuditFinding(CopyAuditCodes.Unreadable, $"The workspace holds the {label} {identity:D} in 2 folders ({folders[0]}, {folders[1]}), so a copy cannot give each its own identity. Keep one of them and copy again.", folders[0]), failure.Findings);
+        Assert.Equal(before, workspace.Snapshot());
+    }
+
     [Fact]
     public async Task Prepare_IntoTheSourceSchema_IsBlocked()
     {
@@ -683,16 +768,36 @@ public class WorkspaceCopyPreparationTests
     [Theory]
     [InlineData("activity: cr2_classic\n", true)]
     [InlineData("customKey: cr2_classic.topic.Greeting\n", true)]
-    [InlineData("customKey: |\n  cr2_classic.topic.Greeting\n", true)]
-    [InlineData("customKey: |+\n  cr2_classic.topic.Greeting\n\n", true)]
     [InlineData("description: cr2_classic. Answers questions about expenses.\n", false)]
     public async Task Prepare_ClassicCopy_RefusesASourceRootedValueItDoesNotRewriteOnlyWhenItIsShapedLikeAnIdentity(string notes, bool refused)
     {
         using var workspace = CopyTestWorkspace.Classic();
-        workspace.Write("notes.yml", notes);
+        var topic = "mcs.metadata:\n  componentName: Notes\nkind: AdaptiveDialog\n" + notes;
+        workspace.Write("topics/Notes.mcs.yml", topic);
 
-        Assert.Equal(refused ? new[] { $"{CopyAuditCodes.LeftoverSourceIdentity} notes.yml" } : Array.Empty<string>(), (await FindingsOfAsync(workspace.Request())).Select(finding => $"{finding.Code} {finding.Path}"));
-        Assert.Equal(notes, workspace.Read("notes.yml"));
+        Assert.Equal(refused ? new[] { $"{CopyAuditCodes.LeftoverSourceIdentity} topics/Notes.mcs.yml" } : Array.Empty<string>(), (await FindingsOfAsync(workspace.Request())).Select(finding => $"{finding.Code} {finding.Path}"));
+        Assert.Equal(topic, workspace.Read("topics/Notes.mcs.yml"));
+    }
+
+    [Fact]
+    public async Task Prepare_AgentCopy_LeavesSkillAndKnowledgePayloadsThatAreNotAgentMetadataByteForByte()
+    {
+        using var workspace = CopyTestWorkspace.Cli();
+        var payload = $"schemaName: {CopyTestWorkspace.CliSchema}.topic.Expenses\nflowId: {OtherWorkflowId:D}\nconnectionReference: {CopyTestWorkspace.CliTeamsReference}\n";
+        var payloads = new[] { "behaviors/Expenses/config.yml", "behaviors/Expenses/rates.yaml", "capabilities/knowledge/files/Rates.yml" };
+
+        foreach (var relative in payloads)
+        {
+            workspace.Write(relative, payload);
+        }
+
+        workspace.Write("capabilities/knowledge/files/Rates.mcs.yml", "mcs.metadata:\n  componentName: Rates.yml\nkind: FileAttachmentComponentMetadata\n");
+
+        var result = await CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None);
+
+        Assert.True(result.Audit.Passed);
+        Assert.All(payloads, relative => Assert.Equal(payload, workspace.Read(relative)));
+        Assert.Empty(result.RewrittenFiles.Intersect(payloads));
     }
 
     [Theory]

@@ -174,6 +174,44 @@ public class CopyIdentityAuditTests
         Assert.Equal(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The workflow definition still calls the source's workflow {CopyTestWorkspace.ClassicWorkflowId} instead of its copy.", workflowFolder + "/workflow.json"), Assert.Single((await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(workspace.Request(), prepared.Identities, CancellationToken.None)).Blockers));
     }
 
+    [Theory]
+    [InlineData(CopyIdentityKinds.AIModel)]
+    [InlineData(CopyIdentityKinds.Connector)]
+    [InlineData(CopyIdentityKinds.ConnectorInternalId)]
+    public async Task AuditWorkspace_AFolderStillHoldingASourcePromptOrConnector_IsALeftover(string kind)
+    {
+        using var workspace = kind == CopyIdentityKinds.AIModel ? CopyTestWorkspace.Classic() : CopyTestWorkspace.Cli();
+
+        if (kind != CopyIdentityKinds.AIModel)
+        {
+            workspace.WriteConnector();
+        }
+
+        var prepared = await CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None);
+        CopyAuditFinding expected;
+
+        if (kind == CopyIdentityKinds.AIModel)
+        {
+            workspace.Write(CopyTestWorkspace.PromptFolder + "/metadata.yml", $"aIModelId: {CopyTestWorkspace.PromptModelId:D}\nname: prompt one\n");
+            expected = new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The AI prompt folder still names the source's AI prompt {CopyTestWorkspace.PromptModelId:D} instead of its copy.", CopyTestWorkspace.PromptFolder);
+        }
+        else if (kind == CopyIdentityKinds.Connector)
+        {
+            workspace.WriteConnectorFolder(CopyTestWorkspace.ConnectorFolder, CopyTestWorkspace.ConnectorId, CopyTestWorkspace.ConnectorName, "Weather Plus", OwnedInternalId, "weather.example.com", version: null);
+            expected = new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The custom connector folder still names the source's custom connector {CopyTestWorkspace.ConnectorId:D} instead of its copy.", CopyTestWorkspace.ConnectorFolder);
+        }
+        else
+        {
+            var folder = $"connectors/stale-{OwnedConnector:D}";
+            workspace.WriteConnectorFolder(folder, OwnedConnector, CopyTestWorkspace.ConnectorName, "Weather Plus", CopyTestWorkspace.ConnectorInternalId, "weather.example.com", version: null);
+            expected = new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The custom connector folder still names the source's custom connector {CopyTestWorkspace.ConnectorInternalId} instead of its copy.", folder);
+        }
+
+        var report = await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(workspace.Request(), prepared.Identities, CancellationToken.None);
+
+        Assert.Contains(expected, report.Blockers);
+    }
+
     [Fact]
     public async Task AuditWorkspace_WorkflowCopy_PassesAPreparedCopy()
     {

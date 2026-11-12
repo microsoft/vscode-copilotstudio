@@ -55,7 +55,6 @@ public class AgentWorkspaceResourcesTests
         workspace.Write($"prompts/draft-{promptWithoutMetadata:D}/prompt.json", "{}");
         workspace.Write("connectors/empty/openapidefinition.json", "{}");
         workspace.Write("connectors/unidentified/metadata.yml", "{\n  \"name\": \"unidentified\"\n}");
-        workspace.Write("connectors/listed/metadata.yml", "[]");
 
         var resources = AgentWorkspaceResources.List(workspace.Root);
 
@@ -83,15 +82,30 @@ public class AgentWorkspaceResourcesTests
         Assert.Empty(AgentWorkspaceResources.List(workspace.Root));
     }
 
-    [Fact]
-    public void List_UnparseableConnectorMetadata_NamesTheFile()
+    [Theory]
+    [InlineData("{ not json")]
+    [InlineData("[]")]
+    public void List_UnparseableConnectorMetadata_NamesTheFile(string metadata)
     {
         using var workspace = CopyTestWorkspace.Cli();
-        workspace.Write("connectors/broken/metadata.yml", "{ not json");
+        workspace.Write("connectors/broken/metadata.yml", metadata);
 
         var failure = Assert.Throws<InvalidDataException>(() => AgentWorkspaceResources.List(workspace.Root));
 
         Assert.StartsWith("connectors/broken/metadata.yml could not be read: ", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("{\n  \"ConnectorId\": \"7c1d3e5f-9a2b-4c6d-8e0f-1a3b5c7d9e2f\",\n  \"Name\": \"cr1_5Fweather-20plus\"\n}", "connectors/weather")]
+    [InlineData("{\n  \"name\": \"cr1_5Fweather-20plus\"\n}", "connectors/weather-7c1d3e5f-9a2b-4c6d-8e0f-1a3b5c7d9e2f")]
+    public void List_ConnectorThatAPushReads_IsListedUnderTheIdentityThePushReads(string metadata, string folder)
+    {
+        using var workspace = CopyTestWorkspace.Cli();
+        workspace.Write(folder + "/metadata.yml", metadata);
+
+        var resources = AgentWorkspaceResources.List(workspace.Root);
+
+        Assert.Contains(new AgentWorkspaceResource(CopyIdentityKinds.Connector, CopyTestWorkspace.ConnectorId.ToString("D")), resources);
     }
 
     [Fact]

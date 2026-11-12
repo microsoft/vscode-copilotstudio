@@ -224,7 +224,7 @@ internal sealed class CopyTestWorkspace : IDisposable
         Write(folder + "/workflow.json", "{\n  \"properties\": {\n    \"connectionReferences\": {\n      \"shared_teams\": {\n        \"api\": {\n          \"name\": \"shared_teams\"\n        },\n        \"connection\": {\n          \"connectionReferenceLogicalName\": \"" + dualUseReference + "\"\n        },\n        \"runtimeSource\": \"invoker\"\n      },\n      \"shared_msnweather\": {\n        \"api\": {\n          \"name\": \"shared_msnweather\"\n        },\n        \"connection\": {\n          \"connectionReferenceLogicalName\": \"" + workflowOnlyReference + "\"\n        },\n        \"runtimeSource\": \"invoker\"\n      }\n    },\n    \"definition\": {\n      \"contentVersion\": \"1.0.0.0\",\n      \"triggers\": {\n        \"manual\": {\n          \"type\": \"Request\",\n          \"kind\": \"Skills\"\n        }\n      },\n      \"actions\": {}\n    }\n  },\n  \"schemaVersion\": \"1.0.0.0\"\n}\n", preamble: true);
     }
 
-    private void AddAction(string workflowFolder, string action) => Write(workflowFolder + "/workflow.json", Read(workflowFolder + "/workflow.json").Replace("\"actions\": {}", "\"actions\": {\n        " + action + "\n      }", StringComparison.Ordinal), preamble: true);
+    public void AddAction(string workflowFolder, string action) => Write(workflowFolder + "/workflow.json", Read(workflowFolder + "/workflow.json").Replace("\"actions\": {}", "\"actions\": {\n        " + action + "\n      }", StringComparison.Ordinal), preamble: true);
 
     private void WritePrompt()
     {

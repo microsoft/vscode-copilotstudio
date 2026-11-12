@@ -31,12 +31,13 @@ internal readonly struct CopyYamlScalar
 
 internal readonly struct CopyJsonString
 {
-    public CopyJsonString(string? ownerProperty, string value, bool isPropertyName, int depth)
+    public CopyJsonString(string? ownerProperty, string value, bool isPropertyName, int depth, IReadOnlyList<string> path)
     {
         OwnerProperty = ownerProperty;
         Value = value;
         IsPropertyName = isPropertyName;
         Depth = depth;
+        Path = path;
     }
 
     public string? OwnerProperty { get; }
@@ -46,10 +47,14 @@ internal readonly struct CopyJsonString
     public bool IsPropertyName { get; }
 
     public int Depth { get; }
+
+    public IReadOnlyList<string> Path { get; }
 }
 
 internal static class CopyTextEdits
 {
+    private const string ArrayItemSegment = "[]";
+
     private static readonly byte[] Utf8Preamble = { 0xEF, 0xBB, 0xBF };
 
     private static readonly JsonReaderOptions JsonOptions = new() { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
@@ -159,6 +164,7 @@ internal static class CopyTextEdits
         var edits = new List<(int Start, int Length, byte[] Replacement)>();
         var reader = new Utf8JsonReader(content.AsSpan(bodyStart), JsonOptions);
         var owners = new Stack<string?>();
+        var path = new List<string>();
         string? pendingProperty = null;
 
         while (reader.Read())
@@ -167,22 +173,33 @@ internal static class CopyTextEdits
             {
                 case JsonTokenType.PropertyName:
                     var name = reader.GetString() ?? string.Empty;
-                    AddJsonEdit(edits, ref reader, bodyStart, replace(new CopyJsonString(owners.Count > 0 ? owners.Peek() : null, name, isPropertyName: true, owners.Count)), name);
+                    AddJsonEdit(edits, ref reader, bodyStart, ReplaceAt(path, name, replace, new CopyJsonString(owners.Count > 0 ? owners.Peek() : null, name, isPropertyName: true, owners.Count, path)), name);
                     pendingProperty = name;
                     break;
                 case JsonTokenType.StartObject:
                 case JsonTokenType.StartArray:
+                    if (owners.Count > 0)
+                    {
+                        path.Add(pendingProperty ?? ArrayItemSegment);
+                    }
+
                     owners.Push(pendingProperty ?? (owners.Count > 0 ? owners.Peek() : null));
                     pendingProperty = null;
                     break;
                 case JsonTokenType.EndObject:
                 case JsonTokenType.EndArray:
                     owners.Pop();
+
+                    if (owners.Count > 0)
+                    {
+                        path.RemoveAt(path.Count - 1);
+                    }
+
                     pendingProperty = null;
                     break;
                 case JsonTokenType.String:
                     var value = reader.GetString() ?? string.Empty;
-                    AddJsonEdit(edits, ref reader, bodyStart, replace(new CopyJsonString(pendingProperty ?? (owners.Count > 0 ? owners.Peek() : null), value, isPropertyName: false, owners.Count)), value);
+                    AddJsonEdit(edits, ref reader, bodyStart, ReplaceAt(path, pendingProperty ?? ArrayItemSegment, replace, new CopyJsonString(pendingProperty ?? (owners.Count > 0 ? owners.Peek() : null), value, isPropertyName: false, owners.Count, path)), value);
                     pendingProperty = null;
                     break;
                 default:
@@ -218,6 +235,20 @@ internal static class CopyTextEdits
             visit(value);
             return null;
         });
+    }
+
+    private static string? ReplaceAt(List<string> path, string segment, Func<CopyJsonString, string?> replace, CopyJsonString json)
+    {
+        path.Add(segment);
+
+        try
+        {
+            return replace(json);
+        }
+        finally
+        {
+            path.RemoveAt(path.Count - 1);
+        }
     }
 
     private static void AddJsonEdit(List<(int Start, int Length, byte[] Replacement)> edits, ref Utf8JsonReader reader, int bodyStart, string? replacement, string original)
