@@ -57,7 +57,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
             var contentSaveContextOverride = await TryBuildComponentCollectionHostContextAsync(workspace, operationContext, dataverseClient, syncInfo, cancellationToken);
 
-            await _synchronizer.PushLocalChangesAsync(workspace.FolderPath, operationContext, workspace.Definition, dataverseClient, syncInfo, cloudFlowMetadata, aiPromptMetadata, cancellationToken, contentSaveContextOverride);
+            await _synchronizer.PushLocalChangesAsync(workspace.FolderPath, operationContext, workspace.Definition, dataverseClient, syncInfo, cloudFlowMetadata, aiPromptMetadata, cancellationToken, contentSaveContextOverride, approvedEnvironmentVariableOverwrites: request.ApprovedEnvironmentVariableOverwrites);
             return (workspace.Definition, workflowResponse, aiPromptResponse, LspExceptionHandler.DescribeConnectorFailures(connectorPushResult));
         }
 

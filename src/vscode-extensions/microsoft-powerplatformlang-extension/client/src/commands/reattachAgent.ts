@@ -52,6 +52,7 @@ type ReattachWorkspaceResult = {
   workspace: CopilotStudioWorkspace;
   response: ReattachAgentResponse;
   wasRetarget: boolean;
+  approvedEnvironmentVariableOverwrites: string[];
 };
 
 type ReattachConnectionSummary = {
@@ -536,7 +537,7 @@ const runReattachForWorkspace = async (
     syncInfo: response.agentSyncInfo,
   };
 
-  return { workspace: reattachedWorkspace, response, wasRetarget };
+  return { workspace: reattachedWorkspace, response, wasRetarget, approvedEnvironmentVariableOverwrites };
 };
 
 const finalizeRetargets = async (
@@ -588,7 +589,7 @@ const executeReattach = async (
       );
       reattachedWorkspaceResults.push(result);
       if (result.response.requiresLocalPush) {
-        await pushNewWorkspace(context, result.workspace, result.wasRetarget);
+        await pushNewWorkspace(context, result.workspace, result.wasRetarget, result.approvedEnvironmentVariableOverwrites);
       }
     }
 

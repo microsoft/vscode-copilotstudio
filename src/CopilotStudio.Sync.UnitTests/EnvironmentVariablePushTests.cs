@@ -546,6 +546,62 @@ public class EnvironmentVariablePushTests
     }
 
     [Theory]
+    [InlineData(null, false, true)]
+    [InlineData("", false, false)]
+    [InlineData("", true, false)]
+    [InlineData("cr9f2_other", false, false)]
+    [InlineData("CR9F2_SHARED", true, true)]
+    public async Task PushLocalChanges_SharedEnvironmentVariableTheTargetHolds_IsOverwrittenOnlyWithoutAnApprovalListOrWhenApproved(string? approvedOverwrites, bool inCloudCache, bool overwrites)
+    {
+        var shared = CreateEnvironmentVariable(SharedSchemaName);
+        var (dataverse, _) = CreateDataverse(TargetEnvironmentVariable(SharedSchemaName));
+        var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(dataverse, new[] { CreateTopic("Greeting", SharedActivity) }, shared);
+        WriteEnvironmentVariableFile(fileAccessor, shared.WithDefaultValue("edited"));
+        if (!inCloudCache)
+        {
+            ClearCloudCache(fileAccessor);
+        }
+
+        var cacheBeforePush = fileAccessor.Files[CachePath.ToString()];
+        var saves = CaptureSaves(island);
+        var push = () => PushLocalChangesAsync(synchronizer, workspace, dataverse, approvedEnvironmentVariableOverwrites: approvedOverwrites?.Split(',', StringSplitOptions.RemoveEmptyEntries).ToImmutableArray());
+
+        if (overwrites)
+        {
+            await push();
+            Assert.Equal("edited", Assert.IsType<EnvironmentVariableUpdate>(Assert.Single(Assert.Single(saves).EnvironmentVariableChanges)).EnvironmentVariable?.DefaultValue);
+        }
+        else
+        {
+            var exception = await Assert.ThrowsAsync<WorkspaceValidationException>(push);
+            Assert.StartsWith("1 workspace file changes an environment variable that is not approved for overwrite in the target environment:", exception.Message, StringComparison.Ordinal);
+            var diagnostic = Assert.Single(exception.Diagnostics);
+            Assert.Equal(WorkspaceDiagnosticKind.UnapprovedOverwrite, diagnostic.Kind);
+            Assert.Equal(SharedPath.ToString(), diagnostic.FilePath);
+            Assert.Equal($"Environment variable '{SharedSchemaName}' already exists in the target environment, and overwriting it wasn't approved. Reattach again to approve the overwrite, or discard the change to {SharedPath}.", diagnostic.Message);
+            Assert.Empty(saves);
+            Assert.Equal(cacheBeforePush, fileAccessor.Files[CachePath.ToString()]);
+        }
+    }
+
+    [Fact]
+    public async Task PushLocalChanges_NothingApprovedForOverwrite_StillPushesOwnedEnvironmentVariablesAndSharedOnesNewToTheTarget()
+    {
+        var owned = CreateEnvironmentVariable(OwnedSchemaName);
+        var (dataverse, _) = CreateDataverse(TargetEnvironmentVariable(OwnedSchemaName));
+        var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(dataverse, new[] { CreateTopic("Greeting", SharedActivity) }, owned);
+        WriteEnvironmentVariableFile(fileAccessor, owned.WithDefaultValue("edited"));
+        WriteEnvironmentVariableFile(fileAccessor, CreateEnvironmentVariable(SharedSchemaName));
+        var saves = CaptureSaves(island);
+
+        await PushLocalChangesAsync(synchronizer, workspace, dataverse, approvedEnvironmentVariableOverwrites: ImmutableArray<string>.Empty);
+
+        var environmentVariableChanges = Assert.Single(saves).EnvironmentVariableChanges;
+        Assert.Equal(OwnedSchemaName, Assert.Single(environmentVariableChanges.OfType<EnvironmentVariableUpdate>()).EnvironmentVariable?.SchemaName.Value);
+        Assert.Equal(SharedSchemaName, Assert.Single(environmentVariableChanges.OfType<EnvironmentVariableInsert>()).EnvironmentVariable?.SchemaName.Value);
+    }
+
+    [Theory]
     [InlineData(true, "Environment variable 'cr9f2_shared' is not in the workspace. Run Get to include it")]
     [InlineData(false, "Environment variable 'cr9f2_shared' does not exist in the target environment.")]
     public async Task ValidateDependencies_ReferencedEnvironmentVariableMissingInTarget_ReportsTheReferencingFileWithoutWriting(bool inCloudCache, string expectedMessage)
@@ -651,7 +707,7 @@ public class EnvironmentVariablePushTests
         Assert.Contains($"'{SharedSchemaName}'", Assert.Single(diagnostics).Message, StringComparison.Ordinal);
     }
 
-    private static async Task PushLocalChangesAsync(WorkspaceSynchronizer synchronizer, DirectoryPath workspace, Mock<ISyncDataverseClient> dataverse, DefinitionBase? workspaceDefinition = null) => await synchronizer.PushLocalChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), workspaceDefinition ?? await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None), dataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, cloudFlowMetadata: null, aiPrompts: ImmutableArray<AIPromptMetadata>.Empty, CancellationToken.None);
+    private static async Task PushLocalChangesAsync(WorkspaceSynchronizer synchronizer, DirectoryPath workspace, Mock<ISyncDataverseClient> dataverse, DefinitionBase? workspaceDefinition = null, ImmutableArray<string>? approvedEnvironmentVariableOverwrites = null) => await synchronizer.PushLocalChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), workspaceDefinition ?? await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None), dataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, cloudFlowMetadata: null, aiPrompts: ImmutableArray<AIPromptMetadata>.Empty, CancellationToken.None, approvedEnvironmentVariableOverwrites: approvedEnvironmentVariableOverwrites);
 
     private static void AssertMissingDependency(WorkspaceDiagnostic diagnostic, AgentFilePath expectedPath, string expectedMessage)
     {

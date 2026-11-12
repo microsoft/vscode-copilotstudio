@@ -1,8 +1,14 @@
 import * as assert from 'node:assert';
-import { describe, test } from 'node:test';
+import { afterEach, describe, test } from 'node:test';
+import * as vscode from 'vscode';
 
-import { WorkspaceType } from '../../sync/localWorkspaces';
-import { pullsBeforePush, refreshInitialLocalChanges, scheduleLocalChangeRefresh } from '../../sync/workspaceScm';
+import * as virtualKnowledgeModule from '../../knowledgeFiles/virtualKnowledgeFile';
+import * as localWorkspacesModule from '../../sync/localWorkspaces';
+import { CopilotStudioWorkspace, WorkspaceType } from '../../sync/localWorkspaces';
+import { pullsBeforePush, pushNewWorkspace, refreshInitialLocalChanges, scheduleLocalChangeRefresh } from '../../sync/workspaceScm';
+import * as workspaceSynchronizerModule from '../../sync/workspaceSynchronizer';
+import { PushOptions } from '../../sync/workspaceSynchronizer';
+import { replace, restoreReplaced } from './helpers/replace';
 
 describe('workspaceScm: pull before push', () => {
 	test('pulls an agent workspace before pushing it', () => {
@@ -19,6 +25,28 @@ describe('workspaceScm: pull before push', () => {
 
 	test('skips the pull for a standalone workflow workspace', () => {
 		assert.strictEqual(pullsBeforePush(WorkspaceType.StandaloneWorkflow), false);
+	});
+});
+
+describe('workspaceScm: upload of a reattached workspace', () => {
+	afterEach(() => restoreReplaced());
+
+	test('hands the environment variable overwrites the reattach approved to the upload', async () => {
+		const workspace = { workspaceUri: 'file:///c%3A/reattach-upload-test/Agent', displayName: 'Agent', type: WorkspaceType.Agent } as CopilotStudioWorkspace;
+		const pushes: PushOptions[] = [];
+		replace(localWorkspacesModule as any, 'updateWorkspaceCache', async () => [workspace]);
+		replace(virtualKnowledgeModule as any, 'registerVirtualKnowledgeProvider', async () => undefined);
+		replace(workspaceSynchronizerModule as any, 'getOrAddSynchronizer', () => ({
+			pull: async () => ({ localChanges: [] }),
+			push: async (options: PushOptions) => {
+				pushes.push(options);
+				return { localChanges: [] };
+			},
+		}));
+
+		await pushNewWorkspace({} as vscode.ExtensionContext, workspace, true, ['cr9f2_shared']);
+
+		assert.deepStrictEqual(pushes.map(options => options.approvedEnvironmentVariableOverwrites), [['cr9f2_shared']]);
 	});
 });
 

@@ -881,7 +881,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         bool uploadAllKnowledgeFiles = false)
         => await PushChangesetAsync(workspaceFolder, operationContext, RemoveComponentCollectionChanges(pushChangeset), dataverseClient, agentId, cloudFlowMetadata, aiPrompts, cancellationToken, GetComponentCollectionChanges(pushChangeset), uploadAllKnowledgeFiles).ConfigureAwait(false);
 
-    private async Task<PushChangesetResult> PushChangesetAsync(DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, PvaComponentChangeSet pushChangeset, ISyncDataverseClient dataverseClient, Guid? agentId, CloudFlowMetadata? cloudFlowMetadata, ImmutableArray<AIPromptMetadata> aiPrompts, CancellationToken cancellationToken, ImmutableArray<BotComponentCollectionChange> componentCollectionChanges, bool uploadAllKnowledgeFiles = false, AuthoringOperationContextBase? contentSaveContextOverride = null, DefinitionBase? cloudSnapshot = null)
+    private async Task<PushChangesetResult> PushChangesetAsync(DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, PvaComponentChangeSet pushChangeset, ISyncDataverseClient dataverseClient, Guid? agentId, CloudFlowMetadata? cloudFlowMetadata, ImmutableArray<AIPromptMetadata> aiPrompts, CancellationToken cancellationToken, ImmutableArray<BotComponentCollectionChange> componentCollectionChanges, bool uploadAllKnowledgeFiles = false, AuthoringOperationContextBase? contentSaveContextOverride = null, DefinitionBase? cloudSnapshot = null, ImmutableArray<string>? approvedEnvironmentVariableOverwrites = null)
     {
         // CliAgentSyncSupport / Node Q2 (TDD D29 evolution contract): fail closed if the
         // workspace declares an UNKNOWN-higher layoutVersion than this tooling supports.
@@ -902,7 +902,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         var contentSaveContext = contentSaveContextOverride ?? operationContext;
         pushChangeset = await ResolveExistingConnectionReferenceInsertsAsync(pushChangeset, dataverseClient, cancellationToken).ConfigureAwait(false);
-        pushChangeset = await ResolveEnvironmentVariableDependenciesAsync(layoutGateAccessor, pushChangeset, cloudSnapshot, dataverseClient, cancellationToken).ConfigureAwait(false);
+        pushChangeset = await ResolveEnvironmentVariableDependenciesAsync(layoutGateAccessor, pushChangeset, cloudSnapshot, dataverseClient, approvedEnvironmentVariableOverwrites, cancellationToken).ConfigureAwait(false);
         RecordRetargetUploadedEnvironmentVariables(layoutGateAccessor, pushChangeset);
 
         // Upload will atomically:
@@ -1055,7 +1055,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return builder.Build();
     }
 
-    private async Task<PvaComponentChangeSet> ResolveEnvironmentVariableDependenciesAsync(IFileAccessor fileAccessor, PvaComponentChangeSet changeSet, DefinitionBase? cloudSnapshot, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+    private async Task<PvaComponentChangeSet> ResolveEnvironmentVariableDependenciesAsync(IFileAccessor fileAccessor, PvaComponentChangeSet changeSet, DefinitionBase? cloudSnapshot, ISyncDataverseClient dataverseClient, ImmutableArray<string>? approvedEnvironmentVariableOverwrites, CancellationToken cancellationToken)
     {
         if (dataverseClient is not IEnvironmentVariableOperations environmentVariableOperations)
         {
@@ -1114,16 +1114,28 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
 
         var resolvedChangeSet = builder.Build();
-        var managedNames = GetUpsertedEnvironmentVariableNames(resolvedChangeSet).Where(schemaName => !EnvironmentVariableOwnership.IsOwnedBy(schemaName, cloudSnapshot) && existingDefinitions.TryGetValue(schemaName, out var existingDefinition) && existingDefinition.IsManaged).ToList();
-        if (managedNames.Count > 0)
+        var overwrittenNames = GetUpsertedEnvironmentVariableNames(resolvedChangeSet).Where(schemaName => !EnvironmentVariableOwnership.IsOwnedBy(schemaName, cloudSnapshot) && existingDefinitions.ContainsKey(schemaName)).ToList();
+        ThrowIfAnyEnvironmentVariable(overwrittenNames.Where(schemaName => existingDefinitions[schemaName].IsManaged), projectedFiles, CreateManagedEnvironmentVariableDiagnostic);
+        if (approvedEnvironmentVariableOverwrites is { } approvedNames)
         {
-            throw new WorkspaceValidationException(managedNames.Select(schemaName => CreateManagedEnvironmentVariableDiagnostic(schemaName, GetEnvironmentVariablePath(projectedFiles, schemaName))).ToImmutableArray());
+            ThrowIfAnyEnvironmentVariable(overwrittenNames.Where(schemaName => !approvedNames.Contains(schemaName, StringComparer.OrdinalIgnoreCase)), projectedFiles, CreateUnapprovedOverwriteDiagnostic);
         }
 
         return resolvedChangeSet;
     }
 
+    private static void ThrowIfAnyEnvironmentVariable(IEnumerable<string> schemaNames, IReadOnlyDictionary<string, AgentFilePath> projectedFiles, Func<string, AgentFilePath, WorkspaceDiagnostic> createDiagnostic)
+    {
+        var diagnostics = schemaNames.Select(schemaName => createDiagnostic(schemaName, GetEnvironmentVariablePath(projectedFiles, schemaName))).ToImmutableArray();
+        if (!diagnostics.IsEmpty)
+        {
+            throw new WorkspaceValidationException(diagnostics);
+        }
+    }
+
     private static WorkspaceDiagnostic CreateManagedEnvironmentVariableDiagnostic(string schemaName, AgentFilePath path) => new WorkspaceDiagnostic(path.ToString(), $"Environment variable '{schemaName}' is managed in the target environment, so it can't be changed. Discard the change to {path}, then try again.", 0, 0, WorkspaceDiagnosticKind.ManagedDependency);
+
+    private static WorkspaceDiagnostic CreateUnapprovedOverwriteDiagnostic(string schemaName, AgentFilePath path) => new WorkspaceDiagnostic(path.ToString(), $"Environment variable '{schemaName}' already exists in the target environment, and overwriting it wasn't approved. Reattach again to approve the overwrite, or discard the change to {path}.", 0, 0, WorkspaceDiagnosticKind.UnapprovedOverwrite);
 
     private static EnvironmentVariableUpdate CreateEnvironmentVariableUpdate(EnvironmentVariableDefinition environmentVariable, SyncDataverseClient.EnvironmentVariableDefinitionInfo existingDefinition, AgentFilePath path)
     {
@@ -1694,6 +1706,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     /// <param name="cancellationToken">Used to cancel the request.</param>
     /// <param name="contentSaveContextOverride">When set, the authoring context used for the content save.</param>
     /// <param name="overwriteRemoteChanges">When true, local edits replace components that were also changed in the cloud instead of failing the push.</param>
+    /// <param name="approvedEnvironmentVariableOverwrites">When set, the only shared environment variables already in the target environment that the push may overwrite.</param>
     public async Task PushLocalChangesAsync(
         DirectoryPath workspaceFolder,
         AuthoringOperationContextBase operationContext,
@@ -1704,7 +1717,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         ImmutableArray<AIPromptMetadata> aiPrompts,
         CancellationToken cancellationToken,
         AuthoringOperationContextBase? contentSaveContextOverride = null,
-        bool overwriteRemoteChanges = false)
+        bool overwriteRemoteChanges = false,
+        ImmutableArray<string>? approvedEnvironmentVariableOverwrites = null)
     {
         const int maxPasses = 32;
         const int maxConcurrencyRetries = 3;
@@ -1765,7 +1779,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             var pushChangeSetWithoutComponentCollections = RemoveComponentCollectionChanges(changeSet);
             try
             {
-                await PushChangesetAsync(workspaceFolder, operationContext, pushChangeSetWithoutComponentCollections, dataverseClient, syncInfo.AgentId, cloudFlowMetadata, aiPrompts, cancellationToken, componentCollectionChanges, contentSaveContextOverride: contentSaveContextOverride, cloudSnapshot: cloudSnapshot).ConfigureAwait(false);
+                await PushChangesetAsync(workspaceFolder, operationContext, pushChangeSetWithoutComponentCollections, dataverseClient, syncInfo.AgentId, cloudFlowMetadata, aiPrompts, cancellationToken, componentCollectionChanges, contentSaveContextOverride: contentSaveContextOverride, cloudSnapshot: cloudSnapshot, approvedEnvironmentVariableOverwrites: approvedEnvironmentVariableOverwrites).ConfigureAwait(false);
             }
             catch (DataversePreconditionFailedException) when (concurrencyRetries < maxConcurrencyRetries)
             {

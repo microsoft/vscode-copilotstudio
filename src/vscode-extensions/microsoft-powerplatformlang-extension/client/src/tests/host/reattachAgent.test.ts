@@ -161,7 +161,7 @@ type FlowHarnessOptions = {
 		method: string,
 		request: Record<string, unknown>
 	) => Promise<unknown>;
-	pushNewWorkspace?: () => Promise<void>;
+	pushNewWorkspace?: (...args: Parameters<typeof workspaceScmModule.pushNewWorkspace>) => Promise<void>;
 	pull?: (options: PullOptions) => Promise<void>;
 	autoBindAgentConnections?: () => Promise<{
 		needsNewCount: number;
@@ -720,6 +720,7 @@ describe('executeReattachAgentCommand', () => {
 
 	test('asks before overwriting environment variables in the target and resends the approval', async () => {
 		const prompts: string[] = [];
+		const uploadApprovals: (string[] | undefined)[] = [];
 		const harness = installFlowHarness({
 			sendRequest: async (_method, request) =>
 				(request.approvedEnvironmentVariableOverwrites as string[]).length === 0
@@ -728,8 +729,11 @@ describe('executeReattachAgentCommand', () => {
 							code: 200,
 							message: '',
 							agentSyncInfo: { agentId: 'reattached-agent-id', environmentId: 'target-environment' },
-							requiresLocalPush: false,
+							requiresLocalPush: true,
 						},
+			pushNewWorkspace: async (_context, _workspace, _draftConnectionReferenceWorkflows, approvedEnvironmentVariableOverwrites) => {
+				uploadApprovals.push(approvedEnvironmentVariableOverwrites);
+			},
 			showWarningMessage: async (message, optionsOrItem, ...items) => {
 				prompts.push(message);
 				assert.deepStrictEqual(optionsOrItem, { modal: true });
@@ -748,11 +752,36 @@ describe('executeReattachAgentCommand', () => {
 				harness.requests.map(request => request.request.approvedEnvironmentVariableOverwrites),
 				[[], ['cr9f2_other', 'cr9f2_shared']]
 			);
+			assert.deepStrictEqual(uploadApprovals, [['cr9f2_other', 'cr9f2_shared']]);
 			assert.strictEqual(harness.logs.filter(log => log.level === 'error').length, 0);
 			assert.strictEqual(
 				harness.logs.filter(log => log.level === 'info' && typeof log.message === 'string').length,
 				1
 			);
+		} finally {
+			harness.restore();
+		}
+	});
+
+	test('uploads with no environment variable overwrites approved when the target needed none', async () => {
+		const uploadApprovals: (string[] | undefined)[] = [];
+		const harness = installFlowHarness({
+			sendRequest: async () => ({
+				code: 200,
+				message: '',
+				agentSyncInfo: { agentId: 'reattached-agent-id', environmentId: 'target-environment' },
+				requiresLocalPush: true,
+			}),
+			pushNewWorkspace: async (_context, _workspace, _draftConnectionReferenceWorkflows, approvedEnvironmentVariableOverwrites) => {
+				uploadApprovals.push(approvedEnvironmentVariableOverwrites);
+			},
+		});
+
+		try {
+			await executeReattachAgentCommand(harness.context, { workspace: harness.workspace });
+
+			assert.deepStrictEqual(uploadApprovals, [[]]);
+			assert.strictEqual(harness.logs.filter(log => log.level === 'error').length, 0);
 		} finally {
 			harness.restore();
 		}

@@ -267,7 +267,7 @@ export function pullsBeforePush(type: WorkspaceType): boolean {
   return type !== WorkspaceType.ComponentCollection && type !== WorkspaceType.StandaloneWorkflow;
 }
 
-export async function pushNewWorkspace(context: ExtensionContext, ws: CopilotStudioWorkspace, draftConnectionReferenceWorkflows = false) {
+export async function pushNewWorkspace(context: ExtensionContext, ws: CopilotStudioWorkspace, draftConnectionReferenceWorkflows = false, approvedEnvironmentVariableOverwrites?: string[]) {
   removeSynchronizer(ws.workspaceUri);
 
   const pendingSetup = workspaceSetupPromises.get(ws.workspaceUri);
@@ -306,6 +306,7 @@ export async function pushNewWorkspace(context: ExtensionContext, ws: CopilotStu
         suppressSuccessNotification: true,
         suppressDisabledWorkflowWarnings: true,
         draftConnectionReferenceWorkflows,
+        approvedEnvironmentVariableOverwrites,
       });
       break;
     } catch (error) {

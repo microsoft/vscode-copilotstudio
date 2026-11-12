@@ -16,4 +16,7 @@ public enum WorkspaceDiagnosticKind
 
     /// <summary>The file changes an environment variable that is managed in the target environment.</summary>
     ManagedDependency,
+
+    /// <summary>The file changes an environment variable that already exists in the target environment without an approved overwrite.</summary>
+    UnapprovedOverwrite,
 }
