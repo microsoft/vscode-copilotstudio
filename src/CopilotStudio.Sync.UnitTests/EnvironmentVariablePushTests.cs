@@ -90,7 +90,7 @@ public class EnvironmentVariablePushTests
             Assert.Null(pushed.ValueComponent);
         }
 
-        Assert.Empty(lookups);
+        Assert.Equal(schemaName == SharedSchemaName ? new[] { SharedSchemaName } : Array.Empty<string>(), lookups.SelectMany(lookup => lookup));
         Assert.True(serverCopy.Equals(Assert.Single(ReadCache(fileAccessor).EnvironmentVariables), NodeComparison.Structural));
     }
 
@@ -218,7 +218,7 @@ public class EnvironmentVariablePushTests
 
         await PushLocalChangesAsync(synchronizer, workspace, dataverse);
 
-        Assert.Empty(lookups);
+        Assert.Equal(new[] { SharedSchemaName }, Assert.Single(lookups));
         var pushed = Assert.IsType<EnvironmentVariableUpdate>(Assert.Single(Assert.Single(saves).EnvironmentVariableChanges)).EnvironmentVariable ?? throw new Xunit.Sdk.XunitException("Expected an environment variable.");
         Assert.Equal(edited.DefaultValue, pushed.DefaultValue);
         Assert.Equal(edited.DisplayName, pushed.DisplayName);
@@ -312,7 +312,7 @@ public class EnvironmentVariablePushTests
         ClearCloudCache(fileAccessor);
         SetupRemoteChanges(island, CreateChangeSet("token-2", environmentVariableChanges: new[] { new EnvironmentVariableInsert(target) }, bot: CreateBotEntity()));
 
-        await synchronizer.SyncWorkspaceAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), changeToken: null, updateWorkspaceDirectory: true, dataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, cloudFlowMetadata: null, CancellationToken.None);
+        await RetargetSyncAsync(synchronizer, workspace, dataverse);
 
         Assert.Equal("source-default", ReadEnvironmentVariableFile(fileAccessor, SharedPath).DefaultValue);
         Assert.Equal("source-current", ReadEnvironmentVariableFile(fileAccessor, SharedPath).ValueComponent?.Value);
@@ -393,6 +393,83 @@ public class EnvironmentVariablePushTests
             Assert.IsType<EnvironmentVariableInsert>(pushedChange);
             Assert.True(shared.Equals(pushed, NodeComparison.Structural));
         }
+    }
+
+    [Theory]
+    [InlineData("unchanged")]
+    [InlineData("edited")]
+    [InlineData("unreadable")]
+    public async Task PushChangeset_WhenThePushedTopicStopsReferencingASharedEnvironmentVariable_RemovesItsFileOnlyWhenItHoldsNoUnsentContent(string localFile)
+    {
+        var shared = CreateEnvironmentVariable(SharedSchemaName);
+        var topic = CreateTopic("Greeting", SharedActivity);
+        var (dataverse, _) = CreateDataverse();
+        var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(dataverse, new[] { topic }, shared);
+        if (localFile == "edited")
+        {
+            WriteEnvironmentVariableFile(fileAccessor, shared.WithDefaultValue("edited"));
+        }
+        else if (localFile == "unreadable")
+        {
+            WriteText(fileAccessor, SharedPath, McsConflictMarkers.Build("defaultValue: local", "defaultValue: cloud"));
+        }
+
+        var expectedContent = localFile == "unchanged" ? null : fileAccessor.Files[SharedPath.ToString()];
+        CaptureSaves(island);
+
+        await synchronizer.PushChangesetAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), CreateChangeSet("token-1", new[] { new BotComponentUpdate(CreateTopic("Greeting", UnreferencedActivity).WithId(topic.Id)) }), dataverse.Object, Guid.NewGuid(), null, default, CancellationToken.None);
+
+        Assert.Equal(expectedContent, fileAccessor.Files.TryGetValue(SharedPath.ToString(), out var content) ? content : null);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PushChangeset_WithoutEnvironmentVariableChanges_KeepsAnUnsentOwnedEnvironmentVariableEditOrDelete(bool deleteFile)
+    {
+        var owned = CreateEnvironmentVariable(OwnedSchemaName, value: "current");
+        var topic = CreateTopic("Greeting", UnreferencedActivity);
+        var (dataverse, _) = CreateDataverse();
+        var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(dataverse, new[] { topic }, owned);
+        if (deleteFile)
+        {
+            fileAccessor.Delete(GetPath(OwnedSchemaName));
+        }
+        else
+        {
+            WriteEnvironmentVariableFile(fileAccessor, owned.WithDefaultValue("edited"));
+        }
+
+        var expectedContent = fileAccessor.Files.TryGetValue(GetPath(OwnedSchemaName).ToString(), out var localContent) ? localContent : null;
+        CaptureSaves(island);
+
+        await synchronizer.PushChangesetAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), CreateChangeSet("token-1", new[] { new BotComponentUpdate(CreateTopic("Greeting", "Hello").WithId(topic.Id)) }), dataverse.Object, Guid.NewGuid(), null, default, CancellationToken.None);
+
+        Assert.Equal(expectedContent, fileAccessor.Files.TryGetValue(GetPath(OwnedSchemaName).ToString(), out var pushedContent) ? pushedContent : null);
+    }
+
+    [Theory]
+    [InlineData("update")]
+    [InlineData("insert")]
+    [InlineData("changeset")]
+    public async Task Push_SharedEnvironmentVariableManagedInTheTarget_ThrowsBeforeSaving(string push)
+    {
+        var shared = CreateEnvironmentVariable(SharedSchemaName);
+        var topic = CreateTopic("Greeting", SharedActivity);
+        var (dataverse, _) = CreateDataverse(TargetEnvironmentVariable(SharedSchemaName, isManaged: true));
+        var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(dataverse, new[] { topic }, shared);
+        WriteEnvironmentVariableFile(fileAccessor, shared.WithDefaultValue("edited"));
+        if (push != "update")
+        {
+            ClearCloudCache(fileAccessor);
+        }
+
+        var saves = CaptureSaves(island);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => push == "changeset" ? synchronizer.PushChangesetAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), CreateChangeSet("token-1", new[] { new BotComponentInsert(topic) }), dataverse.Object, Guid.NewGuid(), null, default, CancellationToken.None) : PushLocalChangesAsync(synchronizer, workspace, dataverse));
+
+        Assert.Equal($"Environment variable '{SharedSchemaName}' is managed in the target environment, so it can't be changed. Discard the change to {SharedPath}, then try again.", exception.Message);
+        Assert.Empty(saves);
     }
 
     [Theory]

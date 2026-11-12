@@ -73,6 +73,8 @@ internal static class EnvironmentVariableTestFixtures
         bot: bot,
         changeToken: changeToken);
 
+    internal static EnvironmentVariableDelete CreateDelete(EnvironmentVariableDefinition environmentVariable) => new(environmentVariable.Id, environmentVariable.ValueComponent?.Id ?? default, environmentVariable.Version);
+
     internal static EnvironmentVariableDefinitionInfo TargetEnvironmentVariable(string schemaName, bool isManaged = false) => new() { DefinitionId = Guid.NewGuid(), SchemaName = schemaName, IsManaged = isManaged };
 
     internal static (Mock<ISyncDataverseClient> Dataverse, List<string[]> Lookups) CreateDataverse(params EnvironmentVariableDefinitionInfo[] targetEnvironmentVariables)
@@ -92,12 +94,26 @@ internal static class EnvironmentVariableTestFixtures
 
     internal static async Task<(WorkspaceSynchronizer Synchronizer, InMemoryFileAccessor FileAccessor, Mock<IIslandControlPlaneService> Island, DirectoryPath Workspace)> CloneAsync(Mock<ISyncDataverseClient> dataverse, IEnumerable<BotComponentBase> components, params EnvironmentVariableDefinition[] environmentVariables)
     {
-        var (synchronizer, fileAccessorFactory, island) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
-        var workspace = new DirectoryPath($"c:/test/environment-variables-{Guid.NewGuid():N}/");
+        var (synchronizer, fileAccessor, island, workspace) = CreateWorkspace();
         SetupRemoteChanges(island, CreateChangeSet("token-1", components.Select(component => new BotComponentInsert(component)), environmentVariables.Select(environmentVariable => new EnvironmentVariableInsert(environmentVariable)), CreateBotEntity()));
         await synchronizer.CloneChangesAsync(workspace, new ReferenceTracker(), ComponentWriterDefensiveTests.CreateMockOperationContext(), dataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
-        return (synchronizer, (InMemoryFileAccessor)fileAccessorFactory.Create(workspace), island, workspace);
+        return (synchronizer, fileAccessor, island, workspace);
     }
+
+    internal static (WorkspaceSynchronizer Synchronizer, InMemoryFileAccessor FileAccessor, Mock<IIslandControlPlaneService> Island, DirectoryPath Workspace) CreateWorkspace(params EnvironmentVariableDefinition[] environmentVariables)
+    {
+        var (synchronizer, fileAccessorFactory, island) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath($"c:/test/environment-variables-{Guid.NewGuid():N}/");
+        var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
+        foreach (var environmentVariable in environmentVariables)
+        {
+            WriteEnvironmentVariableFile(fileAccessor, environmentVariable);
+        }
+
+        return (synchronizer, fileAccessor, island, workspace);
+    }
+
+    internal static Task<WorkspaceSyncInfo> RetargetSyncAsync(WorkspaceSynchronizer synchronizer, DirectoryPath workspace, Mock<ISyncDataverseClient> dataverse, bool updateWorkspaceDirectory = true) => synchronizer.SyncWorkspaceAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), changeToken: null, updateWorkspaceDirectory, dataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, cloudFlowMetadata: null, CancellationToken.None);
 
     internal static void SetupRemoteChanges(Mock<IIslandControlPlaneService> island, PvaComponentChangeSet changeSet) => island
         .Setup(service => service.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
@@ -118,10 +134,10 @@ internal static class EnvironmentVariableTestFixtures
 
     internal static IEnumerable<BotComponentChange> ConfirmComponentChanges(PvaComponentChangeSet changeSet) => changeSet.BotComponentChanges.Select(change => change is BotComponentInsert { Component: { } component } ? new BotComponentInsert(component.WithId(Guid.NewGuid())) : change);
 
-    internal static async Task PullAsync(WorkspaceSynchronizer synchronizer, Mock<IIslandControlPlaneService> island, DirectoryPath workspace, Mock<ISyncDataverseClient> dataverse, PvaComponentChangeSet remoteChangeSet, ICollection<WorkspaceDiagnostic>? conflicts = null)
+    internal static async Task<DefinitionBase> PullAsync(WorkspaceSynchronizer synchronizer, Mock<IIslandControlPlaneService> island, DirectoryPath workspace, Mock<ISyncDataverseClient> dataverse, PvaComponentChangeSet remoteChangeSet, ICollection<WorkspaceDiagnostic>? conflicts = null, DefinitionBase? localDefinition = null)
     {
         SetupRemoteChanges(island, remoteChangeSet);
-        await synchronizer.PullExistingChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None), dataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None, conflicts: conflicts);
+        return await synchronizer.PullExistingChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), localDefinition ?? await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None), dataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None, conflicts: conflicts);
     }
 
     internal static void ClearCloudCache(IFileAccessor fileAccessor) => WorkspaceSynchronizer.WriteCloudCache(fileAccessor, ReadCache(fileAccessor).WithComponents(Array.Empty<BotComponentBase>()).WithEnvironmentVariables(Array.Empty<EnvironmentVariableDefinition>()));

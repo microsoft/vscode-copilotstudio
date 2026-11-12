@@ -140,7 +140,7 @@ internal static class CliAgentBotEntityReader
             return McsYamlValidator.Deserialize<BotEntity>(reader.ReadToEnd())
                 ?? throw new McsYamlFormatException("Settings did not deserialize to a BotEntity. Fix or re-clone the agent.", 0, 0);
         }
-        catch (Exception failure) when (WorkspaceSynchronizer.IsProjectionSerializationFailure(failure) || failure is IOException or UnauthorizedAccessException)
+        catch (Exception failure) when (WorkspaceSynchronizer.IsUnreadableFileFailure(failure))
         {
             throw new WorkspaceValidationException([WorkspaceDiagnostic.FromException(SettingsPath.ToString(), failure)]);
         }

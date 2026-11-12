@@ -954,6 +954,64 @@ public class PackagedSkillKnowledgeFileTests
         Assert.Equal(2, skillContents.Distinct(StringComparer.Ordinal).Count());
     }
 
+    [Fact]
+    public async Task GetLocalChangesAsync_UploadedSkillWithBundleFolderMarker_FreshClone_ReportsNoChanges()
+    {
+        var clone = await CloneUploadedAndBlankSkillsAsync();
+
+        var read = await clone.Synchronizer.ReadWorkspaceDefinitionAsync(clone.Workspace, CancellationToken.None, checkKnowledgeFiles: true);
+        var (changeSet, changes) = await clone.Synchronizer.GetLocalChangesAsync(clone.Workspace, read, clone.Dataverse, clone.SyncInfo, CancellationToken.None);
+
+        Assert.Empty(changes);
+        Assert.Empty(changeSet.BotComponentChanges);
+    }
+
+    [Fact]
+    public async Task GetLocalChangesAsync_UploadedSkillWithBundleFolderMarker_EditedDescription_KeepsCloudContent()
+    {
+        var clone = await CloneUploadedAndBlankSkillsAsync();
+        var anchor = ReadText(clone.FileAccessor, UploadedSkillAnchorPath);
+        await clone.FileAccessor.WriteAsync(new AgentFilePath(UploadedSkillAnchorPath), anchor.Replace("description: Packaged skill", "description: Edited packaged skill", StringComparison.Ordinal), CancellationToken.None);
+
+        var read = await clone.Synchronizer.ReadWorkspaceDefinitionAsync(clone.Workspace, CancellationToken.None, checkKnowledgeFiles: true);
+        var (changeSet, changes) = await clone.Synchronizer.GetLocalChangesAsync(clone.Workspace, read, clone.Dataverse, clone.SyncInfo, CancellationToken.None);
+
+        var change = Assert.Single(changes);
+        Assert.Equal(ChangeType.Update, change.ChangeType);
+        Assert.Equal(UploadedSkillAnchorPath, change.Uri);
+        var pushed = Assert.IsType<DialogComponent>(Assert.IsType<BotComponentUpdate>(Assert.Single(changeSet.BotComponentChanges)).Component);
+        var cloudSkill = Assert.IsType<DialogComponent>((WorkspaceSynchronizer.ReadCloudCacheSnapshot(clone.FileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a cloud cache snapshot.")).Components.Single(component => component.SchemaNameString == UploadedSkillSchemaName));
+        var pushedContent = Assert.IsType<InlineAgentSkill>(pushed.Dialog).Content;
+        Assert.Equal("Edited packaged skill", pushed.Description);
+        Assert.Equal(Assert.IsType<InlineAgentSkill>(cloudSkill.Dialog).Content, pushedContent);
+        Assert.Contains("<!-- bic:bundle-folder=issue512-repro -->", pushedContent, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DiscardLocalChanges_EditedUploadedAndBlankSkills_RestoresClonedSkillFiles()
+    {
+        var clone = await CloneUploadedAndBlankSkillsAsync();
+        var uploadedAnchor = ReadText(clone.FileAccessor, UploadedSkillAnchorPath);
+        var blankAnchor = ReadText(clone.FileAccessor, BlankSkillAnchorPath);
+        var blankManifest = ReadText(clone.FileAccessor, BlankSkillManifestPath);
+        await clone.FileAccessor.WriteAsync(new AgentFilePath(UploadedSkillAnchorPath), uploadedAnchor.Replace("description: Packaged skill", "description: Edited packaged skill", StringComparison.Ordinal), CancellationToken.None);
+        await clone.FileAccessor.WriteAsync(new AgentFilePath(BlankSkillManifestPath), blankManifest + "Edited locally.\n", CancellationToken.None);
+        var read = await clone.Synchronizer.ReadWorkspaceDefinitionAsync(clone.Workspace, CancellationToken.None, checkKnowledgeFiles: true);
+        var (_, changes) = await clone.Synchronizer.GetLocalChangesAsync(clone.Workspace, read, clone.Dataverse, clone.SyncInfo, CancellationToken.None);
+        Assert.Equal(new[] { UploadedSkillAnchorPath, BlankSkillAnchorPath }, changes.Select(change => change.Uri).OrderBy(uri => uri, StringComparer.Ordinal));
+
+        var result = clone.Synchronizer.DiscardLocalChanges(clone.Workspace, changes);
+
+        Assert.Equal(2, result.Restored);
+        Assert.Empty(result.Skipped);
+        Assert.Equal(uploadedAnchor, ReadText(clone.FileAccessor, UploadedSkillAnchorPath));
+        Assert.Equal(blankAnchor, ReadText(clone.FileAccessor, BlankSkillAnchorPath));
+        Assert.Equal(blankManifest, ReadText(clone.FileAccessor, BlankSkillManifestPath));
+        var reread = await clone.Synchronizer.ReadWorkspaceDefinitionAsync(clone.Workspace, CancellationToken.None, checkKnowledgeFiles: true);
+        var (_, remaining) = await clone.Synchronizer.GetLocalChangesAsync(clone.Workspace, reread, clone.Dataverse, clone.SyncInfo, CancellationToken.None);
+        Assert.Empty(remaining);
+    }
+
     internal static BotComponentBase AssignNewId(BotComponentBase component)
     {
         var builder = component.ToBuilder();
@@ -974,10 +1032,9 @@ public class PackagedSkillKnowledgeFileTests
         return builder.Build();
     }
 
-    private static DialogComponent CreateInlineSkillComponent(string schemaName, Guid id, string displayName = "pptx")
+    private static DialogComponent CreateInlineSkillComponent(string schemaName, Guid id, string displayName = "pptx", string dialogYaml = "kind: InlineAgentSkill\ncontent: <!-- bic:bundle=cre98_Repro.file.pptxzip_Aq-pc -->\n")
     {
-        var dialog = (DialogBase)(CodeSerializer.Deserialize<BotElement>(
-            "kind: InlineAgentSkill\ncontent: <!-- bic:bundle=cre98_Repro.file.pptxzip_Aq-pc -->\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
+        var dialog = (DialogBase)(CodeSerializer.Deserialize<BotElement>(dialogYaml) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
 
         return new DialogComponent(
             schemaName: schemaName,
@@ -998,5 +1055,59 @@ public class PackagedSkillKnowledgeFileTests
         builder.Id = Guid.NewGuid();
         builder.ParentBotComponentId = parentId;
         return builder.Build();
+    }
+
+    private const string UploadedSkillSchemaName = "cre98_Repro.skill.issue512-repro_N8P";
+    private const string UploadedSkillAnchorPath = "behaviors/issue512-repro/skill.mcs.yml";
+    private const string BlankSkillAnchorPath = "behaviors/notes/skill.mcs.yml";
+    private const string BlankSkillManifestPath = "behaviors/notes/SKILL.md";
+
+    private static async Task<(WorkspaceSynchronizer Synchronizer, InMemoryFileAccessor FileAccessor, DirectoryPath Workspace, ISyncDataverseClient Dataverse, AgentSyncInfo SyncInfo)> CloneUploadedAndBlankSkillsAsync()
+    {
+        var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath($"c:/test/uploaded-skill-bundle-folder-{Guid.NewGuid():N}/");
+        var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
+        var botEntity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\nschemaName: cre98_Repro\ntemplate: cliagent-1.0.0\n") ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
+        var uploadedSkillId = Guid.NewGuid();
+        var uploadedSkill = CreateInlineSkillComponent(
+            UploadedSkillSchemaName,
+            uploadedSkillId,
+            "issue512-repro",
+            "kind: InlineAgentSkill\nskillFolderName: issue512-repro\ncontent: |-\n  <!-- bic:bundle=cre98_Repro.file.issue512reprozip_06wE8 -->\n  <!-- bic:bundle-folder=issue512-repro -->\nauthoringSource: Upload\n");
+        var skillMarkdown = CreateFileComponent("cre98_Repro.file.skillmd_51q96", "./SKILL.md", new BotComponentId(uploadedSkillId));
+        var script = CreateFileComponent("cre98_Repro.file.formatgreetingpy_fYDDq", "./scripts/format_greeting.py", new BotComponentId(uploadedSkillId));
+        var blankSkill = CreateInlineSkillComponent(
+            "cre98_Repro.skill.notes_Gbh",
+            Guid.NewGuid(),
+            "notes",
+            "kind: InlineAgentSkill\nskillFolderName: notes\ncontent: |\n  ---\n  name: notes\n  description: Takes notes.\n  ---\n  <!-- bic:source=blank -->\n  Take notes for the user.\nauthoringSource: Blank\n");
+        mockIsland.Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentInsert(uploadedSkill), new BotComponentInsert(skillMarkdown), new BotComponentInsert(script), new BotComponentInsert(blankSkill) }, botEntity, "token-1"));
+        var mockDataverse = new Mock<ISyncDataverseClient>();
+        mockDataverse.Setup(x => x.DownloadAllWorkflowsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<WorkflowMetadata>());
+        mockDataverse.Setup(x => x.DownloadAllAIPromptsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<AIPromptMetadata>());
+        var downloadGate = new object();
+        mockDataverse.As<IStreamingKnowledgeFileClient>().Setup(x => x.DownloadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<BotComponentId>(), It.IsAny<CancellationToken>()))
+            .Returns<Stream, BotComponentId, CancellationToken>((destination, componentId, cancellationToken) =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                lock (downloadGate)
+                {
+                    var payload = Encoding.UTF8.GetBytes($"payload:{componentId}");
+                    destination.Write(payload, 0, payload.Length);
+                }
+
+                return Task.CompletedTask;
+            });
+        var syncInfo = new AgentSyncInfo { AgentId = Guid.NewGuid() };
+        await synchronizer.CloneChangesAsync(workspace, new ReferenceTracker(), ComponentWriterDefensiveTests.CreateMockOperationContext(), mockDataverse.Object, syncInfo, CancellationToken.None);
+        return (synchronizer, fileAccessor, workspace, mockDataverse.Object, syncInfo);
+    }
+
+    private static string ReadText(IFileAccessor fileAccessor, string path)
+    {
+        using var stream = fileAccessor.OpenRead(new AgentFilePath(path));
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
     }
 }

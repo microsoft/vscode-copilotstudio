@@ -207,7 +207,7 @@ public class EnvironmentVariableProjectionTests
         var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(dataverse, new[] { CreateTopic("Greeting", activity) }, environmentVariable);
         Assert.True(fileAccessor.Exists(GetPath(schemaName)));
 
-        await PullAsync(synchronizer, island, workspace, dataverse, CreateChangeSet("token-2", environmentVariableChanges: new[] { new EnvironmentVariableDelete(environmentVariable.Id, (environmentVariable.ValueComponent ?? throw new Xunit.Sdk.XunitException("Expected a value.")).Id, environmentVariable.Version) }));
+        await PullAsync(synchronizer, island, workspace, dataverse, CreateChangeSet("token-2", environmentVariableChanges: new[] { CreateDelete(environmentVariable) }));
 
         Assert.False(fileAccessor.Exists(GetPath(schemaName)));
     }
@@ -249,7 +249,7 @@ public class EnvironmentVariableProjectionTests
     [InlineData(SharedSchemaName, SharedActivity, false)]
     [InlineData(SharedSchemaName, SharedActivity, true)]
     [InlineData(OwnedSchemaName, UnreferencedActivity, false)]
-    public async Task Pull_WhenLocalAndCloudEditDifferentEnvironmentVariableFields_WritesBothEditsWithoutAConflict(string schemaName, string activity, bool removeReference)
+    public async Task Pull_WhenLocalAndCloudEditDifferentEnvironmentVariableFields_WritesAndReturnsBothEditsWithoutAConflict(string schemaName, string activity, bool removeReference)
     {
         var environmentVariable = CreateEnvironmentVariable(schemaName, value: "current").WithVersion(200);
         var serverCopy = environmentVariable.WithDisplayName("Cloud").WithVersion(201);
@@ -263,7 +263,7 @@ public class EnvironmentVariableProjectionTests
 
         var conflicts = new List<WorkspaceDiagnostic>();
 
-        await PullAsync(synchronizer, island, workspace, dataverse, CreateChangeSet("token-2", environmentVariableChanges: new[] { new EnvironmentVariableUpdate(serverCopy) }), conflicts);
+        var pulledDefinition = await PullAsync(synchronizer, island, workspace, dataverse, CreateChangeSet("token-2", environmentVariableChanges: new[] { new EnvironmentVariableUpdate(serverCopy) }), conflicts);
 
         var merged = ReadEnvironmentVariableFile(fileAccessor, GetPath(schemaName));
         Assert.Equal("local", merged.DefaultValue);
@@ -272,6 +272,11 @@ public class EnvironmentVariableProjectionTests
         Assert.Equal(serverCopy.Version, merged.Version);
         Assert.Empty(conflicts);
         Assert.True(serverCopy.Equals(Assert.Single(ReadCache(fileAccessor).EnvironmentVariables), NodeComparison.Structural));
+        Assert.True(merged.Equals(Assert.Single(pulledDefinition.EnvironmentVariables, pulled => pulled.SchemaName.Value == schemaName), NodeComparison.Structural));
+        var (changeSet, _) = await synchronizer.GetLocalChangesAsync(workspace, pulledDefinition, CancellationToken.None);
+        var pending = Assert.IsType<EnvironmentVariableUpdate>(Assert.Single(changeSet.EnvironmentVariableChanges)).EnvironmentVariable ?? throw new Xunit.Sdk.XunitException("Expected an environment variable.");
+        Assert.Equal("local", pending.DefaultValue);
+        Assert.Equal("Cloud", pending.DisplayName);
     }
 
     [Theory]
@@ -313,13 +318,73 @@ public class EnvironmentVariableProjectionTests
         WriteEnvironmentVariableFile(fileAccessor, environmentVariable.WithDefaultValue("local"));
         var conflicts = new List<WorkspaceDiagnostic>();
 
-        await PullAsync(synchronizer, island, workspace, dataverse, CreateChangeSet("token-2", environmentVariableChanges: new[] { new EnvironmentVariableDelete(environmentVariable.Id, (environmentVariable.ValueComponent ?? throw new Xunit.Sdk.XunitException("Expected a value.")).Id, environmentVariable.Version) }), conflicts);
+        await PullAsync(synchronizer, island, workspace, dataverse, CreateChangeSet("token-2", environmentVariableChanges: new[] { CreateDelete(environmentVariable) }), conflicts);
 
         var text = ReadText(fileAccessor, GetPath(schemaName));
         Assert.True(McsConflictMarkers.Contains(text));
         Assert.Contains("defaultValue: local", text, StringComparison.Ordinal);
         Assert.Equal(GetPath(schemaName).ToString(), Assert.Single(conflicts).FilePath);
         Assert.Empty(ReadCache(fileAccessor).EnvironmentVariables);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Pull_WhenTheCloudKeepsALocallyDeletedEnvironmentVariable_KeepsItDeletedForTheNextPush(bool cloudRepeatsIt)
+    {
+        var environmentVariable = CreateEnvironmentVariable(OwnedSchemaName, value: "current").WithVersion(200);
+        var (dataverse, _) = CreateDataverse();
+        var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(dataverse, new[] { CreateTopic("Greeting", UnreferencedActivity) }, environmentVariable);
+        fileAccessor.Delete(GetPath(OwnedSchemaName));
+
+        await PullAsync(synchronizer, island, workspace, dataverse, CreateChangeSet("token-2", environmentVariableChanges: cloudRepeatsIt ? new[] { new EnvironmentVariableUpdate(environmentVariable.WithVersion(201)) } : null));
+
+        Assert.False(fileAccessor.Exists(GetPath(OwnedSchemaName)));
+        var (changeSet, _) = await synchronizer.GetLocalChangesAsync(workspace, await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None), CancellationToken.None);
+        Assert.Equal(environmentVariable.Id, Assert.IsType<EnvironmentVariableDelete>(Assert.Single(changeSet.EnvironmentVariableChanges)).DefinitionId);
+    }
+
+    [Fact]
+    public async Task Pull_WhenTheCloudEditsALocallyDeletedEnvironmentVariable_WritesAConflict()
+    {
+        var environmentVariable = CreateEnvironmentVariable(OwnedSchemaName, value: "current").WithVersion(200);
+        var serverCopy = environmentVariable.WithDefaultValue("cloud").WithVersion(201);
+        var (dataverse, _) = CreateDataverse();
+        var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(dataverse, new[] { CreateTopic("Greeting", UnreferencedActivity) }, environmentVariable);
+        fileAccessor.Delete(GetPath(OwnedSchemaName));
+        var conflicts = new List<WorkspaceDiagnostic>();
+
+        await PullAsync(synchronizer, island, workspace, dataverse, CreateChangeSet("token-2", environmentVariableChanges: new[] { new EnvironmentVariableUpdate(serverCopy) }), conflicts);
+
+        var text = ReadText(fileAccessor, GetPath(OwnedSchemaName));
+        Assert.True(McsConflictMarkers.Contains(text));
+        Assert.Contains("defaultValue: cloud", text, StringComparison.Ordinal);
+        var diagnostic = Assert.Single(conflicts);
+        Assert.Equal(GetPath(OwnedSchemaName).ToString(), diagnostic.FilePath);
+        Assert.Equal(WorkspaceDiagnosticKind.MergeConflict, diagnostic.Kind);
+        Assert.True(serverCopy.Equals(Assert.Single(ReadCache(fileAccessor).EnvironmentVariables), NodeComparison.Structural));
+    }
+
+    [Theory]
+    [InlineData("current", true)]
+    [InlineData(null, false)]
+    public async Task Pull_WhenAMissingOwnedEnvironmentVariableHoldsNoPendingDelete_WritesItBack(string? value, bool clearSyncBaselines)
+    {
+        var (dataverse, _) = CreateDataverse();
+        var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(dataverse, new[] { CreateTopic("Greeting", UnreferencedActivity) }, CreateEnvironmentVariable(OwnedSchemaName, value: value));
+        var cloned = fileAccessor.Files[GetPath(OwnedSchemaName).ToString()];
+        fileAccessor.Delete(GetPath(OwnedSchemaName));
+        if (clearSyncBaselines)
+        {
+            synchronizer.ClearComponentSyncBaselines(workspace);
+        }
+
+        var (changeSet, _) = await synchronizer.GetLocalChangesAsync(workspace, await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None), CancellationToken.None);
+        Assert.Empty(changeSet.EnvironmentVariableChanges);
+
+        await PullAsync(synchronizer, island, workspace, dataverse, CreateChangeSet("token-2"));
+
+        Assert.Equal(cloned, fileAccessor.Files[GetPath(OwnedSchemaName).ToString()]);
     }
 
     [Theory]
@@ -342,7 +407,7 @@ public class EnvironmentVariableProjectionTests
         lookups.Clear();
         var conflicts = new List<WorkspaceDiagnostic>();
 
-        await PullAsync(synchronizer, island, workspace, dataverse, CreateChangeSet("token-2", environmentVariableChanges: new EnvironmentVariableChange[] { new EnvironmentVariableDelete(environmentVariable.Id, (environmentVariable.ValueComponent ?? throw new Xunit.Sdk.XunitException("Expected a value.")).Id, environmentVariable.Version), new EnvironmentVariableInsert(recreated) }), conflicts);
+        await PullAsync(synchronizer, island, workspace, dataverse, CreateChangeSet("token-2", environmentVariableChanges: new EnvironmentVariableChange[] { CreateDelete(environmentVariable), new EnvironmentVariableInsert(recreated) }), conflicts);
 
         Assert.Equal(defaultValue, ReadEnvironmentVariableFile(fileAccessor, GetPath(schemaName)).DefaultValue);
         Assert.Empty(conflicts);
@@ -350,6 +415,25 @@ public class EnvironmentVariableProjectionTests
         Assert.True(recreated.Equals(Assert.Single(ReadCache(fileAccessor).EnvironmentVariables), NodeComparison.Structural));
         var (changeSet, _) = await synchronizer.GetLocalChangesAsync(workspace, await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None), CancellationToken.None);
         Assert.Equal(editLocally ? new[] { recreated.Id.Value } : Array.Empty<Guid>(), changeSet.EnvironmentVariableChanges.Select(change => (Assert.IsType<EnvironmentVariableUpdate>(change).EnvironmentVariable ?? throw new Xunit.Sdk.XunitException("Expected an environment variable.")).Id.Value));
+    }
+
+    [Theory]
+    [InlineData(OwnedSchemaName, UnreferencedActivity)]
+    [InlineData(SharedSchemaName, SharedActivity)]
+    public async Task Pull_WhenTheCloudDeletesARecreatedEnvironmentVariable_RemovesTheFileThatStillCarriesTheOldIdentifier(string schemaName, string activity)
+    {
+        var environmentVariable = CreateEnvironmentVariable(schemaName, value: "current");
+        var recreated = CreateEnvironmentVariable(schemaName, value: "current");
+        var (dataverse, _) = CreateDataverse();
+        var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(dataverse, new[] { CreateTopic("Greeting", activity) }, environmentVariable);
+        await PullAsync(synchronizer, island, workspace, dataverse, CreateChangeSet("token-2", environmentVariableChanges: new EnvironmentVariableChange[] { CreateDelete(environmentVariable), new EnvironmentVariableInsert(recreated) }));
+        var projected = ReadEnvironmentVariableFile(fileAccessor, GetPath(schemaName));
+        Assert.Equal(environmentVariable.Id, projected.Id);
+
+        await PullAsync(synchronizer, island, workspace, dataverse, CreateChangeSet("token-3", environmentVariableChanges: new[] { CreateDelete(recreated) }), localDefinition: (await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None)).WithEnvironmentVariables(new[] { projected }));
+
+        Assert.False(fileAccessor.Exists(GetPath(schemaName)));
+        Assert.Empty(ReadCache(fileAccessor).EnvironmentVariables);
     }
 
     [Theory]
@@ -362,7 +446,7 @@ public class EnvironmentVariableProjectionTests
         var (dataverse, _) = CreateDataverse();
         var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(dataverse, new[] { CreateTopic("Greeting", SharedActivity) }, environmentVariable);
         WriteEnvironmentVariableFile(fileAccessor, environmentVariable.WithDefaultValue("local"));
-        var delete = new EnvironmentVariableDelete(environmentVariable.Id, (environmentVariable.ValueComponent ?? throw new Xunit.Sdk.XunitException("Expected a value.")).Id, environmentVariable.Version);
+        var delete = CreateDelete(environmentVariable);
         var insert = new EnvironmentVariableInsert(recreated);
         var conflicts = new List<WorkspaceDiagnostic>();
 
@@ -431,15 +515,45 @@ public class EnvironmentVariableProjectionTests
     [Fact]
     public async Task RetargetSync_KeepsProjectedSharedEnvironmentVariableThatTargetComponentsDoNotReference()
     {
-        var (synchronizer, fileAccessorFactory, island) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
-        var workspace = new DirectoryPath($"c:/test/environment-variables-{Guid.NewGuid():N}/");
-        var fileAccessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
-        WriteEnvironmentVariableFile(fileAccessor, CreateEnvironmentVariable(SharedSchemaName, defaultValue: "source"));
+        var (synchronizer, fileAccessor, island, workspace) = CreateWorkspace(CreateEnvironmentVariable(SharedSchemaName, defaultValue: "source"));
         var original = fileAccessor.Files[SharedPath.ToString()];
         SetupRemoteChanges(island, CreateChangeSet("token-1", environmentVariableChanges: new[] { new EnvironmentVariableInsert(CreateEnvironmentVariable(SharedSchemaName, defaultValue: "target")) }, bot: CreateBotEntity()));
         var (dataverse, _) = CreateDataverse();
 
-        await synchronizer.SyncWorkspaceAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), changeToken: null, updateWorkspaceDirectory: true, dataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, cloudFlowMetadata: null, CancellationToken.None);
+        await RetargetSyncAsync(synchronizer, workspace, dataverse);
+
+        Assert.Equal(original, fileAccessor.Files[SharedPath.ToString()]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RetargetSync_RemovesOnlySharedEnvironmentVariableFilesThatTheTargetHoldsAsManaged(bool updateWorkspaceDirectory)
+    {
+        var (synchronizer, fileAccessor, island, workspace) = CreateWorkspace(CreateEnvironmentVariable(OwnedSchemaName), CreateEnvironmentVariable(SharedSchemaName), CreateEnvironmentVariable("cr9f2_managed"));
+        SetupRemoteChanges(island, CreateChangeSet("token-1", bot: CreateBotEntity()));
+        var (dataverse, lookups) = CreateDataverse(TargetEnvironmentVariable(OwnedSchemaName, isManaged: true), TargetEnvironmentVariable(SharedSchemaName), TargetEnvironmentVariable("cr9f2_managed", isManaged: true));
+
+        await RetargetSyncAsync(synchronizer, workspace, dataverse, updateWorkspaceDirectory);
+
+        Assert.True(fileAccessor.Exists(GetPath(OwnedSchemaName)));
+        Assert.True(fileAccessor.Exists(SharedPath));
+        Assert.False(fileAccessor.Exists(GetPath("cr9f2_managed")));
+        Assert.Equal(new[] { "cr9f2_managed", SharedSchemaName }, Assert.Single(lookups).OrderBy(name => name, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task RetargetRollback_RestoresTheManagedSharedEnvironmentVariableFileThatTheRetargetRemoved()
+    {
+        var (synchronizer, fileAccessor, island, workspace) = CreateWorkspace(CreateEnvironmentVariable(SharedSchemaName, defaultValue: "source"));
+        var original = fileAccessor.Files[SharedPath.ToString()];
+        SetupRemoteChanges(island, CreateChangeSet("token-1", bot: CreateBotEntity()));
+        var (dataverse, _) = CreateDataverse(TargetEnvironmentVariable(SharedSchemaName, isManaged: true));
+        synchronizer.PersistRetargetBackup(workspace, synchronizer.ResetRemoteBindingState(workspace));
+        await RetargetSyncAsync(synchronizer, workspace, dataverse, updateWorkspaceDirectory: false);
+        Assert.False(fileAccessor.Exists(SharedPath));
+
+        Assert.True(synchronizer.FinalizeRetarget(workspace, pushSucceeded: false));
 
         Assert.Equal(original, fileAccessor.Files[SharedPath.ToString()]);
     }
@@ -459,6 +573,23 @@ public class EnvironmentVariableProjectionTests
         Assert.Equal(ChangeType.Update, change.ChangeType);
         Assert.Equal(SharedPath.ToString(), change.Uri);
         Assert.Equal(cache, fileAccessor.Files[CachePath.ToString()]);
+    }
+
+    [Theory]
+    [InlineData(OwnedSchemaName, UnreferencedActivity)]
+    [InlineData(SharedSchemaName, SharedActivity)]
+    public async Task GetRemoteChanges_WhenCloudDeletesAnEnvironmentVariableWithoutACurrentValue_ReportsTheDelete(string schemaName, string activity)
+    {
+        var environmentVariable = CreateEnvironmentVariable(schemaName);
+        var (dataverse, _) = CreateDataverse();
+        var (synchronizer, _, island, workspace) = await CloneAsync(dataverse, new[] { CreateTopic("Greeting", activity) }, environmentVariable);
+        SetupRemoteChanges(island, CreateChangeSet("token-2", environmentVariableChanges: new[] { CreateDelete(environmentVariable) }));
+
+        var (_, changes) = await synchronizer.GetRemoteChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), dataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
+
+        var change = Assert.Single(changes, change => change.SchemaName == schemaName);
+        Assert.Equal(ChangeType.Delete, change.ChangeType);
+        Assert.Equal(GetPath(schemaName).ToString(), change.Uri);
     }
 
     private static EnvironmentVariableDefinition CreateEnvVar(string schemaName, string? displayName = null)

@@ -19,6 +19,7 @@ public class RemoteBindingSnapshotTests
         ".mcs/.connectors-sync.json",
         ".mcs/.knowledge-sync.json",
         ".mcs/.aiprompts-sync.json",
+        ".mcs/.environmentvariables-sync.json",
         ".mcs/.connectors-cache.json",
         ".mcs/.aiprompts-cache.json",
     };
