@@ -168,11 +168,13 @@ public class WorkspaceValidationGateTests
     }
 
     [Theory]
-    [InlineData(1, "1 workspace file uses environment variables that are missing in the target environment:")]
-    [InlineData(2, "2 workspace files use environment variables that are missing in the target environment:")]
-    public void WorkspaceValidationException_OnlyMissingDependencies_UsesMissingEnvironmentVariableHeader(int fileCount, string expectedHeader)
+    [InlineData(WorkspaceDiagnosticKind.MissingDependency, 1, "1 workspace file uses environment variables that are missing in the target environment:")]
+    [InlineData(WorkspaceDiagnosticKind.MissingDependency, 2, "2 workspace files use environment variables that are missing in the target environment:")]
+    [InlineData(WorkspaceDiagnosticKind.ManagedDependency, 1, "1 workspace file changes an environment variable that is managed in the target environment:")]
+    [InlineData(WorkspaceDiagnosticKind.ManagedDependency, 2, "2 workspace files change environment variables that are managed in the target environment:")]
+    public void WorkspaceValidationException_OnlyOneEnvironmentVariableKind_UsesItsHeader(WorkspaceDiagnosticKind kind, int fileCount, string expectedHeader)
     {
-        var failure = new WorkspaceValidationException([.. Enumerable.Range(1, fileCount).Select(index => new WorkspaceDiagnostic($"topics/Topic{index}.mcs.yml", "Missing.", 0, 0, WorkspaceDiagnosticKind.MissingDependency))]);
+        var failure = new WorkspaceValidationException([.. Enumerable.Range(1, fileCount).Select(index => new WorkspaceDiagnostic($"topics/Topic{index}.mcs.yml", "Problem.", 0, 0, kind))]);
 
         Assert.StartsWith(expectedHeader + Environment.NewLine, failure.Message, StringComparison.Ordinal);
     }

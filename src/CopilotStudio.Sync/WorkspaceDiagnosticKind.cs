@@ -13,4 +13,7 @@ public enum WorkspaceDiagnosticKind
 
     /// <summary>The file references an environment variable that does not exist in the target environment.</summary>
     MissingDependency,
+
+    /// <summary>The file changes an environment variable that is managed in the target environment.</summary>
+    ManagedDependency,
 }

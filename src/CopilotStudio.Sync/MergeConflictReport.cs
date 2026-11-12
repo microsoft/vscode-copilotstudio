@@ -15,7 +15,6 @@ internal sealed class MergeConflictReport
     public Dictionary<string, MergedEnvironmentVariable> EnvironmentVariablesBySchemaName { get; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
-/// <summary>An environment variable merge result, with the merged definition when the merge left nothing for the user to resolve.</summary>
 internal sealed record MergedEnvironmentVariable(string Yaml, EnvironmentVariableDefinition? Definition);
 
 /// <summary>A component preserved by an unresolved merge, with the conflicted body to write when the merge produced one.</summary>

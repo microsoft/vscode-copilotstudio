@@ -132,10 +132,21 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     return CreateErrorResponse(400, AuthoringSupportGate.DescribeBlocked(classification, SyncOperation.Reattach), defaultSyncInfo);
                 }
 
-                var missingDependencies = await _environmentVariableDependencyValidator.ValidateEnvironmentVariableDependenciesAsync(workspaceFolder, workspace.Definition, _dataverseClient, cancellationToken);
-                if (!missingDependencies.IsDefaultOrEmpty)
+                var environmentVariableCheck = await _environmentVariableDependencyValidator.ValidateEnvironmentVariableDependenciesAsync(workspaceFolder, workspace.Definition, isRetarget, _dataverseClient, cancellationToken);
+                if (!environmentVariableCheck.Diagnostics.IsDefaultOrEmpty)
                 {
-                    throw new WorkspaceValidationException(missingDependencies);
+                    throw new WorkspaceValidationException(environmentVariableCheck.Diagnostics);
+                }
+
+                if (!environmentVariableCheck.OverwrittenSchemaNames.IsDefaultOrEmpty && !environmentVariableCheck.OverwrittenSchemaNames.All(schemaName => request.ApprovedEnvironmentVariableOverwrites.Contains(schemaName, StringComparer.OrdinalIgnoreCase)))
+                {
+                    return new ReattachAgentResponse()
+                    {
+                        Code = 200,
+                        Message = string.Empty,
+                        AgentSyncInfo = defaultSyncInfo,
+                        EnvironmentVariableOverwrites = environmentVariableCheck.OverwrittenSchemaNames,
+                    };
                 }
 
                 var schemaCloudId = isComponentCollectionWorkspace

@@ -33,6 +33,7 @@ import {
   ReattachAgentResponse,
   RetargetConflictResolution,
 } from '../types';
+import { isChildUri } from '../utils/genericUtils';
 import { ReattachPlan, buildReattachPlanCore } from './reattachPlan';
 import { getDiagnosticsErrors } from './syncWorkspace';
 
@@ -390,6 +391,44 @@ const confirmReattach = async (
   }
 };
 
+const saveDirtyDocumentsBeforeReattach = async (plan: ReattachPlan): Promise<boolean> => {
+  const dirtyDocuments = vscode.workspace.textDocuments.filter(document => document.isDirty && plan.workspaces.some(workspace => isChildUri(document.uri.toString(), workspace.workspaceUri)));
+  if (dirtyDocuments.length === 0) {
+    return false;
+  }
+
+  const saveAllAndReattach = 'Save All and Reattach';
+  const choice = await vscode.window.showWarningMessage(
+    `${dirtyDocuments.length} file(s) in the folder(s) being reattached have unsaved changes. Save them before reattaching?`,
+    { modal: true },
+    saveAllAndReattach
+  );
+  if (choice !== saveAllAndReattach) {
+    throw new ReattachCancelledError('Agent reattach canceled before saving unsaved changes.');
+  }
+
+  if ((await Promise.all(dirtyDocuments.map(document => Promise.resolve(document.save()).catch(() => false)))).includes(false)) {
+    throw new ReattachCancelledError('Agent reattach canceled because unsaved changes could not be saved.');
+  }
+
+  return true;
+};
+
+const buildReattachPlanFromSavedFiles = async (workspace: CopilotStudioWorkspace): Promise<ReattachPlan> => {
+  const plan = buildReattachPlan(workspace);
+  if (plan.missingCollectionDirectories.length > 0) {
+    const message = `Cannot retarget agent because ${
+      plan.missingCollectionDirectories.length
+    } referenced component collection workspace(s) were not found: ${formatPii(
+      plan.missingCollectionDirectories.join(', '),
+      PiiRedactionType.FileUri
+    )}`;
+    throw new ReattachError(message, 'warning');
+  }
+
+  return (await saveDirtyDocumentsBeforeReattach(plan)) ? await buildReattachPlanFromSavedFiles(workspace) : plan;
+};
+
 const validateDiagnostics = async (
   plan: ReattachPlan,
   isAttached: boolean
@@ -421,42 +460,63 @@ const runReattachForWorkspace = async (
   workspace: CopilotStudioWorkspace,
   basePayload: Omit<
     ReattachAgentRequest,
-    'workspaceUri' | 'allowRetarget' | 'conflictResolution'
+    'workspaceUri' | 'allowRetarget' | 'conflictResolution' | 'approvedEnvironmentVariableOverwrites'
   >,
   targetEnvironmentName: string
 ): Promise<ReattachWorkspaceResult> => {
   const workspaceUri = workspace.workspaceUri;
   const wasRetarget = hasConnectionFileInWorkspace(workspaceUri);
-  const sendReattach = async (
-    resolution: RetargetConflictResolution
-  ): Promise<ReattachAgentResponse> =>
+  let conflictResolution =
+    workspace.type === WorkspaceType.ComponentCollection
+      ? RetargetConflictResolution.ReuseExisting
+      : RetargetConflictResolution.Prompt;
+  let approvedEnvironmentVariableOverwrites: string[] = [];
+  const sendReattach = async (): Promise<ReattachAgentResponse> =>
     await lspClient.sendRequest<ReattachAgentResponse>(LspMethods.REATTACH_AGENT, {
       ...basePayload,
       workspaceUri,
       allowRetarget: wasRetarget,
-      conflictResolution: resolution,
+      conflictResolution,
+      approvedEnvironmentVariableOverwrites,
     });
 
-  let response = await sendReattach(
-    workspace.type === WorkspaceType.ComponentCollection
-      ? RetargetConflictResolution.ReuseExisting
-      : RetargetConflictResolution.Prompt
-  );
-  while (response.code === 200 && response.schemaConflict) {
-    const reuseExisting = 'Reuse existing';
-    const choice = await vscode.window.showWarningMessage(
-      `A ${getWorkspaceKindLabel(workspace)} with the same schema name already exists in '${targetEnvironmentName}'. Reattach to the existing ${getWorkspaceKindLabel(
-        workspace
-      )} and update it with your local content?`,
-      { modal: true },
-      reuseExisting
-    );
-    if (choice !== reuseExisting) {
-      throw new ReattachCancelledError(
-        'Agent reattach canceled while resolving an existing agent conflict.'
+  let response = await sendReattach();
+  while (
+    response.code === 200 &&
+    (response.schemaConflict || response.environmentVariableOverwrites?.length)
+  ) {
+    if (response.environmentVariableOverwrites?.length) {
+      const overwrite = 'Overwrite';
+      const choice = await vscode.window.showWarningMessage(
+        `These environment variables already exist in '${targetEnvironmentName}', where other agents and apps may use them: ${response.environmentVariableOverwrites.join(
+          ', '
+        )}. Overwrite them with your local changes?`,
+        { modal: true },
+        overwrite
       );
+      if (choice !== overwrite) {
+        throw new ReattachCancelledError(
+          'Agent reattach canceled before overwriting environment variables.'
+        );
+      }
+      approvedEnvironmentVariableOverwrites = response.environmentVariableOverwrites;
+    } else {
+      const reuseExisting = 'Reuse existing';
+      const choice = await vscode.window.showWarningMessage(
+        `A ${getWorkspaceKindLabel(workspace)} with the same schema name already exists in '${targetEnvironmentName}'. Reattach to the existing ${getWorkspaceKindLabel(
+          workspace
+        )} and update it with your local content?`,
+        { modal: true },
+        reuseExisting
+      );
+      if (choice !== reuseExisting) {
+        throw new ReattachCancelledError(
+          'Agent reattach canceled while resolving an existing agent conflict.'
+        );
+      }
+      conflictResolution = RetargetConflictResolution.ReuseExisting;
     }
-    response = await sendReattach(RetargetConflictResolution.ReuseExisting);
+    response = await sendReattach();
   }
 
   if (response.code !== 200) {
@@ -650,18 +710,7 @@ const performReattachFlow = async (
   selectedAccount: Partial<AccountInfo> | undefined
 ) => {
   const targetEnvironmentName = pickedEnvironment.label || 'the selected environment';
-
-  // Validate referenced workspaces.
-  const plan = buildReattachPlan(workspace);
-  if (plan.missingCollectionDirectories.length > 0) {
-    const message = `Cannot retarget agent because ${
-      plan.missingCollectionDirectories.length
-    } referenced component collection workspace(s) were not found: ${formatPii(
-      plan.missingCollectionDirectories.join(', '),
-      PiiRedactionType.FileUri
-    )}`;
-    throw new ReattachError(message, 'warning');
-  }
+  const plan = await buildReattachPlanFromSavedFiles(workspace);
 
   // Handle same-environment refresh.
   if (

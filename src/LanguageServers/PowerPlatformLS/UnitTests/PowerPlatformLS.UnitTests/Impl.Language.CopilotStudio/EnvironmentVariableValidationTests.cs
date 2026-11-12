@@ -30,11 +30,19 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
 
         [Theory]
         [MemberData(nameof(Edits))]
-        public void EditedSharedEnvironmentVariable_DoesNotReportEditsAsUnsupported(Func<EnvironmentVariableDefinition, EnvironmentVariableDefinition> edit)
+        public void EditedSharedEnvironmentVariable_ReportsNoErrors(Func<EnvironmentVariableDefinition, EnvironmentVariableDefinition> edit)
         {
             var cloud = CreateEnvironmentVariable(SharedSchemaName);
 
-            Assert.DoesNotContain(Validate(new[] { cloud }, edit(cloud)), diagnostic => Equals(diagnostic.Code, "SharedEnvironmentVariableEdited"));
+            Assert.DoesNotContain(Validate(new[] { cloud }, edit(cloud)), diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        }
+
+        [Fact]
+        public void SharedEnvironmentVariableEditedToHaveNoValue_ReportsAnError()
+        {
+            var cloud = CreateEnvironmentVariable(SharedSchemaName);
+
+            Assert.Contains(Validate(new[] { cloud }, cloud.WithDefaultValue(string.Empty).WithValueComponent(null)), diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
         }
 
         private static EnvironmentVariableDefinition CreateEnvironmentVariable(string schemaName) => new(

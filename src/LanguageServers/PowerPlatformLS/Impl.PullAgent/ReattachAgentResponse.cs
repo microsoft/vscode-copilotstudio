@@ -15,6 +15,8 @@
 
         public bool SchemaConflict { get; init; } = false;
 
+        public ImmutableArray<string> EnvironmentVariableOverwrites { get; init; } = ImmutableArray<string>.Empty;
+
         public bool RemoteAgentExists { get; init; } = false;
 
         public ImmutableArray<WorkflowResponse> WorkflowResponse { get; init; } = ImmutableArray<WorkflowResponse>.Empty;

@@ -111,6 +111,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private static readonly AgentFilePath RetargetBackupPath = new AgentFilePath(HiddenRoot + "/.retarget-backup.json");
 
+    private static readonly AgentFilePath RetargetUploadedEnvironmentVariablesPath = new AgentFilePath(HiddenRoot + "/.retarget-uploaded-environmentvariables.json");
+
     /// <summary>
     /// Write the top-level <see cref="BotEntity"/>.
     /// </summary>
@@ -901,6 +903,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var contentSaveContext = contentSaveContextOverride ?? operationContext;
         pushChangeset = await ResolveExistingConnectionReferenceInsertsAsync(pushChangeset, dataverseClient, cancellationToken).ConfigureAwait(false);
         pushChangeset = await ResolveEnvironmentVariableDependenciesAsync(layoutGateAccessor, pushChangeset, cloudSnapshot, dataverseClient, cancellationToken).ConfigureAwait(false);
+        RecordRetargetUploadedEnvironmentVariables(layoutGateAccessor, pushChangeset);
 
         // Upload will atomically:
         //  - send up changes,
@@ -1077,13 +1080,14 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
 
         var existingDefinitions = (await environmentVariableOperations.GetEnvironmentVariableDefinitionsBySchemaNamesAsync(namesToCheck.Concat(sharedUpsertedNames).Distinct(StringComparer.OrdinalIgnoreCase), cancellationToken).ConfigureAwait(false)).ToDictionary(definition => definition.SchemaName, StringComparer.OrdinalIgnoreCase);
+        var projectedFiles = ListEnvironmentVariableFiles(fileAccessor);
         var builder = changeSet.ToBuilder();
         builder.EnvironmentVariableChanges.Clear();
         foreach (var change in changeSet.EnvironmentVariableChanges)
         {
             if (change is EnvironmentVariableInsert { EnvironmentVariable: { } environmentVariable } && !EnvironmentVariableOwnership.IsOwnedBy(environmentVariable.SchemaName.Value, cloudSnapshot) && existingDefinitions.TryGetValue(environmentVariable.SchemaName.Value, out var existingDefinition))
             {
-                builder.EnvironmentVariableChanges.Add(CreateEnvironmentVariableUpdate(environmentVariable, existingDefinition));
+                builder.EnvironmentVariableChanges.Add(CreateEnvironmentVariableUpdate(environmentVariable, existingDefinition, GetEnvironmentVariablePath(projectedFiles, environmentVariable.SchemaName.Value)));
             }
             else
             {
@@ -1091,13 +1095,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }
         }
 
-        var projectedFiles = ListEnvironmentVariableFiles(fileAccessor);
         var missingNames = new List<string>();
         foreach (var schemaName in namesToCheck.Where(schemaName => !insertedNames.Contains(schemaName)))
         {
             if (projectedFiles.TryGetValue(schemaName, out var path) && await ReadEnvironmentVariableFileAsync(fileAccessor, path, cancellationToken).ConfigureAwait(false) is { } environmentVariable)
             {
-                builder.EnvironmentVariableChanges.Add(existingDefinitions.TryGetValue(schemaName, out var existingDefinition) ? CreateEnvironmentVariableUpdate(environmentVariable, existingDefinition) : new EnvironmentVariableInsert(environmentVariable));
+                builder.EnvironmentVariableChanges.Add(existingDefinitions.TryGetValue(schemaName, out var existingDefinition) ? CreateEnvironmentVariableUpdate(environmentVariable, existingDefinition, path) : new EnvironmentVariableInsert(environmentVariable));
             }
             else if (!existingDefinitions.ContainsKey(schemaName))
             {
@@ -1114,28 +1117,30 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var managedNames = GetUpsertedEnvironmentVariableNames(resolvedChangeSet).Where(schemaName => !EnvironmentVariableOwnership.IsOwnedBy(schemaName, cloudSnapshot) && existingDefinitions.TryGetValue(schemaName, out var existingDefinition) && existingDefinition.IsManaged).ToList();
         if (managedNames.Count > 0)
         {
-            throw new InvalidOperationException(string.Join(" ", managedNames.Select(schemaName => $"Environment variable '{schemaName}' is managed in the target environment, so it can't be changed. Discard the change to {(projectedFiles.TryGetValue(schemaName, out var path) ? path : GetEnvironmentVariablePath(schemaName))}, then try again.")));
+            throw new WorkspaceValidationException(managedNames.Select(schemaName => CreateManagedEnvironmentVariableDiagnostic(schemaName, GetEnvironmentVariablePath(projectedFiles, schemaName))).ToImmutableArray());
         }
 
         return resolvedChangeSet;
     }
 
-    private static EnvironmentVariableUpdate CreateEnvironmentVariableUpdate(EnvironmentVariableDefinition environmentVariable, SyncDataverseClient.EnvironmentVariableDefinitionInfo existingDefinition)
+    private static WorkspaceDiagnostic CreateManagedEnvironmentVariableDiagnostic(string schemaName, AgentFilePath path) => new WorkspaceDiagnostic(path.ToString(), $"Environment variable '{schemaName}' is managed in the target environment, so it can't be changed. Discard the change to {path}, then try again.", 0, 0, WorkspaceDiagnosticKind.ManagedDependency);
+
+    private static EnvironmentVariableUpdate CreateEnvironmentVariableUpdate(EnvironmentVariableDefinition environmentVariable, SyncDataverseClient.EnvironmentVariableDefinitionInfo existingDefinition, AgentFilePath path)
     {
         if (existingDefinition.DefinitionId == Guid.Empty)
         {
-            throw new InvalidOperationException($"Existing environment variable '{existingDefinition.SchemaName}' has no cloud identifier.");
+            throw new WorkspaceValidationException([new WorkspaceDiagnostic(path.ToString(), $"Existing environment variable '{existingDefinition.SchemaName}' has no cloud identifier.", 0, 0)]);
         }
 
         var existingValue = existingDefinition.Values.FirstOrDefault();
         return new EnvironmentVariableUpdate(WithEnvironmentVariableTargetMetadata(environmentVariable, new EnvironmentVariableDefinitionId(existingDefinition.DefinitionId), existingDefinition.Version, existingValue is null ? default : new EnvironmentVariableValueId(existingValue.ValueId), existingValue?.Version ?? 0));
     }
 
-    public async Task<ImmutableArray<WorkspaceDiagnostic>> ValidateEnvironmentVariableDependenciesAsync(DirectoryPath workspaceFolder, DefinitionBase workspaceDefinition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+    public async Task<EnvironmentVariableDependencyCheck> ValidateEnvironmentVariableDependenciesAsync(DirectoryPath workspaceFolder, DefinitionBase workspaceDefinition, bool isRetarget, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
     {
         if (dataverseClient is not IEnvironmentVariableOperations environmentVariableOperations)
         {
-            return ImmutableArray<WorkspaceDiagnostic>.Empty;
+            return EnvironmentVariableDependencyCheck.None;
         }
 
         var fileAccessor = this.OpenWorkspace(workspaceFolder);
@@ -1143,14 +1148,22 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var referencingComponents = EnvironmentVariableDependencies.GetReferencingComponents(GetAuthoredComponents(workspaceDefinition).Where(component => !IsComponentCollectionOwned(workspaceDefinition, component) && !collectionComponentSchemaNames.Contains(component.SchemaNameString)), _expressionSyntaxAnalyzer);
         var projectedFiles = ListEnvironmentVariableFiles(fileAccessor);
         var namesToCheck = referencingComponents.Select(group => group.Key).Where(schemaName => !projectedFiles.ContainsKey(schemaName)).ToList();
-        if (namesToCheck.Count == 0)
+        var cloudSnapshot = new Lazy<DefinitionBase?>(() => ReadCloudCacheSnapshot(fileAccessor, allowMissing: true));
+        var changedSharedFiles = projectedFiles.Where(file => !EnvironmentVariableOwnership.IsOwnedBy(file.Key, workspaceDefinition) && !(isRetarget && IsUneditedCloudCopy(fileAccessor, cloudSnapshot.Value, file))).ToDictionary(file => file.Key, file => file.Value, StringComparer.OrdinalIgnoreCase);
+        if (namesToCheck.Count == 0 && changedSharedFiles.Count == 0)
         {
-            return ImmutableArray<WorkspaceDiagnostic>.Empty;
+            return EnvironmentVariableDependencyCheck.None;
         }
 
-        var existingNames = new HashSet<string>((await environmentVariableOperations.GetEnvironmentVariableDefinitionsBySchemaNamesAsync(namesToCheck, cancellationToken).ConfigureAwait(false)).Select(definition => definition.SchemaName), StringComparer.OrdinalIgnoreCase);
-        var missingNames = namesToCheck.Where(schemaName => !existingNames.Contains(schemaName)).ToList();
-        return missingNames.Count == 0 ? ImmutableArray<WorkspaceDiagnostic>.Empty : CreateMissingEnvironmentVariableDiagnostics(fileAccessor, workspaceDefinition, referencingComponents, missingNames, GetEnvironmentVariableNames(ReadCloudCacheSnapshot(fileAccessor, allowMissing: true)?.EnvironmentVariables).Contains);
+        var targetDefinitions = (await environmentVariableOperations.GetEnvironmentVariableDefinitionsBySchemaNamesAsync(namesToCheck.Concat(changedSharedFiles.Keys), cancellationToken).ConfigureAwait(false)).ToDictionary(definition => definition.SchemaName, StringComparer.OrdinalIgnoreCase);
+        var missingNames = namesToCheck.Where(schemaName => !targetDefinitions.ContainsKey(schemaName)).ToList();
+        if (missingNames.Count > 0)
+        {
+            return new EnvironmentVariableDependencyCheck(CreateMissingEnvironmentVariableDiagnostics(fileAccessor, workspaceDefinition, referencingComponents, missingNames, GetEnvironmentVariableNames(cloudSnapshot.Value?.EnvironmentVariables).Contains), ImmutableArray<string>.Empty);
+        }
+
+        var heldDefinitions = targetDefinitions.Values.Where(definition => changedSharedFiles.ContainsKey(definition.SchemaName)).ToList();
+        return new EnvironmentVariableDependencyCheck(heldDefinitions.Where(definition => definition.IsManaged).Select(definition => CreateManagedEnvironmentVariableDiagnostic(definition.SchemaName, changedSharedFiles[definition.SchemaName])).ToImmutableArray(), heldDefinitions.Where(definition => !definition.IsManaged).Select(definition => definition.SchemaName).OrderBy(schemaName => schemaName, StringComparer.OrdinalIgnoreCase).ToImmutableArray());
     }
 
     private ImmutableArray<WorkspaceDiagnostic> CreateMissingEnvironmentVariableDiagnostics(IFileAccessor fileAccessor, DefinitionBase definition, ILookup<string, BotComponentBase> referencingComponents, IEnumerable<string> missingNames, Func<string, bool> isInWorkspaceCache)
@@ -4348,7 +4361,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         definition = EnsureEntityCdsBotId(definition, syncInfo.AgentId);
         definition = await ResolveConnectionReferenceConnectorIdsAsync(definition, dataverseClient, cancellationToken).ConfigureAwait(false);
-        await RemoveManagedSharedEnvironmentVariableFilesAsync(fileAccessor, definition, dataverseClient, cancellationToken).ConfigureAwait(false);
+        await RemoveSourceCopiesOfTargetEnvironmentVariablesAsync(fileAccessor, definition, dataverseClient, cancellationToken).ConfigureAwait(false);
 
         await fileAccessor.WriteAsync(GitIgnorePath, "*", cancellationToken).ConfigureAwait(false);
         WriteCloudCache(fileAccessor, definition);
@@ -4896,11 +4909,22 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private static async Task<HashSet<string>> GetManagedEnvironmentVariableNamesAsync(ISyncDataverseClient dataverseClient, IReadOnlyCollection<string> schemaNames, CancellationToken cancellationToken) => new HashSet<string>(schemaNames.Count > 0 && dataverseClient is IEnvironmentVariableOperations environmentVariableOperations ? (await environmentVariableOperations.GetEnvironmentVariableDefinitionsBySchemaNamesAsync(schemaNames, cancellationToken).ConfigureAwait(false)).Where(definition => definition.IsManaged).Select(definition => definition.SchemaName) : Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
 
-    private static async Task RemoveManagedSharedEnvironmentVariableFilesAsync(IFileAccessor fileAccessor, DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+    private static async Task RemoveSourceCopiesOfTargetEnvironmentVariablesAsync(IFileAccessor fileAccessor, DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
     {
         var sharedFiles = ListEnvironmentVariableFiles(fileAccessor).Where(file => !EnvironmentVariableOwnership.IsOwnedBy(file.Key, definition)).ToList();
-        var managedNames = await GetManagedEnvironmentVariableNamesAsync(dataverseClient, sharedFiles.Select(file => file.Key).ToList(), cancellationToken).ConfigureAwait(false);
-        foreach (var file in sharedFiles.Where(file => managedNames.Contains(file.Key)))
+        if (sharedFiles.Count == 0 || dataverseClient is not IEnvironmentVariableOperations environmentVariableOperations || ReadRetargetSourceCloudCache(fileAccessor) is not { } sourceCloudSnapshot)
+        {
+            return;
+        }
+
+        var uneditedFiles = sharedFiles.Where(file => IsUneditedCloudCopy(fileAccessor, sourceCloudSnapshot, file)).ToList();
+        if (uneditedFiles.Count == 0)
+        {
+            return;
+        }
+
+        var heldNames = new HashSet<string>((await environmentVariableOperations.GetEnvironmentVariableDefinitionsBySchemaNamesAsync(uneditedFiles.Select(file => file.Key), cancellationToken).ConfigureAwait(false)).Select(targetDefinition => targetDefinition.SchemaName), StringComparer.OrdinalIgnoreCase);
+        foreach (var file in uneditedFiles.Where(file => heldNames.Contains(file.Key) && IsUneditedCloudCopy(fileAccessor, sourceCloudSnapshot, file)))
         {
             fileAccessor.Delete(file.Value);
         }
@@ -4929,12 +4953,17 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private static EnvironmentVariableDefinition? DeserializeEnvironmentVariable(string yaml) => McsYamlValidator.Deserialize(yaml, typeof(EnvironmentVariableDefinition), null) as EnvironmentVariableDefinition;
 
+    private static EnvironmentVariableDefinition? ReadEnvironmentVariable(Stream stream)
+    {
+        using var reader = new StreamReader(stream);
+        return DeserializeEnvironmentVariable(reader.ReadToEnd());
+    }
+
     private static bool MatchesCloudCopy(IFileAccessor fileAccessor, AgentFilePath path, EnvironmentVariableDefinition cloudEnvironmentVariable, DefinitionBase? previousCloudSnapshot)
     {
         try
         {
-            using var reader = new StreamReader(fileAccessor.OpenRead(path));
-            return DeserializeEnvironmentVariable(reader.ReadToEnd()) is { } environmentVariable && (HasSameContent(environmentVariable, cloudEnvironmentVariable) || previousCloudSnapshot is not null && previousCloudSnapshot.TryGetEnvironmentVariableDefinitionBySchemaName(cloudEnvironmentVariable.SchemaName, out var previousCloudEnvironmentVariable) && HasSameContent(environmentVariable, previousCloudEnvironmentVariable));
+            return ReadEnvironmentVariable(fileAccessor.OpenRead(path)) is { } environmentVariable && (HasSameContent(environmentVariable, cloudEnvironmentVariable) || previousCloudSnapshot is not null && previousCloudSnapshot.TryGetEnvironmentVariableDefinitionBySchemaName(cloudEnvironmentVariable.SchemaName, out var previousCloudEnvironmentVariable) && HasSameContent(environmentVariable, previousCloudEnvironmentVariable));
         }
         catch (Exception failure) when (IsUnreadableFileFailure(failure))
         {
@@ -4942,9 +4971,13 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
     }
 
+    private static bool IsUneditedCloudCopy(IFileAccessor fileAccessor, DefinitionBase? cloudSnapshot, KeyValuePair<string, AgentFilePath> file) => cloudSnapshot is not null && cloudSnapshot.TryGetEnvironmentVariableDefinitionBySchemaName(file.Key, out var cloudEnvironmentVariable) && MatchesCloudCopy(fileAccessor, file.Value, cloudEnvironmentVariable, previousCloudSnapshot: null);
+
     internal static AgentFilePath GetEnvironmentVariablePath(EnvironmentVariableDefinition envVar) => GetEnvironmentVariablePath(envVar.SchemaName.Value);
 
     private static AgentFilePath GetEnvironmentVariablePath(string schemaName) => new AgentFilePath($"{EnvironmentVariablesFolder}/{schemaName}{EnvironmentVariableFileSuffix}");
+
+    private static AgentFilePath GetEnvironmentVariablePath(IReadOnlyDictionary<string, AgentFilePath> projectedFiles, string schemaName) => projectedFiles.TryGetValue(schemaName, out var path) ? path : GetEnvironmentVariablePath(schemaName);
     
     private void WriteComponentCollection(IFileAccessor fileAccessor, BotComponentCollection? collection, CancellationToken cancellationToken)
     {
@@ -5230,9 +5263,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     public virtual void RestoreRemoteBindingState(DirectoryPath workspaceFolder, RemoteBindingSnapshot snapshot)
     {
         var fileAccessor = this.OpenWorkspace(workspaceFolder);
-        var projectedEnvironmentVariablePaths = ListEnvironmentVariableFilesProjectedSince(fileAccessor, snapshot);
+        var environmentVariableFiles = ListEnvironmentVariableFilesByUneditedCopy(fileAccessor, snapshot);
+        var projectedEnvironmentVariablePaths = environmentVariableFiles.Where(file => file.Value).Select(file => file.Key).Except(snapshot.Files.Select(file => file.Path)).ToArray();
+        var restoredFiles = snapshot.Files.Where(file => !environmentVariableFiles.TryGetValue(file.Path, out var isUneditedCopy) || isUneditedCopy).ToArray();
 
-        var affectedPaths = RemoteBindingFilePaths.Append(ConnectionDetailsPath).Concat(snapshot.Files.Select(file => file.Path)).Concat(projectedEnvironmentVariablePaths).Distinct().ToArray();
+        var affectedPaths = RemoteBindingFilePaths.Append(ConnectionDetailsPath).Concat(restoredFiles.Select(file => file.Path)).Concat(projectedEnvironmentVariablePaths).Distinct().ToArray();
         var preImage = ImmutableArray.CreateBuilder<RemoteBindingFile>();
         foreach (var path in affectedPaths)
         {
@@ -5248,7 +5283,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             {
                 fileAccessor.Delete(path);
             }
-            foreach (var file in snapshot.Files)
+            foreach (var file in restoredFiles)
             {
                 WriteAllBytes(fileAccessor, file.Path, file.Content);
             }
@@ -5267,16 +5302,35 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
     }
 
-    private static AgentFilePath[] ListEnvironmentVariableFilesProjectedSince(IFileAccessor fileAccessor, RemoteBindingSnapshot snapshot)
+    private static Dictionary<AgentFilePath, bool> ListEnvironmentVariableFilesByUneditedCopy(IFileAccessor fileAccessor, RemoteBindingSnapshot snapshot)
+    {
+        var files = ListEnvironmentVariableFiles(fileAccessor);
+        var cloudSnapshot = files.Count == 0 ? null : ReadCloudCacheSnapshotOrNull(fileAccessor);
+        var uploadedNames = ReadRetargetUploadedEnvironmentVariables(fileAccessor);
+        return files.ToDictionary(file => file.Value, file => uploadedNames.Contains(file.Key) ? MatchesCapturedCopy(fileAccessor, snapshot, file.Value) : IsUneditedCloudCopy(fileAccessor, cloudSnapshot, file));
+    }
+
+    private static bool MatchesCapturedCopy(IFileAccessor fileAccessor, RemoteBindingSnapshot snapshot, AgentFilePath path)
     {
         try
         {
-            var capturedPaths = new HashSet<string>(snapshot.Files.Select(file => file.Path.ToString()), StringComparer.OrdinalIgnoreCase);
-            return ReadCloudCacheSnapshot(fileAccessor, allowMissing: true) is { } cloudSnapshot ? ListEnvironmentVariableFiles(fileAccessor).Where(file => !capturedPaths.Contains(file.Value.ToString()) && cloudSnapshot.TryGetEnvironmentVariableDefinitionBySchemaName(file.Key, out var cloudEnvironmentVariable) && MatchesCloudCopy(fileAccessor, file.Value, cloudEnvironmentVariable, previousCloudSnapshot: null)).Select(file => file.Value).ToArray() : Array.Empty<AgentFilePath>();
+            return snapshot.Files.Where(file => file.Path.Equals(path)).Select(file => ReadEnvironmentVariable(new MemoryStream(file.Content))).FirstOrDefault() is { } capturedEnvironmentVariable && MatchesCloudCopy(fileAccessor, path, capturedEnvironmentVariable, previousCloudSnapshot: null);
+        }
+        catch (Exception failure) when (IsUnreadableFileFailure(failure))
+        {
+            return false;
+        }
+    }
+
+    private static DefinitionBase? ReadCloudCacheSnapshotOrNull(IFileAccessor fileAccessor)
+    {
+        try
+        {
+            return ReadCloudCacheSnapshot(fileAccessor, allowMissing: true);
         }
         catch (Exception failure) when (failure is JsonException || IsUnreadableFileFailure(failure))
         {
-            return Array.Empty<AgentFilePath>();
+            return null;
         }
     }
 
@@ -5284,6 +5338,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     {
         var fileAccessor = this.OpenWorkspace(workspaceFolder);
         fileAccessor.CreateHiddenDirectory(new AgentFilePath(HiddenRoot));
+        fileAccessor.Delete(RetargetUploadedEnvironmentVariablesPath);
         var entries = snapshot.Files.Select(file => new RetargetBackupEntry
         {
             Path = file.Path.ToString(),
@@ -5304,15 +5359,45 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         if (!pushSucceeded)
         {
-            var entries = JsonSerializer.Deserialize<RetargetBackupEntry[]>(ReadAllBytes(fileAccessor, RetargetBackupPath)) ?? Array.Empty<RetargetBackupEntry>();
-            var snapshot = new RemoteBindingSnapshot(entries
-                .Select(entry => new RemoteBindingFile(new AgentFilePath(entry.Path), Convert.FromBase64String(entry.Content)))
-                .ToImmutableArray());
-            RestoreRemoteBindingState(workspaceFolder, snapshot);
+            RestoreRemoteBindingState(workspaceFolder, ReadRetargetBackup(fileAccessor));
         }
 
         fileAccessor.Delete(RetargetBackupPath);
+        fileAccessor.Delete(RetargetUploadedEnvironmentVariablesPath);
         return true;
+    }
+
+    private static RemoteBindingSnapshot ReadRetargetBackup(IFileAccessor fileAccessor) => new RemoteBindingSnapshot((JsonSerializer.Deserialize<RetargetBackupEntry[]>(ReadAllBytes(fileAccessor, RetargetBackupPath)) ?? Array.Empty<RetargetBackupEntry>()).Select(entry => new RemoteBindingFile(new AgentFilePath(entry.Path), Convert.FromBase64String(entry.Content))).ToImmutableArray());
+
+    private void RecordRetargetUploadedEnvironmentVariables(IFileAccessor fileAccessor, PvaComponentChangeSet changeSet)
+    {
+        var uploadedNames = GetUpsertedEnvironmentVariableNames(changeSet);
+        if (uploadedNames.Count == 0 || !IsRetargetInProgress(fileAccessor))
+        {
+            return;
+        }
+
+        uploadedNames.UnionWith(ReadRetargetUploadedEnvironmentVariables(fileAccessor));
+        using var stream = fileAccessor.OpenWrite(RetargetUploadedEnvironmentVariablesPath);
+        JsonSerializer.Serialize(stream, uploadedNames);
+    }
+
+    private static HashSet<string> ReadRetargetUploadedEnvironmentVariables(IFileAccessor fileAccessor) => new HashSet<string>(fileAccessor.Exists(RetargetUploadedEnvironmentVariablesPath) ? JsonSerializer.Deserialize<string[]>(ReadAllBytes(fileAccessor, RetargetUploadedEnvironmentVariablesPath)) ?? Array.Empty<string>() : Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+
+    private static DefinitionBase? ReadRetargetSourceCloudCache(IFileAccessor fileAccessor)
+    {
+        if (!fileAccessor.Exists(RetargetBackupPath))
+        {
+            return null;
+        }
+
+        var sourceCloudCache = new InMemoryFileAccessor();
+        foreach (var file in ReadRetargetBackup(fileAccessor).Files.Where(file => file.Path.Equals(BotCachePath) || file.Path.Equals(OldBotCachePath)))
+        {
+            WriteAllBytes(sourceCloudCache, file.Path, file.Content);
+        }
+
+        return ReadCloudCacheSnapshot(sourceCloudCache, allowMissing: true);
     }
 
     public virtual void ClearRetargetBackup(DirectoryPath workspaceFolder)
@@ -5322,6 +5407,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             fileAccessor.Delete(RetargetBackupPath);
         }
+
+        fileAccessor.Delete(RetargetUploadedEnvironmentVariablesPath);
     }
 
     private sealed class RetargetBackupEntry

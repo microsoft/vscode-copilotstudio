@@ -22,6 +22,7 @@ internal static class EnvironmentVariableTestFixtures
     internal static readonly AgentFilePath SharedPath = GetPath(SharedSchemaName);
     internal static readonly AgentFilePath CachePath = new(".mcs/botdefinition.json");
     internal static readonly AgentFilePath ChangeTokenPath = new(".mcs/changetoken.txt");
+    internal static readonly AgentFilePath RetargetUploadedEnvironmentVariablesPath = new(".mcs/.retarget-uploaded-environmentvariables.json");
 
     internal static AgentFilePath GetPath(string schemaName) => new($"environmentvariables/{schemaName}.mcs.yml");
 
@@ -77,7 +78,9 @@ internal static class EnvironmentVariableTestFixtures
 
     internal static EnvironmentVariableDefinitionInfo TargetEnvironmentVariable(string schemaName, bool isManaged = false) => new() { DefinitionId = Guid.NewGuid(), SchemaName = schemaName, IsManaged = isManaged };
 
-    internal static (Mock<ISyncDataverseClient> Dataverse, List<string[]> Lookups) CreateDataverse(params EnvironmentVariableDefinitionInfo[] targetEnvironmentVariables)
+    internal static (Mock<ISyncDataverseClient> Dataverse, List<string[]> Lookups) CreateDataverse(params EnvironmentVariableDefinitionInfo[] targetEnvironmentVariables) => CreateDataverse(onLookup: null, targetEnvironmentVariables);
+
+    internal static (Mock<ISyncDataverseClient> Dataverse, List<string[]> Lookups) CreateDataverse(Action? onLookup, params EnvironmentVariableDefinitionInfo[] targetEnvironmentVariables)
     {
         var dataverse = new Mock<ISyncDataverseClient>();
         var lookups = new List<string[]>();
@@ -87,6 +90,7 @@ internal static class EnvironmentVariableTestFixtures
             {
                 var requested = schemaNames.ToArray();
                 lookups.Add(requested);
+                onLookup?.Invoke();
                 return targetEnvironmentVariables.Where(info => requested.Contains(info.SchemaName, StringComparer.OrdinalIgnoreCase)).ToArray();
             });
         return (dataverse, lookups);

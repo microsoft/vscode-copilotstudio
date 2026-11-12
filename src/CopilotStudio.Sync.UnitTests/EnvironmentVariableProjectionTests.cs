@@ -528,34 +528,84 @@ public class EnvironmentVariableProjectionTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task RetargetSync_RemovesOnlySharedEnvironmentVariableFilesThatTheTargetHoldsAsManaged(bool updateWorkspaceDirectory)
+    public async Task RetargetSync_RemovesOnlyUneditedSharedEnvironmentVariableFilesThatTheTargetHolds(bool updateWorkspaceDirectory)
     {
-        var (synchronizer, fileAccessor, island, workspace) = CreateWorkspace(CreateEnvironmentVariable(OwnedSchemaName), CreateEnvironmentVariable(SharedSchemaName), CreateEnvironmentVariable("cr9f2_managed"));
-        SetupRemoteChanges(island, CreateChangeSet("token-1", bot: CreateBotEntity()));
-        var (dataverse, lookups) = CreateDataverse(TargetEnvironmentVariable(OwnedSchemaName, isManaged: true), TargetEnvironmentVariable(SharedSchemaName), TargetEnvironmentVariable("cr9f2_managed", isManaged: true));
+        var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(CreateDataverse().Dataverse, new[] { CreateTopic("Greeting", SharedActivity + " {Env.cr9f2_managed} {Env.cr9f2_edited} {Env.cr9f2_absent}") }, CreateEnvironmentVariable(OwnedSchemaName), CreateEnvironmentVariable(SharedSchemaName), CreateEnvironmentVariable("cr9f2_managed"), CreateEnvironmentVariable("cr9f2_edited"), CreateEnvironmentVariable("cr9f2_absent"));
+        WriteEnvironmentVariableFile(fileAccessor, CreateEnvironmentVariable("cr9f2_edited", defaultValue: "edited"));
+        synchronizer.PersistRetargetBackup(workspace, synchronizer.ResetRemoteBindingState(workspace));
+        SetupRemoteChanges(island, CreateChangeSet("token-2", bot: CreateBotEntity()));
+        var (dataverse, lookups) = CreateDataverse(TargetEnvironmentVariable(OwnedSchemaName, isManaged: true), TargetEnvironmentVariable(SharedSchemaName), TargetEnvironmentVariable("cr9f2_managed", isManaged: true), TargetEnvironmentVariable("cr9f2_edited", isManaged: true));
 
         await RetargetSyncAsync(synchronizer, workspace, dataverse, updateWorkspaceDirectory);
 
         Assert.True(fileAccessor.Exists(GetPath(OwnedSchemaName)));
-        Assert.True(fileAccessor.Exists(SharedPath));
+        Assert.False(fileAccessor.Exists(SharedPath));
         Assert.False(fileAccessor.Exists(GetPath("cr9f2_managed")));
-        Assert.Equal(new[] { "cr9f2_managed", SharedSchemaName }, Assert.Single(lookups).OrderBy(name => name, StringComparer.Ordinal));
+        Assert.True(fileAccessor.Exists(GetPath("cr9f2_edited")));
+        Assert.True(fileAccessor.Exists(GetPath("cr9f2_absent")));
+        Assert.Equal(new[] { "cr9f2_absent", "cr9f2_managed", SharedSchemaName }, Assert.Single(lookups).Order(StringComparer.Ordinal));
     }
 
     [Fact]
-    public async Task RetargetRollback_RestoresTheManagedSharedEnvironmentVariableFileThatTheRetargetRemoved()
+    public async Task RetargetSync_KeepsASharedEnvironmentVariableFileEditedWhileTheTargetLookupIsPending()
     {
-        var (synchronizer, fileAccessor, island, workspace) = CreateWorkspace(CreateEnvironmentVariable(SharedSchemaName, defaultValue: "source"));
-        var original = fileAccessor.Files[SharedPath.ToString()];
-        SetupRemoteChanges(island, CreateChangeSet("token-1", bot: CreateBotEntity()));
-        var (dataverse, _) = CreateDataverse(TargetEnvironmentVariable(SharedSchemaName, isManaged: true));
+        var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(CreateDataverse().Dataverse, new[] { CreateTopic("Greeting", SharedActivity + " {Env.cr9f2_unedited}") }, CreateEnvironmentVariable(SharedSchemaName), CreateEnvironmentVariable("cr9f2_unedited"));
         synchronizer.PersistRetargetBackup(workspace, synchronizer.ResetRemoteBindingState(workspace));
+        SetupRemoteChanges(island, CreateChangeSet("token-2", bot: CreateBotEntity()));
+        var (dataverse, lookups) = CreateDataverse(() => WriteEnvironmentVariableFile(fileAccessor, ReadEnvironmentVariableFile(fileAccessor, SharedPath).WithDefaultValue("edited")), TargetEnvironmentVariable(SharedSchemaName), TargetEnvironmentVariable("cr9f2_unedited"));
+
         await RetargetSyncAsync(synchronizer, workspace, dataverse, updateWorkspaceDirectory: false);
+
+        Assert.True(fileAccessor.Exists(SharedPath));
+        Assert.Equal("edited", ReadEnvironmentVariableFile(fileAccessor, SharedPath).DefaultValue);
+        Assert.False(fileAccessor.Exists(GetPath("cr9f2_unedited")));
+        Assert.Single(lookups);
+    }
+
+    [Fact]
+    public async Task SyncWorkspace_WithoutARetargetInProgress_KeepsSharedEnvironmentVariableFilesThatTheTargetHolds()
+    {
+        var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(CreateDataverse().Dataverse, new[] { CreateTopic("Greeting", SharedActivity + " {Env.cr9f2_managed}") }, CreateEnvironmentVariable(SharedSchemaName), CreateEnvironmentVariable("cr9f2_managed"));
+        SetupRemoteChanges(island, CreateChangeSet("token-2", bot: CreateBotEntity()));
+        var (dataverse, lookups) = CreateDataverse(TargetEnvironmentVariable(SharedSchemaName), TargetEnvironmentVariable("cr9f2_managed", isManaged: true));
+
+        await RetargetSyncAsync(synchronizer, workspace, dataverse, updateWorkspaceDirectory: false);
+
+        Assert.True(fileAccessor.Exists(SharedPath));
+        Assert.True(fileAccessor.Exists(GetPath("cr9f2_managed")));
+        Assert.Empty(lookups);
+    }
+
+    [Fact]
+    public async Task RetargetRollback_RestoresTheSharedEnvironmentVariableFileThatTheRetargetRemoved()
+    {
+        var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(CreateDataverse().Dataverse, new[] { CreateTopic("Greeting", SharedActivity) }, CreateEnvironmentVariable(SharedSchemaName, defaultValue: "source"));
+        var original = fileAccessor.Files[SharedPath.ToString()];
+        synchronizer.PersistRetargetBackup(workspace, synchronizer.ResetRemoteBindingState(workspace));
+        SetupRemoteChanges(island, CreateChangeSet("token-2", bot: CreateBotEntity()));
+        await RetargetSyncAsync(synchronizer, workspace, CreateDataverse(TargetEnvironmentVariable(SharedSchemaName, isManaged: true)).Dataverse, updateWorkspaceDirectory: false);
         Assert.False(fileAccessor.Exists(SharedPath));
 
         Assert.True(synchronizer.FinalizeRetarget(workspace, pushSucceeded: false));
 
         Assert.Equal(original, fileAccessor.Files[SharedPath.ToString()]);
+    }
+
+    [Fact]
+    public async Task RetargetRollback_KeepsACapturedEnvironmentVariableFileEditedDuringTheRetargetAndRestoresTheOneTheRetargetReplaced()
+    {
+        var (synchronizer, fileAccessor, island, workspace) = await CloneAsync(CreateDataverse().Dataverse, new[] { CreateTopic("Greeting", SharedActivity) }, CreateEnvironmentVariable(OwnedSchemaName, defaultValue: "source"), CreateEnvironmentVariable(SharedSchemaName, defaultValue: "source"));
+        var original = fileAccessor.Files[GetPath(OwnedSchemaName).ToString()];
+        synchronizer.PersistRetargetBackup(workspace, synchronizer.ResetRemoteBindingState(workspace));
+        SetupRemoteChanges(island, CreateChangeSet("token-2", environmentVariableChanges: new[] { new EnvironmentVariableInsert(CreateEnvironmentVariable(OwnedSchemaName, defaultValue: "target")) }, bot: CreateBotEntity()));
+        var (dataverse, _) = CreateDataverse(() => WriteEnvironmentVariableFile(fileAccessor, ReadEnvironmentVariableFile(fileAccessor, SharedPath).WithDefaultValue("edited during the retarget")), TargetEnvironmentVariable(SharedSchemaName));
+        await RetargetSyncAsync(synchronizer, workspace, dataverse);
+        Assert.Equal("target", ReadEnvironmentVariableFile(fileAccessor, GetPath(OwnedSchemaName)).DefaultValue);
+
+        Assert.True(synchronizer.FinalizeRetarget(workspace, pushSucceeded: false));
+
+        Assert.Equal("edited during the retarget", ReadEnvironmentVariableFile(fileAccessor, SharedPath).DefaultValue);
+        Assert.Equal(original, fileAccessor.Files[GetPath(OwnedSchemaName).ToString()]);
     }
 
     [Fact]
@@ -581,16 +631,18 @@ public class EnvironmentVariableProjectionTests
     [Fact]
     public async Task RetargetRollback_WhenTheCachedCloudCopyIsUnreadable_RestoresTheBindingAndKeepsTheEnvironmentVariableFiles()
     {
-        var (synchronizer, fileAccessor, island, workspace) = CreateWorkspace();
+        var (synchronizer, fileAccessor, island, workspace) = CreateWorkspace(CreateEnvironmentVariable(SharedSchemaName, defaultValue: "source"));
         SetupRemoteChanges(island, CreateChangeSet("token-1", environmentVariableChanges: new[] { new EnvironmentVariableInsert(CreateEnvironmentVariable(OwnedSchemaName, value: "target")) }, bot: CreateBotEntity()));
         var (dataverse, _) = CreateDataverse();
         synchronizer.PersistRetargetBackup(workspace, synchronizer.ResetRemoteBindingState(workspace));
         await RetargetSyncAsync(synchronizer, workspace, dataverse);
+        WriteEnvironmentVariableFile(fileAccessor, CreateEnvironmentVariable(SharedSchemaName, defaultValue: "edited during the retarget"));
         WriteText(fileAccessor, CachePath, "{ not json");
 
         Assert.True(synchronizer.FinalizeRetarget(workspace, pushSucceeded: false));
 
         Assert.True(fileAccessor.Exists(GetPath(OwnedSchemaName)));
+        Assert.Equal("edited during the retarget", ReadEnvironmentVariableFile(fileAccessor, SharedPath).DefaultValue);
         Assert.False(fileAccessor.Exists(CachePath));
     }
 

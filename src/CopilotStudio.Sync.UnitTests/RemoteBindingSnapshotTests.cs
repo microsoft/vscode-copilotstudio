@@ -194,6 +194,32 @@ public class RemoteBindingSnapshotTests
         Assert.False(fileAccessor.Exists(new AgentFilePath(".mcs/.retarget-backup.json")));
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task PersistThenFinalizeOrClear_DiscardsTheRecordOfEnvironmentVariablesUploadedDuringTheRetarget(bool finalize)
+    {
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath("c:/test/workspace/");
+        var fileAccessor = fileAccessorFactory.Create(workspace);
+        await fileAccessor.WriteAsync(EnvironmentVariableTestFixtures.RetargetUploadedEnvironmentVariablesPath, "[\"cr9f2_earlier\"]", CancellationToken.None);
+
+        synchronizer.PersistRetargetBackup(workspace, synchronizer.ResetRemoteBindingState(workspace));
+        var keptTheEarlierRecord = fileAccessor.Exists(EnvironmentVariableTestFixtures.RetargetUploadedEnvironmentVariablesPath);
+        await fileAccessor.WriteAsync(EnvironmentVariableTestFixtures.RetargetUploadedEnvironmentVariablesPath, "[\"cr9f2_shared\"]", CancellationToken.None);
+        if (finalize)
+        {
+            Assert.True(synchronizer.FinalizeRetarget(workspace, pushSucceeded: true));
+        }
+        else
+        {
+            synchronizer.ClearRetargetBackup(workspace);
+        }
+
+        Assert.False(keptTheEarlierRecord);
+        Assert.False(fileAccessor.Exists(EnvironmentVariableTestFixtures.RetargetUploadedEnvironmentVariablesPath));
+    }
+
     [Fact]
     public void FinalizeRetarget_WhenNoBackup_ReturnsFalse()
     {
