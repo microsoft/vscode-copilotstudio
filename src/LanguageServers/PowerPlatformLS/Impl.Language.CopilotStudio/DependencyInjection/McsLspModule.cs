@@ -33,7 +33,7 @@
             services.TryAddSingleton<IFileAccessorFactory, FileAccessorFactory>();
             services.AddSingleton<IValidationRule<McsLspDocument>, ConnectionReferenceValidationRule>();
             services.AddSingleton<ILanguageAbstraction, McsLanguage>();
-            services.AddSingleton<IFeatureConfiguration, EnabledFeatures>();
+            services.AddSingleton<IFeatureConfiguration>(DefaultFeatureConfiguration.Instance);
             services.AddSingleton<IDiagnosticsProvider<McsLspDocument>, DiagnosticsProvider>();
             services.AddSingleton<IWorkspaceCompiler<DefinitionBase>, McsWorkspaceCompiler>();
             services.AddSingleton<IReferenceResolver, McsReferenceResolver>();

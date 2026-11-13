@@ -192,16 +192,19 @@ internal static class SkillLayout
 
     internal static bool HasManifestFile(IFileAccessor fileAccessor, string folderName) => fileAccessor.Exists(GetManifestPath(folderName));
 
-    internal static string? ResolveContent(IFileAccessor fileAccessor, string folderName, string? currentContent, bool manifestIsComponent)
+    internal static string? ResolveContent(IFileAccessor fileAccessor, string folderName, string? currentContent, string? cloudContent, bool manifestIsComponent)
     {
         var bundle = ReadAnchorMetadata(fileAccessor, folderName).Bundle ?? TryGetBundleFromMarker(currentContent);
         if (bundle != null)
         {
-            return BuildBundleMarker(bundle);
+            return ContentForBundle(cloudContent, bundle) ?? ContentForBundle(currentContent, bundle) ?? BuildBundleMarker(bundle);
         }
 
         return manifestIsComponent ? currentContent : ReadManifestText(fileAccessor, folderName) ?? currentContent;
     }
+
+    private static string? ContentForBundle(string? content, string bundle)
+        => string.Equals(TryGetBundleFromMarker(content), bundle, StringComparison.Ordinal) ? content : null;
 
     internal static string? ReadManifestText(IFileAccessor fileAccessor, string folderName)
     {

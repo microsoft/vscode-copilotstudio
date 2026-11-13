@@ -57,3 +57,12 @@ public interface ICustomConnectorOperations
     /// <param name="cancellationToken">Cancels the write.</param>
     Task<CustomConnectorMetadata> SaveConnectorAsync(CustomConnectorMetadata connector, bool exists, long? expectedVersion, CancellationToken cancellationToken);
 }
+
+/// <summary>Reads the environment variable definitions an environment holds.</summary>
+public interface IEnvironmentVariableOperations
+{
+    /// <summary>Reads environment variable definitions by schema name, skipping any the environment does not hold.</summary>
+    /// <param name="schemaNames">The schema names to read, ignoring duplicates, case and empty values.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    Task<EnvironmentVariableDefinitionInfo[]> GetEnvironmentVariableDefinitionsBySchemaNamesAsync(IEnumerable<string> schemaNames, CancellationToken cancellationToken);
+}

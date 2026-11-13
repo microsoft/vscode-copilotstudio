@@ -795,6 +795,21 @@ describe('workspaceSynchronizer: remote change conflicts', () => {
 		]);
 	});
 
+	test('a push sends the environment variable overwrites it was given, including none, and omits them otherwise', async () => {
+		arrange();
+		const synchronizer = getOrAddSynchronizer(workflowWorkspace);
+
+		await synchronizer.push({ approvedEnvironmentVariableOverwrites: ['cr9f2_shared'] });
+		await synchronizer.push({ approvedEnvironmentVariableOverwrites: [] });
+		await synchronizer.push();
+
+		assert.deepStrictEqual(requests.map(({ method, request }) => [method, request.approvedEnvironmentVariableOverwrites]), [
+			[LspMethods.SYNC_PUSH, ['cr9f2_shared']],
+			[LspMethods.SYNC_PUSH, []],
+			[LspMethods.SYNC_PUSH, undefined],
+		]);
+	});
+
 	test('a refused Get that may overwrite the cloud offers it and hands the overwrite to the caller', async () => {
 		arrange('Overwrite cloud changes');
 

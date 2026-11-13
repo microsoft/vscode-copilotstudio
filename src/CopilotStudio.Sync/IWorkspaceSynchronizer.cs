@@ -202,6 +202,7 @@ public interface IWorkspaceSynchronizer
     /// <param name="cancellationToken">Used to cancel the request.</param>
     /// <param name="contentSaveContextOverride">When set, the authoring context used for the content save.</param>
     /// <param name="overwriteRemoteChanges">When true, local edits replace components that were also changed in the cloud instead of failing the push.</param>
+    /// <param name="approvedEnvironmentVariableOverwrites">When set, the only shared environment variables already in the target environment that the push may overwrite.</param>
     /// <returns>A task representing the asynchronous operation.</returns>
     Task PushLocalChangesAsync(
         DirectoryPath workspaceFolder,
@@ -213,7 +214,8 @@ public interface IWorkspaceSynchronizer
         ImmutableArray<AIPromptMetadata> aiPrompts,
         CancellationToken cancellationToken,
         AuthoringOperationContextBase? contentSaveContextOverride = null,
-        bool overwriteRemoteChanges = false);
+        bool overwriteRemoteChanges = false,
+        ImmutableArray<string>? approvedEnvironmentVariableOverwrites = null);
 
     Task ThrowIfWorkspaceInvalidAsync(DirectoryPath workspaceFolder, DefinitionBase workspaceDefinition, CancellationToken cancellationToken);
 

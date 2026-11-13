@@ -34,6 +34,7 @@ export interface SyncRequest extends RemoteApiRequest {
   draftConnectionReferenceWorkflows?: boolean;
   overwriteLocalChanges?: boolean;
   requireNoUnpulledChanges?: boolean;
+  approvedEnvironmentVariableOverwrites?: string[];
 }
 
 export interface SyncResponse extends RemoteApiResponse {
@@ -192,6 +193,7 @@ export interface ReattachAgentRequest extends RemoteApiRequest {
   workspaceUri: string;
   allowRetarget?: boolean;
   conflictResolution?: RetargetConflictResolution;
+  approvedEnvironmentVariableOverwrites?: string[];
   checkRemoteAgentOnly?: boolean;
 }
 
@@ -205,6 +207,7 @@ export interface ReattachAgentResponse extends RemoteApiResponse {
   isNewAgent: boolean;
   requiresLocalPush?: boolean;
   schemaConflict?: boolean;
+  environmentVariableOverwrites?: string[];
   remoteAgentExists?: boolean;
   workflowResponse: WorkflowResponse[];
   aiPromptResponse?: AIPromptResponse[];

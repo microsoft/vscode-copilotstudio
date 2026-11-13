@@ -2,16 +2,16 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
 {
     using Microsoft.Agents.ObjectModel;
     using Microsoft.Agents.ObjectModel.PowerFx;
-    using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio;
+    using Microsoft.CopilotStudio.McsCore;
     using System.Linq;
     using Xunit;
 
-    public class EnabledFeaturesTests
+    public class DefaultFeatureConfigurationTests
     {
         [Fact]
         public void IsEnvironmentFeatureEnabled_UsesDefaultValue()
         {
-            var featureConfiguration = new EnabledFeatures();
+            var featureConfiguration = DefaultFeatureConfiguration.Instance;
 
             Assert.False(featureConfiguration.IsEnvironmentFeatureEnabled(
                 FeatureFlags.SecurityHealthCheckEnabled.FeatureName,
@@ -22,7 +22,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
         [Fact]
         public void IsTenantFeatureEnabled_UsesDefaultValue()
         {
-            var featureConfiguration = new EnabledFeatures();
+            var featureConfiguration = DefaultFeatureConfiguration.Instance;
 
             Assert.False(featureConfiguration.IsTenantFeatureEnabled("DisabledByDefault", false));
             Assert.True(featureConfiguration.IsTenantFeatureEnabled("EnabledByDefault", true));
@@ -31,7 +31,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
         [Fact]
         public void ValidateMakerConnectorAction_WithConnectionId_DoesNotReportConnectionErrorsOrWarnings()
         {
-            var featureConfiguration = new EnabledFeatures();
+            var featureConfiguration = DefaultFeatureConfiguration.Instance;
             var bot = CreateMakerConnectorActionBot(connectionId: "/providers/Microsoft.PowerApps/connections/conRef");
 
             var validatedBot = bot.Validate(
@@ -62,7 +62,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.Language.CopilotStudio
         [Fact]
         public void ValidateMakerConnectorAction_WithoutConnectionId_ReportsConnectionNotSet()
         {
-            var featureConfiguration = new EnabledFeatures();
+            var featureConfiguration = DefaultFeatureConfiguration.Instance;
             var bot = CreateMakerConnectorActionBot(connectionId: null);
 
             var validatedBot = bot.Validate(

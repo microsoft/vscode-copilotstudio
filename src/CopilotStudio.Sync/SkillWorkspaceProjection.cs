@@ -55,7 +55,7 @@ internal static class SkillWorkspaceProjection
             return true;
         }
 
-        var changed = ReplaceContent(components, skill, SkillLayout.ResolveContent(fileAccessor, folderName, (skill.Dialog as InlineAgentSkill)?.Content, cloudManifest != null));
+        var changed = ReplaceContent(components, skill, SkillLayout.ResolveContent(fileAccessor, folderName, (skill.Dialog as InlineAgentSkill)?.Content, FindCloudSkillContent(cloudSnapshot, skill), cloudManifest != null));
 
         if (localManifest != null || cloudManifest == null || !SkillLayout.HasManifestFile(fileAccessor, folderName))
         {
@@ -101,6 +101,11 @@ internal static class SkillWorkspaceProjection
             ? null
             : SkillBodyProjection.FindManifestComponent(cloudSnapshot.Components, cloudSkill);
     }
+
+    private static string? FindCloudSkillContent(DefinitionBase? cloudSnapshot, DialogComponent skill)
+        => skill.SchemaNameString is { Length: > 0 } skillSchemaName && cloudSnapshot?.TryGetComponentBySchemaName(skillSchemaName, out var cloudSkill) == true && cloudSkill is DialogComponent { Dialog: InlineAgentSkill cloudInlineSkill }
+            ? cloudInlineSkill.Content
+            : null;
 
     private static bool ReplaceContent(List<BotComponentBase> components, DialogComponent skill, string? content)
     {

@@ -64,8 +64,8 @@
                 using (LspRequestContext.SuppressOutputContext())
                 using (LspRequestContext.WithDuration(sw.ElapsedMilliseconds, _logger))
                 {
-                    _logger.LogError($"[Req: {{reqId}}] HTTP request #{httpId} {{outcome}}: {{httpMethod}} {{httpEndpoint}}. " + ex.Message,
-                        reqId, "failed", request.Method.ToString(), endpoint);
+                    _logger.LogError($"[Req: {{reqId}}] HTTP request #{httpId} {{outcome}}: {{httpMethod}} {{httpEndpoint}}. {{errorMessage}}",
+                        reqId, "failed", request.Method.ToString(), endpoint, ex.Message);
                 }
                 throw;
             }

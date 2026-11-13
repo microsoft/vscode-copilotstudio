@@ -10,4 +10,13 @@ public enum WorkspaceDiagnosticKind
 
     /// <summary>The file still contains unresolved merge conflict markers.</summary>
     MergeConflict,
+
+    /// <summary>The file references an environment variable that does not exist in the target environment.</summary>
+    MissingDependency,
+
+    /// <summary>The file changes an environment variable that is managed in the target environment.</summary>
+    ManagedDependency,
+
+    /// <summary>The file changes an environment variable that already exists in the target environment without an approved overwrite.</summary>
+    UnapprovedOverwrite,
 }

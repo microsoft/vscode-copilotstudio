@@ -1,6 +1,7 @@
 ﻿namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 {
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
+    using System.Collections.Immutable;
 
     internal enum RetargetConflictResolution
     {
@@ -18,6 +19,8 @@
         public bool AllowRetarget { get; set; }
 
         public RetargetConflictResolution ConflictResolution { get; set; }
+
+        public ImmutableArray<string> ApprovedEnvironmentVariableOverwrites { get; set; } = ImmutableArray<string>.Empty;
 
         public bool CheckRemoteAgentOnly { get; set; }
     }

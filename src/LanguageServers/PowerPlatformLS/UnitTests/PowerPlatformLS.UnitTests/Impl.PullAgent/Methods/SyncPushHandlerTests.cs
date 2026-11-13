@@ -3,6 +3,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
     using Microsoft.Agents.Platform.Content;
     using Microsoft.CopilotStudio.Sync;
     using Microsoft.CopilotStudio.Sync.Dataverse;
+    using Microsoft.PowerPlatformLS.Contracts.Internal;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Models;
     using Microsoft.PowerPlatformLS.Impl.PullAgent;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
@@ -11,6 +12,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
     using System;
     using System.Collections.Immutable;
     using System.IO;
+    using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using Xunit;
@@ -71,6 +73,23 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
 
             Assert.Equal(200, response.Code);
             Assert.Equal(WorkflowActivationMode.DraftWhenConnectionsUnbound, synchronizer.CapturedActivationMode);
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("cr9f2_shared,cr9f2_other")]
+        public async Task SyncPush_ApprovedEnvironmentVariableOverwritesFromTheClient_ReachThePushAsSent(string? approvedOverwrites)
+        {
+            var (requestContext, request) = CreateSetup("Workspace/UnrecognizedTemplateWorkspace");
+            request.ApprovedEnvironmentVariableOverwrites = approvedOverwrites?.Split(',', StringSplitOptions.RemoveEmptyEntries).ToImmutableArray();
+            var synchronizer = new PushTrackingSynchronizer();
+            var handler = CreateHandler(new MockDataverseClient(), synchronizer);
+
+            var response = await handler.HandleRequestAsync(JsonSerializer.Deserialize<SyncAgentRequest>(JsonSerializer.Serialize(request, Constants.DefaultSerializationOptions), Constants.DefaultSerializationOptions) ?? throw new Xunit.Sdk.XunitException("Expected a request."), requestContext, CancellationToken.None);
+
+            Assert.Equal(200, response.Code);
+            Assert.Equal(request.ApprovedEnvironmentVariableOverwrites, synchronizer.CapturedApprovedEnvironmentVariableOverwrites);
         }
 
         [Fact]
@@ -272,12 +291,20 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
 
         public WorkflowActivationMode? CapturedActivationMode { get; private set; }
 
+        public ImmutableArray<string>? CapturedApprovedEnvironmentVariableOverwrites { get; private set; }
+
         public override Task<(ImmutableArray<WorkflowResponse>, CloudFlowMetadata)> UpsertWorkflowForAgentAsync(
             DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, Guid? agentId, CancellationToken cancellationToken, WorkflowActivationMode activationMode = WorkflowActivationMode.PreserveSavedState)
         {
             PushAttempted = true;
             CapturedActivationMode = activationMode;
             return base.UpsertWorkflowForAgentAsync(workspaceFolder, dataverseClient, agentId, cancellationToken, activationMode);
+        }
+
+        public override Task PushLocalChangesAsync(DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, Microsoft.Agents.ObjectModel.DefinitionBase workspaceDefinition, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CloudFlowMetadata? cloudFlowMetadata, ImmutableArray<SyncDataverseClient.AIPromptMetadata> aiPrompts, CancellationToken cancellationToken, AuthoringOperationContextBase? contentSaveContextOverride = null, bool overwriteRemoteChanges = false, ImmutableArray<string>? approvedEnvironmentVariableOverwrites = null)
+        {
+            CapturedApprovedEnvironmentVariableOverwrites = approvedEnvironmentVariableOverwrites;
+            return base.PushLocalChangesAsync(workspaceFolder, operationContext, workspaceDefinition, dataverseClient, syncInfo, cloudFlowMetadata, aiPrompts, cancellationToken, contentSaveContextOverride, overwriteRemoteChanges, approvedEnvironmentVariableOverwrites);
         }
     }
 }
