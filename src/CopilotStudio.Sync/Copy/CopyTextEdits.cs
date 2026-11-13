@@ -53,7 +53,9 @@ internal readonly struct CopyJsonString
 
 internal static class CopyTextEdits
 {
-    private const string ArrayItemSegment = "[]";
+    internal const string ArrayItemSegment = "[]";
+
+    internal const string McsFileExtension = ".mcs.yml";
 
     private static readonly byte[] Utf8Preamble = { 0xEF, 0xBB, 0xBF };
 
@@ -70,7 +72,7 @@ internal static class CopyTextEdits
 
     public static string RewriteYaml(string relativePath, string text, Func<CopyYamlScalar, string?> replace) => IsMcsFile(relativePath) ? RewriteMcsYaml(text, replace) : RewriteYaml(text, replace);
 
-    public static bool IsMcsFile(string relativePath) => relativePath.EndsWith(".mcs.yml", StringComparison.OrdinalIgnoreCase);
+    public static bool IsMcsFile(string relativePath) => relativePath.EndsWith(McsFileExtension, StringComparison.OrdinalIgnoreCase);
 
     public static ReadOnlyMemory<byte> WithoutPreamble(byte[] content) => content.AsMemory(PreambleLength(content));
 

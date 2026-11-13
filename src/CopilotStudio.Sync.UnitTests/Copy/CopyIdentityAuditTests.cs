@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Agents.ObjectModel;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Microsoft.CopilotStudio.Sync.Copy;
@@ -305,6 +306,24 @@ public class CopyIdentityAuditTests
         workspace.Write(definitionPath, workspace.Read(definitionPath).Replace($"\"{reference.Destination}\"", $"\"{reference.Source}\"", StringComparison.Ordinal), preamble: true);
 
         Assert.Equal(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The workflow definition still names the source's connection reference {reference.Source} instead of its copy.", definitionPath), Assert.Single((await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(request, prepared.Identities, CancellationToken.None)).Blockers));
+    }
+
+    [Theory]
+    [InlineData("\"{0}\": {{ \"api\"")]
+    [InlineData("\"name\": \"{0}\"")]
+    [InlineData("\"apiId\": \"/providers/Microsoft.PowerApps/apis/{0}\"")]
+    [InlineData("\"apiName\": \"{0}\"")]
+    public async Task AuditWorkspace_FindsASourceConnectorLeftWhereAFlowDeclaresOrCallsIt(string reference)
+    {
+        using var workspace = CopyTestWorkspace.Cli();
+        workspace.WriteConnector();
+        workspace.WriteConnectorFlow("{}");
+        var request = workspace.Request();
+        var prepared = await CopyTestWorkspace.CreateService().PrepareAsync(request, CancellationToken.None);
+        var definitionPath = workspace.CopiedWorkflowFolder(prepared) + "/workflow.json";
+        workspace.Write(definitionPath, workspace.Read(definitionPath).Replace(string.Format(CultureInfo.InvariantCulture, reference, Destination(prepared, CopyIdentityKinds.ConnectorInternalId)), string.Format(CultureInfo.InvariantCulture, reference, CopyTestWorkspace.ConnectorInternalId), StringComparison.Ordinal), preamble: true);
+
+        Assert.Equal(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The workflow definition still names the source's custom connector {CopyTestWorkspace.ConnectorInternalId} instead of its copy.", definitionPath), Assert.Single((await CopyTestWorkspace.CreateAuditor().AuditWorkspaceAsync(request, prepared.Identities, CancellationToken.None)).Blockers));
     }
 
     [Fact]

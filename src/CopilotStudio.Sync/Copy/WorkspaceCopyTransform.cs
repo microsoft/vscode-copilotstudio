@@ -91,13 +91,11 @@ internal sealed class WorkspaceCopyTransform
 
     internal static IReadOnlyList<string> ContentYamlFiles(string root) => WorkspaceFiles(root).Where(IsContentYaml).OrderBy(path => path, StringComparer.Ordinal).ToArray();
 
-    internal static IEnumerable<string> WorkspaceFiles(string root) => RelativeVisiblePaths(root, Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories));
-
-    private static IEnumerable<string> RelativeVisiblePaths(string root, IEnumerable<string> paths)
+    internal static IEnumerable<string> WorkspaceFiles(string root)
     {
         var prefix = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
 
-        return paths.Select(path => Path.GetFullPath(path).Substring(prefix.Length).Replace('\\', '/')).Where(relative => !relative.Split('/').Any(segment => segment.StartsWith(".", StringComparison.Ordinal)));
+        return Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Select(path => Path.GetFullPath(path).Substring(prefix.Length).Replace('\\', '/')).Where(relative => !relative.Split('/').Any(segment => segment.StartsWith(".", StringComparison.Ordinal)));
     }
 
     internal static string ReadText(string path, out bool hasPreamble)
@@ -123,9 +121,7 @@ internal sealed class WorkspaceCopyTransform
         }
     }
 
-    private static bool IsContentYaml(string relative) => CopyTextEdits.IsMcsFile(relative) && !string.Equals(relative, ClassicConnectionReferencesFileName, StringComparison.Ordinal) && !IsInResourceFolder(relative);
-
-    private static bool IsInResourceFolder(string relative) => ResourceFolders.Any(folder => relative.StartsWith(folder, StringComparison.Ordinal));
+    private static bool IsContentYaml(string relative) => CopyTextEdits.IsMcsFile(relative) && !string.Equals(relative, ClassicConnectionReferencesFileName, StringComparison.Ordinal) && !ResourceFolders.Any(folder => relative.StartsWith(folder, StringComparison.Ordinal));
 
     private async Task<CopyPreparationResult> RunAsync(CancellationToken cancellationToken)
     {
@@ -164,7 +160,7 @@ internal sealed class WorkspaceCopyTransform
 
         if (!_request.IsWorkflowCopy)
         {
-            RenameSourceRootedPaths();
+            RenameSourceNamedComponentFiles(inventory);
         }
 
         return new CopyPreparationResult
@@ -876,7 +872,7 @@ internal sealed class WorkspaceCopyTransform
             var metadata = $"{folder}/{WorkflowWorkspace.MetadataFileName}";
             var definition = $"{folder}/{WorkflowWorkspace.DefinitionFileName}";
             var destinationFolder = $"{WorkflowWorkspace.WorkflowsFolderName}/{copy.DestinationFolderName}";
-            var references = inventory.DefinitionReferences.TryGetValue(definition, out var found) ? found : Array.Empty<WorkflowDefinitionReference>();
+            var references = inventory.DefinitionReferences[definition];
 
             RewriteYamlFile(metadata, scalar => MapWorkflowMetadata(scalar, copy, destinationFolder));
             RewriteJsonFile(definition, json => MapWorkflowDefinition(json, references));
@@ -907,25 +903,14 @@ internal sealed class WorkspaceCopyTransform
         };
     }
 
-    private string? MapWorkflowDefinition(CopyJsonString json, IReadOnlyList<WorkflowDefinitionReference> references)
+    private string? MapWorkflowDefinition(CopyJsonString json, WorkflowDefinitionReferences references) => references.KindAt(json) switch
     {
-        if (json.IsPropertyName)
-        {
-            return _connectorInternalIds.TryGetValue(json.Value, out var renamedKey) ? renamedKey : null;
-        }
-
-        if (string.Equals(json.OwnerProperty, ConnectionReferenceLogicalNameKey, StringComparison.Ordinal))
-        {
-            return _connectionReferenceRenames.TryGetValue(json.Value, out var reference) ? reference : null;
-        }
-
-        return WorkflowDefinitionReferences.KindAt(references, json.Path) switch
-        {
-            CopyIdentityKinds.Workflow => MapGuid(json.Value, source => _workflows.TryGetValue(source, out var workflow) ? workflow.DestinationId : null),
-            CopyIdentityKinds.AIModel => MapGuid(json.Value, source => _prompts.TryGetValue(source, out var prompt) ? prompt.DestinationId : null),
-            _ => _connectorInternalIds.TryGetValue(json.Value, out var internalId) ? internalId : MapConnectorPath(json.Value),
-        };
-    }
+        CopyIdentityKinds.Workflow => MapGuid(json.Value, source => _workflows.TryGetValue(source, out var workflow) ? workflow.DestinationId : null),
+        CopyIdentityKinds.AIModel => MapGuid(json.Value, source => _prompts.TryGetValue(source, out var prompt) ? prompt.DestinationId : null),
+        CopyIdentityKinds.ConnectionReference => _connectionReferenceRenames.TryGetValue(json.Value, out var reference) ? reference : null,
+        CopyIdentityKinds.ConnectorInternalId => _connectorInternalIds.TryGetValue(json.Value, out var internalId) ? internalId : MapConnectorPath(json.Value),
+        _ => null,
+    };
 
     private void RewritePrompts()
     {
@@ -969,16 +954,20 @@ internal sealed class WorkspaceCopyTransform
         }
     }
 
-    private void RenameSourceRootedPaths()
+    private void RenameSourceNamedComponentFiles(Inventory inventory)
     {
-        var candidates = RelativeVisiblePaths(_root, Directory.EnumerateFileSystemEntries(_root, "*", SearchOption.AllDirectories)).Where(relative => !IsInResourceFolder(relative) && IsSourceRooted(LeafOf(relative), _sourceSchema)).OrderByDescending(relative => relative.Count(character => character == '/')).ToArray();
-
-        foreach (var relative in candidates)
+        foreach (var relative in inventory.ContentFiles.Where(IsNamedAfterTheSource).ToArray())
         {
             var leaf = LeafOf(relative);
-            var parent = relative.Length > leaf.Length ? relative.Substring(0, relative.Length - leaf.Length) : string.Empty;
-            MovePath(relative, parent + _destinationSchema + leaf.Substring(_sourceSchema.Length));
+            MovePath(relative, relative.Substring(0, relative.Length - leaf.Length) + _destinationSchema + leaf.Substring(_sourceSchema.Length));
         }
+    }
+
+    private bool IsNamedAfterTheSource(string relative)
+    {
+        var stem = relative.Substring(0, relative.Length - CopyTextEdits.McsFileExtension.Length);
+
+        return IsSourceRooted(LeafOf(stem), _sourceSchema) && !File.Exists(Path.Combine(_root, stem)) && !Directory.Exists(Path.Combine(_root, stem));
     }
 
     private static string LeafOf(string relative) => relative.Substring(relative.LastIndexOf('/') + 1);
@@ -1097,7 +1086,7 @@ internal sealed class WorkspaceCopyTransform
 
         public Dictionary<string, List<string>> ConnectorsByFile { get; } = new(StringComparer.Ordinal);
 
-        public Dictionary<string, IReadOnlyList<WorkflowDefinitionReference>> DefinitionReferences { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, WorkflowDefinitionReferences> DefinitionReferences { get; } = new(StringComparer.Ordinal);
 
         public void AddReference(HashSet<Guid> referenced, string relative, Guid resource)
         {

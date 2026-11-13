@@ -223,20 +223,20 @@ internal sealed class CopyIdentityAuditor
             CopyTextEdits.VisitJson(content, json => AuditDefinitionString(json, relative, references));
         }
 
-        void AuditDefinitionString(CopyJsonString json, string relative, IReadOnlyList<WorkflowDefinitionReference> references)
+        void AuditDefinitionString(CopyJsonString json, string relative, WorkflowDefinitionReferences references)
         {
-            if (json.IsPropertyName)
+            var leftover = references.KindAt(json) switch
             {
-                return;
-            }
+                CopyIdentityKinds.Workflow when Guid.TryParse(json.Value, out var workflowId) && replacedWorkflows.Contains(workflowId) => $"calls the source's workflow {workflowId}",
+                CopyIdentityKinds.AIModel when Guid.TryParse(json.Value, out var modelId) && replacedModels.Contains(modelId) => $"calls the source's AI prompt {modelId}",
+                CopyIdentityKinds.ConnectionReference when replacedReferences.Contains(json.Value) => $"names the source's connection reference {json.Value}",
+                CopyIdentityKinds.ConnectorInternalId when (WorkspaceCopyTransform.ConnectorInternalIdOf(json.Value) ?? json.Value) is var internalId && replacedConnectorInternalIds.Contains(internalId) => $"names the source's custom connector {internalId}",
+                _ => null,
+            };
 
-            if (WorkflowDefinitionReferences.KindAt(references, json.Path) is { } kind && Guid.TryParse(json.Value, out var resourceId) && (kind == CopyIdentityKinds.AIModel ? replacedModels : replacedWorkflows).Contains(resourceId))
+            if (leftover is not null)
             {
-                blockers.Add(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The workflow definition still calls the source's {(kind == CopyIdentityKinds.AIModel ? "AI prompt" : "workflow")} {resourceId} instead of its copy.", relative));
-            }
-            else if (string.Equals(json.OwnerProperty, WorkspaceCopyTransform.ConnectionReferenceLogicalNameKey, StringComparison.Ordinal) && replacedReferences.Contains(json.Value))
-            {
-                blockers.Add(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The workflow definition still names the source's connection reference {json.Value} instead of its copy.", relative));
+                blockers.Add(new CopyAuditFinding(CopyAuditCodes.LeftoverSourceIdentity, $"The workflow definition still {leftover} instead of its copy.", relative));
             }
         }
 

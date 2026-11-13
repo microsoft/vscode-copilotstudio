@@ -226,6 +226,47 @@ internal sealed class CopyTestWorkspace : IDisposable
 
     public void AddAction(string workflowFolder, string action) => Write(workflowFolder + "/workflow.json", Read(workflowFolder + "/workflow.json").Replace("\"actions\": {}", "\"actions\": {\n        " + action + "\n      }", StringComparison.Ordinal), preamble: true);
 
+    public void WriteConnectorFlow(string payload)
+    {
+        var declaration = $$"""{ "api": { "name": "{{ConnectorInternalId}}" }, "connection": { "connectionReferenceLogicalName": "{{ConnectorReference}}" }, "runtimeSource": "embedded" }""";
+        var host = $$"""{ "apiId": "{{WorkspaceCopyTransform.ConnectorApiPrefix}}{{ConnectorInternalId}}", "connectionName": "{{ConnectorInternalId}}", "operationId": "GetForecast" }""";
+        Write(CliWorkflowFolder + "/workflow.json", $$"""
+            {
+              "properties": {
+                "connectionReferences": {
+                  "shared_teams": { "api": { "name": "shared_teams" }, "connection": { "connectionReferenceLogicalName": "{{CliTeamsReference}}" }, "runtimeSource": "invoker" },
+                  "shared_msnweather": { "api": { "name": "shared_msnweather" }, "connection": { "connectionReferenceLogicalName": "{{CliWeatherReference}}" }, "runtimeSource": "invoker" },
+                  "{{ConnectorInternalId}}": {{declaration}}
+                },
+                "definition": {
+                  "contentVersion": "1.0.0.0",
+                  "triggers": {
+                    "manual": {
+                      "type": "Request",
+                      "kind": "Skills",
+                      "metadata": {
+                        "associatedData": {
+                          "graph": {
+                            "nodes": [ { "type": "connector", "data": { "config": { "apiName": "{{ConnectorInternalId}}", "connectionName": "{{ConnectorInternalId}}", "operationName": "GetForecast", "parameters": {{payload}}, "inlineTools": [ { "connectorId": "{{ConnectorInternalId}}", "operationId": "GetForecast" } ] } } } ],
+                            "connectionReferences": { "{{ConnectorInternalId}}": {{declaration}} }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "actions": {
+                    "Get_forecast": { "type": "OpenApiConnection", "inputs": { "host": {{host}} } },
+                    "Retry": { "type": "Scope", "actions": { "Get_forecast_again": { "type": "OpenApiConnection", "inputs": { "host": {{host}} } } } },
+                    "HTTP": { "type": "Http", "inputs": { "method": "POST", "uri": "https://example.com/forecasts", "body": {{payload}} } },
+                    "Compose": { "type": "Compose", "inputs": "{{ConnectorInternalId}}" }
+                  }
+                }
+              },
+              "schemaVersion": "1.0.0.0"
+            }
+            """, preamble: true);
+    }
+
     private void WritePrompt()
     {
         Write(PromptFolder + "/metadata.yml", "aIModelId: 3b5436b4-d7b4-4389-96e8-107446c9094a\nname: prompt one\ntemplateId: edfdb190-3791-45d8-9a6c-8f90a37c278a\n", preamble: true);

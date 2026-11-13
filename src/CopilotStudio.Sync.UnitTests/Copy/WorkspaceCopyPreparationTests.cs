@@ -157,6 +157,44 @@ public class WorkspaceCopyPreparationTests
     }
 
     [Fact]
+    public async Task Prepare_AgentCopyOfAFlowCallingACopiedConnector_RemapsOnlyWhereTheFlowDeclaresAndCallsIt()
+    {
+        using var workspace = CopyTestWorkspace.Cli();
+        workspace.WriteConnector();
+        var payload = $$"""{ "connectionReferenceLogicalName": "{{CopyTestWorkspace.ConnectorReference}}", "connectionName": "{{CopyTestWorkspace.ConnectorInternalId}}", "apiId": "{{WorkspaceCopyTransform.ConnectorApiPrefix}}{{CopyTestWorkspace.ConnectorInternalId}}", "{{CopyTestWorkspace.ConnectorInternalId}}": "{{CopyTestWorkspace.ConnectorInternalId}}" }""";
+        workspace.WriteConnectorFlow(payload);
+
+        var result = await CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None);
+
+        var internalIdCopy = Destination(result, CopyIdentityKinds.ConnectorInternalId, CopyTestWorkspace.ConnectorInternalId);
+        var referenceCopy = Destination(result, CopyIdentityKinds.ConnectionReference, CopyTestWorkspace.ConnectorReference);
+        using var definition = JsonDocument.Parse(workspace.Read(workspace.CopiedWorkflowFolder(result) + "/workflow.json"));
+        var properties = definition.RootElement.GetProperty("properties");
+        var actions = properties.GetProperty("definition").GetProperty("actions");
+        var graph = properties.GetProperty("definition").GetProperty("triggers").GetProperty("manual").GetProperty("metadata").GetProperty("associatedData").GetProperty("graph");
+        var node = graph.GetProperty("nodes")[0].GetProperty("data").GetProperty("config");
+        Assert.True(result.Audit.Passed);
+
+        foreach (var declarations in new[] { properties.GetProperty("connectionReferences"), graph.GetProperty("connectionReferences") })
+        {
+            Assert.False(declarations.TryGetProperty(CopyTestWorkspace.ConnectorInternalId, out _));
+            Assert.Equal(internalIdCopy, declarations.GetProperty(internalIdCopy).GetProperty("api").GetProperty("name").GetString());
+            Assert.Equal(referenceCopy, declarations.GetProperty(internalIdCopy).GetProperty("connection").GetProperty("connectionReferenceLogicalName").GetString());
+        }
+
+        foreach (var host in new[] { actions.GetProperty("Get_forecast"), actions.GetProperty("Retry").GetProperty("actions").GetProperty("Get_forecast_again") }.Select(action => action.GetProperty("inputs").GetProperty("host")))
+        {
+            Assert.Equal(WorkspaceCopyTransform.ConnectorApiPrefix + internalIdCopy, host.GetProperty("apiId").GetString());
+            Assert.Equal(internalIdCopy, host.GetProperty("connectionName").GetString());
+        }
+
+        Assert.Equal(new[] { internalIdCopy, internalIdCopy, internalIdCopy }, new[] { node.GetProperty("apiName"), node.GetProperty("connectionName"), node.GetProperty("inlineTools")[0].GetProperty("connectorId") }.Select(value => value.GetString()));
+        Assert.Equal(payload, node.GetProperty("parameters").GetRawText());
+        Assert.Equal(payload, actions.GetProperty("HTTP").GetProperty("inputs").GetProperty("body").GetRawText());
+        Assert.Equal(CopyTestWorkspace.ConnectorInternalId, actions.GetProperty("Compose").GetProperty("inputs").GetString());
+    }
+
+    [Fact]
     public async Task Prepare_ClassicCopy_RenamesTheAgentAndEveryToolStillNamedAfterTheFlowOrPromptItCalls()
     {
         using var workspace = CopyTestWorkspace.Classic();
@@ -798,6 +836,35 @@ public class WorkspaceCopyPreparationTests
         Assert.True(result.Audit.Passed);
         Assert.All(payloads, relative => Assert.Equal(payload, workspace.Read(relative)));
         Assert.Empty(result.RewrittenFiles.Intersect(payloads));
+    }
+
+    [Fact]
+    public async Task Prepare_AgentCopy_RenamesOnlyComponentFilesNamedAfterTheSourceSchema()
+    {
+        using var workspace = CopyTestWorkspace.Cli();
+        var source = CopyTestWorkspace.CliSchema;
+        var untouched = new Dictionary<string, string>
+        {
+            ["behaviors/Expenses/SKILL.md"] = $"---\nname: Expenses\ndescription: Files expense reports.\n---\nRead {source}.rates.yml and {source}.forms/claim.txt.\n",
+            [$"behaviors/Expenses/{source}.rates.yml"] = "meals: 50\n",
+            [$"behaviors/Expenses/{source}.rates.yml.mcs.yml"] = "mcs.metadata:\n  componentName: Expense rates\nkind: FileAttachmentComponentMetadata\n",
+            [$"behaviors/Expenses/{source}.forms/claim.txt"] = "Claim form\n",
+            [$"behaviors/{source}.helper.mcs.yml"] = "mcs.metadata:\n  componentName: Helper\nkind: InlineAgentSkill\ncontent: placeholder\n",
+            [$"behaviors/{source}.helper/SKILL.md"] = "---\nname: Helper\ndescription: Helps with expenses.\n---\nHelp.\n",
+            [$"capabilities/knowledge/files/{source}.handbook.txt"] = "Handbook\n",
+        };
+
+        foreach (var (relative, content) in untouched)
+        {
+            workspace.Write(relative, content);
+        }
+
+        var result = await CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None);
+
+        Assert.True(result.Audit.Passed);
+        Assert.All(untouched, file => Assert.Equal(file.Value, workspace.Read(file.Key)));
+        Assert.Equal(new[] { CopyTestWorkspace.CliKnowledgeFile }, result.RenamedPaths.Select(renamed => renamed.Source).Where(path => !path.StartsWith("workflows/", StringComparison.Ordinal) && !path.StartsWith("infrastructure/", StringComparison.Ordinal)));
+        Assert.True(workspace.Exists($"capabilities/knowledge/{CopyTestWorkspace.DestinationSchemaFor(source)}.Handbook_xyz789.mcs.yml"));
     }
 
     [Theory]
