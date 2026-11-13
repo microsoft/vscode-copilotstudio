@@ -19,6 +19,7 @@ public class RemoteBindingSnapshotTests
         ".mcs/.connectors-sync.json",
         ".mcs/.knowledge-sync.json",
         ".mcs/.aiprompts-sync.json",
+        ".mcs/.environmentvariables-sync.json",
         ".mcs/.connectors-cache.json",
         ".mcs/.aiprompts-cache.json",
     };
@@ -191,6 +192,32 @@ public class RemoteBindingSnapshotTests
         Assert.Equal("new-env-binding", await fileAccessor.ReadStringAsync(new AgentFilePath(ConnectionDetailsFile), CancellationToken.None));
         Assert.Equal("new-token", await fileAccessor.ReadStringAsync(new AgentFilePath(".mcs/changetoken.txt"), CancellationToken.None));
         Assert.False(fileAccessor.Exists(new AgentFilePath(".mcs/.retarget-backup.json")));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task PersistThenFinalizeOrClear_DiscardsTheRecordOfEnvironmentVariablesUploadedDuringTheRetarget(bool finalize)
+    {
+        var (synchronizer, fileAccessorFactory, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath("c:/test/workspace/");
+        var fileAccessor = fileAccessorFactory.Create(workspace);
+        await fileAccessor.WriteAsync(EnvironmentVariableTestFixtures.RetargetUploadedEnvironmentVariablesPath, "[\"cr9f2_earlier\"]", CancellationToken.None);
+
+        synchronizer.PersistRetargetBackup(workspace, synchronizer.ResetRemoteBindingState(workspace));
+        var keptTheEarlierRecord = fileAccessor.Exists(EnvironmentVariableTestFixtures.RetargetUploadedEnvironmentVariablesPath);
+        await fileAccessor.WriteAsync(EnvironmentVariableTestFixtures.RetargetUploadedEnvironmentVariablesPath, "[\"cr9f2_shared\"]", CancellationToken.None);
+        if (finalize)
+        {
+            Assert.True(synchronizer.FinalizeRetarget(workspace, pushSucceeded: true));
+        }
+        else
+        {
+            synchronizer.ClearRetargetBackup(workspace);
+        }
+
+        Assert.False(keptTheEarlierRecord);
+        Assert.False(fileAccessor.Exists(EnvironmentVariableTestFixtures.RetargetUploadedEnvironmentVariablesPath));
     }
 
     [Fact]

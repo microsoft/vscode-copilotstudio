@@ -1,11 +1,14 @@
 import * as assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { describe, test } from 'node:test';
 import * as vscode from 'vscode';
 import * as accountModule from '../../clients/account';
 import * as bapClientModule from '../../clients/bapClient';
 import * as connectionManagerModule from '../../connections/connectionManager';
 import { executeReattachAgentCommand } from '../../commands/reattachAgent';
-import { TelemetryEventsKeys } from '../../constants';
+import { LspMethods, TelemetryEventsKeys } from '../../constants';
 import * as accountEnvPickerModule from '../../services/accountEnvPicker';
 import * as lspClientModule from '../../services/lspClient';
 import logger, { formatPii, PiiRedactionType } from '../../services/logger';
@@ -122,8 +125,29 @@ const stubProperty = (
 	};
 };
 
+const testWorkspaceFolder = vscode.Uri.file('C:\\reattach-flow-test\\Test Agent');
+
+const createTextDocument = (
+	uri: vscode.Uri,
+	isDirty: boolean,
+	save: () => Promise<boolean>
+): vscode.TextDocument => {
+	const document = {
+		uri,
+		isDirty,
+		save: async () => {
+			const saved = await save();
+			document.isDirty = document.isDirty && !saved;
+			return saved;
+		},
+	};
+	return document as unknown as vscode.TextDocument;
+};
+
 type FlowHarnessOptions = {
 	attached?: boolean;
+	workspaceFolder?: vscode.Uri;
+	collections?: CopilotStudioWorkspace[];
 	activeSyncUri?: string;
 	currentEnvironmentId?: string;
 	targetEnvironmentId?: string;
@@ -137,7 +161,7 @@ type FlowHarnessOptions = {
 		method: string,
 		request: Record<string, unknown>
 	) => Promise<unknown>;
-	pushNewWorkspace?: () => Promise<void>;
+	pushNewWorkspace?: (...args: Parameters<typeof workspaceScmModule.pushNewWorkspace>) => Promise<void>;
 	pull?: (options: PullOptions) => Promise<void>;
 	autoBindAgentConnections?: () => Promise<{
 		needsNewCount: number;
@@ -154,6 +178,7 @@ type FlowHarnessOptions = {
 	getDiagnosticsErrors?: () => Promise<{ count: number; files: number }>;
 	executeCommand?: (command: string) => Promise<void>;
 	onLog?: (level: LogRecord['level'], message: unknown) => void;
+	textDocuments?: vscode.TextDocument[];
 };
 
 const installFlowHarness = (options: FlowHarnessOptions = {}) => {
@@ -176,7 +201,7 @@ const installFlowHarness = (options: FlowHarnessOptions = {}) => {
 		displayName: 'Target Environment',
 	} as unknown as EnvironmentInfo;
 	const workspace: CopilotStudioWorkspace = {
-		workspaceUri: vscode.Uri.file('C:\\reattach-flow-test\\Test Agent').toString(),
+		workspaceUri: (options.workspaceFolder ?? testWorkspaceFolder).toString(),
 		displayName: 'Test Agent',
 		description: '',
 		icon: undefined as unknown as vscode.ThemeIcon,
@@ -203,6 +228,7 @@ const installFlowHarness = (options: FlowHarnessOptions = {}) => {
 	};
 
 	addStub(vscode.window, 'createQuickPick', () => quickPick as unknown as vscode.QuickPick<vscode.QuickPickItem>);
+	addStub(vscode.workspace, 'textDocuments', options.textDocuments ?? []);
 	addStub(
 		vscode.window,
 		'withProgress',
@@ -256,7 +282,7 @@ const installFlowHarness = (options: FlowHarnessOptions = {}) => {
 		},
 	]);
 	addStub(localWorkspacesModule, 'hasConnectionFileInWorkspace', () => options.attached ?? false);
-	addStub(localWorkspacesModule, 'getAllWorkspaces', () => [workspace]);
+	addStub(localWorkspacesModule, 'getAllWorkspaces', () => [workspace, ...(options.collections ?? [])]);
 	addStub(lspClientModule, 'buildLspRequestPayload', async () => ({}));
 	addStub(
 		lspClientModule.default,
@@ -689,6 +715,349 @@ describe('executeReattachAgentCommand', () => {
 			});
 		} finally {
 			harness.restore();
+		}
+	});
+
+	test('asks before overwriting environment variables in the target and resends the approval', async () => {
+		const prompts: string[] = [];
+		const uploadApprovals: (string[] | undefined)[] = [];
+		const harness = installFlowHarness({
+			sendRequest: async (_method, request) =>
+				(request.approvedEnvironmentVariableOverwrites as string[]).length === 0
+					? { code: 200, message: '', environmentVariableOverwrites: ['cr9f2_other', 'cr9f2_shared'] }
+					: {
+							code: 200,
+							message: '',
+							agentSyncInfo: { agentId: 'reattached-agent-id', environmentId: 'target-environment' },
+							requiresLocalPush: true,
+						},
+			pushNewWorkspace: async (_context, _workspace, _draftConnectionReferenceWorkflows, approvedEnvironmentVariableOverwrites) => {
+				uploadApprovals.push(approvedEnvironmentVariableOverwrites);
+			},
+			showWarningMessage: async (message, optionsOrItem, ...items) => {
+				prompts.push(message);
+				assert.deepStrictEqual(optionsOrItem, { modal: true });
+				assert.deepStrictEqual(items, ['Overwrite']);
+				return 'Overwrite';
+			},
+		});
+
+		try {
+			await executeReattachAgentCommand(harness.context, { workspace: harness.workspace });
+
+			assert.deepStrictEqual(prompts, [
+				"These environment variables already exist in 'Target Environment', where other agents and apps may use them: cr9f2_other, cr9f2_shared. Overwrite them with your local changes?",
+			]);
+			assert.deepStrictEqual(
+				harness.requests.map(request => request.request.approvedEnvironmentVariableOverwrites),
+				[[], ['cr9f2_other', 'cr9f2_shared']]
+			);
+			assert.deepStrictEqual(uploadApprovals, [['cr9f2_other', 'cr9f2_shared']]);
+			assert.strictEqual(harness.logs.filter(log => log.level === 'error').length, 0);
+			assert.strictEqual(
+				harness.logs.filter(log => log.level === 'info' && typeof log.message === 'string').length,
+				1
+			);
+		} finally {
+			harness.restore();
+		}
+	});
+
+	test('uploads with no environment variable overwrites approved when the target needed none', async () => {
+		const uploadApprovals: (string[] | undefined)[] = [];
+		const harness = installFlowHarness({
+			sendRequest: async () => ({
+				code: 200,
+				message: '',
+				agentSyncInfo: { agentId: 'reattached-agent-id', environmentId: 'target-environment' },
+				requiresLocalPush: true,
+			}),
+			pushNewWorkspace: async (_context, _workspace, _draftConnectionReferenceWorkflows, approvedEnvironmentVariableOverwrites) => {
+				uploadApprovals.push(approvedEnvironmentVariableOverwrites);
+			},
+		});
+
+		try {
+			await executeReattachAgentCommand(harness.context, { workspace: harness.workspace });
+
+			assert.deepStrictEqual(uploadApprovals, [[]]);
+			assert.strictEqual(harness.logs.filter(log => log.level === 'error').length, 0);
+		} finally {
+			harness.restore();
+		}
+	});
+
+	test('cancels without reattaching when the environment variable overwrite is declined', async () => {
+		const harness = installFlowHarness({
+			sendRequest: async () => ({
+				code: 200,
+				message: '',
+				environmentVariableOverwrites: ['cr9f2_shared'],
+			}),
+			showWarningMessage: async () => undefined,
+		});
+
+		try {
+			await executeReattachAgentCommand(harness.context, { workspace: harness.workspace });
+
+			assert.strictEqual(harness.requests.length, 1);
+			assert.strictEqual(harness.logs.filter(log => log.level === 'error').length, 0);
+			const cancellationLogs = harness.logs.filter(log => log.level === 'warning');
+			assert.strictEqual(cancellationLogs.length, 1);
+			assert.deepStrictEqual(cancellationLogs[0].data, {
+				message: 'Agent reattach canceled before overwriting environment variables.',
+			});
+		} finally {
+			harness.restore();
+		}
+	});
+
+	test('saves unsaved documents in the folder being retargeted before the first reattach request', async () => {
+		const events: string[] = [];
+		const prompts: string[] = [];
+		const harness = installFlowHarness({
+			attached: true,
+			currentEnvironmentId: 'old-environment',
+			targetEnvironmentId: 'new-environment',
+			textDocuments: [
+				createTextDocument(
+					vscode.Uri.joinPath(testWorkspaceFolder, 'environmentvariables', 'cr9f2_shared.mcs.yml'),
+					true,
+					async () => {
+						events.push('save');
+						return true;
+					}
+				),
+			],
+			showWarningMessage: async (message, optionsOrItem, ...items) => {
+				prompts.push(message);
+				events.push(`prompt: ${items[0]}`);
+				assert.deepStrictEqual(optionsOrItem, { modal: true });
+				return items[0];
+			},
+			sendRequest: async method => {
+				events.push(method);
+				return {
+					code: 200,
+					message: '',
+					agentSyncInfo: { agentId: 'retargeted-agent-id', environmentId: 'new-environment' },
+					requiresLocalPush: false,
+				};
+			},
+		});
+
+		try {
+			await executeReattachAgentCommand(harness.context, { workspace: harness.workspace });
+
+			assert.strictEqual(
+				prompts[0],
+				'1 file(s) in the folder(s) being reattached have unsaved changes. Save them before reattaching?'
+			);
+			assert.deepStrictEqual(events, [
+				'prompt: Save All and Reattach',
+				'save',
+				'prompt: Retarget',
+				LspMethods.REATTACH_AGENT,
+				LspMethods.FINALIZE_RETARGET,
+			]);
+			assert.strictEqual(harness.logs.filter(log => log.level === 'error').length, 0);
+			assert.strictEqual(harness.logs.filter(log => log.level === 'warning').length, 0);
+		} finally {
+			harness.restore();
+		}
+	});
+
+	test('sends no reattach request when saving the unsaved documents is declined', async () => {
+		let saved = false;
+		const harness = installFlowHarness({
+			attached: true,
+			currentEnvironmentId: 'same-environment',
+			targetEnvironmentId: 'same-environment',
+			textDocuments: [
+				createTextDocument(
+					vscode.Uri.joinPath(testWorkspaceFolder, 'environmentvariables', 'cr9f2_shared.mcs.yml'),
+					true,
+					async () => {
+						saved = true;
+						return true;
+					}
+				),
+			],
+			showWarningMessage: async () => undefined,
+		});
+
+		try {
+			await executeReattachAgentCommand(harness.context, { workspace: harness.workspace });
+
+			assert.strictEqual(saved, false);
+			assert.strictEqual(harness.requests.length, 0);
+			assert.strictEqual(harness.logs.filter(log => log.level === 'error').length, 0);
+			const cancellationLogs = harness.logs.filter(log => log.level === 'warning');
+			assert.strictEqual(cancellationLogs.length, 1);
+			assert.deepStrictEqual(cancellationLogs[0].data, {
+				message: 'Agent reattach canceled before saving unsaved changes.',
+			});
+		} finally {
+			harness.restore();
+		}
+	});
+
+	test('sends no reattach request when an unsaved document fails to save', async () => {
+		const harness = installFlowHarness({
+			textDocuments: [
+				createTextDocument(
+					vscode.Uri.joinPath(testWorkspaceFolder, 'topics', 'Greeting.mcs.yml'),
+					true,
+					async () => false
+				),
+			],
+		});
+
+		try {
+			await executeReattachAgentCommand(harness.context, { workspace: harness.workspace });
+
+			assert.strictEqual(harness.requests.length, 0);
+			assert.strictEqual(harness.logs.filter(log => log.level === 'error').length, 0);
+			const cancellationLogs = harness.logs.filter(log => log.level === 'warning');
+			assert.strictEqual(cancellationLogs.length, 1);
+			assert.deepStrictEqual(cancellationLogs[0].data, {
+				message: 'Agent reattach canceled because unsaved changes could not be saved.',
+			});
+		} finally {
+			harness.restore();
+		}
+	});
+
+	test('reattaches without a save prompt when no document in the folder has unsaved changes', async () => {
+		let saved = false;
+		const prompts: string[] = [];
+		const harness = installFlowHarness({
+			textDocuments: [
+				createTextDocument(
+					vscode.Uri.joinPath(testWorkspaceFolder, 'topics', 'Greeting.mcs.yml'),
+					false,
+					async () => {
+						saved = true;
+						return true;
+					}
+				),
+			],
+			showWarningMessage: async (message, _optionsOrItem, ...items) => {
+				prompts.push(message);
+				return items[0];
+			},
+		});
+
+		try {
+			await executeReattachAgentCommand(harness.context, { workspace: harness.workspace });
+
+			assert.deepStrictEqual(prompts, []);
+			assert.strictEqual(saved, false);
+			assert.strictEqual(harness.requests.length, 1);
+			assert.strictEqual(harness.logs.filter(log => log.level === 'warning').length, 0);
+		} finally {
+			harness.restore();
+		}
+	});
+
+	test('neither prompts for nor saves unsaved documents outside the folder being reattached', async () => {
+		let saved = false;
+		const prompts: string[] = [];
+		const harness = installFlowHarness({
+			textDocuments: [
+				createTextDocument(
+					vscode.Uri.joinPath(testWorkspaceFolder, '..', 'Test Agent Copy', 'topics', 'Greeting.mcs.yml'),
+					true,
+					async () => {
+						saved = true;
+						return true;
+					}
+				),
+			],
+			showWarningMessage: async (message, _optionsOrItem, ...items) => {
+				prompts.push(message);
+				return items[0];
+			},
+		});
+
+		try {
+			await executeReattachAgentCommand(harness.context, { workspace: harness.workspace });
+
+			assert.deepStrictEqual(prompts, []);
+			assert.strictEqual(saved, false);
+			assert.strictEqual(harness.requests.length, 1);
+			assert.strictEqual(harness.logs.filter(log => log.level === 'warning').length, 0);
+		} finally {
+			harness.restore();
+		}
+	});
+
+	test('rebuilds the plan from a saved reference change and saves the newly referenced collection before reattaching', async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mcs-reattach-references-'));
+		const agentFolder = vscode.Uri.file(path.join(root, 'Agent'));
+		const referencesPath = path.join(agentFolder.fsPath, 'references.mcs.yml');
+		fs.mkdirSync(agentFolder.fsPath);
+		fs.writeFileSync(referencesPath, 'componentCollections:\n  - directory: ../CollectionA\n');
+		const createCollection = (name: string): CopilotStudioWorkspace => ({
+			workspaceUri: vscode.Uri.file(path.join(root, name)).toString(),
+			displayName: name,
+			description: '',
+			icon: undefined as unknown as vscode.ThemeIcon,
+			type: WorkspaceType.ComponentCollection,
+			syncInfo: undefined,
+		});
+		const collectionB = createCollection('CollectionB');
+		const events: string[] = [];
+		const harness = installFlowHarness({
+			workspaceFolder: agentFolder,
+			collections: [createCollection('CollectionA'), collectionB],
+			textDocuments: [
+				createTextDocument(vscode.Uri.file(referencesPath), true, async () => {
+					fs.writeFileSync(referencesPath, 'componentCollections:\n  - directory: ../CollectionB\n');
+					events.push('save references');
+					return true;
+				}),
+				createTextDocument(
+					vscode.Uri.joinPath(vscode.Uri.parse(collectionB.workspaceUri), 'environmentvariables', 'cr9f2_shared.mcs.yml'),
+					true,
+					async () => {
+						events.push('save CollectionB');
+						return true;
+					}
+				),
+			],
+			showWarningMessage: async (_message, _optionsOrItem, ...items) => {
+				events.push(`prompt: ${items[0]}`);
+				return items[0];
+			},
+			sendRequest: async (method, request) => {
+				events.push(`${method}: ${request.workspaceUri}`);
+				return {
+					code: 200,
+					message: '',
+					agentSyncInfo: { agentId: 'reattached-agent-id', environmentId: 'target-environment' },
+					requiresLocalPush: false,
+				};
+			},
+		});
+
+		try {
+			await executeReattachAgentCommand(harness.context, { workspace: harness.workspace });
+
+			assert.deepStrictEqual(events, [
+				'prompt: Save All and Reattach',
+				'save references',
+				'prompt: Save All and Reattach',
+				'save CollectionB',
+				'prompt: Reattach',
+				`${LspMethods.REATTACH_AGENT}: ${harness.workspace.workspaceUri}`,
+				`${LspMethods.REATTACH_AGENT}: ${collectionB.workspaceUri}`,
+			]);
+			assert.strictEqual(harness.logs.filter(log => log.level === 'error').length, 0);
+			assert.strictEqual(harness.logs.filter(log => log.level === 'warning').length, 0);
+		} finally {
+			harness.restore();
+			fs.rmSync(root, { recursive: true, force: true });
 		}
 	});
 

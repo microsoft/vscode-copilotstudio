@@ -3032,7 +3032,7 @@ beginDialog:
         }
 
         [Fact]
-        public void EnvironmentVariable_Delete_WhenMissingLocally()
+        public void EnvironmentVariable_Delete_WhenASyncedFileIsMissingLocally()
         {
             var schemaName = "cr123";
             var defId = new EnvironmentVariableDefinitionId(Guid.NewGuid());
@@ -3063,8 +3063,10 @@ beginDialog:
             }.Build();
 
             var synchronizer = CreateSynchronizer();
+            var fileAccessor = new InMemoryFileWriter();
+            WorkspaceSynchronizer.WriteEnvironmentVariablesSyncState(fileAccessor, new[] { cloudEnv });
 
-            var (changeSet, changes) = synchronizer.GetLocalChanges(localDefinition, cloudDefinition, new InMemoryFileWriter(), null);
+            var (changeSet, changes) = synchronizer.GetLocalChanges(localDefinition, cloudDefinition, fileAccessor, null);
 
             Assert.Single(changes);
             Assert.Equal(ChangeType.Delete, changes[0].ChangeType);

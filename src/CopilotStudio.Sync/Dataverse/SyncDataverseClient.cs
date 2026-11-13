@@ -15,7 +15,7 @@ using Microsoft.CopilotStudio.Sync.Copy;
 
 namespace Microsoft.CopilotStudio.Sync.Dataverse;
 
-public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowDataverseClient, ISyncComponentCollectionDataverseClient, IStreamingKnowledgeFileClient, ICustomConnectorOperations, ICopyDataverseClient
+public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowDataverseClient, ISyncComponentCollectionDataverseClient, IStreamingKnowledgeFileClient, ICustomConnectorOperations, ICopyDataverseClient, IEnvironmentVariableOperations
 {
     private readonly IDataverseHttpClientAccessor _httpClientAccessor;
     private readonly AsyncLocal<string> _dataverseUrl = new();
@@ -330,23 +330,27 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         };
     }
 
-    public virtual async Task<ConnectionReferenceInfo[]> GetConnectionReferencesByLogicalNamesAsync(IEnumerable<string> logicalNames, CancellationToken cancellationToken)
+    public virtual Task<ConnectionReferenceInfo[]> GetConnectionReferencesByLogicalNamesAsync(IEnumerable<string> logicalNames, CancellationToken cancellationToken) => QueryByNamesAsync<ConnectionReferenceInfo>("connectionreferences", "connectionreferenceid,connectionreferencelogicalname,connectorid,connectionid,versionnumber", "connectionreferencelogicalname", logicalNames, cancellationToken);
+
+    public virtual Task<EnvironmentVariableDefinitionInfo[]> GetEnvironmentVariableDefinitionsBySchemaNamesAsync(IEnumerable<string> schemaNames, CancellationToken cancellationToken) => QueryByNamesAsync<EnvironmentVariableDefinitionInfo>("environmentvariabledefinitions", "environmentvariabledefinitionid,schemaname,ismanaged,versionnumber", "schemaname", schemaNames, cancellationToken, "environmentvariabledefinition_environmentvariablevalue($select=environmentvariablevalueid,versionnumber;$orderby=createdon desc;$top=1)");
+
+    private async Task<TRecord[]> QueryByNamesAsync<TRecord>(string entitySetName, string columns, string nameColumn, IEnumerable<string> names, CancellationToken cancellationToken, string? expand = null)
     {
-        var names = logicalNames?.Where(logicalName => !string.IsNullOrWhiteSpace(logicalName)).Select(logicalName => logicalName.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        if (names == null || names.Count == 0)
+        var distinctNames = names?.Where(name => !string.IsNullOrWhiteSpace(name)).Select(name => name.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (distinctNames == null || distinctNames.Count == 0)
         {
-            return Array.Empty<ConnectionReferenceInfo>();
+            return Array.Empty<TRecord>();
         }
 
-        var results = new List<ConnectionReferenceInfo>();
+        var results = new List<TRecord>();
 
-        foreach (var batch in names.Chunk(BatchSize))
+        foreach (var batch in distinctNames.Chunk(BatchSize))
         {
-            string? next = $"{DataverseUrl}/api/data/v9.2/connectionreferences?$select=connectionreferenceid,connectionreferencelogicalname,connectorid,connectionid,versionnumber&$filter={Uri.EscapeDataString(string.Join(" or ", batch.Select(logicalName => $"connectionreferencelogicalname eq {ODataLiteral.Quote(logicalName)}")))}";
+            string? next = $"{DataverseUrl}/api/data/v9.2/{entitySetName}?$select={columns}&$filter={Uri.EscapeDataString(string.Join(" or ", batch.Select(name => $"{nameColumn} eq {ODataLiteral.Quote(name)}")))}{(expand is null ? string.Empty : "&$expand=" + Uri.EscapeDataString(expand))}";
 
             while (next is { Length: > 0 })
             {
-                var response = await SendAsync<ODataResponse<ConnectionReferenceInfo>>(HttpMethod.Get, next, null, false, cancellationToken).ConfigureAwait(false);
+                var response = await SendAsync<ODataResponse<TRecord>>(HttpMethod.Get, next, null, false, cancellationToken).ConfigureAwait(false);
                 if (response?.Value != null)
                 {
                     results.AddRange(response.Value);
@@ -1703,6 +1707,35 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
 
         [JsonPropertyName("connectionid")]
         public string? ConnectionId { get; set; } = string.Empty;
+
+        [JsonPropertyName("versionnumber")]
+        public long Version { get; set; }
+    }
+
+    /// <summary>An environment variable definition read from Dataverse.</summary>
+    public class EnvironmentVariableDefinitionInfo
+    {
+        [JsonPropertyName("environmentvariabledefinitionid")]
+        public Guid DefinitionId { get; set; }
+
+        [JsonPropertyName("schemaname")]
+        public string SchemaName { get; set; } = string.Empty;
+
+        [JsonPropertyName("ismanaged")]
+        public bool IsManaged { get; set; }
+
+        [JsonPropertyName("versionnumber")]
+        public long Version { get; set; }
+
+        [JsonPropertyName("environmentvariabledefinition_environmentvariablevalue")]
+        public EnvironmentVariableValueInfo[] Values { get; set; } = Array.Empty<EnvironmentVariableValueInfo>();
+    }
+
+    /// <summary>An environment variable value's identity read from Dataverse.</summary>
+    public class EnvironmentVariableValueInfo
+    {
+        [JsonPropertyName("environmentvariablevalueid")]
+        public Guid ValueId { get; set; }
 
         [JsonPropertyName("versionnumber")]
         public long Version { get; set; }

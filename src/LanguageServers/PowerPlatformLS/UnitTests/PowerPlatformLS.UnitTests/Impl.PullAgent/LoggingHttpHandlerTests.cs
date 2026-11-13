@@ -74,6 +74,21 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
         }
 
         [Fact]
+        public async Task SendAsync_Rethrows_Original_Exception_When_Message_Contains_Braces()
+        {
+            const string message = "Response body: {\"error\":{\"code\":\"0x80040265\",\"message\":\"Bad request\"}}";
+            using var request = new HttpRequestMessage(HttpMethod.Post, "https://contoso.crm.dynamics.com/api/data/v9.2/$batch");
+            using var invoker = CreateInvoker((_, _) => throw new HttpRequestException(message));
+
+            var exception = await Assert.ThrowsAsync<HttpRequestException>(() => invoker.SendAsync(request, CancellationToken.None));
+
+            Assert.Equal(message, exception.Message);
+            var errorLog = Assert.Single(_testLogger.Error);
+            Assert.Contains("failed: POST /api/data/v9.2/$batch", errorLog);
+            Assert.EndsWith($". {message}", errorLog);
+        }
+
+        [Fact]
         public async Task SendAsync_Logs_Failed_For_Non_Success_StatusCode()
         {
             using var response = new HttpResponseMessage(HttpStatusCode.NotFound);

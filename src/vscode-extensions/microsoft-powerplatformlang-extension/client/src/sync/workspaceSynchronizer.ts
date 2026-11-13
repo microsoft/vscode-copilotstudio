@@ -74,6 +74,7 @@ export interface PushOptions {
     suppressDisabledWorkflowWarnings?: boolean;
     draftConnectionReferenceWorkflows?: boolean;
     requireNoUnpulledChanges?: boolean;
+    approvedEnvironmentVariableOverwrites?: string[];
 }
 
 export interface PullOptions {
@@ -83,7 +84,7 @@ export interface PullOptions {
     offerRemoteOverwrite?: boolean;
 }
 
-export type RemoteChangeOptions = Pick<PushOptions, 'requireNoUnpulledChanges'> & Pick<PullOptions, 'offerRemoteOverwrite'>;
+export type RemoteChangeOptions = Pick<PushOptions, 'requireNoUnpulledChanges' | 'approvedEnvironmentVariableOverwrites'> & Pick<PullOptions, 'offerRemoteOverwrite'>;
 
 export type ConflictResolution = 'getRemoteChanges' | 'replaceLocalChanges' | 'overwriteRemoteChanges';
 
@@ -191,10 +192,11 @@ function getSynchronizer(ws: CopilotStudioWorkspace): WorkspaceSynchronizer {
         suppressDisabledWorkflowWarnings = false,
         draftConnectionReferenceWorkflows = false,
         requireNoUnpulledChanges = false,
+        approvedEnvironmentVariableOverwrites,
       } = options;
       return await executeSyncOperation(async () => {
         const workspace = currentWorkspace;
-        const response = await sync(workspace, 'applying changes', LspMethods.SYNC_PUSH, false, suppressErrorNotification, suppressSuccessNotification, suppressDisabledWorkflowWarnings, draftConnectionReferenceWorkflows, true, undefined, false, { requireNoUnpulledChanges });
+        const response = await sync(workspace, 'applying changes', LspMethods.SYNC_PUSH, false, suppressErrorNotification, suppressSuccessNotification, suppressDisabledWorkflowWarnings, draftConnectionReferenceWorkflows, true, undefined, false, { requireNoUnpulledChanges, approvedEnvironmentVariableOverwrites });
         replaceLocalChanges(workspace.workspaceUri, response.localChanges);
         await uploadKnowledgeFiles(workspace);
         return response;
@@ -330,6 +332,7 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
     draftConnectionReferenceWorkflows,
     overwriteLocalChanges,
     requireNoUnpulledChanges: remoteChanges.requireNoUnpulledChanges ?? false,
+    approvedEnvironmentVariableOverwrites: remoteChanges.approvedEnvironmentVariableOverwrites,
   };
 
   try {

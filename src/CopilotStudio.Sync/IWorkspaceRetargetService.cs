@@ -18,7 +18,7 @@ public interface IWorkspaceRetargetService
     RemoteBindingSnapshot ResetRemoteBindingState(DirectoryPath workspaceFolder);
 
     /// <summary>
-    /// Restores remote binding state previously captured by <see cref="ResetRemoteBindingState"/>.
+    /// Restores remote binding state previously captured by <see cref="ResetRemoteBindingState"/>, keeping environment variable files edited since the capture and removing unedited ones projected after it.
     /// </summary>
     /// <param name="workspaceFolder">The location of the root of the workspace.</param>
     /// <param name="snapshot">The binding snapshot to restore.</param>

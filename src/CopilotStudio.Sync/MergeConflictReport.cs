@@ -5,15 +5,17 @@ using Microsoft.CopilotStudio.McsCore;
 
 namespace Microsoft.CopilotStudio.Sync;
 
-/// <summary>Conflicted merge output that must be written to disk verbatim for the user to resolve.</summary>
+/// <summary>Merge output that must be written to disk verbatim, including conflicts for the user to resolve.</summary>
 internal sealed class MergeConflictReport
 {
     public string? SettingsYaml { get; set; }
 
     public Dictionary<string, MergeConflictComponent> ComponentsBySchemaName { get; } = new(StringComparer.Ordinal);
 
-    public bool HasConflicts => SettingsYaml != null || ComponentsBySchemaName.Count > 0;
+    public Dictionary<string, MergedEnvironmentVariable> EnvironmentVariablesBySchemaName { get; } = new(StringComparer.OrdinalIgnoreCase);
 }
+
+internal sealed record MergedEnvironmentVariable(string Yaml, EnvironmentVariableDefinition? Definition);
 
 /// <summary>A component preserved by an unresolved merge, with the conflicted body to write when the merge produced one.</summary>
 internal sealed record MergeConflictComponent(string? Yaml, BotComponentBase Component, McsMetadataConflict? DisplayName = null, McsMetadataConflict? Description = null);

@@ -201,4 +201,22 @@ public class RetargetWorkflowPreservationTests : IDisposable
         Assert.True(Directory.Exists(promptFolder));
         Assert.True(File.Exists(Path.Combine(promptFolder, "metadata.yml")));
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FinalizeRetarget_RestoresWorkflowMetadataOnlyWhenPushFailed(bool pushSucceeded)
+    {
+        var synchronizer = CreateSynchronizer();
+        var metadataPath = Path.Combine(CreateLocalWorkflowFolder(), "metadata.yml");
+        var original = File.ReadAllBytes(metadataPath);
+        Directory.CreateDirectory(Path.Combine(_root, ".mcs"));
+        synchronizer.PersistRetargetBackup(_workspace, synchronizer.ResetRemoteBindingState(_workspace));
+        File.WriteAllText(metadataPath, "name: My Flow\nworkflowId: target\n");
+        var retargeted = File.ReadAllBytes(metadataPath);
+
+        Assert.True(synchronizer.FinalizeRetarget(_workspace, pushSucceeded));
+
+        Assert.Equal(pushSucceeded ? retargeted : original, File.ReadAllBytes(metadataPath));
+    }
 }

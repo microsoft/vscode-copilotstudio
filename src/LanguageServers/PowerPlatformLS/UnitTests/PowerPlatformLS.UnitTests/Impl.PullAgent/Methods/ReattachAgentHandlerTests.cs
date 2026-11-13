@@ -298,6 +298,87 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             Assert.Equal(0, synchronizer.SavedSyncInfoCount);
         }
 
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public async Task ReattachAgentMissingEnvironmentVariablesReturns400BeforeChangingAnythingTest(bool retarget)
+        {
+            var context = CreateTestSetup();
+            context.Request.AllowRetarget = retarget;
+            context.Request.ConflictResolution = RetargetConflictResolution.ReuseExisting;
+            var dataverseClient = new MockDataverseClient();
+            var synchronizer = retarget ? new TestWorkspaceSynchronizerSyncInfoExists() : new TestWorkspaceSynchronizer();
+            var validator = new Mock<IEnvironmentVariableDependencyValidator>();
+            validator
+                .Setup(v => v.ValidateEnvironmentVariableDependenciesAsync(It.IsAny<Microsoft.CopilotStudio.McsCore.DirectoryPath>(), It.IsAny<DefinitionBase>(), retarget, dataverseClient, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new EnvironmentVariableDependencyCheck(ImmutableArray.Create(new WorkspaceDiagnostic(TopicsPath, "Environment variable 'cr9f2_shared' does not exist in the target environment.", 0, 0, WorkspaceDiagnosticKind.MissingDependency)), ImmutableArray<string>.Empty));
+            var handler = TestHandlerFactory.CreateHandler(dataverseClient, synchronizer, CreateOperationProvider(), environmentVariableDependencyValidator: validator.Object);
+
+            var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
+
+            Assert.Equal(400, response.Code);
+            Assert.StartsWith("1 workspace file uses environment variables that are missing in the target environment:", response.Message, StringComparison.Ordinal);
+            Assert.Contains($"<pii type=\"WORKSPACE FILE DETAILS\" encoded=\"true\">{TopicsPath}</pii>", response.Message, StringComparison.Ordinal);
+            validator.Verify(v => v.ValidateEnvironmentVariableDependenciesAsync(It.IsAny<Microsoft.CopilotStudio.McsCore.DirectoryPath>(), It.IsAny<DefinitionBase>(), retarget, dataverseClient, It.IsAny<CancellationToken>()), Times.Once);
+            Assert.False(dataverseClient.CreateNewAgentCalled);
+            Assert.False(synchronizer.ReattachCalled);
+            Assert.Equal(0, synchronizer.ResetRemoteBindingStateCount);
+            Assert.Equal(0, synchronizer.PersistRetargetBackupCount);
+            Assert.Equal(0, synchronizer.SavedSyncInfoCount);
+        }
+
+        [Theory]
+        [InlineData(false, new string[0])]
+        [InlineData(true, new string[0])]
+        [InlineData(false, new[] { "cr9f2_one" })]
+        public async Task ReattachAgentUnapprovedEnvironmentVariableOverwritesAskForApprovalBeforeChangingAnythingTest(bool retarget, string[] approvedOverwrites)
+        {
+            var context = CreateTestSetup();
+            context.Request.AllowRetarget = retarget;
+            context.Request.ConflictResolution = RetargetConflictResolution.ReuseExisting;
+            context.Request.ApprovedEnvironmentVariableOverwrites = [.. approvedOverwrites];
+            var dataverseClient = new MockDataverseClient();
+            var synchronizer = retarget ? new TestWorkspaceSynchronizerSyncInfoExists() : new TestWorkspaceSynchronizer();
+            var handler = TestHandlerFactory.CreateHandler(dataverseClient, synchronizer, CreateOperationProvider(), environmentVariableDependencyValidator: CreateOverwritingValidator(dataverseClient, "cr9f2_one", "cr9f2_two"));
+
+            var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
+
+            Assert.Equal(200, response.Code);
+            Assert.Equal(new[] { "cr9f2_one", "cr9f2_two" }, response.EnvironmentVariableOverwrites);
+            Assert.False(dataverseClient.CreateNewAgentCalled);
+            Assert.False(synchronizer.ReattachCalled);
+            Assert.Equal(0, synchronizer.ResetRemoteBindingStateCount);
+            Assert.Equal(0, synchronizer.PersistRetargetBackupCount);
+            Assert.Equal(0, synchronizer.SavedSyncInfoCount);
+        }
+
+        [Fact]
+        public async Task ReattachAgentApprovedEnvironmentVariableOverwritesProceedTest()
+        {
+            var context = CreateTestSetup();
+            context.Request.ApprovedEnvironmentVariableOverwrites = ["CR9F2_ONE", "cr9f2_two"];
+            var dataverseClient = new MockDataverseClient();
+            var synchronizer = new TestWorkspaceSynchronizer();
+            var handler = TestHandlerFactory.CreateHandler(dataverseClient, synchronizer, CreateOperationProvider(), environmentVariableDependencyValidator: CreateOverwritingValidator(dataverseClient, "cr9f2_one", "cr9f2_two"));
+
+            var response = await handler.HandleRequestAsync(context.Request, context.RequestContext, CancellationToken.None);
+
+            Assert.Equal(200, response.Code);
+            Assert.Empty(response.EnvironmentVariableOverwrites);
+            Assert.True(dataverseClient.CreateNewAgentCalled);
+            Assert.True(synchronizer.ReattachCalled);
+            Assert.Equal(1, synchronizer.SavedSyncInfoCount);
+        }
+
+        private static IEnvironmentVariableDependencyValidator CreateOverwritingValidator(ISyncDataverseClient dataverseClient, params string[] overwrittenSchemaNames)
+        {
+            var validator = new Mock<IEnvironmentVariableDependencyValidator>();
+            validator
+                .Setup(v => v.ValidateEnvironmentVariableDependenciesAsync(It.IsAny<Microsoft.CopilotStudio.McsCore.DirectoryPath>(), It.IsAny<DefinitionBase>(), It.IsAny<bool>(), dataverseClient, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new EnvironmentVariableDependencyCheck(ImmutableArray<WorkspaceDiagnostic>.Empty, [.. overwrittenSchemaNames]));
+            return validator.Object;
+        }
+
         [Fact]
         public async Task ReattachAgentDoesNotBindConnectionsTest()
         {
@@ -1051,7 +1132,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
 
     internal static class TestHandlerFactory
     {
-        public static ReattachAgentHandler CreateHandler(ISyncDataverseClient dataverseClient, IWorkspaceSynchronizer workspace, IOperationContextProvider opProvider, ILspLogger? logger = null, ISyncComponentCollectionDataverseClient? componentCollectionDataverseClient = null, IStandaloneWorkflowSynchronizer? standaloneSynchronizer = null, Microsoft.CopilotStudio.McsCore.IFileAccessorFactory? fileAccessorFactory = null)
+        public static ReattachAgentHandler CreateHandler(ISyncDataverseClient dataverseClient, IWorkspaceSynchronizer workspace, IOperationContextProvider opProvider, ILspLogger? logger = null, ISyncComponentCollectionDataverseClient? componentCollectionDataverseClient = null, IStandaloneWorkflowSynchronizer? standaloneSynchronizer = null, Microsoft.CopilotStudio.McsCore.IFileAccessorFactory? fileAccessorFactory = null, IEnvironmentVariableDependencyValidator? environmentVariableDependencyValidator = null)
         {
             var mockAuthProvider = new Mock<ISyncAuthProvider>();
             mockAuthProvider.Setup(a => a.AcquireTokenAsync(It.IsAny<Uri>(), It.IsAny<CancellationToken>())).ReturnsAsync("mock-token");
@@ -1060,6 +1141,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
                 new Mock<IIslandControlPlaneService>().Object,
                 workspace,
                 (IWorkspaceRetargetService)workspace,
+                environmentVariableDependencyValidator ?? Mock.Of<IEnvironmentVariableDependencyValidator>(),
                 new TestTokenManager(),
                 dataverseClient,
                 componentCollectionDataverseClient ?? dataverseClient as ISyncComponentCollectionDataverseClient ?? Mock.Of<ISyncComponentCollectionDataverseClient>(),
@@ -1217,7 +1299,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             return Task.CompletedTask;
         }
 
-        public Task PushLocalChangesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, DefinitionBase workspaceDefinition, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CloudFlowMetadata? cloudFlowMetadata, ImmutableArray<AIPromptMetadata> aiPrompts, CancellationToken cancellationToken, AuthoringOperationContextBase? contentSaveContextOverride = null, bool overwriteRemoteChanges = false)
+        public virtual Task PushLocalChangesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, AuthoringOperationContextBase operationContext, DefinitionBase workspaceDefinition, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CloudFlowMetadata? cloudFlowMetadata, ImmutableArray<AIPromptMetadata> aiPrompts, CancellationToken cancellationToken, AuthoringOperationContextBase? contentSaveContextOverride = null, bool overwriteRemoteChanges = false, ImmutableArray<string>? approvedEnvironmentVariableOverwrites = null)
             => Task.CompletedTask;
 
         public Task<ImmutableArray<KnowledgeFileInfo>> ListKnowledgeFilesAsync(Microsoft.CopilotStudio.McsCore.DirectoryPath workspaceFolder, CancellationToken cancellationToken)
