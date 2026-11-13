@@ -85,6 +85,18 @@ public class CliAgentRoundTripReadTests
     }
 
     [Fact]
+    public async Task ReadWorkspaceDefinition_CliWorkspaceWithAnUncachedSettingsFile_ReadsIt()
+    {
+        var (_, _, accessor, synchronizer, workspace) = await PushFixtureAsClone("FoodLogger");
+        await accessor.WriteAsync(new AgentFilePath("settings/Default_FeedbackCollectionBotSettings_jsNFOl.mcs.yml"), "kind: DefaultFeedbackCollection\n", CancellationToken.None);
+
+        var read = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None);
+
+        var settings = Assert.IsType<BotSettingsComponent>(Assert.Single(read.Components, component => component.SchemaNameString == "Default_draft_rxzs_q.BotSettingsComponent.Default_FeedbackCollectionBotSettings_jsNFOl"));
+        Assert.IsType<DefaultFeedbackCollection>(settings.RootElement);
+    }
+
+    [Fact]
     public async Task RoundTrip_CliAgent_FoodLogger_AllComponentsSurvivePull()
     {
         // The primary Node E "Done when" criterion: a CLI workspace pulled

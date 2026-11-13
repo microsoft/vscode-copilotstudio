@@ -105,6 +105,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private static readonly JsonSerializerOptions IndentedJsonOptions = new() { WriteIndented = true };
 
+    private static readonly JsonSerializerOptions LocalConnectorJsonOptions = new() { PropertyNameCaseInsensitive = true };
+
     private static readonly Task<ImmutableArray<Change>> NoChangesTask = Task.FromResult(ImmutableArray<Change>.Empty);
 
     private static readonly Regex AiModelIdReferenceRegex = new Regex(@"aIModelId\s*:\s*([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", RegexOptions.Compiled);
@@ -426,11 +428,12 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private static List<FileAttachmentComponent> SelectNamedKnowledgeFiles(IEnumerable<BotComponentBase?> components) => components.OfType<FileAttachmentComponent>().Where(component => !string.IsNullOrEmpty(component.DisplayName)).GroupBy(component => component.SchemaNameString, StringComparer.Ordinal).Select(group => group.Last()).ToList();
 
-    private async Task<ImmutableArray<KnowledgeFileInfo>> DownloadAndRecordKnowledgeFilesAsync(IFileAccessor fileAccessor, ISyncDataverseClient dataverseClient, DefinitionBase snapshot, IReadOnlyCollection<FileAttachmentComponent> fileComponents, bool skipMissingAttachments, CancellationToken cancellationToken)
+    private async Task<ImmutableArray<KnowledgeFileInfo>> DownloadAndRecordKnowledgeFilesAsync(IFileAccessor fileAccessor, ISyncDataverseClient dataverseClient, DefinitionBase snapshot, IReadOnlyCollection<FileAttachmentComponent> fileComponents, bool skipMissingAttachments, CancellationToken cancellationToken, bool keepFilesEditedSinceLastSync = false)
     {
         var folderOverrides = BuildComponentFolderOverrides(fileAccessor, snapshot);
-        var downloaded = await DownloadKnowledgeComponentsAsync(fileAccessor, dataverseClient, snapshot, fileComponents, folderOverrides, skipMissingAttachments, cancellationToken).ConfigureAwait(false);
-        RecordKnowledgeFilesBaseline(fileAccessor, snapshot, SelectDownloadedComponents(fileComponents, downloaded), folderOverrides);
+        var componentsToDownload = keepFilesEditedSinceLastSync ? ExceptKnowledgeFilesEditedLocally(fileAccessor, snapshot, fileComponents, folderOverrides) : fileComponents;
+        var downloaded = await DownloadKnowledgeComponentsAsync(fileAccessor, dataverseClient, snapshot, componentsToDownload, folderOverrides, skipMissingAttachments, cancellationToken).ConfigureAwait(false);
+        RecordKnowledgeFilesBaseline(fileAccessor, snapshot, SelectDownloadedComponents(componentsToDownload, downloaded), folderOverrides);
         return downloaded;
     }
 
@@ -1352,7 +1355,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
 
         var requestedSchemaNames = schemaNames != null && schemaNames.Count > 0 ? new HashSet<string>(schemaNames, StringComparer.OrdinalIgnoreCase) : null;
-        return await DownloadAndRecordKnowledgeFilesAsync(fileAccessor, dataverseClient, snapshot, snapshot.Components.OfType<FileAttachmentComponent>().Where(c => !string.IsNullOrEmpty(c.DisplayName)).Where(c => !IsComponentCollectionOwned(snapshot, c)).Where(c => requestedSchemaNames == null || requestedSchemaNames.Contains(c.SchemaNameString)).ToList(), skipMissingAttachments: requestedSchemaNames == null, cancellationToken).ConfigureAwait(false);
+        return await DownloadAndRecordKnowledgeFilesAsync(fileAccessor, dataverseClient, snapshot, snapshot.Components.OfType<FileAttachmentComponent>().Where(c => !string.IsNullOrEmpty(c.DisplayName)).Where(c => !IsComponentCollectionOwned(snapshot, c)).Where(c => requestedSchemaNames == null || requestedSchemaNames.Contains(c.SchemaNameString)).ToList(), skipMissingAttachments: requestedSchemaNames == null, cancellationToken, keepFilesEditedSinceLastSync: requestedSchemaNames == null).ConfigureAwait(false);
     }
 
     public async Task<ImmutableArray<string>> UploadKnowledgeFilesAsync(DirectoryPath workspaceFolder, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
@@ -1420,7 +1423,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
 
         var (contentPath, hash) = payload;
-        var key = component.Id.Value.ToString("N");
 
         if (dataverseClient is IStreamingKnowledgeFileClient streamingClient)
         {
@@ -1461,7 +1463,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         if (hash != null)
         {
-            newHashes[key] = hash;
+            newHashes[GetKnowledgeSyncKey(component)] = hash;
         }
 
         uploaded.Add(displayName);
@@ -1482,7 +1484,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private AgentFilePath? GetPayloadPath(DefinitionBase snapshot, FileAttachmentComponent component, IReadOnlyDictionary<string, string> folderOverrides) => component.DisplayName is { Length: > 0 } displayName ? GetKnowledgeContentFilePath(GetStickyComponentPath(component, snapshot, folderOverrides), displayName) : null;
 
-    private static bool MatchesKnowledgeBaseline(FileAttachmentComponent component, string? hash, IReadOnlyDictionary<string, string> baseline) => hash != null && baseline.TryGetValue(component.Id.Value.ToString("N"), out var syncedHash) && string.Equals(syncedHash, hash, StringComparison.Ordinal);
+    private static bool MatchesKnowledgeBaseline(FileAttachmentComponent component, string? hash, IReadOnlyDictionary<string, string> baseline) => hash != null && baseline.TryGetValue(GetKnowledgeSyncKey(component), out var syncedHash) && string.Equals(syncedHash, hash, StringComparison.Ordinal);
 
     private async Task<KnowledgeFileInfo> DownloadSingleKnowledgeFileAsync(
         IFileAccessor fileAccessor,
@@ -1739,7 +1741,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
             ThrowIfWorkspaceInvalid(fileAccessor, effectiveDefinition, BuildComponentFolderOverrides(fileAccessor, effectiveDefinition));
 
-            var (changeSet, changes) = GetLocalChanges(effectiveDefinition, cloudSnapshot, fileAccessor, changeToken, isRemoteChange: false, deferMissingParents: true, out var deferredMissingParent, collectionOwnedComponentSchemaNames);
+            var (changeSet, changes) = GetLocalChanges(effectiveDefinition, cloudSnapshot, fileAccessor, changeToken, isRemoteChange: false, deferMissingParents: true, out var deferredMissingParent, collectionOwnedComponentSchemaNames, refuseRepeatedInserts: true);
 
             if (changes.IsEmpty)
             {
@@ -2092,7 +2094,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var existingSchemaNames = definition.Components.Select(c => c.SchemaNameString).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        newComponents = ScanForNewKnowledgeFiles(fileAccessor, definition, existingSchemaNames, cancellationToken);
+        newComponents = ScanForNewKnowledgeFiles(fileAccessor, definition, existingSchemaNames, droppedSchemaNames: new HashSet<string>(), cancellationToken);
 
         if (newComponents.Count == 0)
         {
@@ -2281,7 +2283,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             dialog: new InlineAgentSkill.Builder().Build());
     }
 
-    private List<BotComponentBase> ScanForNewKnowledgeFiles(IFileAccessor fileAccessor, DefinitionBase definition, HashSet<string> existingSchemaNames, CancellationToken cancellationToken)
+    private List<BotComponentBase> ScanForNewKnowledgeFiles(IFileAccessor fileAccessor, DefinitionBase definition, HashSet<string> existingSchemaNames, HashSet<string> droppedSchemaNames, CancellationToken cancellationToken)
     {
         var newComponents = new List<BotComponentBase>();
         var folderOverrides = BuildComponentFolderOverrides(fileAccessor, definition);
@@ -2386,7 +2388,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                         existingSchemaNames: existingSchemaNames
                     );
                 }
-                existingSchemaNames.Add(schemaName);
+
+                if (!ClaimSchemaName(existingSchemaNames, droppedSchemaNames, schemaName))
+                {
+                    continue;
+                }
 
                 var builder = new FileAttachmentComponent()
                     .WithSchemaName(schemaName)
@@ -4201,7 +4207,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 continue;
             }
 
-            var prefix = GetStableConnectorPrefix(connectorInternalId);
+            var prefix = CustomConnectorInternalId.StablePrefixOf(connectorInternalId);
             if (prefix != null)
             {
                 distinctPrefixes.Add(prefix);
@@ -4257,7 +4263,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     /// </summary>
     private static async Task<string?> ResolveTargetConnectorNameAsync(string connectorInternalId, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken, IDictionary<string, CustomConnectorMetadata[]>? prefixCache = null)
     {
-        var prefix = GetStableConnectorPrefix(connectorInternalId);
+        var prefix = CustomConnectorInternalId.StablePrefixOf(connectorInternalId);
         if (prefix == null)
         {
             return connectorInternalId;
@@ -4294,32 +4300,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             .FirstOrDefault();
 
         return newest?.ConnectorInternalId ?? connectorInternalId;
-    }
-
-    /// <summary>
-    /// Returns the stable connector internal id prefix for an environment-specific connector whose trailing segment is a 16-character hex hash; otherwise returns null.
-    /// </summary>
-    private static string? GetStableConnectorPrefix(string? connectorInternalId)
-    {
-        if (connectorInternalId is null || string.IsNullOrWhiteSpace(connectorInternalId))
-        {
-            return null;
-        }
-
-        const string separator = "-5f";
-        var idx = connectorInternalId.LastIndexOf(separator, StringComparison.Ordinal);
-        if (idx <= 0)
-        {
-            return null;
-        }
-
-        var tail = connectorInternalId.Substring(idx + separator.Length);
-        if (tail.Length != 16 || !tail.All(Uri.IsHexDigit))
-        {
-            return null;
-        }
-
-        return connectorInternalId.Substring(0, idx + separator.Length);
     }
 
     /// <summary>
@@ -6344,7 +6324,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     public (PvaComponentChangeSet, ImmutableArray<Change>) GetLocalChanges(DefinitionBase localDefinition, DefinitionBase cloudSnapshot, IFileAccessor fileAccessor, string? changeToken, bool isRemoteChange = false)
         => GetLocalChanges(localDefinition, cloudSnapshot, fileAccessor, changeToken, isRemoteChange, deferMissingParents: false, out _);
 
-    public (PvaComponentChangeSet, ImmutableArray<Change>) GetLocalChanges(DefinitionBase localDefinition, DefinitionBase cloudSnapshot, IFileAccessor fileAccessor, string? changeToken, bool isRemoteChange, bool deferMissingParents, out bool deferredMissingParent, HashSet<string>? collectionOwnedComponentSchemaNames = null, bool surfaceFileChildrenOfNewParents = false)
+    public (PvaComponentChangeSet, ImmutableArray<Change>) GetLocalChanges(DefinitionBase localDefinition, DefinitionBase cloudSnapshot, IFileAccessor fileAccessor, string? changeToken, bool isRemoteChange, bool deferMissingParents, out bool deferredMissingParent, HashSet<string>? collectionOwnedComponentSchemaNames = null, bool surfaceFileChildrenOfNewParents = false, bool refuseRepeatedInserts = false)
     {
         deferredMissingParent = false;
 
@@ -6428,6 +6408,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         // incoming newBotDefinition does not have ids, versions numbers.
         // We must correlate to the cloud snapshot to get those. 
+
+        var insertedComponentUris = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         // Inserts, Updates, Deletes.
         foreach (var localComponent in localDefinition.Components)
@@ -6559,6 +6541,16 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 if (IsRootAgentMetadata(localComponent, createUri, isRemoteChange))
                 {
                     continue;
+                }
+
+                if (refuseRepeatedInserts && localComponent.SchemaNameString is { Length: > 0 } insertedSchemaName)
+                {
+                    if (insertedComponentUris.TryGetValue(insertedSchemaName, out var firstCreateUri))
+                    {
+                        throw new WorkspaceValidationException([RepeatedSchemaDiagnostic(insertedSchemaName, firstCreateUri, createUri)]);
+                    }
+
+                    insertedComponentUris[insertedSchemaName] = createUri;
                 }
 
                 // In local, but not in cloud . --> Insert to cloud
@@ -8088,11 +8080,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return (definition, diagnostics.UnreadableFiles);
     }
 
-    internal async Task<DefinitionBase> ReadWorkspaceDefinitionAsync(DirectoryPath workspaceFolder, CancellationToken cancellationToken, bool checkKnowledgeFiles, SyncDiagnosticsCollector? diagnostics, bool validate)
+    internal async Task<DefinitionBase> ReadWorkspaceDefinitionAsync(DirectoryPath workspaceFolder, CancellationToken cancellationToken, bool checkKnowledgeFiles, SyncDiagnosticsCollector? diagnostics, bool validate, DefinitionBase? baseDefinition = null)
     {
         var readDiagnostics = new List<WorkspaceDiagnostic>();
         var fileAccessor = this.OpenWorkspace(workspaceFolder);
-        var definition = ReadCloudCacheSnapshot(fileAccessor, allowMissing: true);
+        var definition = baseDefinition ?? ReadCloudCacheSnapshot(fileAccessor, allowMissing: true);
         if (definition == null)
         {
             definition = ReadCachelessCliDefinitionOrNull(fileAccessor) ?? ReadCachelessCollectionDefinitionOrNull(fileAccessor);
@@ -8147,7 +8139,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
 
         var updatedComponents = new List<BotComponentBase>();
-        var existingSchemaNames = new HashSet<string>();
+        var existingSchemaNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var droppedSchemaNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var readComponentPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var readFolderOverrides = BuildComponentFolderOverrides(fileAccessor, definition);
 
@@ -8198,6 +8191,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
                 // Classic, or an adopted CLI .mcs.yml layout: the user deleted the
                 // file -> drop the component (synthesize delete intent). [delete-safety]
+                droppedSchemaNames.Add(component.SchemaNameString);
                 continue;
             }
 
@@ -8275,6 +8269,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             if (newLocalFiles.Count != 0)
             {
                 var projectionContext = new ProjectionContext(GetSchemaName(definition));
+                var newComponentFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 IReadOnlyDictionary<string, string>? childAgentSchemaLinks = null;
 
                 foreach (var localFile in newLocalFiles)
@@ -8310,7 +8305,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
                     if (component != null && error == null)
                     {
-                        updatedComponents.Add(component);
+                        AddNewComponent(updatedComponents, existingSchemaNames, droppedSchemaNames, newComponentFiles, readDiagnostics, component, localFile);
                     }
                 }
             }
@@ -8321,7 +8316,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             // new files the user authored locally (no cloud-cache match).
             // Mirrors the classic new-file scan but uses the route-specific
             // filename → schemaName projections (TryProjectSchemaNameFromFilePath).
-            ScanForNewCliFiles(fileAccessor, definition, updatedComponents, existingSchemaNames, readDiagnostics, diagnostics, cancellationToken);
+            ScanForNewCliFiles(fileAccessor, definition, updatedComponents, existingSchemaNames, droppedSchemaNames, readDiagnostics, diagnostics, cancellationToken);
         }
 
         if (checkKnowledgeFiles)
@@ -8329,7 +8324,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             var diskSkills = updatedComponents.Where(component => component is DialogComponent { Dialog: InlineAgentSkill }).ToImmutableArray();
             var scanComponents = definition.Components.Where(component => component is not DialogComponent { Dialog: InlineAgentSkill }).Concat(diskSkills).ToImmutableArray();
             var scanDefinition = DetectNewLocalSkills(fileAccessor, definition.WithComponents(scanComponents), definition, out var synthesizedSkills);
-            var newKnowledgeComponents = ScanForNewKnowledgeFiles(fileAccessor, scanDefinition, existingSchemaNames, cancellationToken);
+            var newKnowledgeComponents = ScanForNewKnowledgeFiles(fileAccessor, scanDefinition, existingSchemaNames, droppedSchemaNames, cancellationToken);
 
             // ! The filter excludes skills without a schema name before building the lookup.
             var resolvedSkillsBySchema = scanDefinition.Components.Where(component => component is DialogComponent { Dialog: InlineAgentSkill } && !string.IsNullOrEmpty(component.SchemaNameString)).ToDictionary(component => component.SchemaNameString!, component => component, StringComparer.OrdinalIgnoreCase);
@@ -8598,20 +8593,14 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     /// components). Each discovered file is compiled with the CLI projection shape
     /// so its schema name is derived from the CLI rules, mirroring the writer exactly.
     /// </summary>
-    private void ScanForNewCliFiles(
-        IFileAccessor fileAccessor,
-        DefinitionBase definition,
-        List<BotComponentBase> updatedComponents,
-        HashSet<string> existingSchemaNames,
-        List<WorkspaceDiagnostic> readDiagnostics,
-        SyncDiagnosticsCollector? diagnostics,
-        CancellationToken cancellationToken)
+    private void ScanForNewCliFiles(IFileAccessor fileAccessor, DefinitionBase definition, List<BotComponentBase> updatedComponents, HashSet<string> existingSchemaNames, HashSet<string> droppedSchemaNames, List<WorkspaceDiagnostic> readDiagnostics, SyncDiagnosticsCollector? diagnostics, CancellationToken cancellationToken)
     {
         var knownPaths = definition.Components
             .Select(c => ResolveOnDiskComponentPath(fileAccessor, new AgentFilePath(_pathResolver.GetComponentPath(c, definition)), c, definition).ToString())
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var projectionContext = new ProjectionContext(GetSchemaName(definition));
+        var newComponentFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var folder in CliComponentFolders)
         {
@@ -8647,16 +8636,30 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 }
 
                 var (component, error) = _fileParser.CompileFile(file, element, projectionContext, AuthoringShape.CliCopilot, SkillLayout.ParseMetadata(yaml).SchemaName);
-                if (component == null || error != null || existingSchemaNames.Contains(component.SchemaNameString))
+                if (component != null && error == null)
                 {
-                    continue;
+                    AddNewComponent(updatedComponents, existingSchemaNames, droppedSchemaNames, newComponentFiles, readDiagnostics, component, file);
                 }
-
-                updatedComponents.Add(component);
-                existingSchemaNames.Add(component.SchemaNameString);
             }
         }
     }
+
+    private static void AddNewComponent(List<BotComponentBase> updatedComponents, HashSet<string> existingSchemaNames, HashSet<string> droppedSchemaNames, Dictionary<string, string> newComponentFiles, List<WorkspaceDiagnostic> readDiagnostics, BotComponentBase component, AgentFilePath file)
+    {
+        if (ClaimSchemaName(existingSchemaNames, droppedSchemaNames, component.SchemaNameString))
+        {
+            newComponentFiles[component.SchemaNameString] = file.ToString();
+            updatedComponents.Add(component);
+        }
+        else if (newComponentFiles.TryGetValue(component.SchemaNameString, out var firstFile))
+        {
+            readDiagnostics.Add(RepeatedSchemaDiagnostic(component.SchemaNameString, firstFile, file.ToString()));
+        }
+    }
+
+    private static bool ClaimSchemaName(HashSet<string> existingSchemaNames, HashSet<string> droppedSchemaNames, string schemaName) => existingSchemaNames.Add(schemaName) || droppedSchemaNames.Remove(schemaName);
+
+    private static WorkspaceDiagnostic RepeatedSchemaDiagnostic(string schemaName, string firstPath, string secondPath) => new(secondPath, $"The component schema name {schemaName} is {(string.Equals(firstPath, secondPath, StringComparison.Ordinal) ? $"read twice from {secondPath}" : $"defined by both {firstPath} and {secondPath}")}, so a push would create it twice.", 0, 0);
 
     /// <summary>Component-body file extension (language-recognized MCS, D28).</summary>
     private const string McsFileExtension = ".mcs.yml";
@@ -8789,6 +8792,27 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     private static AgentFilePath GetKnowledgeContentFilePath(AgentFilePath componentPath, string displayName)
     {
         return KnowledgeFilePath.GetContentFilePath(componentPath, displayName);
+    }
+
+    private static string GetKnowledgeSyncKey(FileAttachmentComponent component) => component.Id.Value.ToString("N");
+
+    private List<FileAttachmentComponent> ExceptKnowledgeFilesEditedLocally(IFileAccessor fileAccessor, DefinitionBase snapshot, IReadOnlyCollection<FileAttachmentComponent> components, IReadOnlyDictionary<string, string> folderOverrides)
+    {
+        var baseline = ReadKnowledgeSyncState(fileAccessor);
+        var unedited = new List<FileAttachmentComponent>(components.Count);
+
+        foreach (var component in components)
+        {
+            if (baseline.ContainsKey(GetKnowledgeSyncKey(component)) && HasEditedPayload(fileAccessor, snapshot, component, baseline, folderOverrides))
+            {
+                _syncProgress.Report($"Kept {GetPayloadPath(snapshot, component, folderOverrides)}: it changed after its last sync, so the copy in the environment did not replace it.");
+                continue;
+            }
+
+            unedited.Add(component);
+        }
+
+        return unedited;
     }
 
     private bool IsValidFileToUpload(IFileAccessor fileAccessor, AgentFilePath knowledgeFile)
@@ -9861,7 +9885,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 continue;
             }
 
-            var key = component.Id.Value.ToString("N");
+            var key = GetKnowledgeSyncKey(component);
             if (!state.TryGetValue(key, out var existing) || !string.Equals(existing, hash, StringComparison.Ordinal))
             {
                 state[key] = hash;
@@ -10040,15 +10064,16 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private static string DescribeConnectorChangedInTheCloud(string name) => $"Failed to push custom connector '{name}': it changed in the cloud since it was last synced. Get the latest changes, or overwrite the cloud copy.";
 
-    private static async Task<CustomConnectorMetadata?> LoadLocalConnectorAsync(IFileAccessor fileAccessor, string folder, CancellationToken cancellationToken)
+    internal static CustomConnectorMetadata? ParseLocalConnector(string metadataText, string folderName)
     {
-        var connector = await TryLoadLocalConnectorAsync(fileAccessor, folder, cancellationToken).ConfigureAwait(false);
-        if (connector != null && connector.ConnectorId == Guid.Empty)
+        var connector = JsonSerializer.Deserialize<CustomConnectorMetadata>(metadataText, LocalConnectorJsonOptions);
+
+        if (connector is not null && connector.ConnectorId == Guid.Empty)
         {
-            connector.ConnectorId = ComponentFolderName.ExtractTrailingGuid(GetComponentFolderName(folder)) ?? Guid.Empty;
+            connector.ConnectorId = ComponentFolderName.ExtractTrailingGuid(folderName) ?? Guid.Empty;
         }
 
-        return connector == null || connector.ConnectorId == Guid.Empty ? null : connector;
+        return connector is null || connector.ConnectorId == Guid.Empty ? null : connector;
     }
 
     private async Task WriteConnectorFolderIfUnchangedAsync(IFileAccessor fileAccessor, ConnectorFolderContent content, LocalConnector localConnector, CancellationToken cancellationToken)
@@ -10155,7 +10180,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         internal IReadOnlyDictionary<string, string> Files => SyncedAssetKind.ToFiles(new (string, string?)[] { (CustomConnectorLayout.MetadataFileName, Metadata), (CustomConnectorLayout.OpenApiDefinitionFileName, OpenApiDefinition), (CustomConnectorLayout.ConnectionParametersFileName, ConnectionParameters), (CustomConnectorLayout.PolicyTemplateInstancesFileName, PolicyTemplateInstances), (CustomConnectorLayout.IconFileName, Icon == null ? null : Convert.ToBase64String(Icon)) });
     }
 
-    private static async Task<CustomConnectorMetadata?> TryLoadLocalConnectorAsync(IFileAccessor fileAccessor, string folder, CancellationToken cancellationToken)
+    private static async Task<CustomConnectorMetadata?> LoadLocalConnectorAsync(IFileAccessor fileAccessor, string folder, CancellationToken cancellationToken)
     {
         var meta = await TryReadConnectorMetadataAsync(fileAccessor, folder, cancellationToken).ConfigureAwait(false);
         if (meta == null)
@@ -10191,7 +10216,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         try
         {
-            return JsonSerializer.Deserialize<CustomConnectorMetadata>(metadataText, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            return ParseLocalConnector(metadataText, GetComponentFolderName(folder));
         }
         catch (JsonException)
         {
@@ -10256,7 +10281,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return normalizedValue;
     }
 
-    private static string SanitizeConnectorFolderName(string raw)
+    internal static string SanitizeConnectorFolderName(string raw)
     {
         var invalid = Path.GetInvalidFileNameChars();
         var sb = new StringBuilder(raw.Length);

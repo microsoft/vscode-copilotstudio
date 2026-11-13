@@ -713,7 +713,7 @@ public sealed class StandaloneWorkflowSynchronizer : IStandaloneWorkflowSynchron
 
     private static WorkflowFile RequireSingle(IFileAccessor workspace) => WorkflowWorkspace.RequireSingle(workspace, WorkflowWorkspace.WorkflowsFolderName);
 
-    private static async Task<SyncDataverseClient.WorkflowMetadata> ReadFolderAsync(IFileAccessor workspace, CancellationToken cancellationToken)
+    internal static async Task<SyncDataverseClient.WorkflowMetadata> ReadFolderAsync(IFileAccessor workspace, CancellationToken cancellationToken)
     {
         if (workspace is null)
         {

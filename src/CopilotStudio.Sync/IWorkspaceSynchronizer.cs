@@ -230,11 +230,11 @@ public interface IWorkspaceSynchronizer
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Downloads knowledge-file content from the cloud, overwriting local files.
+    /// Downloads knowledge-file content from the cloud, overwriting local files except those a full download finds edited since their last sync.
     /// </summary>
     /// <param name="workspaceFolder">The location of the root of the workspace.</param>
     /// <param name="dataverseClient">The dataverse client to use for communication with the dataverse service.</param>
-    /// <param name="schemaNames">When non-empty, only the listed component schema names are downloaded; otherwise all are downloaded.</param>
+    /// <param name="schemaNames">When non-empty, only the listed component schema names are downloaded; otherwise all are downloaded, keeping any file edited locally since its last sync.</param>
     /// <param name="cancellationToken">Used to cancel the request.</param>
     /// <returns>The knowledge files that were downloaded.</returns>
     Task<ImmutableArray<KnowledgeFileInfo>> DownloadKnowledgeFilesAsync(

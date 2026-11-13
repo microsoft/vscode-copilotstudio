@@ -13,6 +13,10 @@ namespace Microsoft.CopilotStudio.Sync.UnitTests;
 
 public class DataverseRetryPolicyTests
 {
+    private const string DeadlockBody = "{\"error\":{\"code\":\"0x80044150\",\"message\":\"Generic SQL error. CRM ErrorCode: -2147204784 Sql ErrorCode: -2146232060 Sql Number: 1205\"}}";
+
+    private const string ConcurrentDeleteBody = "{\"error\":{\"code\":\"0x80048105\",\"message\":\"More than one concurrent Delete requests detected for an Entity\"}}";
+
     private static readonly Guid ComponentId = Guid.Parse("6f1c2a4e-0b7d-4c55-9a43-2d8e5f7b9c10");
 
     private static readonly HttpRequestOptionsKey<string> TraceOption = new("trace");
@@ -31,6 +35,8 @@ public class DataverseRetryPolicyTests
 
         public Action? OnSend { get; init; }
 
+        public Queue<Exception> Failures { get; init; } = new();
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Requests.Add(new SentRequest(
@@ -43,7 +49,7 @@ public class DataverseRetryPolicyTests
                 request.Content is null ? [] : await request.Content.ReadAsByteArrayAsync(cancellationToken)));
             OnSend?.Invoke();
 
-            return _responses.Dequeue();
+            return Failures.TryDequeue(out var failure) ? throw failure : _responses.Dequeue();
         }
     }
 
@@ -60,8 +66,20 @@ public class DataverseRetryPolicyTests
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
     }
 
-    private static HttpResponseMessage Status(HttpStatusCode statusCode, string body = "") =>
-        new(statusCode) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+    private sealed class UnreadableContent : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) => throw new InvalidOperationException("The body was read.");
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+
+            return false;
+        }
+    }
+
+    private static HttpResponseMessage Status(HttpStatusCode statusCode, string body = "", bool readableOnce = false) =>
+        new(statusCode) { Content = readableOnce ? new StreamContent(new ForwardOnlyStream(Encoding.UTF8.GetBytes(body))) : new StringContent(body, Encoding.UTF8, "application/json") };
 
     private static HttpResponseMessage Throttled(TimeSpan retryAfter)
     {
@@ -71,8 +89,11 @@ public class DataverseRetryPolicyTests
         return response;
     }
 
+    private static Func<TimeSpan, CancellationToken, Task> RecordingDelay(List<TimeSpan> waits) =>
+        (delay, _) => { waits.Add(delay); return Task.CompletedTask; };
+
     private static DataverseRetryPolicy RecordingPolicy(List<TimeSpan> waits) =>
-        new() { Delay = (delay, _) => { waits.Add(delay); return Task.CompletedTask; } };
+        new() { Delay = RecordingDelay(waits) };
 
     private static Task<HttpResponseMessage> SendAsync(DataverseRetryPolicy policy, ScriptedHandler handler, HttpMethod method, CancellationToken cancellationToken = default) =>
         policy.SendAsync(new HttpClient(handler), () => new HttpRequestMessage(method, "https://test.crm.dynamics.com/api/data/v9.2/workflows"), HttpCompletionOption.ResponseHeadersRead, cancellationToken);
@@ -154,7 +175,7 @@ public class DataverseRetryPolicyTests
     public async Task SendAsync_NeverBacksOffLongerThanTheMaximum()
     {
         var waits = new List<TimeSpan>();
-        var policy = new DataverseRetryPolicy { BaseDelay = TimeSpan.FromHours(1), MaximumDelay = TimeSpan.FromSeconds(2), Delay = (delay, _) => { waits.Add(delay); return Task.CompletedTask; } };
+        var policy = new DataverseRetryPolicy { BaseDelay = TimeSpan.FromHours(1), MaximumDelay = TimeSpan.FromSeconds(2), Delay = RecordingDelay(waits) };
 
         using var response = await SendAsync(policy, new ScriptedHandler(Status(HttpStatusCode.ServiceUnavailable), Status(HttpStatusCode.OK)), HttpMethod.Get);
 
@@ -195,6 +216,7 @@ public class DataverseRetryPolicyTests
 
     [Theory]
     [InlineData("{\"error\":{\"code\":\"0x80040216\",\"message\":\"An unexpected error occurred.\"}}")]
+    [InlineData("{\"error\":{\"code\":\"0x80044150\",\"message\":\"Generic SQL error. Sql Number: 2627\"}}")]
     [InlineData("{\"error\":{\"message\":\"An unexpected error occurred.\"}}")]
     [InlineData("{\"error\":{\"code\":80040251}}")]
     [InlineData("{\"error\":\"0x80040251\"}")]
@@ -212,6 +234,31 @@ public class DataverseRetryPolicyTests
         Assert.Equal(body, await response.Content.ReadAsStringAsync());
         Assert.Equal(1, handler.Attempts);
         Assert.Empty(waits);
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenADeleteLosesASqlDeadlock_SucceedsOnTheSecondAttempt()
+    {
+        var waits = new List<TimeSpan>();
+        var handler = new ScriptedHandler(Status(HttpStatusCode.InternalServerError, DeadlockBody), Status(HttpStatusCode.NoContent));
+
+        using var response = await SendAsync(RecordingPolicy(waits), handler, HttpMethod.Delete);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(2, handler.Attempts);
+        Assert.InRange(Assert.Single(waits), TimeSpan.FromMilliseconds(500), TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenTheDeadlockPersists_ReturnsTheLastFailureWithItsBodyStillReadable()
+    {
+        var handler = new ScriptedHandler(Status(HttpStatusCode.InternalServerError, DeadlockBody), Status(HttpStatusCode.InternalServerError, DeadlockBody), Status(HttpStatusCode.InternalServerError, DeadlockBody, readableOnce: true), Status(HttpStatusCode.OK));
+
+        using var response = await SendAsync(RecordingPolicy(new List<TimeSpan>()), handler, HttpMethod.Get);
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.Equal(DeadlockBody, await response.Content.ReadAsStringAsync());
+        Assert.Equal(3, handler.Attempts);
     }
 
     [Theory]
@@ -237,6 +284,7 @@ public class DataverseRetryPolicyTests
     [InlineData(HttpStatusCode.ServiceUnavailable, "")]
     [InlineData(HttpStatusCode.GatewayTimeout, "")]
     [InlineData(HttpStatusCode.InternalServerError, "{\"error\":{\"code\":\"0x80040251\",\"message\":\"The service failed.\"}}")]
+    [InlineData(HttpStatusCode.InternalServerError, DeadlockBody)]
     public async Task SendAsync_NeverRepeatsACreateAfterAServerFailure(HttpStatusCode statusCode, string body)
     {
         var waits = new List<TimeSpan>();
@@ -278,14 +326,113 @@ public class DataverseRetryPolicyTests
         Assert.Equal(2, handler.Attempts);
     }
 
-    [Fact]
-    public async Task SendAsync_WhenTheConnectionFails_DoesNotSendAgain()
+    [Theory]
+    [InlineData("GET", HttpRequestError.ConnectionError)]
+    [InlineData("POST", HttpRequestError.ConnectionError)]
+    [InlineData("POST", HttpRequestError.SecureConnectionError)]
+    public async Task SendAsync_WhenTheConnectionCannotBeEstablished_SendsAgainWhateverTheMethod(string method, HttpRequestError error)
     {
-        var handler = new ScriptedHandler(Status(HttpStatusCode.OK)) { OnSend = () => throw new HttpRequestException("The connection was reset.") };
+        var waits = new List<TimeSpan>();
+        var handler = new ScriptedHandler(Status(HttpStatusCode.OK)) { Failures = new([new HttpRequestException(error)]) };
 
-        await Assert.ThrowsAsync<HttpRequestException>(() => SendAsync(RecordingPolicy(new List<TimeSpan>()), handler, HttpMethod.Get));
+        using var response = await SendAsync(RecordingPolicy(waits), handler, new HttpMethod(method));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(2, handler.Attempts);
+        Assert.InRange(Assert.Single(waits), TimeSpan.FromMilliseconds(500), TimeSpan.FromSeconds(1));
+    }
+
+    [Theory]
+    [InlineData("GET", HttpRequestError.Unknown)]
+    [InlineData("POST", HttpRequestError.ResponseEnded)]
+    public async Task SendAsync_WhenAnEstablishedConnectionFails_DoesNotSendAgain(string method, HttpRequestError error)
+    {
+        var handler = new ScriptedHandler(Status(HttpStatusCode.OK)) { OnSend = () => throw new HttpRequestException(error, "The connection was reset.") };
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => SendAsync(RecordingPolicy(new List<TimeSpan>()), handler, new HttpMethod(method)));
 
         Assert.Equal(1, handler.Attempts);
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenTheConnectionKeepsFailing_RethrowsTheLastFailureAfterThreeAttempts()
+    {
+        var waits = new List<TimeSpan>();
+        var failures = new[] { new HttpRequestException(HttpRequestError.ConnectionError), new HttpRequestException(HttpRequestError.SecureConnectionError), new HttpRequestException(HttpRequestError.ConnectionError) };
+        var handler = new ScriptedHandler(Status(HttpStatusCode.OK)) { Failures = new(failures) };
+
+        Assert.Same(failures[2], await Assert.ThrowsAsync<HttpRequestException>(() => SendAsync(RecordingPolicy(waits), handler, HttpMethod.Get)));
+        Assert.Equal(3, handler.Attempts);
+        Assert.Collection(
+            waits,
+            first => Assert.InRange(first, TimeSpan.FromMilliseconds(500), TimeSpan.FromSeconds(1)),
+            second => Assert.InRange(second, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2)));
+    }
+
+    [Fact]
+    public async Task SendAsync_WaitsOutAConcurrentDeleteOfTheRowWithoutSpendingAttempts()
+    {
+        var waits = new List<TimeSpan>();
+        var handler = new ScriptedHandler(Status(HttpStatusCode.BadRequest, ConcurrentDeleteBody), Status(HttpStatusCode.BadRequest, ConcurrentDeleteBody), Status(HttpStatusCode.NotFound));
+
+        using var response = await SendAsync(new DataverseRetryPolicy { MaxAttempts = 1, Delay = RecordingDelay(waits) }, handler, HttpMethod.Delete);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(3, handler.Attempts);
+        Assert.Equal([TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10)], waits);
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenAConcurrentDeleteOutlastsTheBudget_ReturnsTheLastRefusalWithItsBodyStillReadable()
+    {
+        var waits = new List<TimeSpan>();
+        var handler = new ScriptedHandler(Status(HttpStatusCode.BadRequest, ConcurrentDeleteBody), Status(HttpStatusCode.BadRequest, ConcurrentDeleteBody), Status(HttpStatusCode.BadRequest, ConcurrentDeleteBody, readableOnce: true), Status(HttpStatusCode.NoContent));
+
+        using var response = await SendAsync(new DataverseRetryPolicy { ConcurrentDeleteBudget = TimeSpan.FromSeconds(20), Delay = RecordingDelay(waits) }, handler, HttpMethod.Delete);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(ConcurrentDeleteBody, await response.Content.ReadAsStringAsync());
+        Assert.Equal(3, handler.Attempts);
+        Assert.Equal([TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10)], waits);
+    }
+
+    [Theory]
+    [InlineData("GET", HttpStatusCode.InternalServerError)]
+    [InlineData("DELETE", HttpStatusCode.InternalServerError)]
+    [InlineData("DELETE", HttpStatusCode.BadRequest)]
+    public async Task SendAsync_WhenNoRetryCanFollow_ReturnsTheFailureWithoutReadingItsBody(string method, HttpStatusCode statusCode)
+    {
+        var handler = new ScriptedHandler(new HttpResponseMessage(statusCode) { Content = new UnreadableContent() }, Status(HttpStatusCode.OK));
+
+        using var response = await SendAsync(new DataverseRetryPolicy { MaxAttempts = 1, ConcurrentDeleteBudget = TimeSpan.Zero, Delay = RecordingDelay(new List<TimeSpan>()) }, handler, new HttpMethod(method));
+
+        Assert.Equal(statusCode, response.StatusCode);
+        Assert.Equal(1, handler.Attempts);
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenADeleteRetriedAfterAGatewayTimeoutFindsNoRow_ReportsTheRowDeleted()
+    {
+        var handler = new ScriptedHandler(Status(HttpStatusCode.GatewayTimeout), Status(HttpStatusCode.NotFound));
+
+        using var response = await SendAsync(RecordingPolicy(new List<TimeSpan>()), handler, HttpMethod.Delete);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(2, handler.Attempts);
+    }
+
+    [Theory]
+    [InlineData("GET", HttpStatusCode.ServiceUnavailable)]
+    [InlineData("POST", HttpStatusCode.TooManyRequests)]
+    [InlineData("DELETE", HttpStatusCode.TooManyRequests)]
+    public async Task SendAsync_ReportsNotFoundWhenNoEarlierAttemptCanHaveDeletedTheRow(string method, HttpStatusCode firstStatusCode)
+    {
+        var handler = new ScriptedHandler(Status(firstStatusCode), Status(HttpStatusCode.NotFound));
+
+        using var response = await SendAsync(RecordingPolicy(new List<TimeSpan>()), handler, new HttpMethod(method));
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(2, handler.Attempts);
     }
 
     [Fact]
@@ -433,6 +580,19 @@ public class DataverseRetryPolicyTests
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
         Assert.Equal(1, handler.Attempts);
+    }
+
+    [Fact]
+    public async Task Handler_ReportsADeadlockedDeleteThatFindsTheRowGoneAsDeleted()
+    {
+        var handler = new ScriptedHandler(Status(HttpStatusCode.InternalServerError, DeadlockBody), Status(HttpStatusCode.NotFound));
+        using var request = new HttpRequestMessage(HttpMethod.Delete, "https://test.crm.dynamics.com/api/data/v9.2/workflows");
+
+        using var response = await ThroughHandler(RecordingPolicy(new List<TimeSpan>()), handler).SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(2, handler.Attempts);
+        Assert.Same(request, response.RequestMessage);
     }
 
     [Fact]

@@ -29,7 +29,7 @@ namespace Microsoft.CopilotStudio.Sync;
 /// </summary>
 internal static class CliAgentBotEntityReader
 {
-    private static readonly AgentFilePath SettingsPath = new AgentFilePath("settings.mcs.yml");
+    internal static readonly AgentFilePath SettingsPath = new AgentFilePath("settings.mcs.yml");
     private static readonly AgentFilePath LayoutMarkerPath = new AgentFilePath(AgentClassifier.WorkspaceLayoutMarkerFileName);
 
     /// <summary>
@@ -131,18 +131,20 @@ internal static class CliAgentBotEntityReader
         return cloudEntity.ApplySettingsYamlProperties(diskEntity);
     }
 
-    internal static BotEntity Read(IFileAccessor fileAccessor)
+    internal static BotEntity Read(IFileAccessor fileAccessor) => Read(fileAccessor, SettingsPath);
+
+    internal static BotEntity Read(IFileAccessor fileAccessor, AgentFilePath path)
     {
         try
         {
-            using var stream = fileAccessor.OpenRead(SettingsPath);
+            using var stream = fileAccessor.OpenRead(path);
             using var reader = new StreamReader(stream, Encoding.UTF8);
             return McsYamlValidator.Deserialize<BotEntity>(reader.ReadToEnd())
                 ?? throw new McsYamlFormatException("Settings did not deserialize to a BotEntity. Fix or re-clone the agent.", 0, 0);
         }
         catch (Exception failure) when (WorkspaceSynchronizer.IsUnreadableFileFailure(failure))
         {
-            throw new WorkspaceValidationException([WorkspaceDiagnostic.FromException(SettingsPath.ToString(), failure)]);
+            throw new WorkspaceValidationException([WorkspaceDiagnostic.FromException(path.ToString(), failure)]);
         }
     }
 }

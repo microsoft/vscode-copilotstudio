@@ -26,6 +26,8 @@ public static class WorkflowDefinitionFile
 
     private static readonly JsonSerializerOptions IndentedJson = new() { WriteIndented = true };
 
+    internal static readonly JsonDocumentOptions StrictJson = new() { CommentHandling = JsonCommentHandling.Disallow, AllowTrailingCommas = false };
+
     /// <summary>Renders a definition the way it is written to disk, leaving unparseable content alone.</summary>
     public static string Format(string? clientData)
     {
@@ -36,7 +38,7 @@ public static class WorkflowDefinitionFile
 
         try
         {
-            using var document = JsonDocument.Parse(clientData);
+            using var document = JsonDocument.Parse(clientData, StrictJson);
 
             return JsonSerializer.Serialize(document.RootElement, IndentedJson);
         }
@@ -65,7 +67,7 @@ public static class WorkflowDefinitionFile
 
         try
         {
-            using var document = JsonDocument.Parse(clientData);
+            using var document = JsonDocument.Parse(clientData, StrictJson);
 
             return TryGetConnectionReferences(document.RootElement, out declared);
         }
@@ -150,7 +152,7 @@ public static class WorkflowDefinitionFile
 
         try
         {
-            root = JsonNode.Parse(clientData);
+            root = JsonNode.Parse(clientData, documentOptions: StrictJson);
         }
         catch (JsonException)
         {

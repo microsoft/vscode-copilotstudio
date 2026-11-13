@@ -101,7 +101,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
             var folders = LspProjection.CliComponentBodyFolders.OrderBy(f => f, StringComparer.Ordinal).ToArray();
 
             Assert.Equal(
-                new[] { "behaviors", "capabilities/knowledge", "capabilities/tools", "hooks" },
+                new[] { "behaviors", "capabilities/knowledge", "capabilities/tools", "hooks", "settings" },
                 folders);
 
             // Every scan folder is a real CLI projection folder (no invented paths).

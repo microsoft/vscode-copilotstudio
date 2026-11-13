@@ -853,6 +853,27 @@ public class SkillFolderLayoutTests
     }
 
     [Fact]
+    public async Task SyncedAssetMovedWithItsSidecarToAnotherSkill_IsKeptUnderThatSkillWithoutADelete()
+    {
+        var (sync, accessor, workspace) = await CreateWorkspaceAsync();
+        var hardware = CreateSkill($"{Bot}.skill.hardware_9Ut", "hardware", Guid.NewGuid(), null, "Skill description");
+        var software = CreateSkill($"{Bot}.skill.software_8Vu", "software", Guid.NewGuid(), null, "Skill description");
+        var doc = CreateAsset($"{Bot}.file.docFile1.txt", "doc/File 1.txt", hardware.Id);
+        var cloud = CloudDefinition().WithComponents(new BotComponentBase[] { hardware, software, doc });
+        WorkspaceSynchronizer.WriteCloudCache(accessor, cloud);
+        Write(accessor, "behaviors/hardware/skill.mcs.yml", $"mcs.metadata:\n  componentName: hardware\n  description: Skill description\n  schemaName: {Bot}.skill.hardware_9Ut\nkind: InlineAgentSkill\n");
+        Write(accessor, "behaviors/software/skill.mcs.yml", $"mcs.metadata:\n  componentName: software\n  description: Skill description\n  schemaName: {Bot}.skill.software_8Vu\nkind: InlineAgentSkill\n");
+        Write(accessor, "behaviors/software/doc/File 1.txt", "doc content\n");
+        Write(accessor, "behaviors/software/doc/File 1.txt.mcs.yml", $"mcs.metadata:\n  componentName: doc/File 1.txt\n  schemaName: {Bot}.file.docFile1.txt\nkind: FileAttachmentComponentMetadata\n");
+
+        var read = await sync.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
+        var (changeSet, _) = sync.GetLocalChanges(read, cloud, accessor, "token-1");
+
+        Assert.Equal(software.Id, Assert.Single(read.Components, component => component.SchemaNameString == doc.SchemaNameString).ParentBotComponentId);
+        Assert.Empty(changeSet.BotComponentChanges.OfType<BotComponentDelete>());
+    }
+
+    [Fact]
     public async Task SkillRenamedInCloud_StickyFolder_ProducesNoChangesAndNoDuplicate()
     {
         var (sync, accessor, workspace) = await CreateWorkspaceAsync();

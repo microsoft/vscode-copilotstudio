@@ -44,6 +44,21 @@ public class CliAgentNodeFPushTests
     // --- Connection-reference change emission -------------------------------
 
     [Fact]
+    public async Task Push_CliWorkspaceWithANewSettingsFile_InsertsTheSettingsComponent()
+    {
+        var (_, _, accessor, synchronizer, workspace) = await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
+        await accessor.WriteAsync(new AgentFilePath("settings/Default_FeedbackCollectionBotSettings_jsNFOl.mcs.yml"), "kind: DefaultFeedbackCollection\n", CancellationToken.None);
+        var cloud = WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.");
+        var local = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None);
+
+        var (changeset, _) = synchronizer.GetLocalChanges(local, cloud, accessor, "token-1");
+
+        var insert = Assert.Single(changeset.BotComponentChanges.OfType<BotComponentInsert>());
+        Assert.IsType<BotSettingsComponent>(insert.Component);
+        Assert.Equal("Default_draft_rxzs_q.BotSettingsComponent.Default_FeedbackCollectionBotSettings_jsNFOl", insert.Component?.SchemaNameString);
+    }
+
+    [Fact]
     public async Task GetLocalChanges_CliAgent_UntouchedDisk_NoConnectionReferenceChanges()
     {
         // Baseline: a freshly-cloned CLI workspace with no user edits

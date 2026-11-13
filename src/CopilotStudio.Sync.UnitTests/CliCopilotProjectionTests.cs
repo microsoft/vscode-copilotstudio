@@ -26,6 +26,7 @@ public class CliCopilotProjectionTests
         Assert.Contains("capabilities/tools", CliCopilotProjection.AuthoredComponentBodyFolders);
         Assert.Contains("capabilities/knowledge", CliCopilotProjection.AuthoredComponentBodyFolders);
         Assert.Contains("capabilities/knowledge/files", CliCopilotProjection.AuthoredComponentBodyFolders);
+        Assert.Contains("settings", CliCopilotProjection.AuthoredComponentBodyFolders);
     }
 
     [Fact]

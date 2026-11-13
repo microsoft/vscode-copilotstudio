@@ -3,6 +3,7 @@
 using Microsoft.Agents.Platform.Content;
 using Microsoft.Agents.Platform.Content.Abstractions;
 using Microsoft.CopilotStudio.Sync.Dataverse;
+using Microsoft.CopilotStudio.Sync.Copy;
 using Microsoft.Extensions.DependencyInjection;
 
 using Microsoft.CopilotStudio.McsCore;
@@ -38,6 +39,7 @@ public static class SyncServiceRegistrations
         services.AddSingleton<ISyncDataverseClient>(sp => sp.GetRequiredService<SyncDataverseClient>());
         services.AddSingleton<ISyncComponentCollectionDataverseClient>(sp => sp.GetRequiredService<SyncDataverseClient>());
         services.AddSingleton<IStandaloneWorkflowDataverseClient>(sp => sp.GetRequiredService<SyncDataverseClient>());
+        services.AddSingleton<ICopyDataverseClient>(sp => sp.GetRequiredService<SyncDataverseClient>());
         if (storageMode == SyncStorageMode.InMemory)
         {
             services.AddSingleton<IFileAccessorFactory>(_ => new InMemoryFileAccessorFactory(requireSession: true));
@@ -56,5 +58,6 @@ public static class SyncServiceRegistrations
         services.AddSingleton<IWorkspaceRetargetService>(sp => sp.GetRequiredService<WorkspaceSynchronizer>());
         services.AddSingleton<IEnvironmentVariableDependencyValidator>(sp => sp.GetRequiredService<WorkspaceSynchronizer>());
         services.AddSingleton<IStandaloneWorkflowSynchronizer, StandaloneWorkflowSynchronizer>();
+        services.AddSingleton<IWorkspaceCopyService>(sp => new WorkspaceCopyService(sp.GetRequiredService<WorkspaceSynchronizer>()));
     }
 }

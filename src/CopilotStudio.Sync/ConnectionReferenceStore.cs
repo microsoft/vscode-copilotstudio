@@ -188,11 +188,7 @@ public static class ConnectionReferenceStore
 
         try
         {
-            using var context = YamlSerializationContext.UseStandardSerializationContextIfNotDefined(throwOnInvalidYaml: false);
-
-            var parsed = CodeSerializer.Deserialize<ConnectionReferencesSourceFile>(ReadTextOrNull(fileAccessor, FlatPath) ?? string.Empty, sourceUri: null);
-
-            return parsed is null || parsed.ConnectionReferences.IsDefaultOrEmpty ? Array.Empty<ConnectionReference>() : parsed.ConnectionReferences.ToList();
+            return ParseFlat(ReadTextOrNull(fileAccessor, FlatPath) ?? string.Empty);
         }
         catch (Exception failure) when (failure is not OperationCanceledException)
         {
@@ -200,6 +196,15 @@ public static class ConnectionReferenceStore
 
             return Array.Empty<ConnectionReference>();
         }
+    }
+
+    internal static IReadOnlyList<ConnectionReference> ParseFlat(string text)
+    {
+        using var context = YamlSerializationContext.UseStandardSerializationContextIfNotDefined(throwOnInvalidYaml: false);
+
+        var parsed = CodeSerializer.Deserialize<ConnectionReferencesSourceFile>(text, sourceUri: null);
+
+        return parsed is null || parsed.ConnectionReferences.IsDefaultOrEmpty ? Array.Empty<ConnectionReference>() : parsed.ConnectionReferences.ToList();
     }
 
     internal static string? ReadTextOrNull(IFileAccessor fileAccessor, AgentFilePath path)

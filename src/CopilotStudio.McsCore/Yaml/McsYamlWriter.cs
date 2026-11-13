@@ -11,6 +11,8 @@ internal static class McsYamlWriter
 {
     private static readonly string LineBreak = Environment.NewLine;
 
+    private static readonly char[] FlowIndicators = { ',', '[', ']', '{', '}' };
+
     private const int MaximumImplicitKeyLength = 1024;
 
     public static string Write(IDictionary<string, object?> map)
@@ -163,8 +165,20 @@ internal static class McsYamlWriter
             return DoubleQuote(value);
         }
 
-        return RequiresSingleQuoting(value) ? "'" + value.Replace("'", "''") + "'" : value;
+        return RequiresSingleQuoting(value) ? SingleQuote(value) : value;
     }
+
+    internal static string FormatReplacementScalar(string value, string replacedScalar)
+    {
+        if (RequiresDoubleQuoting(value) || replacedScalar.StartsWith("\"", StringComparison.Ordinal))
+        {
+            return DoubleQuote(value);
+        }
+
+        return replacedScalar.StartsWith("'", StringComparison.Ordinal) || value.IndexOfAny(FlowIndicators) >= 0 ? SingleQuote(value) : FormatScalar(value);
+    }
+
+    private static string SingleQuote(string value) => "'" + value.Replace("'", "''") + "'";
 
     private static bool RequiresDoubleQuoting(string value)
     {

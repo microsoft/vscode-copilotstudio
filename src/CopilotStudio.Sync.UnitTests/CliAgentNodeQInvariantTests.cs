@@ -62,6 +62,18 @@ public class CliAgentNodeQInvariantTests
         }
     }
 
+    [Fact]
+    public async Task PathAgreement_CliSettingsComponent_ReadsBackFromItsResolverPath()
+    {
+        var (_, _, accessor, synchronizer, workspace) = await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
+        var path = new AgentFilePath("settings/Default_FeedbackCollectionBotSettings_jsNFOl.mcs.yml");
+        await accessor.WriteAsync(path, "kind: DefaultFeedbackCollection\n", CancellationToken.None);
+
+        var read = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None);
+
+        Assert.Equal(path.ToString(), CliAgentRoundTripReadTests.CliComponentPath(Assert.Single(read.Components.OfType<BotSettingsComponent>()), read).ToString());
+    }
+
     // --- 2. Body round-trip fidelity ($kind survives, no instruction/collection wipe) -
 
     [Fact]

@@ -130,6 +130,20 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             fixture.AssertPushCompleted();
         }
 
+        [Fact]
+        public async Task WorkspaceHoldingALeftoverCopyManifest_PushesLikeAnyOtherWorkspace()
+        {
+            using var fixture = new PreflightFixture();
+            fixture.Write("copy.sync.yaml", "schemaVersion: 1\nstatus: pending\ndestination:\n  displayName: Copy\n  schemaName: cr1_copy_a1b2c3\n  agentId: 0ec33c97-b4b0-4c70-9f71-74fa348b96d1\n");
+
+            var response = await fixture.SyncAsync(push: true);
+
+            Assert.Equal(200, response.Code);
+            Assert.Equal(string.Empty, response.Message);
+            fixture.AssertConnectorsPushed(overwriteRemoteChanges: true);
+            fixture.AssertPushCompleted();
+        }
+
         [Theory]
         [InlineData(true, false)]
         [InlineData(false, true)]
