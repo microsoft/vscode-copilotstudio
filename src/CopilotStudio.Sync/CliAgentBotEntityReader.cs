@@ -74,6 +74,16 @@ internal static class CliAgentBotEntityReader
         return false;
     }
 
+    internal static void ThrowIfUnsupportedHigherLayoutVersion(IFileAccessor fileAccessor, string operation)
+    {
+        if (HasUnsupportedHigherLayoutVersion(fileAccessor, out var declaredLayoutVersion))
+        {
+            throw new InvalidOperationException(
+                $"Workspace uses a newer layout (layoutVersion {declaredLayoutVersion}) than this tooling supports " +
+                $"(up to {AgentClassifier.CurrentLayoutVersion}). Update the Copilot Studio tooling to {operation} this workspace.");
+        }
+    }
+
     /// <summary>
     /// Returns true iff the workspace has the language-recognized
     /// <c>settings.mcs.yml</c> entity on disk. With the CLI agent identity now
@@ -90,11 +100,6 @@ internal static class CliAgentBotEntityReader
         return fileAccessor.Exists(SettingsPath);
     }
 
-    /// <summary>
-    /// Overlay on-disk identity + configuration onto the cloud-cache entity.
-    /// Throws <see cref="WorkspaceValidationException"/> if the file is malformed or
-    /// contains a schemaName that is missing or differs from cloud.
-    /// </summary>
     public static BotEntity Overlay(IFileAccessor fileAccessor, BotEntity cloudEntity)
     {
         if (fileAccessor == null)
@@ -105,6 +110,7 @@ internal static class CliAgentBotEntityReader
         {
             throw new ArgumentNullException(nameof(cloudEntity));
         }
+        ThrowIfSettingsMissing(fileAccessor);
 
         var diskEntity = Read(fileAccessor);
 
@@ -115,20 +121,29 @@ internal static class CliAgentBotEntityReader
         if (string.IsNullOrEmpty(diskSchemaName))
         {
             throw new WorkspaceValidationException([new WorkspaceDiagnostic(SettingsPath.ToString(),
-                "CLI settings.mcs.yml is missing a 'schemaName' value. settings.mcs.yml is the workspace identity manifest; restore the schemaName or re-clone the agent.", 0, 0)]);
+                "settings.mcs.yml is missing a 'schemaName' value. settings.mcs.yml is the workspace identity manifest; restore the schemaName or re-clone the agent.", 0, 0)]);
         }
 
         var cloudSchemaName = cloudEntity.SchemaName.Value;
         if (!string.Equals(diskSchemaName, cloudSchemaName, StringComparison.Ordinal))
         {
             throw new WorkspaceValidationException([new WorkspaceDiagnostic(SettingsPath.ToString(),
-                $"CLI settings.mcs.yml schemaName '{diskSchemaName}' does not match cloud schemaName '{cloudSchemaName}'. " +
+                $"settings.mcs.yml schemaName '{diskSchemaName}' does not match cloud schemaName '{cloudSchemaName}'. " +
                 "Renaming an agent is a cloud-side operation; restore the schemaName in settings.mcs.yml or re-clone the agent.", 0, 0)]);
         }
 
         // OM-native overlay: start from the on-disk settings (identity + recognizer
         // + agentSettings) and layer the cloud-only metadata back on.
         return cloudEntity.ApplySettingsYamlProperties(diskEntity);
+    }
+
+    internal static void ThrowIfSettingsMissing(IFileAccessor fileAccessor)
+    {
+        if (!fileAccessor.Exists(SettingsPath))
+        {
+            throw new WorkspaceValidationException([new WorkspaceDiagnostic(SettingsPath.ToString(),
+                "settings.mcs.yml was not found. settings.mcs.yml is the workspace identity manifest; restore it or re-clone the agent.", 0, 0)]);
+        }
     }
 
     internal static BotEntity Read(IFileAccessor fileAccessor) => Read(fileAccessor, SettingsPath);
