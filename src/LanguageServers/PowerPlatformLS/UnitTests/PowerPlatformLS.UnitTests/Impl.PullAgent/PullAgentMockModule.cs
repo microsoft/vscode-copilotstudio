@@ -3,11 +3,13 @@
     using Microsoft.Agents.ObjectModel;
     using Microsoft.CopilotStudio.McsCore;
     using Microsoft.Agents.Platform.Content;
+    using Microsoft.CopilotStudio.Sync.Dataverse;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.DependencyInjection.Extensions;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common.DependencyInjection;
     using Microsoft.PowerPlatformLS.Impl.PullAgent;
     using Microsoft.PowerPlatformLS.Impl.PullAgent.Auth;
+    using Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods;
     using Microsoft.PowerPlatformLS.UnitTests.TestUtilities;
     using Moq;
     using System;
@@ -50,6 +52,8 @@
             // mock external APIs
             services.RemoveAll<IContentAuthoringService>();
             services.AddSingleton<IContentAuthoringService>(ContentAuthoringMock);
+            services.RemoveAll<ISyncDataverseClient>();
+            services.AddSingleton<ISyncDataverseClient, MockDataverseClient>();
         }
 
         private class TestTokenManager : ITokenManager, ITokenProvider

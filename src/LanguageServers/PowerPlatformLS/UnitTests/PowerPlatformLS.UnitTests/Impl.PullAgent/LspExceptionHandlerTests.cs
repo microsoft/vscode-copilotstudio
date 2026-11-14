@@ -377,6 +377,21 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
         }
 
         [Fact]
+        public void Handle_AManagedAgent_ReportsItToTheUserAndTagsItsName()
+        {
+            var failure = new AgentIsManagedException(new AgentInfo { AgentId = Guid.NewGuid(), DisplayName = "Payroll Agent", IsManaged = true });
+
+            var (code, message) = LspExceptionHandler.Handle(failure, _logger);
+
+            Assert.Equal(400, code);
+            Assert.Equal(failure.Message, StripPiiTags(message));
+            Assert.Contains("<pii type=\"AGENT NAME\" encoded=\"true\">Payroll Agent</pii>", message, StringComparison.Ordinal);
+            Assert.DoesNotContain("Payroll Agent", RedactPiiTags(message), StringComparison.Ordinal);
+            Assert.Contains(failure.AgentId.ToString(), RedactPiiTags(message), StringComparison.Ordinal);
+            Assert.Empty(_testLogger.Error);
+        }
+
+        [Fact]
         public async Task Handle_APushRefusedOverAnUnpublishedDraft_ReportsItToTheUserAndTagsItsNameAndEnvironment()
         {
             var workflowId = Guid.NewGuid();

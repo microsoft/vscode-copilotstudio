@@ -453,7 +453,7 @@ public interface IWorkspaceSynchronizer
     /// <param name="rootFolder">Parent directory under which workspace subfolders are created.</param>
     /// <param name="syncInfo">Connection details for the agent (saved to each workspace).</param>
     /// <param name="assetsToClone">Which assets to clone (agent and/or component collection IDs).</param>
-    /// <param name="agentInfo">Agent metadata including display names for folder naming.</param>
+    /// <param name="agentInfo">Agent metadata used to name folders and to refuse cloning a managed agent.</param>
     /// <param name="operationContextProvider">Creates operation contexts for each asset.</param>
     /// <param name="dataverseClient">Dataverse client for server communication.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

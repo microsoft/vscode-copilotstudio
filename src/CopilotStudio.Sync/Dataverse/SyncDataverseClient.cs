@@ -1112,7 +1112,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
     public virtual async Task<AgentInfo> GetAgentInfoAsync(Guid agentId, CancellationToken cancellationToken)
     {
         var requestUri = $"{DataverseUrl}/api/data/v9.2/bots({agentId})" +
-                         "?$select=botid,name,iconbase64" +
+                         "?$select=botid,name,iconbase64,ismanaged" +
                          "&$expand=bot_botcomponentcollection($select=schemaname,botcomponentcollectionid,name)";
 
         var response = await SendAsync<AgentDetailWithCollections>(HttpMethod.Get, requestUri, null, false, cancellationToken).ConfigureAwait(false)
@@ -1123,6 +1123,7 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
             AgentId = response.AgentId,
             DisplayName = response.Name,
             IconBase64 = response.IconBase64,
+            IsManaged = response.IsManaged,
             ComponentCollections = (response.ComponentCollections ?? Array.Empty<ComponentCollectionDetail>())
                 .Select(cc => new ComponentCollectionInfo
                 {
@@ -1953,6 +1954,9 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
 
             [JsonPropertyName("iconbase64")]
             public string? IconBase64 { get; set; }
+
+            [JsonPropertyName("ismanaged")]
+            public bool IsManaged { get; set; }
 
             [JsonPropertyName("bot_botcomponentcollection")]
             public ComponentCollectionDetail[]? ComponentCollections { get; set; }

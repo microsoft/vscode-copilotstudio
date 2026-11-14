@@ -113,7 +113,7 @@ public interface ISyncDataverseClient
     Task<SolutionInfo> GetSolutionVersionsAsync(CancellationToken cancellationToken);
 
     /// <summary>
-    /// Get agent metadata including component collection display names.
+    /// Get agent metadata including whether it is managed and component collection display names.
     /// Queries bots({agentId}) with $expand=bot_botcomponentcollection.
     /// </summary>
     Task<AgentInfo> GetAgentInfoAsync(Guid agentId, CancellationToken cancellationToken);

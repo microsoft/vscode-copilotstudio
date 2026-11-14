@@ -28,7 +28,7 @@ namespace Microsoft.CopilotStudio.Sync;
 /// <see cref="IFileAccessor"/>.
 /// Handles components, change tokens, etc. 
 /// </summary>
-internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManagementService, IWorkflowActivationService, IWorkspaceRetargetService, IEnvironmentVariableDependencyValidator
+internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManagementService, IWorkflowActivationService, IWorkspaceRetargetService, IEnvironmentVariableDependencyValidator, IAuthoredWorkspaceReader
 {
     // We write internal state to our own hidden folder.
     // We can version this later by appending a version number subdir.
@@ -568,8 +568,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private static bool IsSameContent(BotComponentBase component, BotComponentBase originalComponent)
     {
-        var root = component.RootElement == null ? null : StripMetaInfo(component.RootElement);
-        var originalRoot = originalComponent.RootElement == null ? null : StripMetaInfo(originalComponent.RootElement);
+        var root = component.RootElement?.WithoutMcsMetadata();
+        var originalRoot = originalComponent.RootElement?.WithoutMcsMetadata();
         if (root is null || originalRoot is null || !root.Equals(originalRoot, NodeComparison.Structural))
         {
             return false;
@@ -1312,33 +1312,30 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     public Task<ImmutableArray<KnowledgeFileInfo>> ListKnowledgeFilesAsync(DirectoryPath workspaceFolder, CancellationToken cancellationToken)
     {
         var fileAccessor = this.OpenWorkspace(workspaceFolder);
-        var snapshot = ReadCloudCacheSnapshot(fileAccessor, allowMissing: true);
-        if (snapshot == null)
-        {
-            return Task.FromResult(ImmutableArray<KnowledgeFileInfo>.Empty);
-        }
+        return Task.FromResult(ReadCloudCacheSnapshot(fileAccessor, allowMissing: true) is { } snapshot ? ListKnowledgeFiles(fileAccessor, snapshot, cancellationToken) : ImmutableArray<KnowledgeFileInfo>.Empty);
+    }
 
-        var folderOverrides = BuildComponentFolderOverrides(fileAccessor, snapshot);
+    private ImmutableArray<KnowledgeFileInfo> ListKnowledgeFiles(IFileAccessor fileAccessor, DefinitionBase definition, CancellationToken cancellationToken)
+    {
+        var folderOverrides = BuildComponentFolderOverrides(fileAccessor, definition);
         var builder = ImmutableArray.CreateBuilder<KnowledgeFileInfo>();
-        foreach (var component in snapshot.Components.OfType<FileAttachmentComponent>())
+        foreach (var component in definition.Components.OfType<FileAttachmentComponent>())
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (component.DisplayName is not { Length: > 0 } displayName || IsComponentCollectionOwned(snapshot, component) || GetParentSkillSchema(component, snapshot) != null)
+            if (component.DisplayName is not { Length: > 0 } displayName || IsComponentCollectionOwned(definition, component) || GetParentSkillSchema(component, definition) != null)
             {
                 continue;
             }
 
-            var componentPath = GetStickyComponentPath(component, snapshot, folderOverrides);
-            var contentPath = GetKnowledgeContentFilePath(componentPath, displayName);
             builder.Add(new KnowledgeFileInfo
             {
                 SchemaName = component.SchemaNameString,
                 FileName = KnowledgeFilePath.NormalizeDisplayName(displayName),
-                RelativePath = PathHelper.ToInternalCanonicalPath(contentPath.ToString()),
+                RelativePath = PathHelper.ToInternalCanonicalPath(GetKnowledgeContentFilePath(GetStickyComponentPath(component, definition, folderOverrides), displayName).ToString()),
             });
         }
 
-        return Task.FromResult(builder.ToImmutable());
+        return builder.ToImmutable();
     }
 
     public async Task<ImmutableArray<KnowledgeFileInfo>> DownloadKnowledgeFilesAsync(
@@ -6500,8 +6497,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             if (cloudSnapshot.TryGetComponentBySchemaName(localComponent.SchemaNameString, out var cloudComponent))
             {
                 // In new and old ... --> possible Update
-                var r1 = localComponent.RootElement == null ? null : StripMetaInfo(localComponent.RootElement);
-                var r2 = cloudComponent.RootElement == null ? null : StripMetaInfo(cloudComponent.RootElement);
+                var r1 = localComponent.RootElement?.WithoutMcsMetadata();
+                var r2 = cloudComponent.RootElement?.WithoutMcsMetadata();
                 var same = IsMetadataUnchanged(localComponent.DisplayName, cloudComponent.DisplayName, isRemoteChange) && IsMetadataUnchanged(localComponent.Description, cloudComponent.Description, isRemoteChange);
 
                 if (localComponent is not FileAttachmentComponent)
@@ -6966,17 +6963,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
 
         return NormalizeString(metadata) == NormalizeString(cached);
-    }
-
-    private static BotElement StripMetaInfo(BotElement botElement)
-    {
-        if (botElement.ExtensionData is not RecordDataValue record || !record.Properties.ContainsKey("mcs.metadata"))
-        {
-            return botElement;
-        }
-
-        var stripedMetaRecord = record.Properties.Remove("mcs.metadata");
-        return botElement.WithExtensionData(stripedMetaRecord.IsEmpty ? null : new RecordDataValue(stripedMetaRecord));
     }
 
     private static bool IsRootAgentMetadata(BotComponentBase localComponent, string componentUri, bool isRemoteChange)
@@ -8072,6 +8058,64 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     }
 
     public Task<DefinitionBase> ReadWorkspaceDefinitionAsync(DirectoryPath workspaceFolder, CancellationToken cancellationToken, bool checkKnowledgeFiles = false) => ReadWorkspaceDefinitionAsync(workspaceFolder, cancellationToken, checkKnowledgeFiles, diagnostics: null, validate: true);
+
+    public async Task<AuthoredWorkspace> ReadAuthoredWorkspaceAsync(DirectoryPath workspaceFolder, CancellationToken cancellationToken)
+    {
+        var definition = await ReadWorkspaceDefinitionAsync(workspaceFolder, cancellationToken, checkKnowledgeFiles: true).ConfigureAwait(false);
+        await ThrowIfWorkspaceInvalidAsync(workspaceFolder, definition, cancellationToken).ConfigureAwait(false);
+        var fileAccessor = this.OpenWorkspace(workspaceFolder);
+        var authoredDefinition = WithCloudOnlyComponentMetadata(fileAccessor, OverlayAuthoredClassicFiles(fileAccessor, definition), ReadCloudCacheSnapshot(fileAccessor, allowMissing: true)).WithFlows((await ReadWorkflowFoldersAsync(fileAccessor, WorkflowFolder, diagnostics: null, cancellationToken).ConfigureAwait(false)).Workflows);
+        return new AuthoredWorkspace(authoredDefinition, ListKnowledgeFiles(fileAccessor, authoredDefinition, cancellationToken));
+    }
+
+    private DefinitionBase OverlayAuthoredClassicFiles(IFileAccessor fileAccessor, DefinitionBase definition)
+        => definition is BotDefinition { Entity: { } entity } botDefinition && !IsCliAgentEntity(entity)
+            ? botDefinition.WithEntity(CliAgentBotEntityReader.Overlay(fileAccessor, entity)).WithConnectionReferences(ReadDeclaredConnectionReferencesFromDisk(fileAccessor, botDefinition)).WithEnvironmentVariables(GetLocalEnvironmentVariables(fileAccessor, botDefinition))
+            : definition;
+
+    private static IEnumerable<EnvironmentVariableDefinition> GetLocalEnvironmentVariables(IFileAccessor fileAccessor, DefinitionBase definition)
+    {
+        var projectedFiles = ListEnvironmentVariableFiles(fileAccessor);
+        return definition.EnvironmentVariables.Where(environmentVariable => projectedFiles.ContainsKey(environmentVariable.SchemaName.Value));
+    }
+
+    private DefinitionBase WithCloudOnlyComponentMetadata(IFileAccessor fileAccessor, DefinitionBase definition, DefinitionBase? cloudSnapshot)
+    {
+        if (cloudSnapshot == null)
+        {
+            return definition;
+        }
+
+        var childAgentIdsByFolderId = GetChildAgentIdsByFolderId(fileAccessor, cloudSnapshot);
+        return definition.WithComponents(definition.Components.Select(component => WithCloudOnlyMetadata(childAgentIdsByFolderId.TryGetValue(component.ParentBotComponentId, out var childAgentId) ? component.WithParentBotComponentId(childAgentId) : component, cloudSnapshot)));
+    }
+
+    private static BotComponentBase WithCloudOnlyMetadata(BotComponentBase component, DefinitionBase cloudSnapshot)
+    {
+        if (!cloudSnapshot.TryGetComponentBySchemaName(component.SchemaNameString, out var cloudComponent))
+        {
+            return component;
+        }
+
+        return cloudComponent is TranslationsComponent translation && component is not TranslationsComponent && component.RootElement is LocalizableContentContainer content
+            ? translation.WithContent(content).WithDisplayName(component.DisplayName).WithDescription(component.Description)
+            : component.WithState(cloudComponent.State).WithStatus(cloudComponent.Status).WithManagedProperties(cloudComponent.ManagedProperties);
+    }
+
+    private Dictionary<BotComponentId, BotComponentId> GetChildAgentIdsByFolderId(IFileAccessor fileAccessor, DefinitionBase cloudSnapshot)
+    {
+        var folderOverrides = BuildComponentFolderOverrides(fileAccessor, cloudSnapshot);
+        var childAgentIdsByFolderId = new Dictionary<BotComponentId, BotComponentId>();
+        foreach (var childAgent in cloudSnapshot.Components.Where(component => component.RootElement is AgentDialog && component.Id.HasValue))
+        {
+            if (ResolveOnDiskComponentPath(fileAccessor, GetStickyComponentPath(childAgent, cloudSnapshot, folderOverrides), childAgent, cloudSnapshot).TryGetSubAgentName(out var folderName, out _))
+            {
+                childAgentIdsByFolderId[new BotComponentId(GetChildAgentFolderComponentId(folderName))] = childAgent.Id;
+            }
+        }
+
+        return childAgentIdsByFolderId;
+    }
 
     public async Task<(DefinitionBase Definition, ImmutableArray<Change> UnreadableChanges)> ReadWorkspaceDefinitionForDiscardAsync(DirectoryPath workspaceFolder, CancellationToken cancellationToken)
     {
@@ -10309,6 +10353,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         ISyncDataverseClient dataverseClient,
         CancellationToken cancellationToken)
     {
+        if (assetsToClone.CloneAgent)
+        {
+            AgentIsManagedException.ThrowIfManaged(agentInfo);
+        }
+
         var referenceTracker = new ReferenceTracker();
         var allOperations = await operationContextProvider.GetAllAsync(syncInfo, assetsToClone).ConfigureAwait(false);
         var workspaceFolders = ImmutableArray.CreateBuilder<DirectoryPath>();
