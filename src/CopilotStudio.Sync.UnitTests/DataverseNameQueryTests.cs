@@ -131,16 +131,15 @@ public class DataverseNameQueryTests
     {
         var agentId = Guid.NewGuid();
         var requests = new List<string>();
-        var client = CreateClient((request, _) =>
+
+        var agentInfo = await CreateClient((request, _) =>
         {
             requests.Add(Uri.UnescapeDataString((request.RequestUri ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).PathAndQuery));
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent($"{{\"botid\":\"{agentId}\",\"name\":\"Payroll Agent\",\"ismanaged\":true,\"bot_botcomponentcollection\":[]}}", Encoding.UTF8, "application/json"),
             });
-        });
-
-        var agentInfo = await client.GetAgentInfoAsync(agentId, CancellationToken.None);
+        }).GetAgentInfoAsync(agentId, CancellationToken.None);
 
         Assert.True(agentInfo.IsManaged);
         Assert.Equal("Payroll Agent", agentInfo.DisplayName);

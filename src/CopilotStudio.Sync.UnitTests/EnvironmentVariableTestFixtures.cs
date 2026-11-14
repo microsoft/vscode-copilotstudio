@@ -96,10 +96,12 @@ internal static class EnvironmentVariableTestFixtures
         return (dataverse, lookups);
     }
 
-    internal static async Task<(WorkspaceSynchronizer Synchronizer, InMemoryFileAccessor FileAccessor, Mock<IIslandControlPlaneService> Island, DirectoryPath Workspace)> CloneAsync(Mock<ISyncDataverseClient> dataverse, IEnumerable<BotComponentBase> components, params EnvironmentVariableDefinition[] environmentVariables)
+    internal static Task<(WorkspaceSynchronizer Synchronizer, InMemoryFileAccessor FileAccessor, Mock<IIslandControlPlaneService> Island, DirectoryPath Workspace)> CloneAsync(Mock<ISyncDataverseClient> dataverse, IEnumerable<BotComponentBase> components, params EnvironmentVariableDefinition[] environmentVariables) => CloneAsync(dataverse, CreateBotEntity(), components, environmentVariables);
+
+    internal static async Task<(WorkspaceSynchronizer Synchronizer, InMemoryFileAccessor FileAccessor, Mock<IIslandControlPlaneService> Island, DirectoryPath Workspace)> CloneAsync(Mock<ISyncDataverseClient> dataverse, BotEntity bot, IEnumerable<BotComponentBase> components, params EnvironmentVariableDefinition[] environmentVariables)
     {
         var (synchronizer, fileAccessor, island, workspace) = CreateWorkspace();
-        SetupRemoteChanges(island, CreateChangeSet("token-1", components.Select(component => new BotComponentInsert(component)), environmentVariables.Select(environmentVariable => new EnvironmentVariableInsert(environmentVariable)), CreateBotEntity()));
+        SetupRemoteChanges(island, CreateChangeSet("token-1", components.Select(component => new BotComponentInsert(component)), environmentVariables.Select(environmentVariable => new EnvironmentVariableInsert(environmentVariable)), bot));
         await synchronizer.CloneChangesAsync(workspace, new ReferenceTracker(), ComponentWriterDefensiveTests.CreateMockOperationContext(), dataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
         return (synchronizer, fileAccessor, island, workspace);
     }

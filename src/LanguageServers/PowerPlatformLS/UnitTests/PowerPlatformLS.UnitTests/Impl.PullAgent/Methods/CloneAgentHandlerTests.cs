@@ -81,6 +81,24 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             _synchronizer.Verify(synchronizer => synchronizer.CloneChangesAsync(It.IsAny<DirectoryPath>(), It.IsAny<ReferenceTracker>(), It.IsAny<AuthoringOperationContext>(), _dataverseClient.Object, It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>()), Times.Once);
         }
 
+        [Fact]
+        public async Task HandleRequest_CollectionOnlyCloneOfAManagedAgent_ClonesTheCollectionWithoutLookingUpTheAgent()
+        {
+            SetupCloudAgent(isManaged: true);
+            var collectionId = Guid.NewGuid();
+            _agentInfo.ComponentCollections.Add(new ComponentCollectionInfo { Id = collectionId, DisplayName = "Payroll Topics" });
+            _operationContextProvider
+                .Setup(provider => provider.GetAllAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<AssetsToClone>()))
+                .ReturnsAsync(ImmutableArray.Create<AuthoringOperationContextBase>(new BotComponentCollectionAuthoringOperationContext(impersonatedUser: null, organizationInfo: new CdsOrganizationInfo(), reference: new BotComponentCollectionReference(environmentId: "environment-id", cdsId: collectionId), solutionUniqueName: null)));
+            var request = CreateRequest();
+            request.Assets = new AssetsToClone { ComponentCollectionIds = [collectionId] };
+
+            Assert.Equal(200, (await CreateHandler().HandleRequestAsync(request, default, CancellationToken.None)).Code);
+
+            _dataverseClient.Verify(client => client.GetAgentInfoAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+            _synchronizer.Verify(synchronizer => synchronizer.CloneChangesAsync(It.IsAny<DirectoryPath>(), It.IsAny<ReferenceTracker>(), It.IsAny<BotComponentCollectionAuthoringOperationContext>(), _dataverseClient.Object, It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>()), Times.Once);
+        }
+
         private void SetupCloudAgent(bool isManaged)
             => _dataverseClient
                 .Setup(client => client.GetAgentInfoAsync(_agentInfo.AgentId, It.IsAny<CancellationToken>()))
