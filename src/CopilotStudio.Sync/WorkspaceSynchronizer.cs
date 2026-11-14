@@ -2650,7 +2650,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     }
 
     private static Guid GetChildAgentFolderComponentId(string folderName)
-        => McsFileParserCore.GetParentComponentId(new AgentFilePath($"{LspProjection.AgentsFolder}{folderName}/{ChildAgentLink.AgentDefinitionFileName}"));
+        => McsFileParserCore.GetParentComponentId(GetChildAgentDefinitionPath(folderName));
+
+    private static AgentFilePath GetChildAgentDefinitionPath(string folderName) => new($"{LspProjection.AgentsFolder}{folderName}/{ChildAgentLink.AgentDefinitionFileName}");
 
     private sealed class ChildAgentFolderIdentities
     {
@@ -3033,7 +3035,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return result;
     }
 
-    private Dictionary<string, string> BuildComponentFolderOverrides(IFileAccessor fileAccessor, DefinitionBase definition)
+    private Dictionary<string, string> BuildComponentFolderOverrides(IFileAccessor fileAccessor, DefinitionBase definition, StringComparison childAgentFolderComparison = StringComparison.OrdinalIgnoreCase)
     {
         var overrides = new Dictionary<string, string>(StringComparer.Ordinal);
         if (definition is not BotDefinition botDefinition || botDefinition.Entity == null)
@@ -3043,7 +3045,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         foreach (var correlation in CorrelateChildAgentFolders(fileAccessor, botDefinition))
         {
-            if (!correlation.AmbiguousTarget && !string.Equals(correlation.CurrentFolder, correlation.TargetFolder, StringComparison.OrdinalIgnoreCase))
+            if (!correlation.AmbiguousTarget && !string.Equals(correlation.CurrentFolder, correlation.TargetFolder, childAgentFolderComparison))
             {
                 overrides[correlation.Schema] = correlation.FolderName;
             }
@@ -3816,19 +3818,22 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return "new_agent";
     }
 
-    private ImmutableArray<ConnectionReference> ReadDeclaredConnectionReferencesFromDisk(IFileAccessor fileAccessor, DefinitionBase definition)
+    private ImmutableArray<ConnectionReference> ReadDeclaredConnectionReferencesFromDisk(IFileAccessor fileAccessor, DefinitionBase definition) => ReadDeclaredConnectionReferencesFromDisk(fileAccessor, ReadLayeredConnectionReferenceFiles(fileAccessor, definition, _syncProgress.Report, CancellationToken.None), ReadFlatConnectionReferences);
+
+    private static List<CliAgentConnectionsReader.ConnectionReferenceFile> ReadLayeredConnectionReferenceFiles(IFileAccessor fileAccessor, DefinitionBase definition, Action<string>? reportWarning, CancellationToken cancellationToken) => UsesLayeredConnectionReferences(fileAccessor, definition) ? CliAgentConnectionsReader.ReadFiles(fileAccessor, reportWarning, cancellationToken).ToList() : [];
+
+    private static ImmutableArray<ConnectionReference> ReadDeclaredConnectionReferencesFromDisk(IFileAccessor fileAccessor, IReadOnlyCollection<CliAgentConnectionsReader.ConnectionReferenceFile> layeredConnectionReferenceFiles, Func<IFileAccessor, ImmutableArray<ConnectionReference>> readFlatConnectionReferences)
     {
-        if (UsesLayeredConnectionReferences(fileAccessor, definition) && CliAgentConnectionsReader.IsLayeredShapeActive(fileAccessor))
+        if (layeredConnectionReferenceFiles.Count > 0)
         {
-            var diskRefs = CliAgentConnectionsReader.Overlay(fileAccessor, Array.Empty<ConnectionReference>(), _syncProgress.Report, CancellationToken.None);
-            return diskRefs.ToImmutableArray();
+            return CliAgentConnectionsReader.OverlayFiles(layeredConnectionReferenceFiles, Array.Empty<ConnectionReference>()).ToImmutableArray();
         }
 
-        if (!fileAccessor.Exists(ConnectionReferencesPath))
-        {
-            return ImmutableArray<ConnectionReference>.Empty;
-        }
+        return fileAccessor.Exists(ConnectionReferencesPath) ? readFlatConnectionReferences(fileAccessor) : ImmutableArray<ConnectionReference>.Empty;
+    }
 
+    private static ImmutableArray<ConnectionReference> ReadFlatConnectionReferences(IFileAccessor fileAccessor)
+    {
         string yaml;
         try
         {
@@ -4924,7 +4929,9 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private static IEnumerable<AgentFilePath> ListEnvironmentVariableFilePaths(IFileAccessor fileAccessor) => fileAccessor.ListFiles(EnvironmentVariablesFolder, "*" + EnvironmentVariableFileSuffix);
 
-    private static Dictionary<string, AgentFilePath> ListEnvironmentVariableFiles(IFileAccessor fileAccessor) => ListEnvironmentVariableFilePaths(fileAccessor).Where(path => path.FileName.EndsWith(EnvironmentVariableFileSuffix, StringComparison.OrdinalIgnoreCase)).GroupBy(path => path.FileName.Substring(0, path.FileName.Length - EnvironmentVariableFileSuffix.Length), StringComparer.OrdinalIgnoreCase).ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+    private static Dictionary<string, AgentFilePath> ListEnvironmentVariableFiles(IFileAccessor fileAccessor) => IndexEnvironmentVariableFiles(ListEnvironmentVariableFilePaths(fileAccessor));
+
+    private static Dictionary<string, AgentFilePath> IndexEnvironmentVariableFiles(IEnumerable<AgentFilePath> environmentVariableFiles) => environmentVariableFiles.Where(path => path.FileName.EndsWith(EnvironmentVariableFileSuffix, StringComparison.OrdinalIgnoreCase)).GroupBy(path => path.FileName.Substring(0, path.FileName.Length - EnvironmentVariableFileSuffix.Length), StringComparer.OrdinalIgnoreCase).ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
 
     private static void WriteEnvironmentVariableFile(IFileAccessor fileAccessor, EnvironmentVariableDefinition environmentVariable) => WriteEnvironmentVariableFile(fileAccessor, environmentVariable, GetEnvironmentVariablePath(environmentVariable));
 
@@ -6086,6 +6093,20 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     }
 
     internal static bool IsUnreadableFileFailure(Exception failure) => IsProjectionSerializationFailure(failure) || failure is IOException or UnauthorizedAccessException;
+
+    internal static T? ReadValidatedWorkspaceFile<T>(IFileAccessor fileAccessor, AgentFilePath path) where T : BotElement
+    {
+        try
+        {
+            using var stream = fileAccessor.OpenRead(path);
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            return McsYamlValidator.Deserialize<T>(reader.ReadToEnd());
+        }
+        catch (Exception failure) when (IsUnreadableFileFailure(failure))
+        {
+            throw new WorkspaceValidationException([WorkspaceDiagnostic.FromException(path.ToString(), failure)]);
+        }
+    }
 
     private static string SerializeSettingsYaml(BotEntity settingsView)
     {
@@ -8059,15 +8080,32 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var fileAccessor = this.OpenWorkspace(workspaceFolder);
         CliAgentBotEntityReader.ThrowIfUnsupportedHigherLayoutVersion(fileAccessor, "package");
         var cloudSnapshot = ReadCloudCacheSnapshot(fileAccessor, allowMissing: true);
-        var definition = await ReadWorkspaceDefinitionAsync(workspaceFolder, cancellationToken, checkKnowledgeFiles: true, diagnostics: null, validate: true, baseDefinition: cloudSnapshot).ConfigureAwait(false);
+        var baseDefinition = ResolveBaseDefinition(fileAccessor, cloudSnapshot);
+        ThrowIfComponentCollection(baseDefinition);
+        var environmentVariableFiles = new List<AgentFilePath>();
+        var newLocalFileTexts = new Dictionary<string, string>(StringComparer.Ordinal);
+        var legacyCliYamlComponentFiles = new List<AgentFilePath>();
+        var definition = await ReadWorkspaceDefinitionAsync(workspaceFolder, cancellationToken, checkKnowledgeFiles: true, diagnostics: null, validate: true, baseDefinition: baseDefinition, overlayLayeredConnectionReferences: false, listedEnvironmentVariableFiles: environmentVariableFiles, newLocalFileTexts: newLocalFileTexts, diskSettingsEntity: cloudSnapshot is null ? (baseDefinition as BotDefinition)?.Entity : null, listedLegacyCliYamlComponentFiles: legacyCliYamlComponentFiles).ConfigureAwait(false);
         var workflowMetadata = await ValidateWorkspaceAsync(fileAccessor, definition, cloudSnapshot, cancellationToken).ConfigureAwait(false);
-        var authoredDefinition = WithCloudOnlyComponentMetadata(fileAccessor, OverlayAuthoredAgentFiles(fileAccessor, definition), cloudSnapshot).WithEnvironmentVariables(GetLocalEnvironmentVariables(fileAccessor, definition)).WithFlows((await ReadWorkflowFoldersAsync(fileAccessor, WorkflowFolder, diagnostics: null, cancellationToken, workflowMetadata).ConfigureAwait(false)).Workflows);
+        ThrowIfWorkflowIdsAreMissing(workflowMetadata);
+        var authoredDefinition = WithCloudOnlyComponentMetadata(fileAccessor, OverlayAuthoredAgentFiles(new PreloadedFileAccessor(fileAccessor, newLocalFileTexts), definition, legacyCliYamlComponentFiles, cancellationToken), cloudSnapshot).WithEnvironmentVariables(GetLocalEnvironmentVariables(definition, environmentVariableFiles)).WithFlows((await ReadWorkflowFoldersAsync(fileAccessor, WorkflowFolder, diagnostics: null, cancellationToken, workflowMetadata).ConfigureAwait(false)).Workflows);
+        ThrowIfChildAgentFoldersLackTheirAgentFile(fileAccessor, authoredDefinition, cloudSnapshot);
         return new AuthoredWorkspace(authoredDefinition, ListKnowledgeFiles(fileAccessor, authoredDefinition, cancellationToken));
     }
 
-    private DefinitionBase OverlayAuthoredAgentFiles(IFileAccessor fileAccessor, DefinitionBase definition) => OverlayAuthoredEntity(fileAccessor, definition).WithConnectionReferences(ReadAuthoredConnectionReferences(fileAccessor, definition));
+    private static void ThrowIfComponentCollection(DefinitionBase definition)
+    {
+        if (definition is BotComponentCollectionDefinition)
+        {
+            throw new WorkspaceValidationException([new WorkspaceDiagnostic(ComponentCollectionPath.ToString(), "This workspace is a component collection, and packaging reads agent workspaces only.", 0, 0)]);
+        }
+    }
 
-    private static DefinitionBase OverlayAuthoredEntity(IFileAccessor fileAccessor, DefinitionBase definition)
+    private static DefinitionBase OverlayAuthoredAgentFiles(IFileAccessor fileAccessor, DefinitionBase definition, IEnumerable<AgentFilePath> legacyCliYamlComponentFiles, CancellationToken cancellationToken) => OverlayAuthoredEntity(fileAccessor, definition, legacyCliYamlComponentFiles).WithConnectionReferences(ReadAuthoredConnectionReferences(fileAccessor, definition, cancellationToken));
+
+    private static void ThrowIfWorkflowIdsAreMissing(Dictionary<AgentFilePath, WorkflowMetadata> workflowMetadata) => ThrowIfAnyProblem(workflowMetadata.Where(workflow => workflow.Value.WorkflowId == Guid.Empty).Select(workflow => new WorkspaceDiagnostic(workflow.Key.ToString(), "This file must declare its workflow's workflowId. Add it, then try again.", 0, 0)).ToList());
+
+    private static DefinitionBase OverlayAuthoredEntity(IFileAccessor fileAccessor, DefinitionBase definition, IEnumerable<AgentFilePath> legacyCliYamlComponentFiles)
     {
         if (definition is not BotDefinition { Entity: { } entity } botDefinition)
         {
@@ -8077,29 +8115,45 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         if (IsCliAgentEntity(entity))
         {
             CliAgentBotEntityReader.ThrowIfSettingsMissing(fileAccessor);
-            ThrowIfAnyProblem(EnumerateLegacyCliYamlComponentFiles(fileAccessor).Select(path => new WorkspaceDiagnostic(path.ToString(), "This component file uses an earlier workspace layout whose files are no longer read. Re-clone the agent to move its components to .mcs.yml files.", 0, 0)).ToList());
+            ThrowIfAnyProblem(legacyCliYamlComponentFiles.Select(path => new WorkspaceDiagnostic(path.ToString(), "This component file uses an earlier workspace layout whose files are no longer read. Re-clone the agent to move its components to .mcs.yml files.", 0, 0)).ToList());
             return definition;
         }
 
         return botDefinition.WithEntity(CliAgentBotEntityReader.Overlay(fileAccessor, entity));
     }
 
-    private ImmutableArray<ConnectionReference> ReadAuthoredConnectionReferences(IFileAccessor fileAccessor, DefinitionBase definition)
+    private static ImmutableArray<ConnectionReference> ReadAuthoredConnectionReferences(IFileAccessor fileAccessor, DefinitionBase definition, CancellationToken cancellationToken)
     {
-        var connectionReferences = ReadDeclaredConnectionReferencesFromDisk(fileAccessor, definition);
-        if (UsesLayeredConnectionReferences(fileAccessor, definition))
-        {
-            var declaredNames = connectionReferences.Select(connectionReference => connectionReference.ConnectionReferenceLogicalName.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            ThrowIfAnyProblem(CliAgentConnectionsWriter.Enumerate(fileAccessor).Where(file => !declaredNames.Contains(file.LogicalName)).Select(file => new WorkspaceDiagnostic(file.Path.ToString(), "This file must declare exactly one connection reference whose logical name matches the file name. Fix or delete it, then try again.", 0, 0)).ToList());
-        }
-
-        return connectionReferences;
+        var layeredConnectionReferenceFiles = ReadLayeredConnectionReferenceFiles(fileAccessor, definition, reportWarning: null, cancellationToken);
+        ThrowIfAnyProblem(layeredConnectionReferenceFiles.Where(file => file.ConnectionReference is null).Select(file => new WorkspaceDiagnostic(file.Path.ToString(), "This file must declare exactly one connection reference whose logical name matches the file name. Fix or delete it, then try again.", 0, 0)).ToList());
+        return ReadDeclaredConnectionReferencesFromDisk(fileAccessor, layeredConnectionReferenceFiles, ReadAuthoredFlatConnectionReferences);
     }
 
-    private static IEnumerable<EnvironmentVariableDefinition> GetLocalEnvironmentVariables(IFileAccessor fileAccessor, DefinitionBase definition)
+    private static ImmutableArray<ConnectionReference> ReadAuthoredFlatConnectionReferences(IFileAccessor fileAccessor) => ReadValidatedWorkspaceFile<ConnectionReferencesSourceFile>(fileAccessor, ConnectionReferencesPath) is { ConnectionReferences: { IsDefaultOrEmpty: false } connectionReferences } && connectionReferences.All(connectionReference => !string.IsNullOrEmpty(connectionReference.ConnectionReferenceLogicalName.Value)) ? connectionReferences : throw new WorkspaceValidationException([new WorkspaceDiagnostic(ConnectionReferencesPath.ToString(), "This file must list at least one connection reference under connectionReferences, each with a connectionReferenceLogicalName. Fix it, or delete it to declare none, then try again.", 0, 0)]);
+
+    private static IEnumerable<EnvironmentVariableDefinition> GetLocalEnvironmentVariables(DefinitionBase definition, IEnumerable<AgentFilePath> environmentVariableFiles)
     {
-        var projectedFiles = ListEnvironmentVariableFiles(fileAccessor);
+        var projectedFiles = IndexEnvironmentVariableFiles(environmentVariableFiles);
         return definition.EnvironmentVariables.Where(environmentVariable => projectedFiles.ContainsKey(environmentVariable.SchemaName.Value));
+    }
+
+    private sealed class PreloadedFileAccessor(IFileAccessor fileAccessor, IReadOnlyDictionary<string, string> preloadedTexts) : IFileAccessor
+    {
+        public bool Exists(AgentFilePath path) => fileAccessor.Exists(path);
+
+        public Stream OpenRead(AgentFilePath path) => preloadedTexts.TryGetValue(path.ToString(), out var text) ? new MemoryStream(Encoding.UTF8.GetBytes(text), writable: false) : fileAccessor.OpenRead(path);
+
+        public IEnumerable<AgentFilePath> ListFiles(string? relativeFolder = null, string filePattern = "*.*") => fileAccessor.ListFiles(relativeFolder, filePattern);
+
+        public Stream OpenWrite(AgentFilePath path) => throw new NotSupportedException();
+
+        public void Delete(AgentFilePath path) => throw new NotSupportedException();
+
+        public void DeleteDirectory(AgentFilePath path) => throw new NotSupportedException();
+
+        public void CreateHiddenDirectory(AgentFilePath path) => throw new NotSupportedException();
+
+        public void Replace(AgentFilePath sourcePath, AgentFilePath targetPath) => throw new NotSupportedException();
     }
 
     private DefinitionBase WithCloudOnlyComponentMetadata(IFileAccessor fileAccessor, DefinitionBase definition, DefinitionBase? cloudSnapshot)
@@ -8125,6 +8179,15 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
     }
 
+    private static void ThrowIfChildAgentFoldersLackTheirAgentFile(IFileAccessor fileAccessor, DefinitionBase authoredDefinition, DefinitionBase? cloudSnapshot)
+    {
+        var unknownParentIds = authoredDefinition.Components.Select(component => component.ParentBotComponentId).Where(parentId => parentId.HasValue && !authoredDefinition.TryGetBotComponentById(parentId, out _) && cloudSnapshot?.TryGetBotComponentById(parentId, out _) != true).ToHashSet();
+        if (unknownParentIds.Count > 0)
+        {
+            ThrowIfAnyProblem(fileAccessor.ListFiles(ChildAgentLink.AgentsFolderName, "*" + McsFileExtension).Select(path => path.TryGetSubAgentName(out var folderName, out _) ? folderName : null).OfType<string>().Distinct(StringComparer.Ordinal).Where(folderName => unknownParentIds.Contains(new BotComponentId(GetChildAgentFolderComponentId(folderName)))).Select(folderName => new WorkspaceDiagnostic(GetChildAgentDefinitionPath(folderName).ToString(), "This file must define the child agent that owns the other components in its folder. Define it here, or delete the folder to remove those components.", 0, 0)).ToList());
+        }
+    }
+
     private static BotComponentBase WithCloudOnlyMetadata(BotComponentBase component, DefinitionBase cloudSnapshot)
     {
         if (!cloudSnapshot.TryGetComponentBySchemaName(component.SchemaNameString, out var cloudComponent))
@@ -8139,7 +8202,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private Dictionary<BotComponentId, BotComponentId> GetChildAgentIdsByFolderId(IFileAccessor fileAccessor, DefinitionBase cloudSnapshot)
     {
-        var folderOverrides = BuildComponentFolderOverrides(fileAccessor, cloudSnapshot);
+        var folderOverrides = BuildComponentFolderOverrides(fileAccessor, cloudSnapshot, childAgentFolderComparison: StringComparison.Ordinal);
         var childAgentIdsByFolderId = new Dictionary<BotComponentId, BotComponentId>();
         foreach (var childAgent in cloudSnapshot.Components.Where(component => component.RootElement is AgentDialog && component.Id.HasValue))
         {
@@ -8159,19 +8222,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return (definition, diagnostics.UnreadableFiles);
     }
 
-    internal async Task<DefinitionBase> ReadWorkspaceDefinitionAsync(DirectoryPath workspaceFolder, CancellationToken cancellationToken, bool checkKnowledgeFiles, SyncDiagnosticsCollector? diagnostics, bool validate, DefinitionBase? baseDefinition = null)
+    internal async Task<DefinitionBase> ReadWorkspaceDefinitionAsync(DirectoryPath workspaceFolder, CancellationToken cancellationToken, bool checkKnowledgeFiles, SyncDiagnosticsCollector? diagnostics, bool validate, DefinitionBase? baseDefinition = null, bool overlayLayeredConnectionReferences = true, List<AgentFilePath>? listedEnvironmentVariableFiles = null, IDictionary<string, string>? newLocalFileTexts = null, BotEntity? diskSettingsEntity = null, List<AgentFilePath>? listedLegacyCliYamlComponentFiles = null)
     {
         var readDiagnostics = new List<WorkspaceDiagnostic>();
         var fileAccessor = this.OpenWorkspace(workspaceFolder);
-        var definition = baseDefinition ?? ReadCloudCacheSnapshot(fileAccessor, allowMissing: true);
-        if (definition == null)
-        {
-            definition = ReadCachelessCliDefinitionOrNull(fileAccessor) ?? ReadCachelessCollectionDefinitionOrNull(fileAccessor);
-            if (definition == null)
-            {
-                throw new FileNotFoundException(".mcs/botdefinition.json was not found. Please resync.");
-            }
-        }
+        var definition = ResolveBaseDefinition(fileAccessor, baseDefinition ?? ReadCloudCacheSnapshot(fileAccessor, allowMissing: true));
 
         // CliAgentSyncSupport / Node E: compute kind ONCE per read so every
         // per-component decision uses the same discriminator. Mirrors the
@@ -8197,7 +8252,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         // component file be interpreted as a user delete; an old-layout workspace
         // (whose components are .yaml, written by pre-Q code) must instead preserve
         // the cloud cache so the new reader never synthesizes a phantom delete.
-        var cliNewLayoutAdopted = isCliLayoutAdopted && !EnumerateLegacyCliYamlComponentFiles(fileAccessor).Any();
+        listedLegacyCliYamlComponentFiles?.AddRange(isCliLayoutAdopted ? EnumerateLegacyCliYamlComponentFiles(fileAccessor) : []);
+        var cliNewLayoutAdopted = isCliLayoutAdopted && !(listedLegacyCliYamlComponentFiles ?? EnumerateLegacyCliYamlComponentFiles(fileAccessor)).Any();
 
         // CliAgentSyncSupport / Node F: agent.yaml overlay. When the
         // workspace has adopted the CLI layout (agent.yaml exists), overlay
@@ -8208,7 +8264,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         {
             try
             {
-                var overlaidEntity = CliAgentBotEntityReader.Overlay(fileAccessor, botForOverlay.Entity);
+                var overlaidEntity = CliAgentBotEntityReader.Overlay(fileAccessor, botForOverlay.Entity, diskSettingsEntity);
                 definition = botForOverlay.WithEntity(overlaidEntity);
             }
             catch (WorkspaceValidationException failure)
@@ -8327,6 +8383,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         }
 
         var environmentVariableFiles = ListEnvironmentVariableFilePaths(fileAccessor).ToList();
+        listedEnvironmentVariableFiles?.AddRange(environmentVariableFiles);
 
         // CliAgentSyncSupport / Node E (rubber-duck non-blocking #5): gate
         // the classic *.mcs.yml new-file scan when the workspace is a CLI
@@ -8359,6 +8416,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                     try
                     {
                         var yaml = await fileAccessor.ReadStringAsync(localFile, cancellationToken).ConfigureAwait(false);
+                        newLocalFileTexts?.Add(localFile.ToString(), yaml);
                         element = McsYamlValidator.Deserialize(yaml, typeof(BotElement), null);
                     }
                     catch (Exception failure) when (IsUnreadableFileFailure(failure))
@@ -8430,7 +8488,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         // for rationale on why we keep cache verbatim when the directory
         // is empty or absent.
         var updatedConnectionRefs = definition.ConnectionReferences;
-        if (isCliAgent && CliAgentConnectionsReader.IsLayeredShapeActive(fileAccessor))
+        if (overlayLayeredConnectionReferences && isCliAgent && CliAgentConnectionsReader.IsLayeredShapeActive(fileAccessor))
         {
             var overlaid = CliAgentConnectionsReader.Overlay(
                 fileAccessor,
@@ -8633,6 +8691,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             readDiagnostics.Add(CreateConflictDiagnostic(filePath, McsConflictMarkers.FindFirstMarkerLine(manifestText)));
         }
     }
+
+    private static DefinitionBase ResolveBaseDefinition(IFileAccessor fileAccessor, DefinitionBase? cloudSnapshot) => cloudSnapshot ?? ReadCachelessCliDefinitionOrNull(fileAccessor) ?? ReadCachelessCollectionDefinitionOrNull(fileAccessor) ?? throw new FileNotFoundException(".mcs/botdefinition.json was not found. Please resync.");
 
     private static DefinitionBase? ReadCachelessCliDefinitionOrNull(IFileAccessor fileAccessor)
     {
@@ -9022,7 +9082,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     {
         var cloudFlowDefinitions = new List<CloudFlowDefinition>();
 
-        foreach (var workflowFolder in EnumerateComponentFolders(fileAccessor, relativeRoot))
+        foreach (var workflowFolder in validatedMetadata?.Keys.Select(validatedMetadataPath => validatedMetadataPath.ParentDirectoryName.TrimEnd('/')) ?? EnumerateComponentFolders(fileAccessor, relativeRoot))
         {
             cancellationToken.ThrowIfCancellationRequested();
             var metadataPath = new AgentFilePath($"{workflowFolder}/{WorkflowWorkspace.MetadataFileName}");

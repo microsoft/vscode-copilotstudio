@@ -19,7 +19,6 @@
 using System.Text;
 using Microsoft.Agents.ObjectModel;
 using Microsoft.CopilotStudio.McsCore;
-using Microsoft.CopilotStudio.McsCore.Yaml;
 
 namespace Microsoft.CopilotStudio.Sync;
 
@@ -100,7 +99,7 @@ internal static class CliAgentBotEntityReader
         return fileAccessor.Exists(SettingsPath);
     }
 
-    public static BotEntity Overlay(IFileAccessor fileAccessor, BotEntity cloudEntity)
+    public static BotEntity Overlay(IFileAccessor fileAccessor, BotEntity cloudEntity, BotEntity? diskEntity = null)
     {
         if (fileAccessor == null)
         {
@@ -112,7 +111,7 @@ internal static class CliAgentBotEntityReader
         }
         ThrowIfSettingsMissing(fileAccessor);
 
-        var diskEntity = Read(fileAccessor);
+        diskEntity ??= Read(fileAccessor);
 
         // Hard-fail on missing/empty schemaName: settings.mcs.yml is the identity
         // manifest, and silently falling back to cloud's schemaName would mask a
@@ -148,18 +147,5 @@ internal static class CliAgentBotEntityReader
 
     internal static BotEntity Read(IFileAccessor fileAccessor) => Read(fileAccessor, SettingsPath);
 
-    internal static BotEntity Read(IFileAccessor fileAccessor, AgentFilePath path)
-    {
-        try
-        {
-            using var stream = fileAccessor.OpenRead(path);
-            using var reader = new StreamReader(stream, Encoding.UTF8);
-            return McsYamlValidator.Deserialize<BotEntity>(reader.ReadToEnd())
-                ?? throw new McsYamlFormatException("Settings did not deserialize to a BotEntity. Fix or re-clone the agent.", 0, 0);
-        }
-        catch (Exception failure) when (WorkspaceSynchronizer.IsUnreadableFileFailure(failure))
-        {
-            throw new WorkspaceValidationException([WorkspaceDiagnostic.FromException(path.ToString(), failure)]);
-        }
-    }
+    internal static BotEntity Read(IFileAccessor fileAccessor, AgentFilePath path) => WorkspaceSynchronizer.ReadValidatedWorkspaceFile<BotEntity>(fileAccessor, path) ?? throw new WorkspaceValidationException([new WorkspaceDiagnostic(path.ToString(), "Settings did not deserialize to a BotEntity. Fix or re-clone the agent.", 0, 0)]);
 }

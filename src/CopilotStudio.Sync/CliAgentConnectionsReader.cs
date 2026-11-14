@@ -66,6 +66,8 @@ namespace Microsoft.CopilotStudio.Sync;
 /// </summary>
 internal static class CliAgentConnectionsReader
 {
+    internal readonly record struct ConnectionReferenceFile(AgentFilePath Path, ConnectionReference? ConnectionReference);
+
     /// <summary>
     /// Returns true iff <c>infrastructure/connections/</c> has at least
     /// one direct <c>*.yaml</c> child. This is the "layered shape is
@@ -120,6 +122,11 @@ internal static class CliAgentConnectionsReader
             throw new ArgumentNullException(nameof(fileAccessor));
         }
 
+        return OverlayFiles(ReadFiles(fileAccessor, reportWarning, cancellationToken), cloudCacheRefs);
+    }
+
+    internal static IReadOnlyList<ConnectionReference> OverlayFiles(IEnumerable<ConnectionReferenceFile> connectionReferenceFiles, IReadOnlyList<ConnectionReference>? cloudCacheRefs)
+    {
         cloudCacheRefs ??= Array.Empty<ConnectionReference>();
 
         // Index cloud-cache by logical name (OrdinalIgnoreCase — matches
@@ -136,71 +143,14 @@ internal static class CliAgentConnectionsReader
 
         var diskOverlays = new Dictionary<string, ConnectionReference>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var file in CliAgentConnectionsWriter.Enumerate(fileAccessor))
+        foreach (var file in connectionReferenceFiles)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var existing = file.Path;
-            var pathStr = existing.ToString();
-            var leafNameWithoutExt = file.LogicalName;
-
-            string yaml;
-            try
+            if (file.ConnectionReference is not { } diskRef)
             {
-                using var stream = fileAccessor.OpenRead(existing);
-                using var sr = new System.IO.StreamReader(stream, Encoding.UTF8);
-                yaml = sr.ReadToEnd();
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                reportWarning?.Invoke(
-                    $"CLI connection reference file '{pathStr}' could not be read: {ex.Message}. Keeping cloud-cache version.");
                 continue;
             }
 
-            ConnectionReferencesSourceFile? parsed;
-            try
-            {
-                using var ctx = YamlSerializationContext.UseStandardSerializationContextIfNotDefined(throwOnInvalidYaml: false);
-                parsed = CodeSerializer.Deserialize<ConnectionReferencesSourceFile>(yaml, sourceUri: null);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                reportWarning?.Invoke(
-                    $"CLI connection reference file '{pathStr}' could not be parsed: {ex.Message}. Keeping cloud-cache version.");
-                continue;
-            }
-
-            if (parsed?.ConnectionReferences == null)
-            {
-                reportWarning?.Invoke(
-                    $"CLI connection reference file '{pathStr}' has no connectionReferences node. Skipping.");
-                continue;
-            }
-
-            var items = parsed.ConnectionReferences.ToList();
-            if (items.Count != 1)
-            {
-                reportWarning?.Invoke(
-                    $"CLI connection reference file '{pathStr}' must contain exactly one connection reference; found {items.Count}. Skipping.");
-                continue;
-            }
-
-            var diskRef = items[0];
             var diskLogicalName = diskRef.ConnectionReferenceLogicalName.Value;
-            if (string.IsNullOrEmpty(diskLogicalName))
-            {
-                reportWarning?.Invoke(
-                    $"CLI connection reference file '{pathStr}' has empty connectionReferenceLogicalName. Skipping.");
-                continue;
-            }
-
-            if (!string.Equals(diskLogicalName, leafNameWithoutExt, StringComparison.Ordinal))
-            {
-                reportWarning?.Invoke(
-                    $"CLI connection reference file '{pathStr}' connectionReferenceLogicalName '{diskLogicalName}' does not match filename leaf '{leafNameWithoutExt}'. Skipping.");
-                continue;
-            }
 
             ConnectionReference overlaid;
             if (cloudByName.TryGetValue(diskLogicalName, out var cloudMatch))
@@ -275,5 +225,70 @@ internal static class CliAgentConnectionsReader
         }
 
         return result;
+    }
+
+    internal static IEnumerable<ConnectionReferenceFile> ReadFiles(IFileAccessor fileAccessor, Action<string>? reportWarning, CancellationToken cancellationToken)
+    {
+        foreach (var file in CliAgentConnectionsWriter.Enumerate(fileAccessor))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            yield return new ConnectionReferenceFile(file.Path, ReadConnectionReference(fileAccessor, file, reportWarning));
+        }
+    }
+
+    private static ConnectionReference? ReadConnectionReference(IFileAccessor fileAccessor, LayeredConnectionFile file, Action<string>? reportWarning)
+    {
+        string yaml;
+        try
+        {
+            using var stream = fileAccessor.OpenRead(file.Path);
+            using var reader = new System.IO.StreamReader(stream, Encoding.UTF8);
+            yaml = reader.ReadToEnd();
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return SkipFile(file, $"could not be read: {exception.Message}. Keeping cloud-cache version.", reportWarning);
+        }
+
+        ConnectionReferencesSourceFile? parsed;
+        try
+        {
+            using var serializationContext = YamlSerializationContext.UseStandardSerializationContextIfNotDefined(throwOnInvalidYaml: false);
+            parsed = CodeSerializer.Deserialize<ConnectionReferencesSourceFile>(yaml, sourceUri: null);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return SkipFile(file, $"could not be parsed: {exception.Message}. Keeping cloud-cache version.", reportWarning);
+        }
+
+        if (parsed?.ConnectionReferences == null)
+        {
+            return SkipFile(file, "has no connectionReferences node. Skipping.", reportWarning);
+        }
+
+        if (parsed.ConnectionReferences.Length != 1)
+        {
+            return SkipFile(file, $"must contain exactly one connection reference; found {parsed.ConnectionReferences.Length}. Skipping.", reportWarning);
+        }
+
+        var connectionReference = parsed.ConnectionReferences[0];
+        var logicalName = connectionReference.ConnectionReferenceLogicalName.Value;
+        if (string.IsNullOrEmpty(logicalName))
+        {
+            return SkipFile(file, "has empty connectionReferenceLogicalName. Skipping.", reportWarning);
+        }
+
+        if (!string.Equals(logicalName, file.LogicalName, StringComparison.Ordinal))
+        {
+            return SkipFile(file, $"connectionReferenceLogicalName '{logicalName}' does not match filename leaf '{file.LogicalName}'. Skipping.", reportWarning);
+        }
+
+        return connectionReference;
+    }
+
+    private static ConnectionReference? SkipFile(LayeredConnectionFile file, string problem, Action<string>? reportWarning)
+    {
+        reportWarning?.Invoke($"CLI connection reference file '{file.Path}' {problem}");
+        return null;
     }
 }
