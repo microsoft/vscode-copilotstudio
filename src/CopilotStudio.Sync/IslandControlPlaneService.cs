@@ -56,7 +56,7 @@ internal class IslandControlPlaneService : IIslandControlPlaneService
             return await _contentAuthoringService.GetComponentsAsync(operationContext, changeToken, true, false, cancellationToken).ConfigureAwait(false);
         }
 
-        var islandChangeToken = WithoutPlaceholderHostedConnectorVersions(changeToken);
+        var (islandChangeToken, placeholderConnectorIds) = WithoutPlaceholderHostedConnectorVersions(changeToken);
         for (var i = 0; i < 3; i++)
         {
             var islandChangeSet = await RetrieveComponentsFromIslandAsync(operationContext, islandChangeToken, cancellationToken).ConfigureAwait(false);
@@ -77,17 +77,17 @@ internal class IslandControlPlaneService : IIslandControlPlaneService
                 continue;
             }
 
-            return islandChangeSet.WithBotComponentChanges(dataverseChangeSet.BotComponentChanges).WithBot(dataverseChangeSet.Bot);
+            return WithPlaceholderConnectorInsertsAsUpdates(islandChangeSet, placeholderConnectorIds).WithBotComponentChanges(dataverseChangeSet.BotComponentChanges).WithBot(dataverseChangeSet.Bot);
         }
 
         throw new ObjectModelException("Unable to retrieve components", "Unable to retrieve components");
     }
 
-    private static string? WithoutPlaceholderHostedConnectorVersions(string? changeToken)
+    private static (string? ChangeToken, IReadOnlyCollection<string> PlaceholderConnectorIds) WithoutPlaceholderHostedConnectorVersions(string? changeToken)
     {
         if (changeToken is null || changeToken.Length == 0)
         {
-            return changeToken;
+            return (changeToken, Array.Empty<string>());
         }
 
         DeltaToken token;
@@ -97,16 +97,28 @@ internal class IslandControlPlaneService : IIslandControlPlaneService
         }
         catch (BadDeltaTokenException)
         {
-            return changeToken;
+            return (changeToken, Array.Empty<string>());
         }
 
         var hostedConnectorVersions = token.HostedConnectorDefinitionVersions;
-        if (!hostedConnectorVersions.Any(version => version.VersionNumber == 0))
+        var placeholderConnectorIds = hostedConnectorVersions.Where(version => version.VersionNumber == 0).Select(version => version.ComponentId).ToArray();
+        if (placeholderConnectorIds.Length == 0)
         {
-            return changeToken;
+            return (changeToken, placeholderConnectorIds);
         }
 
-        return token.WithHostedConnectors(hostedConnectorVersions.Where(version => version.VersionNumber != 0).ToArray()).ToBase64String();
+        return (token.WithHostedConnectors(hostedConnectorVersions.Where(version => version.VersionNumber != 0).ToArray()).ToBase64String(), placeholderConnectorIds);
+    }
+
+    private static PvaComponentChangeSet WithPlaceholderConnectorInsertsAsUpdates(PvaComponentChangeSet changeSet, IReadOnlyCollection<string> placeholderConnectorIds)
+    {
+        if (placeholderConnectorIds.Count == 0 || changeSet.ConnectorDefinitionChanges.IsDefaultOrEmpty)
+        {
+            return changeSet;
+        }
+
+        var placeholders = new HashSet<string>(placeholderConnectorIds, StringComparer.OrdinalIgnoreCase);
+        return changeSet.WithConnectorDefinitionChanges(changeSet.ConnectorDefinitionChanges.Select(change => change is ConnectorDefinitionInsert { ConnectorDefinition: { } connectorDefinition } && connectorDefinition.ConnectorId.Value is string connectorId && placeholders.Contains(connectorId) ? new ConnectorDefinitionUpdate(connectorDefinition) : change));
     }
 
     public void SetIslandBaseEndpoint(string baseEndpoint)
