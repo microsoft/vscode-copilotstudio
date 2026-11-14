@@ -6,6 +6,8 @@ using Microsoft.Agents.ObjectModel;
 using Microsoft.Agents.ObjectModel.Exceptions;
 using Microsoft.Agents.ObjectModel.Yaml;
 using Microsoft.Agents.Platform.Content;
+using Microsoft.Agents.Platform.Content.DeltaTokens;
+using Microsoft.Agents.Platform.Content.Exceptions;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Net.Http;
@@ -54,9 +56,10 @@ internal class IslandControlPlaneService : IIslandControlPlaneService
             return await _contentAuthoringService.GetComponentsAsync(operationContext, changeToken, true, false, cancellationToken).ConfigureAwait(false);
         }
 
+        var islandChangeToken = WithoutPlaceholderHostedConnectorVersions(changeToken);
         for (var i = 0; i < 3; i++)
         {
-            var islandChangeSet = await RetrieveComponentsFromIslandAsync(operationContext, changeToken, cancellationToken).ConfigureAwait(false);
+            var islandChangeSet = await RetrieveComponentsFromIslandAsync(operationContext, islandChangeToken, cancellationToken).ConfigureAwait(false);
 
             PvaComponentChangeSet dataverseChangeSet;
             using (var yamlContext = YamlSerializationContext.UseYamlPassThroughSerializationContext())
@@ -78,6 +81,32 @@ internal class IslandControlPlaneService : IIslandControlPlaneService
         }
 
         throw new ObjectModelException("Unable to retrieve components", "Unable to retrieve components");
+    }
+
+    private static string? WithoutPlaceholderHostedConnectorVersions(string? changeToken)
+    {
+        if (changeToken is null || changeToken.Length == 0)
+        {
+            return changeToken;
+        }
+
+        DeltaToken token;
+        try
+        {
+            token = DeltaToken.FromBase64String(changeToken);
+        }
+        catch (BadDeltaTokenException)
+        {
+            return changeToken;
+        }
+
+        var hostedConnectorVersions = token.HostedConnectorDefinitionVersions;
+        if (!hostedConnectorVersions.Any(version => version.VersionNumber == 0))
+        {
+            return changeToken;
+        }
+
+        return token.WithHostedConnectors(hostedConnectorVersions.Where(version => version.VersionNumber != 0).ToArray()).ToBase64String();
     }
 
     public void SetIslandBaseEndpoint(string baseEndpoint)

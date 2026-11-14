@@ -5,7 +5,7 @@
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Models;
     using Microsoft.PowerPlatformLS.Contracts.Lsp.Utilities;
     using Microsoft.PowerPlatformLS.Impl.Language.CopilotStudio.Completion;
-    using System.Text.Json;
+    using System.Diagnostics.CodeAnalysis;
 
     internal static class ObjectModelExtensions
     {
@@ -36,6 +36,12 @@
                     DiagnosticSeverity.Information;
             var diagnosticMessage = diagnostic.ErrorMessage;
 
+            if (TryGetConnectorMetadataNotDownloadedMessage(diagnostic, parent, out var notDownloadedMessage))
+            {
+                sev = DiagnosticSeverity.Warning;
+                diagnosticMessage = notDownloadedMessage;
+            }
+
             IEnumerable<Range> highlightRanges = diagnostic.GetTargetRanges(parent, markResolver);
 
             var errorCode = diagnostic.GetErrorCode();
@@ -56,6 +62,33 @@
                     Data = diagnosticData,
                 };
             }
+        }
+
+        private static bool TryGetConnectorMetadataNotDownloadedMessage(BotElementDiagnostic diagnostic, BotElement element, [NotNullWhen(true)] out string? message)
+        {
+            message = null;
+            if (diagnostic is not PropertyError { ErrorCode.Value: ValidationErrorCode.ConnectorActionNotSupported } || element is not InvokeConnectorAction action)
+            {
+                return false;
+            }
+
+            var definition = action.ParentOfType<DefinitionBase>();
+            if (definition == null || !definition.TryGetConnectionReferenceLogicalByName(action.ConnectionReference, out var connectionReference))
+            {
+                return false;
+            }
+
+            var connectorDefinitions = definition.ConnectorDefinitions
+                .Where(connector => connector.ConnectorId.Equals(connectionReference.ConnectorId))
+                .ToList();
+            if (connectorDefinitions.Count == 0 || connectorDefinitions.Any(connector => !connector.Operations.IsDefaultOrEmpty || !connector.Triggers.IsDefaultOrEmpty))
+            {
+                return false;
+            }
+
+            var connectorName = connectionReference.ConnectorId.Value?.Split('/').LastOrDefault();
+            message = $"Connector metadata for '{connectorName}' hasn't been downloaded to this workspace, so the action '{action.OperationId.Value}' couldn't be checked. Run 'Copilot Studio: Get changes' to download it.";
+            return true;
         }
 
         private static IEnumerable<Range> GetTargetRanges(this BotElementDiagnostic diagnostic, BotElement parent, MarkResolver markResolver)
