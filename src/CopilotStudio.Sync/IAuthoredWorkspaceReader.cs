@@ -13,5 +13,5 @@ public interface IAuthoredWorkspaceReader
     Task<AuthoredWorkspace> ReadAuthoredWorkspaceAsync(DirectoryPath workspaceFolder, CancellationToken cancellationToken);
 }
 
-/// <summary>The agent definition a workspace's files author, with the knowledge files whose content the workspace holds.</summary>
+/// <summary>The agent definition a workspace's files author, with the path of each knowledge file's content, whether or not that content is present.</summary>
 public sealed record AuthoredWorkspace(DefinitionBase Definition, ImmutableArray<KnowledgeFileInfo> KnowledgeFiles);

@@ -4,6 +4,7 @@ using System.Collections.Concurrent;
 using Microsoft.Agents.ObjectModel;
 using Microsoft.Agents.ObjectModel.Yaml;
 using Microsoft.CopilotStudio.McsCore;
+using Microsoft.CopilotStudio.Sync.Dataverse;
 using Moq;
 using Xunit;
 
@@ -72,6 +73,19 @@ public class AuthoredWorkspaceReaderTests
         var knowledgeFile = Assert.Single(authored.KnowledgeFiles);
         Assert.Equal("knowledge/files/Guide.pdf", knowledgeFile.RelativePath);
         Assert.IsType<FileAttachmentComponent>(Assert.Single(authored.Definition.Components, component => component.SchemaNameString == knowledgeFile.SchemaName));
+    }
+
+    [Fact]
+    public async Task ReadAuthoredWorkspace_KnowledgeFileWhoseDownloadWasSkipped_ListsThePathOfItsContent()
+    {
+        var (dataverse, _) = EnvironmentVariableTestFixtures.CreateDataverse();
+        dataverse.As<IStreamingKnowledgeFileClient>().Setup(client => client.DownloadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<BotComponentId>(), It.IsAny<CancellationToken>())).ThrowsAsync(new DataverseRequestException(System.Net.HttpStatusCode.NotFound, "{\"error\":{\"message\":\"No file attachment found for attribute: filedata\"}}"));
+        var (synchronizer, accessor, _, workspace) = await EnvironmentVariableTestFixtures.CloneAsync(dataverse, [KnowledgeFileTestFixtures.CreateFileComponent("cr123.file.Guide.pdf_a1B", "Guide.pdf", Guid.NewGuid())]);
+
+        var knowledgeFile = Assert.Single((await synchronizer.ReadAuthoredWorkspaceAsync(workspace, CancellationToken.None)).KnowledgeFiles);
+
+        Assert.Equal("knowledge/files/Guide.pdf", knowledgeFile.RelativePath);
+        Assert.False(accessor.Exists(new AgentFilePath(knowledgeFile.RelativePath)));
     }
 
     [Fact]
@@ -192,6 +206,44 @@ public class AuthoredWorkspaceReaderTests
         await accessor.WriteAsync(new AgentFilePath($"{workflowFolder}/metadata.yml"), metadata, CancellationToken.None);
 
         Assert.Equal($"{workflowFolder}/metadata.yml", Assert.Single((await Assert.ThrowsAsync<WorkspaceValidationException>(() => synchronizer.ReadAuthoredWorkspaceAsync(workspace, CancellationToken.None))).Diagnostics).FilePath);
+    }
+
+    [Theory]
+    [InlineData("workflow.json")]
+    [InlineData("metadata.yml")]
+    public async Task ReadAuthoredWorkspace_WorkflowFolderMissingOneOfItsFiles_IsRejectedAtTheMissingFile(string missingFile)
+    {
+        var (_, _, accessor, synchronizer, workspace) = await CliAgentRoundTripReadTests.PushFixtureAsClone("HRAgent");
+        var workflowId = Guid.NewGuid();
+        var workflowFolder = $"workflows/Notify-{workflowId}";
+        await accessor.WriteAsync(new AgentFilePath($"{workflowFolder}/workflow.json"), "{\"properties\":{}}", CancellationToken.None);
+        await accessor.WriteAsync(new AgentFilePath($"{workflowFolder}/metadata.yml"), $"workflowId: {workflowId}\nname: Notify\n", CancellationToken.None);
+        accessor.Delete(new AgentFilePath($"{workflowFolder}/{missingFile}"));
+
+        Assert.Equal($"{workflowFolder}/{missingFile}", Assert.Single((await Assert.ThrowsAsync<WorkspaceValidationException>(() => synchronizer.ReadAuthoredWorkspaceAsync(workspace, CancellationToken.None))).Diagnostics).FilePath);
+    }
+
+    [Fact]
+    public async Task ReadAuthoredWorkspace_WorkflowFolderWithoutEitherWorkflowFile_IsIgnored()
+    {
+        var (_, _, accessor, synchronizer, workspace) = await CliAgentRoundTripReadTests.PushFixtureAsClone("HRAgent");
+        await accessor.WriteAsync(new AgentFilePath($"workflows/Notify-{Guid.NewGuid()}/notes.md"), "notes", CancellationToken.None);
+
+        Assert.Empty((await synchronizer.ReadAuthoredWorkspaceAsync(workspace, CancellationToken.None)).Definition.Flows);
+    }
+
+    [Fact]
+    public async Task ReadAuthoredWorkspace_ChecksThatEachWorkflowFileExistsOnce()
+    {
+        var (_, _, accessor, _, workspace) = await CliAgentRoundTripReadTests.PushFixtureAsClone("HRAgent");
+        var workflowId = Guid.NewGuid();
+        var workflowFolder = $"workflows/Notify-{workflowId}";
+        await accessor.WriteAsync(new AgentFilePath($"{workflowFolder}/workflow.json"), "{\"properties\":{}}", CancellationToken.None);
+        await accessor.WriteAsync(new AgentFilePath($"{workflowFolder}/metadata.yml"), $"workflowId: {workflowId}\nname: Notify\n", CancellationToken.None);
+        var countingAccessor = new CountingFileAccessor(accessor);
+
+        Assert.Equal(workflowId, Assert.Single((await CreateSynchronizer(countingAccessor).ReadAuthoredWorkspaceAsync(workspace, CancellationToken.None)).Definition.Flows).WorkflowId.Value);
+        Assert.Equal(new[] { 1, 1 }, new[] { "metadata.yml", "workflow.json" }.Select(fileName => countingAccessor.ExistsCount(new AgentFilePath($"{workflowFolder}/{fileName}"))));
     }
 
     [Fact]
@@ -346,9 +398,12 @@ public class AuthoredWorkspaceReaderTests
     private sealed class CountingFileAccessor(IFileAccessor fileAccessor) : IFileAccessor
     {
         private readonly ConcurrentDictionary<string, int> _readCounts = new(StringComparer.Ordinal);
+        private readonly ConcurrentDictionary<string, int> _existsCounts = new(StringComparer.Ordinal);
         private readonly ConcurrentDictionary<(string Folder, string Pattern), int> _listCounts = new();
 
         public int ReadCount(AgentFilePath path) => _readCounts.TryGetValue(path.ToString(), out var count) ? count : 0;
+
+        public int ExistsCount(AgentFilePath path) => _existsCounts.TryGetValue(path.ToString(), out var count) ? count : 0;
 
         public int ListCount(string relativeFolder) => _listCounts.Where(entry => entry.Key.Folder == relativeFolder).Sum(entry => entry.Value);
 
@@ -356,7 +411,11 @@ public class AuthoredWorkspaceReaderTests
 
         public int TotalListCount => _listCounts.Values.Sum();
 
-        public bool Exists(AgentFilePath path) => fileAccessor.Exists(path);
+        public bool Exists(AgentFilePath path)
+        {
+            _existsCounts.AddOrUpdate(path.ToString(), 1, (_, count) => count + 1);
+            return fileAccessor.Exists(path);
+        }
 
         public Stream OpenRead(AgentFilePath path)
         {

@@ -8086,8 +8086,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var newLocalFileTexts = new Dictionary<string, string>(StringComparer.Ordinal);
         var legacyCliYamlComponentFiles = new List<AgentFilePath>();
         var definition = await ReadWorkspaceDefinitionAsync(workspaceFolder, cancellationToken, checkKnowledgeFiles: true, diagnostics: null, validate: true, baseDefinition: baseDefinition, overlayLayeredConnectionReferences: false, listedEnvironmentVariableFiles: environmentVariableFiles, newLocalFileTexts: newLocalFileTexts, diskSettingsEntity: cloudSnapshot is null ? (baseDefinition as BotDefinition)?.Entity : null, listedLegacyCliYamlComponentFiles: legacyCliYamlComponentFiles).ConfigureAwait(false);
-        var workflowMetadata = await ValidateWorkspaceAsync(fileAccessor, definition, cloudSnapshot, cancellationToken).ConfigureAwait(false);
+        var workflowFoldersWithoutMetadata = new List<string>();
+        var workflowMetadata = await ValidateWorkspaceAsync(fileAccessor, definition, cloudSnapshot, cancellationToken, workflowFoldersWithoutMetadata).ConfigureAwait(false);
         ThrowIfWorkflowIdsAreMissing(workflowMetadata);
+        ThrowIfWorkflowFoldersAreIncomplete(fileAccessor, workflowMetadata.Keys, workflowFoldersWithoutMetadata);
         var authoredDefinition = WithCloudOnlyComponentMetadata(fileAccessor, OverlayAuthoredAgentFiles(new PreloadedFileAccessor(fileAccessor, newLocalFileTexts), definition, legacyCliYamlComponentFiles, cancellationToken), cloudSnapshot).WithEnvironmentVariables(GetLocalEnvironmentVariables(definition, environmentVariableFiles)).WithFlows((await ReadWorkflowFoldersAsync(fileAccessor, WorkflowFolder, diagnostics: null, cancellationToken, workflowMetadata).ConfigureAwait(false)).Workflows);
         ThrowIfChildAgentFoldersLackTheirAgentFile(fileAccessor, authoredDefinition, cloudSnapshot);
         return new AuthoredWorkspace(authoredDefinition, ListKnowledgeFiles(fileAccessor, authoredDefinition, cancellationToken));
@@ -8104,6 +8106,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     private static DefinitionBase OverlayAuthoredAgentFiles(IFileAccessor fileAccessor, DefinitionBase definition, IEnumerable<AgentFilePath> legacyCliYamlComponentFiles, CancellationToken cancellationToken) => OverlayAuthoredEntity(fileAccessor, definition, legacyCliYamlComponentFiles).WithConnectionReferences(ReadAuthoredConnectionReferences(fileAccessor, definition, cancellationToken));
 
     private static void ThrowIfWorkflowIdsAreMissing(Dictionary<AgentFilePath, WorkflowMetadata> workflowMetadata) => ThrowIfAnyProblem(workflowMetadata.Where(workflow => workflow.Value.WorkflowId == Guid.Empty).Select(workflow => new WorkspaceDiagnostic(workflow.Key.ToString(), "This file must declare its workflow's workflowId. Add it, then try again.", 0, 0)).ToList());
+
+    private static void ThrowIfWorkflowFoldersAreIncomplete(IFileAccessor fileAccessor, IEnumerable<AgentFilePath> workflowMetadataPaths, IEnumerable<string> workflowFoldersWithoutMetadata) => ThrowIfAnyProblem(workflowMetadataPaths.Select(metadataPath => new AgentFilePath($"{metadataPath.ParentDirectoryName.TrimEnd('/')}/{WorkflowWorkspace.DefinitionFileName}")).Where(definitionPath => !fileAccessor.Exists(definitionPath)).Concat(workflowFoldersWithoutMetadata.Where(workflowFolder => fileAccessor.Exists(new AgentFilePath($"{workflowFolder}/{WorkflowWorkspace.DefinitionFileName}"))).Select(workflowFolder => new AgentFilePath($"{workflowFolder}/{WorkflowWorkspace.MetadataFileName}"))).Select(missingPath => new WorkspaceDiagnostic(missingPath.ToString(), "This file is missing from its workflow's folder. Restore it, or delete the folder to remove the workflow.", 0, 0)).ToList());
 
     private static DefinitionBase OverlayAuthoredEntity(IFileAccessor fileAccessor, DefinitionBase definition, IEnumerable<AgentFilePath> legacyCliYamlComponentFiles)
     {
@@ -8573,7 +8577,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         await ValidateWorkspaceAsync(fileAccessor, workspaceDefinition, ReadCloudCacheSnapshot(fileAccessor, allowMissing: true), cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<Dictionary<AgentFilePath, WorkflowMetadata>> ValidateWorkspaceAsync(IFileAccessor fileAccessor, DefinitionBase workspaceDefinition, DefinitionBase? cloudSnapshot, CancellationToken cancellationToken)
+    private async Task<Dictionary<AgentFilePath, WorkflowMetadata>> ValidateWorkspaceAsync(IFileAccessor fileAccessor, DefinitionBase workspaceDefinition, DefinitionBase? cloudSnapshot, CancellationToken cancellationToken, ICollection<string>? workflowFoldersWithoutMetadata = null)
     {
         var definition = cloudSnapshot == null
             ? workspaceDefinition
@@ -8582,13 +8586,13 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var problems = new List<WorkspaceDiagnostic>();
 
         CollectSkillManifestConflicts(fileAccessor, definition, definition.Components.ToList(), BuildComponentFolderOverrides(fileAccessor, definition), problems);
-        var workflowMetadata = await ReadComponentMetadataAsync(fileAccessor, problems, cancellationToken).ConfigureAwait(false);
+        var workflowMetadata = await ReadComponentMetadataAsync(fileAccessor, problems, cancellationToken, workflowFoldersWithoutMetadata).ConfigureAwait(false);
 
         ThrowIfAnyProblem(problems);
         return workflowMetadata;
     }
 
-    private async Task<Dictionary<AgentFilePath, WorkflowMetadata>> ReadComponentMetadataAsync(IFileAccessor fileAccessor, ICollection<WorkspaceDiagnostic> problems, CancellationToken cancellationToken)
+    private async Task<Dictionary<AgentFilePath, WorkflowMetadata>> ReadComponentMetadataAsync(IFileAccessor fileAccessor, ICollection<WorkspaceDiagnostic> problems, CancellationToken cancellationToken, ICollection<string>? workflowFoldersWithoutMetadata)
     {
         var workflowMetadata = new Dictionary<AgentFilePath, WorkflowMetadata>();
         foreach (var workflowFolder in EnumerateComponentFolders(fileAccessor, WorkflowFolder))
@@ -8597,6 +8601,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             var metadataPath = new AgentFilePath($"{workflowFolder}/metadata.yml");
             if (!fileAccessor.Exists(metadataPath))
             {
+                workflowFoldersWithoutMetadata?.Add(workflowFolder);
                 continue;
             }
 
@@ -9088,7 +9093,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             var metadataPath = new AgentFilePath($"{workflowFolder}/{WorkflowWorkspace.MetadataFileName}");
             var jsonPath = new AgentFilePath($"{workflowFolder}/{WorkflowWorkspace.DefinitionFileName}");
 
-            if (!fileAccessor.Exists(metadataPath) || !fileAccessor.Exists(jsonPath))
+            if (validatedMetadata is null && (!fileAccessor.Exists(metadataPath) || !fileAccessor.Exists(jsonPath)))
             {
                 continue;
             }
