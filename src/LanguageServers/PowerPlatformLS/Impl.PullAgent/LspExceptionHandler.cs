@@ -130,8 +130,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             => string.Join(" ", result.FailureReasons.Select(static reason => Tag(reason, ConnectorErrorDetailsPiiType)));
 
         /// <summary>
-        /// Explains a license check Microsoft Entra refused, naming its error code so the user and their
-        /// administrator can act on it. The description can name the user or their device, so it is tagged:
+        /// Explains a license check that a Conditional Access policy blocked, naming the Microsoft Entra error code so the
+        /// user and their administrator can act on it. The description can name the user or their device, so it is tagged:
         /// the detail stays visible in the client UI while telemetry scrubbers replace it with a redaction marker.
         /// </summary>
         private static string DescribeLicenseCheckSignIn(LicenseCheckSignInException failure)
@@ -140,9 +140,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 ? string.Empty
                 : $" ({failure.ErrorCode}{(failure.ErrorDescription is null ? string.Empty : ": " + Tag(failure.ErrorDescription, SignInErrorDetailsPiiType))})";
 
-            return failure.RequiresConditionalAccess
-                ? $"Copilot Studio couldn't check your license because your organization's Conditional Access policy blocked it{entraError}. Make sure you're signed in on a device that meets your organization's Conditional Access requirements, or contact your administrator."
-                : $"Copilot Studio couldn't check your license because Microsoft Entra refused to sign in on your behalf{entraError}. Sign out and sign in again, or contact your administrator.";
+            return $"Copilot Studio couldn't check your license because your organization's Conditional Access policy blocked it{entraError}. Make sure you're signed in on a device that meets your organization's Conditional Access requirements, or contact your administrator.";
         }
 
         /// <summary>

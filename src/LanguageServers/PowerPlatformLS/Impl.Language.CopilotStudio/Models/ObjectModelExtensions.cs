@@ -81,7 +81,7 @@
             var connectorDefinitions = definition.ConnectorDefinitions
                 .Where(connector => connector.ConnectorId.Equals(connectionReference.ConnectorId))
                 .ToList();
-            if (connectorDefinitions.Count == 0 || connectorDefinitions.Any(connector => !connector.Operations.IsDefaultOrEmpty || !connector.Triggers.IsDefaultOrEmpty))
+            if (connectorDefinitions.Count == 0 || connectorDefinitions.Any(connector => connector.Version != 0 || !connector.Operations.IsDefaultOrEmpty || !connector.Triggers.IsDefaultOrEmpty))
             {
                 return false;
             }

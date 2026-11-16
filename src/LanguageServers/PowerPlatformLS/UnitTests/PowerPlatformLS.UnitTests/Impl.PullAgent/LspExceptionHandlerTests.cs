@@ -5,6 +5,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
     using Microsoft.PowerPlatformLS.Impl.PullAgent;
     using Microsoft.PowerPlatformLS.Impl.Core.Lsp;
+    using Microsoft.PowerPlatformLS.LanguageServerHost;
     using Microsoft.PowerPlatformLS.UnitTests.TestUtilities;
     using Moq;
     using System;
@@ -91,23 +92,26 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
         [Fact]
         public void Handle_LicenseCheckBlockedByConditionalAccess_Returns403AndShowsTheEntraErrorWithoutSendingItsDetailsToTelemetry()
         {
-            var failure = new LicenseCheckSignInException(HttpStatusCode.BadRequest, requiresConditionalAccess: true, "AADSTS53000", "Device is not in required device state: compliant. Trace ID: trace-id");
+            var failure = new LicenseCheckSignInException(HttpStatusCode.BadRequest, "AADSTS53000", "Device CONTOSO-LAPTOP-42 is not in required device state: compliant. Trace ID: 0f8fad5b-d9cb-469f-a165-70867728950e");
 
             var (code, message) = LspExceptionHandler.Handle(failure, _logger);
 
             Assert.Equal(403, code);
-            Assert.Equal("Copilot Studio couldn't check your license because your organization's Conditional Access policy blocked it (AADSTS53000: Device is not in required device state: compliant. Trace ID: trace-id). Make sure you're signed in on a device that meets your organization's Conditional Access requirements, or contact your administrator.", StripPiiTags(message));
+            Assert.Equal("Copilot Studio couldn't check your license because your organization's Conditional Access policy blocked it (AADSTS53000: Device CONTOSO-LAPTOP-42 is not in required device state: compliant. Trace ID: 0f8fad5b-d9cb-469f-a165-70867728950e). Make sure you're signed in on a device that meets your organization's Conditional Access requirements, or contact your administrator.", StripPiiTags(message));
             Assert.Contains("(AADSTS53000: [REDACTED SIGN-IN ERROR DETAILS])", RedactPiiTags(message), StringComparison.Ordinal);
+            var scrubbedForTelemetry = PiiScrubTelemetryInitializer.ScrubMessage(message);
+            Assert.Contains("(AADSTS53000: [REDACTED])", scrubbedForTelemetry, StringComparison.Ordinal);
+            Assert.DoesNotContain("CONTOSO-LAPTOP-42", scrubbedForTelemetry, StringComparison.Ordinal);
             Assert.Empty(_testLogger.Error);
         }
 
         [Fact]
-        public void Handle_LicenseCheckSignInRefusedWithoutConditionalAccess_AsksTheUserToSignInAgain()
+        public void Handle_LicenseCheckBlockedWithoutAnEntraErrorCode_ExplainsTheBlockedLicenseCheck()
         {
-            var (code, message) = LspExceptionHandler.Handle(new LicenseCheckSignInException(HttpStatusCode.BadRequest, requiresConditionalAccess: false, "AADSTS65001", null), _logger);
+            var (code, message) = LspExceptionHandler.Handle(new LicenseCheckSignInException((HttpStatusCode)430, null, null), _logger);
 
             Assert.Equal(403, code);
-            Assert.Equal("Copilot Studio couldn't check your license because Microsoft Entra refused to sign in on your behalf (AADSTS65001). Sign out and sign in again, or contact your administrator.", message);
+            Assert.Equal("Copilot Studio couldn't check your license because your organization's Conditional Access policy blocked it. Make sure you're signed in on a device that meets your organization's Conditional Access requirements, or contact your administrator.", message);
         }
 
         [Fact]

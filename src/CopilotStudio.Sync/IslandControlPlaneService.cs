@@ -31,8 +31,8 @@ internal class IslandControlPlaneService : IIslandControlPlaneService
     private readonly IHttpClientFactory? _httpClientFactory;
     private const string BotManagementClientName = "BotManagement";
     private const int MaxEntraErrorDescriptionLength = 500;
+    private const int InteractionRequiredErrorCode = 9101;
     private static readonly Regex EntraErrorPattern = new(@"\b(?<code>AADSTS\d+)\s*:\s*(?<description>[^\r\n]*)", RegexOptions.CultureInvariant);
-    private static readonly string[] ConditionalAccessMarkers = ["insufficient_claims", "capolids", "claims challenge"];
     private static readonly string[] EntraErrorDescriptionEnds = [" The returned error contains", " at Microsoft."];
 
     public IslandControlPlaneService(ISyncAuthProvider authProvider, IContentAuthoringService contentAuthoringService, bool isIslandPreauthorized = false, IHttpClientFactory? httpClientFactory = null)
@@ -265,7 +265,7 @@ internal class IslandControlPlaneService : IIslandControlPlaneService
 
     private static async Task EnsureSuccessAsync(HttpResponseMessage response)
     {
-        if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden && ReadLicenseCheckSignInFailure(response.StatusCode, response.Headers.WwwAuthenticate.Select(challenge => challenge.ToString()), response.Content is null ? string.Empty : await response.Content.ReadAsStringAsync().ConfigureAwait(false)) is { } failure)
+        if (!response.IsSuccessStatusCode && response.Content is not null && ReadLicenseCheckSignInFailure(response.StatusCode, await response.Content.ReadAsStringAsync().ConfigureAwait(false)) is { } failure)
         {
             throw failure;
         }
@@ -273,37 +273,29 @@ internal class IslandControlPlaneService : IIslandControlPlaneService
         response.EnsureSuccessStatusCode();
     }
 
-    private static LicenseCheckSignInException? ReadLicenseCheckSignInFailure(HttpStatusCode statusCode, IEnumerable<string> authenticationChallenges, string body)
-    {
-        var challenges = string.Join("\n", authenticationChallenges);
-        var text = challenges + "\n" + ReadableText(body);
-        var entraError = EntraErrorPattern.Match(text);
-        var requiresConditionalAccess = challenges.IndexOf("claims=", StringComparison.OrdinalIgnoreCase) >= 0 || ConditionalAccessMarkers.Any(marker => text.IndexOf(marker, StringComparison.OrdinalIgnoreCase) >= 0);
-        return entraError.Success || requiresConditionalAccess
-            ? new LicenseCheckSignInException(statusCode, requiresConditionalAccess, entraError.Success ? entraError.Groups["code"].Value : null, entraError.Success ? DescribeEntraError(entraError.Groups["description"].Value) : null)
-            : null;
-    }
-
-    private static string ReadableText(string body)
+    private static LicenseCheckSignInException? ReadLicenseCheckSignInFailure(HttpStatusCode statusCode, string body)
     {
         try
         {
             using var document = JsonDocument.Parse(body);
-            return string.Join("\n", StringValues(document.RootElement));
+            var error = document.RootElement;
+            if (error.ValueKind != JsonValueKind.Object
+                || !error.TryGetProperty("ErrorCode", out var errorCode)
+                || errorCode.ValueKind != JsonValueKind.Number
+                || !errorCode.TryGetInt32(out var code)
+                || code != InteractionRequiredErrorCode)
+            {
+                return null;
+            }
+
+            var entraError = EntraErrorPattern.Match(error.TryGetProperty("ErrorMessage", out var errorMessage) && errorMessage.ValueKind == JsonValueKind.String ? errorMessage.GetString() ?? string.Empty : string.Empty);
+            return new LicenseCheckSignInException(statusCode, entraError.Success ? entraError.Groups["code"].Value : null, entraError.Success ? DescribeEntraError(entraError.Groups["description"].Value) : null);
         }
         catch (JsonException)
         {
-            return body;
+            return null;
         }
     }
-
-    private static IEnumerable<string> StringValues(JsonElement element) => element.ValueKind switch
-    {
-        JsonValueKind.String => new[] { element.GetString() ?? string.Empty },
-        JsonValueKind.Object => element.EnumerateObject().SelectMany(property => StringValues(property.Value)),
-        JsonValueKind.Array => element.EnumerateArray().SelectMany(StringValues),
-        _ => Enumerable.Empty<string>(),
-    };
 
     private static string? DescribeEntraError(string description)
     {

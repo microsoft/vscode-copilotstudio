@@ -92,6 +92,20 @@
             Assert.Equal(botDiag.ErrorMessage, lspDiag.Message);
         }
 
+        [Fact]
+        public void ToLspDiagnostics_ConnectorActionNotSupportedWithDownloadedConnectorMetadataWithoutOperations_ReportsError()
+        {
+            var connectorDefinition = DownloadedDataverseConnectorDefinition();
+            connectorDefinition.Operations.Clear();
+            var (action, botDiag) = ValidateDataverseListRowsAction(connectorDefinition);
+
+            var lspDiag = botDiag.ToLspDiagnostics(action, new MarkResolver(TestData)).Single();
+
+            Assert.Equal(DiagnosticSeverity.Error, lspDiag.Severity);
+            Assert.Equal(nameof(ValidationErrorCode.ConnectorActionNotSupported), lspDiag.Code);
+            Assert.Equal(botDiag.ErrorMessage, lspDiag.Message);
+        }
+
         [Theory]
         [InlineData("CR123_AGENT.SHARED_COMMONDATASERVICEFORAPPS.REF")]
         [InlineData(ConnectionReferenceName)]
