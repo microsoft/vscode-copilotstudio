@@ -57,7 +57,7 @@
 
             Assert.Equal(DiagnosticSeverity.Warning, lspDiag.Severity);
             Assert.Equal(nameof(ValidationErrorCode.ConnectorActionNotSupported), lspDiag.Code);
-            Assert.Equal("Connector metadata for 'shared_commondataserviceforapps' hasn't been downloaded to this workspace, so the action 'ListRecordsWithOrganization' couldn't be checked. Run 'Copilot Studio: Get changes' to download it.", lspDiag.Message);
+            Assert.Equal("Connector metadata for 'shared_commondataserviceforapps' hasn't been downloaded to this workspace. Run 'Copilot Studio: Get changes' to download it.", lspDiag.Message);
         }
 
         [Fact]

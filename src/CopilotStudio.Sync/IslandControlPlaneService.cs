@@ -10,10 +10,12 @@ using Microsoft.Agents.Platform.Content.DeltaTokens;
 using Microsoft.Agents.Platform.Content.Exceptions;
 using System.Collections.Immutable;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 
 namespace Microsoft.CopilotStudio.Sync;
@@ -28,6 +30,10 @@ internal class IslandControlPlaneService : IIslandControlPlaneService
     private readonly bool _isIslandPreauthorized;
     private readonly IHttpClientFactory? _httpClientFactory;
     private const string BotManagementClientName = "BotManagement";
+    private const int MaxEntraErrorDescriptionLength = 500;
+    private static readonly Regex EntraErrorPattern = new(@"\b(?<code>AADSTS\d+)\s*:\s*(?<description>[^\r\n]*)", RegexOptions.CultureInvariant);
+    private static readonly string[] ConditionalAccessMarkers = ["insufficient_claims", "capolids", "claims challenge"];
+    private static readonly string[] EntraErrorDescriptionEnds = [" The returned error contains", " at Microsoft."];
 
     public IslandControlPlaneService(ISyncAuthProvider authProvider, IContentAuthoringService contentAuthoringService, bool isIslandPreauthorized = false, IHttpClientFactory? httpClientFactory = null)
     {
@@ -207,7 +213,7 @@ internal class IslandControlPlaneService : IIslandControlPlaneService
         SetContent(request, changeToken, collectionContext, changes);
 
         var result = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        result.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(result).ConfigureAwait(false);
         var json = await result.Content.ReadAsStringAsync().ConfigureAwait(false);
         var parsedContent = JsonSerializer.Deserialize<PvaComponentChangeSet>(json, Options);
 
@@ -250,11 +256,60 @@ internal class IslandControlPlaneService : IIslandControlPlaneService
         SetContent(request, changeToken, botContext, changes);
 
         var result = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        result.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(result).ConfigureAwait(false);
         var json = await result.Content.ReadAsStringAsync().ConfigureAwait(false);
         var parsedContent = JsonSerializer.Deserialize<PvaComponentChangeSet>(json, Options);
 
         return parsedContent ?? new PvaComponentChangeSet(null, null, null);
+    }
+
+    private static async Task EnsureSuccessAsync(HttpResponseMessage response)
+    {
+        if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden && ReadLicenseCheckSignInFailure(response.StatusCode, response.Headers.WwwAuthenticate.Select(challenge => challenge.ToString()), response.Content is null ? string.Empty : await response.Content.ReadAsStringAsync().ConfigureAwait(false)) is { } failure)
+        {
+            throw failure;
+        }
+
+        response.EnsureSuccessStatusCode();
+    }
+
+    private static LicenseCheckSignInException? ReadLicenseCheckSignInFailure(HttpStatusCode statusCode, IEnumerable<string> authenticationChallenges, string body)
+    {
+        var challenges = string.Join("\n", authenticationChallenges);
+        var text = challenges + "\n" + ReadableText(body);
+        var entraError = EntraErrorPattern.Match(text);
+        var requiresConditionalAccess = challenges.IndexOf("claims=", StringComparison.OrdinalIgnoreCase) >= 0 || ConditionalAccessMarkers.Any(marker => text.IndexOf(marker, StringComparison.OrdinalIgnoreCase) >= 0);
+        return entraError.Success || requiresConditionalAccess
+            ? new LicenseCheckSignInException(statusCode, requiresConditionalAccess, entraError.Success ? entraError.Groups["code"].Value : null, entraError.Success ? DescribeEntraError(entraError.Groups["description"].Value) : null)
+            : null;
+    }
+
+    private static string ReadableText(string body)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            return string.Join("\n", StringValues(document.RootElement));
+        }
+        catch (JsonException)
+        {
+            return body;
+        }
+    }
+
+    private static IEnumerable<string> StringValues(JsonElement element) => element.ValueKind switch
+    {
+        JsonValueKind.String => new[] { element.GetString() ?? string.Empty },
+        JsonValueKind.Object => element.EnumerateObject().SelectMany(property => StringValues(property.Value)),
+        JsonValueKind.Array => element.EnumerateArray().SelectMany(StringValues),
+        _ => Enumerable.Empty<string>(),
+    };
+
+    private static string? DescribeEntraError(string description)
+    {
+        var end = EntraErrorDescriptionEnds.Select(marker => description.IndexOf(marker, StringComparison.Ordinal)).Where(index => index >= 0).DefaultIfEmpty(description.Length).Min();
+        var trimmed = description.Substring(0, end).Trim();
+        return trimmed.Length == 0 ? null : trimmed.Length > MaxEntraErrorDescriptionLength ? trimmed.Substring(0, MaxEntraErrorDescriptionLength).TrimEnd() + "..." : trimmed;
     }
 
     private bool AreBotComponentChangesEqual(PvaComponentChangeSet islandChangeSet, PvaComponentChangeSet dataverseChangeSet)

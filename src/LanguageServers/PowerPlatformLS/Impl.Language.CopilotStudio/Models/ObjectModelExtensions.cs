@@ -87,7 +87,7 @@
             }
 
             var connectorName = connectionReference.ConnectorId.Value?.Split('/').LastOrDefault();
-            message = $"Connector metadata for '{connectorName}' hasn't been downloaded to this workspace, so the action '{action.OperationId.Value}' couldn't be checked. Run 'Copilot Studio: Get changes' to download it.";
+            message = $"Connector metadata for '{connectorName}' hasn't been downloaded to this workspace. Run 'Copilot Studio: Get changes' to download it.";
             return true;
         }
 
