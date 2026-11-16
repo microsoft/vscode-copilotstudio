@@ -26,6 +26,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
         private const string ConnectorErrorDetailsPiiType = "CONNECTOR ERROR DETAILS";
 
+        private const string AgentNamePiiType = "AGENT NAME";
+
         /// <summary>
         /// Classifies the exception, logs it at the appropriate severity, and returns
         /// a status code and user-facing message suitable for the LSP response.
@@ -51,6 +53,9 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
                 StandaloneWorkflowException swe when RequiresUserAction(swe.Failure) =>
                     NoLog(400, DescribeStandaloneWorkflow(swe)),
+
+                AgentIsManagedException managedAgent =>
+                    NoLog(400, ProtectValue(managedAgent.Message, managedAgent.AgentName, AgentNamePiiType)),
 
                 InvalidOperationException ioe =>
                     NoLog(400, ioe.Message),

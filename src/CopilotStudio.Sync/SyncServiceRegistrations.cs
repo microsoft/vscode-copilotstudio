@@ -57,6 +57,7 @@ public static class SyncServiceRegistrations
         services.AddSingleton<IWorkflowActivationService>(sp => sp.GetRequiredService<WorkspaceSynchronizer>());
         services.AddSingleton<IWorkspaceRetargetService>(sp => sp.GetRequiredService<WorkspaceSynchronizer>());
         services.AddSingleton<IEnvironmentVariableDependencyValidator>(sp => sp.GetRequiredService<WorkspaceSynchronizer>());
+        services.AddSingleton<IAuthoredWorkspaceReader>(serviceProvider => serviceProvider.GetRequiredService<WorkspaceSynchronizer>());
         services.AddSingleton<IStandaloneWorkflowSynchronizer, StandaloneWorkflowSynchronizer>();
         services.AddSingleton<IWorkspaceCopyService>(sp => new WorkspaceCopyService(sp.GetRequiredService<WorkspaceSynchronizer>()));
     }

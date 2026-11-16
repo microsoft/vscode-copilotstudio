@@ -71,6 +71,11 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             {
                 await ConnectionHelper.ApplyConnectionContext(_islandControlPlaneService, _dataverseTokenManager, _dataverseHttpClientAccessor, _dataverseClient, request, _workspaceSynchronizer, agentInfo: request.AgentInfo);
 
+                if (request.Assets.CloneAgent)
+                {
+                    AgentIsManagedException.ThrowIfManaged(await _dataverseClient.GetAgentInfoAsync(request.AgentInfo.AgentId, cancellationToken));
+                }
+
                 var syncInfo = request.GetSyncInfo();
 
                 var rootPath = ValidateRequest(request);
@@ -181,6 +186,14 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     Message = string.Empty,
                     AgentFolderName = agentFolderName,
                     AuthoringShape = detectedShape,
+                };
+            }
+            catch (DataverseRequestException failure)
+            {
+                return new CloneAgentResponse()
+                {
+                    Code = (int)failure.StatusCode,
+                    Message = failure.Message
                 };
             }
             catch (Exception ex)

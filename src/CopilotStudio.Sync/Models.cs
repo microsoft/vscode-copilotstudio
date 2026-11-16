@@ -265,6 +265,8 @@ public class AgentInfo
 #pragma warning restore CA1002, CA2227
 
     public string? SchemaName { get; set; }
+
+    public bool IsManaged { get; set; }
 }
 
 public class ComponentCollectionInfo

@@ -1,6 +1,7 @@
 ﻿namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
 {
     using Microsoft.CopilotStudio.Sync;
+    using Microsoft.CopilotStudio.Sync.Dataverse;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.DependencyInjection.Extensions;
     using Microsoft.PowerPlatformLS.Contracts.Internal.Common;
@@ -163,6 +164,8 @@
                 // By injecting the island, we can skip injecting http services or other auth.
                 services.RemoveAll<IIslandControlPlaneService>();
                 services.AddSingleton<IIslandControlPlaneService>(MockIsland);
+                services.RemoveAll<ISyncDataverseClient>();
+                services.AddSingleton<ISyncDataverseClient, MockDataverseClient>();
             }
         }
 
