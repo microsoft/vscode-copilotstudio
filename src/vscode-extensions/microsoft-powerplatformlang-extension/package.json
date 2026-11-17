@@ -458,7 +458,7 @@
     "@typescript-eslint/parser": "^8.72.2",
     "@vscode/test-electron": "^2.4.1",
     "esbuild": "0.28.2",
-    "eslint": "^10.15.0",
+    "eslint": "^10.14.0",
     "nerdbank-gitversioning": "^3.10.94",
     "npm-run-all2": "^9.0.4",
     "shared": "file:../shared",
