@@ -2,6 +2,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests
 {
     using System;
     using System.Linq;
+    using System.Reflection;
     using Xunit;
 
     public class AssemblyTests
@@ -15,11 +16,6 @@ namespace Microsoft.PowerPlatformLS.UnitTests
         [Fact]
         public void ImplementationLibraries_EncapsulationCheck()
         {
-            var implAssemblies = AppDomain.CurrentDomain.GetAssemblies()
-                .Where(a => a.FullName?.StartsWith("Microsoft.PowerPlatformLS.Impl") == true)
-                .OrderBy(x => x.GetName().Name)
-                .ToArray();
-
             // Validate known assemblies are found exclusively
             string[] expectedAssemblies = [
                 "Microsoft.PowerPlatformLS.Impl.Core",
@@ -28,6 +24,16 @@ namespace Microsoft.PowerPlatformLS.UnitTests
                 "Microsoft.PowerPlatformLS.Impl.Language.Yaml",
                 "Microsoft.PowerPlatformLS.Impl.PullAgent",
                 ];
+            foreach (var assemblyName in expectedAssemblies)
+            {
+                Assembly.Load(assemblyName);
+            }
+
+            var implAssemblies = AppDomain.CurrentDomain.GetAssemblies()
+                .Where(a => a.FullName?.StartsWith("Microsoft.PowerPlatformLS.Impl") == true)
+                .OrderBy(x => x.GetName().Name)
+                .ToArray();
+
             TestUtilities.TestAssert.StringArrayEqual(expectedAssemblies, implAssemblies.Select(x => x.GetName().Name).ToArray());
 
             // Validate they all contain a single, known type
