@@ -39,12 +39,12 @@ namespace Microsoft.PowerPlatformLS.LanguageServerHost
                 return message ?? string.Empty;
             }
 
-            // Step 1: Process <pii>...</pii> tags — known patterns → named placeholder, unknown → [REDACTED]
+            // Step 1: Process <pii>...</pii> tags — values made up entirely of known patterns → named placeholders, anything else → [REDACTED]
             message = PiiTagRegex().Replace(message, match =>
             {
                 var inner = System.Net.WebUtility.HtmlDecode(match.Groups[1].Value.Trim());
                 var sanitized = ApplyKnownPatterns(inner);
-                return sanitized != inner ? sanitized : "[REDACTED]";
+                return sanitized != inner && !RedactedPlaceholderRegex().Replace(sanitized, string.Empty).Any(char.IsLetterOrDigit) ? sanitized : "[REDACTED]";
             });
 
             // Step 2: Apply known patterns to remaining untagged content
@@ -132,6 +132,9 @@ namespace Microsoft.PowerPlatformLS.LanguageServerHost
         // Matches standalone GUIDs NOT preceded by known safe prefixes (e.g., sessionId=)
         [GeneratedRegex(@"(?<!sessionId=)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", RegexOptions.IgnoreCase)]
         private static partial Regex GuidRegex();
+
+        [GeneratedRegex(@"\[REDACTED: [a-z-]+\]")]
+        private static partial Regex RedactedPlaceholderRegex();
 
         /// <summary>
         /// Adds agent/env context and shared dimensions from AsyncLocal as separate telemetry properties.

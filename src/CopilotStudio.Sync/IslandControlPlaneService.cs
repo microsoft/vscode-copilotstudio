@@ -6,12 +6,16 @@ using Microsoft.Agents.ObjectModel;
 using Microsoft.Agents.ObjectModel.Exceptions;
 using Microsoft.Agents.ObjectModel.Yaml;
 using Microsoft.Agents.Platform.Content;
+using Microsoft.Agents.Platform.Content.DeltaTokens;
+using Microsoft.Agents.Platform.Content.Exceptions;
 using System.Collections.Immutable;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 
 namespace Microsoft.CopilotStudio.Sync;
@@ -26,6 +30,10 @@ internal class IslandControlPlaneService : IIslandControlPlaneService
     private readonly bool _isIslandPreauthorized;
     private readonly IHttpClientFactory? _httpClientFactory;
     private const string BotManagementClientName = "BotManagement";
+    private const int MaxEntraErrorDescriptionLength = 500;
+    private const int InteractionRequiredErrorCode = 9101;
+    private static readonly Regex EntraErrorPattern = new(@"\b(?<code>AADSTS\d+)\s*:\s*(?<description>[^\r\n]*)", RegexOptions.CultureInvariant);
+    private static readonly string[] EntraErrorDescriptionEnds = [" The returned error contains", " at Microsoft."];
 
     public IslandControlPlaneService(ISyncAuthProvider authProvider, IContentAuthoringService contentAuthoringService, bool isIslandPreauthorized = false, IHttpClientFactory? httpClientFactory = null)
     {
@@ -54,9 +62,10 @@ internal class IslandControlPlaneService : IIslandControlPlaneService
             return await _contentAuthoringService.GetComponentsAsync(operationContext, changeToken, true, false, cancellationToken).ConfigureAwait(false);
         }
 
+        var (islandChangeToken, placeholderConnectorIds) = WithoutPlaceholderHostedConnectorVersions(changeToken);
         for (var i = 0; i < 3; i++)
         {
-            var islandChangeSet = await RetrieveComponentsFromIslandAsync(operationContext, changeToken, cancellationToken).ConfigureAwait(false);
+            var islandChangeSet = await RetrieveComponentsFromIslandAsync(operationContext, islandChangeToken, cancellationToken).ConfigureAwait(false);
 
             PvaComponentChangeSet dataverseChangeSet;
             using (var yamlContext = YamlSerializationContext.UseYamlPassThroughSerializationContext())
@@ -74,10 +83,48 @@ internal class IslandControlPlaneService : IIslandControlPlaneService
                 continue;
             }
 
-            return islandChangeSet.WithBotComponentChanges(dataverseChangeSet.BotComponentChanges).WithBot(dataverseChangeSet.Bot);
+            return WithPlaceholderConnectorInsertsAsUpdates(islandChangeSet, placeholderConnectorIds).WithBotComponentChanges(dataverseChangeSet.BotComponentChanges).WithBot(dataverseChangeSet.Bot);
         }
 
         throw new ObjectModelException("Unable to retrieve components", "Unable to retrieve components");
+    }
+
+    private static (string? ChangeToken, IReadOnlyCollection<string> PlaceholderConnectorIds) WithoutPlaceholderHostedConnectorVersions(string? changeToken)
+    {
+        if (changeToken is null || changeToken.Length == 0)
+        {
+            return (changeToken, Array.Empty<string>());
+        }
+
+        DeltaToken token;
+        try
+        {
+            token = DeltaToken.FromBase64String(changeToken);
+        }
+        catch (BadDeltaTokenException)
+        {
+            return (changeToken, Array.Empty<string>());
+        }
+
+        var hostedConnectorVersions = token.HostedConnectorDefinitionVersions;
+        var placeholderConnectorIds = hostedConnectorVersions.Where(version => version.VersionNumber == 0).Select(version => version.ComponentId).ToArray();
+        if (placeholderConnectorIds.Length == 0)
+        {
+            return (changeToken, placeholderConnectorIds);
+        }
+
+        return (token.WithHostedConnectors(hostedConnectorVersions.Where(version => version.VersionNumber != 0).ToArray()).ToBase64String(), placeholderConnectorIds);
+    }
+
+    private static PvaComponentChangeSet WithPlaceholderConnectorInsertsAsUpdates(PvaComponentChangeSet changeSet, IReadOnlyCollection<string> placeholderConnectorIds)
+    {
+        if (placeholderConnectorIds.Count == 0 || changeSet.ConnectorDefinitionChanges.IsDefaultOrEmpty)
+        {
+            return changeSet;
+        }
+
+        var placeholders = new HashSet<string>(placeholderConnectorIds, StringComparer.OrdinalIgnoreCase);
+        return changeSet.WithConnectorDefinitionChanges(changeSet.ConnectorDefinitionChanges.Select(change => change is ConnectorDefinitionInsert { ConnectorDefinition: { } connectorDefinition } && connectorDefinition.ConnectorId.Value is string connectorId && placeholders.Contains(connectorId) ? new ConnectorDefinitionUpdate(connectorDefinition) : change));
     }
 
     public void SetIslandBaseEndpoint(string baseEndpoint)
@@ -166,7 +213,7 @@ internal class IslandControlPlaneService : IIslandControlPlaneService
         SetContent(request, changeToken, collectionContext, changes);
 
         var result = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        result.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(result).ConfigureAwait(false);
         var json = await result.Content.ReadAsStringAsync().ConfigureAwait(false);
         var parsedContent = JsonSerializer.Deserialize<PvaComponentChangeSet>(json, Options);
 
@@ -209,11 +256,52 @@ internal class IslandControlPlaneService : IIslandControlPlaneService
         SetContent(request, changeToken, botContext, changes);
 
         var result = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        result.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(result).ConfigureAwait(false);
         var json = await result.Content.ReadAsStringAsync().ConfigureAwait(false);
         var parsedContent = JsonSerializer.Deserialize<PvaComponentChangeSet>(json, Options);
 
         return parsedContent ?? new PvaComponentChangeSet(null, null, null);
+    }
+
+    private static async Task EnsureSuccessAsync(HttpResponseMessage response)
+    {
+        if (!response.IsSuccessStatusCode && response.Content is not null && ReadLicenseCheckSignInFailure(response.StatusCode, await response.Content.ReadAsStringAsync().ConfigureAwait(false)) is { } failure)
+        {
+            throw failure;
+        }
+
+        response.EnsureSuccessStatusCode();
+    }
+
+    private static LicenseCheckSignInException? ReadLicenseCheckSignInFailure(HttpStatusCode statusCode, string body)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            var error = document.RootElement;
+            if (error.ValueKind != JsonValueKind.Object
+                || !error.TryGetProperty("ErrorCode", out var errorCode)
+                || errorCode.ValueKind != JsonValueKind.Number
+                || !errorCode.TryGetInt32(out var code)
+                || code != InteractionRequiredErrorCode)
+            {
+                return null;
+            }
+
+            var entraError = EntraErrorPattern.Match(error.TryGetProperty("ErrorMessage", out var errorMessage) && errorMessage.ValueKind == JsonValueKind.String ? errorMessage.GetString() ?? string.Empty : string.Empty);
+            return new LicenseCheckSignInException(statusCode, entraError.Success ? entraError.Groups["code"].Value : null, entraError.Success ? DescribeEntraError(entraError.Groups["description"].Value) : null);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string? DescribeEntraError(string description)
+    {
+        var end = EntraErrorDescriptionEnds.Select(marker => description.IndexOf(marker, StringComparison.Ordinal)).Where(index => index >= 0).DefaultIfEmpty(description.Length).Min();
+        var trimmed = description.Substring(0, end).Trim();
+        return trimmed.Length == 0 ? null : trimmed.Length > MaxEntraErrorDescriptionLength ? trimmed.Substring(0, MaxEntraErrorDescriptionLength).TrimEnd() + "..." : trimmed;
     }
 
     private bool AreBotComponentChangesEqual(PvaComponentChangeSet islandChangeSet, PvaComponentChangeSet dataverseChangeSet)

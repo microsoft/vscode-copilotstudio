@@ -28,6 +28,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
 
         private const string AgentNamePiiType = "AGENT NAME";
 
+        private const string SignInErrorDetailsPiiType = "SIGN-IN ERROR DETAILS";
+
         /// <summary>
         /// Classifies the exception, logs it at the appropriate severity, and returns
         /// a status code and user-facing message suitable for the LSP response.
@@ -38,6 +40,9 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             {
                 HttpRequestException hre =>
                     NoLog(MapHttpStatusCode(hre), hre.Message),
+
+                LicenseCheckSignInException lcse =>
+                    NoLog(403, DescribeLicenseCheckSignIn(lcse)),
 
                 FileNotFoundException fnf =>
                     NoLog(400, fnf.Message),
@@ -123,6 +128,20 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         /// </summary>
         internal static string DescribeConnectorFailures(CustomConnectorPushResult result)
             => string.Join(" ", result.FailureReasons.Select(static reason => Tag(reason, ConnectorErrorDetailsPiiType)));
+
+        /// <summary>
+        /// Explains a license check that a Conditional Access policy blocked, naming the Microsoft Entra error code so the
+        /// user and their administrator can act on it. The description can name the user or their device, so it is tagged:
+        /// the detail stays visible in the client UI while telemetry scrubbers replace it with a redaction marker.
+        /// </summary>
+        private static string DescribeLicenseCheckSignIn(LicenseCheckSignInException failure)
+        {
+            var entraError = failure.ErrorCode is null
+                ? string.Empty
+                : $" ({failure.ErrorCode}{(failure.ErrorDescription is null ? string.Empty : ": " + Tag(failure.ErrorDescription, SignInErrorDetailsPiiType))})";
+
+            return $"Copilot Studio couldn't check your license because your organization's Conditional Access policy blocked it{entraError}. Make sure you're signed in on a device that meets your organization's Conditional Access requirements, or contact your administrator.";
+        }
 
         /// <summary>
         /// Standalone workflow failures name folders the service derived from a workflow's display

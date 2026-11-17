@@ -152,6 +152,12 @@ namespace Microsoft.PowerPlatformLS.UnitTests.LanguageServerHost
         [InlineData(
             "<pii> hello@a.com </pii> trailing spaces trimmed",
             "[REDACTED: email] trailing spaces trimmed")]
+        [InlineData(
+            "<pii>hello@a.com, other@b.com</pii> own the agent",
+            "[REDACTED: email], [REDACTED: email] own the agent")]
+        [InlineData(
+            "<pii>Device CONTOSO-LAPTOP-42 is not compliant. Trace ID: 191e2a0a-5390-f111-8077-000d3a199a69</pii> sign-in failed",
+            "[REDACTED] sign-in failed")]
         public void ScrubMessage_Handles_Pii_Tags(string input, string expected)
         {
             var result = PiiScrubTelemetryInitializer.ScrubMessage(input);
