@@ -200,6 +200,46 @@ describe('mergeEnvironmentsBySku', () => {
 	});
 });
 
+test('environment fallback matches mixed-case IDs when the by-ID response omits runtime endpoints', async () => {
+  const configuredId = 'DEFAULT-A30263B9-1CAF-4DB5-AB53-ED3850C0BD1F';
+  const endpoint = 'https://management.example.com/';
+  const details = makeDetails({ runtimeEndpoints: { 'microsoft.PowerVirtualAgents': endpoint } });
+  const requests: string[] = [];
+  const sandbox = createContext({
+    exports: {},
+    require: (id: string) => {
+      switch (id) {
+        case 'vscode': return { Uri: { from: (value: unknown) => value } };
+        case './account': return {
+          FetchAccessToken: async (_resource: unknown, uri: { path: string }) => {
+            requests.push(uri.path);
+            return {
+              response: new Response(JSON.stringify(requests.length === 1 ? makeDetails({}) : { value: [details] })),
+              tokenInfo: {}
+            };
+          }
+        };
+        case '../constants': return { CoreServicesClusterCategory, DefaultCoreServicesClusterCategory };
+        case '../services/logger': return {};
+        case '../utils/httpRequestError': return { HttpRequestError };
+        default: throw new Error('Unexpected dependency: ' + id);
+      }
+    }
+  });
+  const compiled = await readFile(path.resolve(__dirname, '..', '..', 'clients', 'bapClient.js'), 'utf8');
+  runInContext(compiled, sandbox);
+  const result = await runInContext(
+    `exports.resolveEnvironmentForCloneAsync(null, "${configuredId}", null)`, sandbox
+  ) as Awaited<ReturnType<typeof resolveEnvironmentForCloneAsync>>;
+  strictAssert.deepEqual(requests, [
+    '/providers/Microsoft.BusinessAppPlatform/environments/' + configuredId,
+    '/providers/Microsoft.BusinessAppPlatform/environments'
+  ]);
+  strictAssert.equal(result.environment?.agentManagementUrl, endpoint);
+  strictAssert.equal(result.environment?.environmentId, details.name);
+  strictAssert.equal(result.endpointMissing, false);
+});
+
 test('environment request errors expose the service message without JSON and retain diagnostic details', async () => {
   let responseBody = '';
   const sandbox = createContext({

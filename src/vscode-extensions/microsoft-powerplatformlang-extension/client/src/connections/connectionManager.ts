@@ -506,6 +506,7 @@ export class ConnectionManagerController {
     if (!filePath) {
       return;
     }
+    this.post({ type: 'busy', busy: true, message: 'Opening file…' });
     try {
       const base = vscode.Uri.parse(this.workspace.workspaceUri);
       let target = vscode.Uri.joinPath(base, filePath);
@@ -520,6 +521,8 @@ export class ConnectionManagerController {
     } catch (error) {
       const message = (error as Error).message ?? 'Failed to open the file.';
       this.post({ type: 'error', message });
+    } finally {
+      this.post({ type: 'busy', busy: false });
     }
   }
 

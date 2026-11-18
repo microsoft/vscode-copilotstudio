@@ -229,7 +229,7 @@ export const deploymentSelectorScript = `
         badge.title = attachmentTitle(matching.length > 1);
         badge.classList.toggle('hidden', !attached);
         select.setAttribute('aria-label', 'Deployment: ' + select.title + (attached ? ', ' + attachmentLabel : ''));
-        useWorkspace.classList.toggle('hidden', !isVisible() || matching.length > 0 || !selection);
+        useWorkspace.classList.toggle('hidden', !isVisible() || !!context.currentDeploymentId || !selection);
         picker.classList.toggle('hidden', !isVisible());
         options.onChange(context, selection);
         setLoading(false);
@@ -296,7 +296,7 @@ export const deploymentSelectorScript = `
         if (!picker.contains(event.relatedTarget)) { closeMenu(); }
       });
       useWorkspace.addEventListener('click', function () {
-        if (workspaceDeployments().length === 0) { requestSelection(''); }
+        if (!context.currentDeploymentId) { requestSelection(''); }
       });
       refresh.addEventListener('click', function () { if (!busy) { options.onRefresh(); } });
 

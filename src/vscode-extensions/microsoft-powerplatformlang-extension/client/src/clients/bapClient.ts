@@ -233,7 +233,7 @@ async function findEnvironmentDetailsInListAsync(
         accountHint
     );
 
-    return environments.result.value.find(details => details.name === environmentId);
+    return environments.result.value.find(details => details.name.toLowerCase() === environmentId.toLowerCase());
 }
 
 export const DEFAULT_ENVIRONMENT_LOOKUPS: EnvironmentLookup[] = [getEnvironmentEndpointByIdAsync, findEnvironmentEndpointInListAsync];

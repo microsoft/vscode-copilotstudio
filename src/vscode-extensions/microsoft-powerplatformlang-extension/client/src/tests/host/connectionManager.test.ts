@@ -507,6 +507,7 @@ test('controller isolates remote bindings, confirms discards, serializes switchi
   let fallbackError: Error | undefined;
   let fallbackCalls = 0;
   let chooseConnector: (() => Promise<string | undefined>) | undefined;
+  let openDocument: (() => Promise<void>) | undefined;
   let agentExists = true;
   let failAgentAccess = false;
   let configurationLoadError: Error | undefined;
@@ -515,7 +516,10 @@ test('controller isolates remote bindings, confirms discards, serializes switchi
   let finishApply: (() => void) | undefined;
   const modules: Record<string, unknown> = {
     vscode: {
-      Uri: { parse: (value: string) => ({ fsPath: value }) }, ViewColumn: { Active: 1 },
+      Uri: {
+        parse: (value: string) => ({ fsPath: value }),
+        joinPath: (base: { fsPath: string }, filePath: string) => ({ fsPath: `${base.fsPath}/${filePath}` })
+      }, ViewColumn: { Active: 1 },
       window: {
         createWebviewPanel: () => ({
           webview: { postMessage: (message: typeof messages[number]) => { messages.push(message); }, onDidReceiveMessage: () => ({ dispose() {} }) },
@@ -530,7 +534,11 @@ test('controller isolates remote bindings, confirms discards, serializes switchi
         showErrorMessage: async (message: string) => {
           notifications.push({ type: 'error', message, lastMessageType: messages.at(-1)?.type });
         },
-        showInformationMessage: async (message: string) => { informationMessages.push(message); }
+        showInformationMessage: async (message: string) => { informationMessages.push(message); },
+        showTextDocument: async () => {
+          assert.ok(openDocument, 'Unexpected file navigation');
+          await openDocument();
+        }
       }
     },
     '../services/logger': {
@@ -867,6 +875,56 @@ test('controller isolates remote bindings, confirms discards, serializes switchi
     assert.equal(listed.at(-1)?.workspace.syncInfo.environmentId, 'dev-environment');
     assert.equal(JSON.stringify(workspace), original);
   });
+
+  for (const outcome of ['opened', 'failed'] as const) {
+    await t.test(`usage navigation keeps controls busy and restores them when ${outcome}`, async child => {
+      child.after(() => { openDocument = undefined; });
+      const navigationController = new Controller({ extensionUri: 'extension' }, workspace, () => '');
+      const view = createConnectionManagerView();
+      let forwarded = messages.length;
+      const forwardMessages = () => {
+        for (const data of messages.slice(forwarded)) {
+          view.onMessage({ data });
+        }
+        forwarded = messages.length;
+      };
+      await navigationController.onMessage({ type: 'ready' });
+      forwardMessages();
+      let finishNavigation: (() => void) | undefined;
+      let navigating: Promise<void> | undefined;
+      const loadsBefore = listed.length;
+      await new Promise<void>(started => {
+        openDocument = () => new Promise<void>((resolve, reject) => {
+          finishNavigation = () => outcome === 'opened' ? resolve() : reject(new Error('File access denied'));
+          started();
+        });
+        navigating = navigationController.onMessage({ type: 'openUsage', filePath: 'topics/topic.mcs.yml' });
+      });
+      forwardMessages();
+      for (const id of ['refresh', 'refresh-deployments', 'deployment-select', 'apply', 'addRef']) {
+        assert.equal(view.element(id).disabled, true, `${id} must be disabled during navigation`);
+      }
+      const requestsBefore = view.messages.length;
+      view.element('refresh').fire('click');
+      view.element('deployment-options').children[1].fire('click');
+      assert.equal(view.messages.length, requestsBefore);
+      assert.ok(finishNavigation);
+      finishNavigation();
+      await navigating;
+      forwardMessages();
+      for (const id of ['refresh', 'refresh-deployments', 'deployment-select', 'apply', 'addRef']) {
+        assert.equal(view.element(id).disabled, false, `${id} must recover after navigation`);
+      }
+      assert.equal(listed.length, loadsBefore, 'Navigation must not reload or discard connection edits');
+      assert.equal(view.element('banner').textContent, outcome === 'failed' ? 'File access denied' : '');
+      view.element('refresh').fire('click');
+      await navigationController.onMessage(view.messages.at(-1));
+      forwardMessages();
+      assert.equal(listed.length, loadsBefore + 1);
+      assert.equal(listed.at(-1)?.workspace, workspace);
+      assert.equal(JSON.stringify(workspace), original);
+    });
+  }
 
   for (const refreshId of ['refresh', 'refresh-deployments']) {
     await t.test(`${refreshId} safely transitions between multiple, sole remote, sole attached and zero deployments`, async child => {
@@ -1235,14 +1293,33 @@ test('controller isolates remote bindings, confirms discards, serializes switchi
         assert.equal(view.element('sync-target-badge').className, 'deployment-badge ambiguous');
         assert.match(view.element('deployment-select').getAttribute('aria-label') ?? '', /Attached \u26a0/);
       }
-      assert.ok(view.element('use-workspace-environment').hiddenClasses.has('hidden'), 'matching deployments provide the return path through the dropdown');
+      assert.ok(!view.element('use-workspace-environment').hiddenClasses.has('hidden'), 'ambiguous matches must retain an explicit workspace return path');
       view.element('refresh-deployments').fire('click');
       await dispatch(view.messages.at(-1));
       assert.equal(view.element('deployment-select').value, deployment.id, 'refresh retains an explicit choice without inventing an attachment');
       assert.equal(view.element('deployment-warning').textContent, context.warningMessage);
       assert.equal(view.element('connection-scope').hiddenClasses.has('hidden'), !matchesWorkspace);
       assert.equal(view.element('sync-target-badge').hiddenClasses.has('hidden'), !matchesWorkspace);
-      assert.ok(view.element('use-workspace-environment').hiddenClasses.has('hidden'));
+      assert.ok(!view.element('use-workspace-environment').hiddenClasses.has('hidden'));
+      const workspaceAction = view.element('use-workspace-environment');
+      runInContext("groups = [{ key: 'connector', references: [{ boundConnectionId: 'old' }] }]; views = groups[0].references;", view.sandbox);
+      view.element('gsel-0').value = '__create__';
+      choice = undefined;
+      workspaceAction.fire('click');
+      assert.equal(view.messages.at(-1)?.hasPendingChanges, true);
+      await dispatch(view.messages.at(-1));
+      assert.equal(view.element('deployment-select').value, deployment.id, 'declining preserves the deployment and edits');
+      assert.equal(view.element('gsel-0').value, '__create__');
+      choice = 'Discard changes and switch';
+      workspaceAction.fire('click');
+      assert.equal(view.messages.at(-1)?.deploymentId, '');
+      await dispatch(view.messages.at(-1));
+      choice = undefined;
+      assert.equal(listed.at(-1)?.workspace, workspace);
+      assert.equal(listed.at(-1)?.schema, undefined, 'workspace mode must not retain deployment scoping');
+      assert.equal(view.element('connections-title').textContent, 'Connections');
+      assert.equal(view.element('deployment-select').value, '');
+      assert.ok(workspaceAction.hiddenClasses.has('hidden'));
     }
     assert.equal(JSON.stringify(workspace), original);
   });
@@ -1312,7 +1389,7 @@ test('controller isolates remote bindings, confirms discards, serializes switchi
         assert.equal(view.element('deployment-select').value, deployment.id);
         assert.equal(view.element('connections-title').textContent, `Connections in ${deployment.name} [${deployment.type}]`);
         assert.equal(view.element('connected-environment').textContent, ' \u2014 ' + deployment.environmentId);
-        assert.equal(view.element('use-workspace-environment').hiddenClasses.has('hidden'), attached);
+        assert.equal(view.element('use-workspace-environment').hiddenClasses.has('hidden'), false);
         assert.equal(listed.at(-1)?.workspace.syncInfo.environmentId.toLowerCase(), target.environmentId.toLowerCase());
         assert.equal(listed.at(-1)?.workspace.syncInfo.dataverseEndpoint, firstTarget?.workspace.syncInfo.dataverseEndpoint);
         assert.equal(listed.at(-1)?.schema, firstTarget?.schema);
