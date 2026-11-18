@@ -108,7 +108,7 @@ test('shows deployment-scoped connections and attached status, hiding only zero 
   for (const id of ['connections-title', 'apply', 'addRef', 'refresh']) {
     assert.ok(connectionsSection.includes('id="' + id + '"'), id + ' belongs in the connections section');
   }
-  assert.ok(connectionsSection.indexOf('connections-title') < connectionsSection.indexOf('Agent<span id="connected-environment"'));
+  assert.ok(connectionsSection.indexOf('connections-title') < connectionsSection.indexOf('id="workspace-name"'));
 
   element('refresh-deployments').fire('click');
   assert.equal(messages.at(-1)?.type, 'refreshDeployments');

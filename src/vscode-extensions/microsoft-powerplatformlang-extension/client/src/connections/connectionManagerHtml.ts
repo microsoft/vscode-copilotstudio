@@ -192,7 +192,7 @@ export function buildConnectionManagerHtml(webview: Pick<vscode.Webview, 'cspSou
     <p id="connection-scope" class="hint hidden"></p>`)}
   <section id="connection-management" aria-labelledby="connections-title">
   <h1 id="connections-title">Connections</h1>
-  <p class="subtitle">${title}<span id="connected-environment"></span></p>
+  <p class="subtitle"><span id="workspace-name">${title}</span><span id="connected-environment"></span></p>
   <button id="recover-target" class="linkbtn hidden">Use available target</button>
   <div class="toolbar">
     <button id="apply" title="Create connections." disabled>Apply</button>
@@ -947,6 +947,9 @@ export function buildConnectionManagerHtml(webview: Pick<vscode.Webview, 'cspSou
     window.addEventListener('message', function (event) {
       const msg = event.data;
       if (msg.type === 'context') {
+        if (typeof msg.workspaceName === 'string') {
+          document.getElementById('workspace-name').textContent = msg.workspaceName;
+        }
         views = [];
         workflows = [];
         groups = [];

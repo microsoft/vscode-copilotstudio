@@ -474,6 +474,263 @@ test('blocks workspace connection requests with a clear error when management en
   await verifyWorkspaceConnections(t, undefined, 0, { endpointRepair: 'fails' });
 });
 
+test('cached connection panels protect workspace attachment changes', async t => {
+  const compiled = await readFile(path.resolve(__dirname, '..', '..', 'connections', 'connectionManager.js'), 'utf8');
+  const bindings = [{ connectionReferenceLogicalName: 'reference', connectionId: 'connection' }];
+  const creates = [{ connectionReferenceLogicalName: 'reference', connectorName: 'shared_test' }];
+  const gate = () => {
+    let resolve!: () => void;
+    const promise = new Promise<void>(complete => { resolve = complete; });
+    return { promise, resolve };
+  };
+  const setup = async (deployments: DeploymentContext['deployments'] = []) => {
+    const original = {
+      workspaceUri: 'file:///agent', displayName: 'Original agent', schemaName: 'original_agent',
+      syncInfo: { ...syncInfo, accountInfo: { ...syncInfo.accountInfo } }
+    };
+    let workspace = original;
+    const view = createConnectionManagerView();
+    const messages: { type: string; message?: string; selectedDeploymentId?: string }[] = [];
+    const actions: { name: string; workspace: typeof original }[] = [];
+    const hooks = {
+      load: async () => {},
+      picker: async () => {},
+      browser: async () => {},
+      apply: async () => {}
+    };
+    let discard = false;
+    let panelsCreated = 0;
+    let reveals = 0;
+    const modules: Record<string, unknown> = {
+      vscode: {
+        Uri: { parse: (value: string) => ({ fsPath: value }) }, ViewColumn: { Active: 1 },
+        CancellationTokenSource: class { token = {}; dispose() {} },
+        window: {
+          createWebviewPanel: () => {
+            panelsCreated++;
+            return {
+              webview: {
+                postMessage: (message: typeof messages[number]) => {
+                  messages.push(message);
+                  view.onMessage({ data: message });
+                },
+                onDidReceiveMessage: () => ({ dispose() {} })
+              },
+              reveal: () => { reveals++; },
+              onDidDispose: () => ({ dispose() {} })
+            };
+          },
+          showWarningMessage: async (_message: string, _options: unknown, ...choices: { title: string }[]) => discard ? choices[0] : undefined,
+          showInformationMessage() {}
+        }
+      },
+      '../services/logger': { logError() {}, logInfo() {} },
+      '../constants': { TelemetryEventsKeys: {}, DefaultCoreServicesClusterCategory: 0 },
+      '../utils/httpRequestError': { HttpRequestError },
+      '../sync/localWorkspaces': { getWorkspaceByUri: () => workspace },
+      '../types': {},
+      './connectionCatalog': {
+        listAgentConnections: async (target: typeof original) => {
+          actions.push({ name: 'list', workspace: target });
+          await hooks.load();
+          return [];
+        },
+        listWorkflowStatus: async (target: typeof original) => {
+          actions.push({ name: 'workflows', workspace: target });
+          return [];
+        },
+        applyConnectionBindings: async (target: typeof original) => {
+          actions.push({ name: 'apply', workspace: target });
+          await hooks.apply();
+          return [];
+        },
+        createConnectionReference: async (target: typeof original) => {
+          actions.push({ name: 'reference', workspace: target });
+          return { logicalName: 'reference' };
+        },
+        setWorkflowStates: async (target: typeof original) => {
+          actions.push({ name: 'enableWorkflow', workspace: target });
+          return { succeeded: true, workflows: [] };
+        }
+      },
+      './connectionCreation': {
+        awaitConnectionCreation: async (options: { environmentId: string }) => {
+          assert.equal(options.environmentId, original.syncInfo.environmentId);
+          actions.push({ name: 'browser', workspace: original });
+          await hooks.browser();
+          return { status: 'created', connectionId: 'new-connection' };
+        },
+        resolveCreatedConnectionId: () => 'new-connection'
+      },
+      './connectorReadiness': { isCustomConnectorInternalId: () => false },
+      './connectorPicker': { pickConnector: async () => { await hooks.picker(); return 'shared_test'; } },
+      './connectionManagerHtml': { buildConnectionManagerHtml: () => '' },
+      '../deployments/deploymentContext': {
+        loadDeploymentContext: async () => ({
+          environmentId: workspace.syncInfo.environmentId, deployments,
+          currentDeploymentId: deployments.find(deployment => deployment.environmentId === workspace.syncInfo.environmentId)?.id
+        }),
+        resolveEnvironmentNames: async (context: DeploymentContext) => context
+      },
+      '../clients/bapClient': {
+        getEnvironmentEndpointByIdAsync: async () => ({
+          dataverseUrl: 'https://remote.example.com', agentManagementUrl: 'https://remote-management.example.com'
+        })
+      },
+      '../clients/account': { resolveAccountIdentity: (account: unknown) => account },
+      '../clients/dataverseClient': { getSolutionVersionsAsync: async () => syncInfo.solutionVersions }
+    };
+    const exports: Record<string, unknown> = {};
+    runInContext(compiled, createContext({
+      exports, AbortSignal, Error,
+      require: (id: string) => {
+        assert.ok(id in modules, 'Unexpected dependency: ' + id);
+        return modules[id];
+      }
+    }));
+    const Controller = exports.ConnectionManagerController as {
+      show(context: unknown, target: typeof original): Promise<void>;
+      panels: Map<string, { onMessage(message: unknown): Promise<void> }>;
+    };
+    const show = () => Controller.show({ extensionUri: 'extension' }, workspace);
+    await show();
+    const controller = Controller.panels.get(original.workspaceUri);
+    assert.ok(controller);
+    const dispatch = (message: unknown) => controller.onMessage(message);
+    const reattach = async (reopen = true) => {
+      workspace = {
+        ...original, displayName: 'Reattached agent', schemaName: 'reattached_agent',
+        syncInfo: { ...original.syncInfo, environmentId: 'reattached-environment', dataverseEndpoint: 'https://reattached.example.com' }
+      };
+      if (reopen) {
+        await show();
+      }
+    };
+    await dispatch({ type: 'ready' });
+    return {
+      original, view, messages, actions, hooks, dispatch, show, reattach,
+      get workspace() { return workspace; },
+      get panelsCreated() { return panelsCreated; },
+      get reveals() { return reveals; },
+      acceptDiscard() { discard = true; }
+    };
+  };
+
+  await t.test('reopening an unchanged attachment preserves pending edits', async () => {
+    const manager = await setup();
+    runInContext("groups = [{ references: [{ boundConnectionId: 'old' }] }]; views = groups[0].references;", manager.view.sandbox);
+    manager.view.element('gsel-0').value = '__create__';
+    const messageCount = manager.messages.length;
+    await manager.show();
+    assert.equal(manager.panelsCreated, 1);
+    assert.equal(manager.reveals, 1);
+    assert.equal(manager.messages.length, messageCount);
+    assert.equal(manager.view.element('gsel-0').value, '__create__');
+  });
+
+  await t.test('reattachment blocks stale actions until a confirmed refresh reloads the entire target', async () => {
+    const manager = await setup();
+    runInContext("groups = [{ references: [{ boundConnectionId: 'old' }] }]; views = groups[0].references;", manager.view.sandbox);
+    manager.view.element('gsel-0').value = '__create__';
+    const actionCount = manager.actions.length;
+    await manager.reattach();
+    assert.equal(manager.panelsCreated, 1);
+    assert.match(manager.messages.at(-1)?.message ?? '', /workspace.*changed.*Refresh/i);
+    for (const message of [
+      { type: 'apply', bindings, creates: [] },
+      { type: 'apply', bindings: [], creates },
+      { type: 'enableWorkflow', workflowId: 'workflow', activate: true },
+      { type: 'addReference' },
+      { type: 'declareReference', logicalName: 'reference' },
+      { type: 'deleteReference', logicalName: 'reference' },
+      { type: 'openUsage', filePath: 'topics/topic.mcs.yml' },
+      { type: 'selectDeployment', deploymentId: '', hasPendingChanges: false }
+    ]) {
+      await manager.dispatch(message);
+      assert.match(manager.messages.at(-1)?.message ?? '', /workspace.*changed.*Refresh/i);
+    }
+    assert.equal(manager.actions.length, actionCount);
+    manager.view.element('refresh').fire('click');
+    assert.equal(manager.view.messages.at(-1)?.hasPendingChanges, true);
+    await manager.dispatch(manager.view.messages.at(-1));
+    assert.equal(manager.actions.length, actionCount);
+    assert.equal(manager.view.element('gsel-0').value, '__create__');
+    manager.acceptDiscard();
+    manager.view.element('refresh').fire('click');
+    await manager.dispatch(manager.view.messages.at(-1));
+    assert.equal(manager.messages.at(-1)?.type, 'data');
+    assert.equal(manager.actions.at(-2)?.workspace, manager.workspace);
+    assert.equal(manager.actions.at(-1)?.workspace, manager.workspace);
+    assert.equal(manager.view.element('workspace-name').textContent, manager.workspace.displayName);
+    assert.ok(manager.view.element('connected-environment').textContent.includes(manager.workspace.syncInfo.environmentId));
+    await manager.dispatch({ type: 'apply', bindings, creates: [] });
+    assert.equal(manager.actions.find(action => action.name === 'apply')?.workspace, manager.workspace);
+  });
+
+  await t.test('detects an in-place attachment change without reopening the panel', async () => {
+    const manager = await setup();
+    manager.workspace.syncInfo.accountInfo.tenantId = 'different-tenant';
+    const actionCount = manager.actions.length;
+    await manager.dispatch({ type: 'apply', bindings, creates: [] });
+    assert.equal(manager.actions.length, actionCount);
+    assert.match(manager.messages.at(-1)?.message ?? '', /workspace.*changed.*Refresh/i);
+  });
+
+  await t.test('refresh after reattachment resets the previously selected deployment', async () => {
+    const manager = await setup([
+      { id: 'attached', name: 'Attached', environmentId: syncInfo.environmentId },
+      { id: 'remote', name: 'Remote', environmentId: 'remote-environment' }
+    ]);
+    await manager.dispatch({ type: 'selectDeployment', deploymentId: 'remote', hasPendingChanges: false });
+    assert.equal(manager.messages.filter(message => message.type === 'context').at(-1)?.selectedDeploymentId, 'remote');
+    await manager.reattach();
+    await manager.dispatch({ type: 'refresh', hasPendingChanges: false });
+    assert.equal(manager.messages.at(-1)?.type, 'data');
+    assert.equal(manager.messages.filter(message => message.type === 'context').at(-1)?.selectedDeploymentId, '');
+    assert.equal(manager.actions.at(-2)?.workspace, manager.workspace);
+    assert.equal(manager.actions.at(-1)?.workspace, manager.workspace);
+  });
+
+  await t.test('reattachment while target validation yields blocks the binding request', async () => {
+    const manager = await setup();
+    const actionCount = manager.actions.length;
+    const pending = manager.dispatch({ type: 'apply', bindings, creates: [] });
+    await manager.reattach();
+    await pending;
+    assert.equal(manager.actions.length, actionCount);
+    assert.match(manager.messages.at(-1)?.message ?? '', /workspace.*changed.*Refresh/i);
+  });
+
+  for (const operation of ['load', 'picker', 'browser', 'apply'] as const) {
+    await t.test(`reattachment during ${operation} prevents stale follow-up writes or data`, async () => {
+      const manager = await setup();
+      const started = gate();
+      const finished = gate();
+      manager.hooks[operation] = async () => { started.resolve(); await finished.promise; };
+      const pending = manager.dispatch(operation === 'load' ? { type: 'refresh', hasPendingChanges: false }
+        : operation === 'picker' ? { type: 'addReference' }
+          : { type: 'apply', bindings: operation === 'apply' ? bindings : [], creates: operation === 'browser' ? creates : [] });
+      await started.promise;
+      try {
+        await manager.reattach();
+        assert.equal(manager.view.element('apply').disabled, true, 'reopening must not unlock an active operation');
+      } finally {
+        finished.resolve();
+      }
+      const messageCount = manager.messages.length;
+      const actionCount = manager.actions.length;
+      await pending;
+      assert.equal(manager.actions.length, actionCount, 'no follow-up writes or workflow reads may cross attachments');
+      assert.ok(!manager.messages.slice(messageCount).some(message => message.type === 'data'));
+      assert.match(manager.messages.at(-1)?.message ?? '', /workspace.*changed.*Refresh/i);
+      manager.hooks[operation] = async () => {};
+      await manager.dispatch({ type: 'refresh', hasPendingChanges: false });
+      assert.equal(manager.messages.at(-1)?.type, 'data');
+      assert.equal(manager.actions.at(-1)?.workspace, manager.workspace);
+    });
+  }
+});
+
 test('controller isolates remote bindings, confirms discards, serializes switching and blocks writes after failed loads', async t => {
   const workspace = { workspaceUri: 'file:///agent', displayName: 'Agent', syncInfo };
   const original = JSON.stringify(workspace);

@@ -46,6 +46,8 @@ type WebviewMessage =
   | OpenUsageMessage
   | SelectDeploymentMessage;
 
+const workspaceAttachmentChangedMessage = 'The workspace attachment changed. Refresh connections before making changes.';
+
 export class ConnectionManagerController {
   private static readonly panels = new Map<string, ConnectionManagerController>();
 
@@ -53,7 +55,7 @@ export class ConnectionManagerController {
     const key = workspace.workspaceUri;
     const existing = ConnectionManagerController.panels.get(key);
     if (existing) {
-      existing.workspace = workspace;
+      existing.updateWorkspace(workspace);
       existing.panel.reveal(vscode.ViewColumn.Active);
       return;
     }
@@ -70,12 +72,16 @@ export class ConnectionManagerController {
   private connectionLoadError?: string;
   private connectionTargetChanged = false;
   private operationInProgress = false;
+  private workspaceAttachment: string;
+  private workspaceAttachmentChanged = false;
+  private pendingWorkspace?: CopilotStudioWorkspace;
 
   private constructor(
     private readonly context: vscode.ExtensionContext,
     private workspace: CopilotStudioWorkspace,
     buildHtml: (webview: vscode.Webview, agentName: string) => string
   ) {
+    this.workspaceAttachment = this.getWorkspaceAttachment(workspace);
     this.panel = vscode.window.createWebviewPanel(
       'copilotStudioConnectionManager',
       `Connections: ${workspace.displayName}`,
@@ -100,6 +106,9 @@ export class ConnectionManagerController {
     }
     this.operationInProgress = true;
     try {
+      if (!['ready', 'refresh', 'refreshDeployments'].includes(msg.type)) {
+        this.ensureWorkspaceAttachmentUnchanged();
+      }
       if (msg.type === 'selectDeployment') {
         await this.selectDeployment(msg);
         return;
@@ -113,12 +122,12 @@ export class ConnectionManagerController {
       }
       switch (msg.type) {
         case 'ready':
-          await this.loadAndPost(true);
+          await this.loadAndPost(true, true);
           return;
         case 'refreshDeployments':
         case 'refresh':
           if (await this.confirmDiscardChanges(msg.hasPendingChanges, 'refresh')) {
-            await this.loadAndPost(msg.type === 'refreshDeployments');
+            await this.loadAndPost(msg.type === 'refreshDeployments', true);
           }
           return;
         case 'apply':
@@ -144,6 +153,44 @@ export class ConnectionManagerController {
       this.reportError(error, 'Connections failed');
     } finally {
       this.operationInProgress = false;
+      if (this.workspaceAttachmentChanged) {
+        this.post({ type: 'error', message: workspaceAttachmentChangedMessage, loadFailed: true });
+      }
+    }
+  }
+
+  private getWorkspaceAttachment(workspace: CopilotStudioWorkspace): string {
+    const syncInfo = workspace.syncInfo;
+    const account = syncInfo?.accountInfo;
+    return JSON.stringify([
+      workspace.type, workspace.schemaName?.toLowerCase(),
+      syncInfo?.environmentId.toLowerCase(), syncInfo?.dataverseEndpoint.toLowerCase(),
+      syncInfo?.agentId?.toLowerCase(), syncInfo?.componentCollectionId?.toLowerCase(),
+      account?.tenantId.toLowerCase(), account?.clusterCategory ?? DefaultCoreServicesClusterCategory,
+      account?.accountId?.toLowerCase(), account?.accountEmail?.toLowerCase()
+    ]);
+  }
+
+  private get latestWorkspace(): CopilotStudioWorkspace {
+    return this.pendingWorkspace ?? getWorkspaceByUri(vscode.Uri.parse(this.workspace.workspaceUri)) ?? this.workspace;
+  }
+
+  private updateWorkspace(workspace: CopilotStudioWorkspace): void {
+    if (this.workspaceAttachmentChanged || this.getWorkspaceAttachment(workspace) !== this.workspaceAttachment) {
+      this.pendingWorkspace = workspace;
+      this.workspaceAttachmentChanged = true;
+      if (!this.operationInProgress) {
+        this.reportError(new Error(workspaceAttachmentChangedMessage), 'Workspace attachment changed', true);
+      }
+    }
+  }
+
+  private ensureWorkspaceAttachmentUnchanged(): void {
+    if (this.getWorkspaceAttachment(this.latestWorkspace) !== this.workspaceAttachment) {
+      this.workspaceAttachmentChanged = true;
+    }
+    if (this.workspaceAttachmentChanged) {
+      throw new Error(workspaceAttachmentChangedMessage);
     }
   }
 
@@ -164,6 +211,7 @@ export class ConnectionManagerController {
   }
 
   private requireConnectionWorkspace(): CopilotStudioWorkspace {
+    this.ensureWorkspaceAttachmentUnchanged();
     if (!this.connectionWorkspace) {
       throw new Error('Refresh connections before making changes.');
     }
@@ -171,6 +219,7 @@ export class ConnectionManagerController {
   }
 
   private async validateConnectionTargetUnchanged(): Promise<boolean> {
+    this.ensureWorkspaceAttachmentUnchanged();
     if (!this.connectionTargetChanged) {
       if (!this.selectedDeploymentId) {
         return true;
@@ -182,6 +231,7 @@ export class ConnectionManagerController {
       }
 
       const latest = await this.readDeploymentContext(syncInfo);
+      this.ensureWorkspaceAttachmentUnchanged();
       const selected = latest.deployments.find(deployment => deployment.id === this.selectedDeploymentId);
       const loaded = this.deploymentContext?.deployments.find(deployment => deployment.id === this.selectedDeploymentId);
       if (selected && loaded
@@ -212,6 +262,7 @@ export class ConnectionManagerController {
     if (!await this.confirmDiscardChanges(msg.hasPendingChanges, 'switch')) {
       return;
     }
+    this.ensureWorkspaceAttachmentUnchanged();
     this.selectedDeploymentId = msg.deploymentId;
     await this.loadAndPost();
   }
@@ -305,23 +356,40 @@ export class ConnectionManagerController {
     }
   }
 
-  private async loadAndPost(loadingDeployments = false): Promise<void> {
-    this.workspace = getWorkspaceByUri(vscode.Uri.parse(this.workspace.workspaceUri)) ?? this.workspace;
+  private async loadAndPost(loadingDeployments = false, acceptWorkspaceChange = false): Promise<void> {
+    if (acceptWorkspaceChange) {
+      const workspace = this.latestWorkspace;
+      const attachment = this.getWorkspaceAttachment(workspace);
+      if (this.workspaceAttachmentChanged || attachment !== this.workspaceAttachment) {
+        this.selectedDeploymentId = undefined;
+        this.deploymentContext = undefined;
+      }
+      this.workspace = workspace;
+      this.pendingWorkspace = undefined;
+      this.workspaceAttachment = attachment;
+      this.workspaceAttachmentChanged = false;
+      this.panel.title = `Connections: ${workspace.displayName}`;
+    }
+    this.ensureWorkspaceAttachmentUnchanged();
     this.post({ type: 'busy', busy: true, message: 'Loading connections…', loadingConnections: true, loadingDeployments });
     this.connectionWorkspace = undefined;
     this.currentViews = [];
     try {
       const selectedDeploymentRetargeted = await this.loadDeploymentContext();
+      this.ensureWorkspaceAttachmentUnchanged();
       const target = await this.resolveConnectionWorkspace();
+      this.ensureWorkspaceAttachmentUnchanged();
       if (!target.syncInfo) {
         throw new Error('Connection settings are unavailable for the selected target.');
       }
       const views = await listAgentConnections(target, this.targetAgentSchemaName);
+      this.ensureWorkspaceAttachmentUnchanged();
       this.connectionWorkspace = target;
       this.connectionLoadError = undefined;
       this.connectionTargetChanged = false;
       this.currentViews = views;
       const workflows = await this.loadWorkflowStatus();
+      this.ensureWorkspaceAttachmentUnchanged();
       this.post({ type: 'data', views, workflows });
       if (selectedDeploymentRetargeted) {
         void vscode.window.showWarningMessage(
@@ -382,6 +450,7 @@ export class ConnectionManagerController {
         return undefined;
       }
     });
+    this.ensureWorkspaceAttachmentUnchanged();
     const usesDeploymentSelection = this.deploymentContext.deployments.length > 1
       || this.deploymentContext.deployments.some(deployment => deployment.environmentId.toLowerCase() !== syncInfo.environmentId.toLowerCase());
     if (selectedDeploymentChange === 'removed') {
@@ -395,7 +464,7 @@ export class ConnectionManagerController {
     } else {
       this.selectedDeploymentId ??= this.deploymentContext.currentDeploymentId || '';
     }
-    this.post({ type: 'context', context: this.deploymentContext, selectedDeploymentId: this.selectedDeploymentId });
+    this.post({ type: 'context', context: this.deploymentContext, selectedDeploymentId: this.selectedDeploymentId, workspaceName: this.workspace.displayName });
     return selectedDeploymentChange === 'retargeted';
   }
 
@@ -403,6 +472,7 @@ export class ConnectionManagerController {
     this.post({ type: 'busy', busy: true, message: activate ? 'Enabling workflow…' : 'Disabling workflow…' });
     try {
       const result = await setWorkflowStates(this.workspace, [{ workflowId, activate }]);
+      this.ensureWorkspaceAttachmentUnchanged();
       const updated = result.workflows.find(w => w.workflowId === workflowId);
       const isActivated = updated?.state === WorkflowState.Activated;
       if (!result.succeeded || (activate && !isActivated)) {
@@ -423,6 +493,7 @@ export class ConnectionManagerController {
     );
     this.post({ type: 'busy', busy: true, message: 'Select a connector…' });
     const connectorInternalId = await pickConnector(this.requireConnectionWorkspace(), usedConnectorIds);
+    this.ensureWorkspaceAttachmentUnchanged();
     if (!connectorInternalId) {
       this.post({ type: 'busy', busy: false });
       return;
@@ -430,6 +501,7 @@ export class ConnectionManagerController {
     this.post({ type: 'busy', busy: true, message: 'Creating connection reference…' });
     try {
       const result = await createConnectionReference(this.workspace, connectorInternalId);
+      this.ensureWorkspaceAttachmentUnchanged();
       void vscode.window.showInformationMessage(`Connection reference '${result.logicalName}' added locally. Select a connection and Apply in each deployment to bind it there.`);
       await this.loadAndPost();
     } catch (error) {
@@ -445,6 +517,7 @@ export class ConnectionManagerController {
     this.post({ type: 'busy', busy: true, message: 'Declaring connection reference…' });
     try {
       const result = await declareConnectionReferences(this.workspace, [trimmed]);
+      this.ensureWorkspaceAttachmentUnchanged();
       if (result.invalid.length > 0) {
         this.post({ type: 'error', message: `Couldn't declare connection reference '${trimmed}'. A connector could not be determined from the name.` });
         await this.loadAndPost();
@@ -461,6 +534,7 @@ export class ConnectionManagerController {
     this.post({ type: 'busy', busy: true, message: 'Removing connection reference…' });
     try {
       const first = await removeConnectionReference(this.workspace, logicalName, false);
+      this.ensureWorkspaceAttachmentUnchanged();
       if (first.removed) {
         void vscode.window.showInformationMessage(`Connection reference '${logicalName}' removed.`);
         await this.loadAndPost();
@@ -471,12 +545,14 @@ export class ConnectionManagerController {
         return;
       }
       const confirmed = await this.confirmReferenceRemoval(logicalName, first.usages);
+      this.ensureWorkspaceAttachmentUnchanged();
       if (!confirmed) {
         await this.loadAndPost();
         return;
       }
       this.post({ type: 'busy', busy: true, message: 'Removing connection reference…' });
       const second = await removeConnectionReference(this.workspace, logicalName, true);
+      this.ensureWorkspaceAttachmentUnchanged();
       if (second.removed) {
         void vscode.window.showInformationMessage(`Connection reference '${logicalName}' removed.`);
       } else {
@@ -569,12 +645,15 @@ export class ConnectionManagerController {
     if (createsByConnector.size > 0 && !await this.validateConnectionTargetUnchanged()) {
       return;
     }
+    this.ensureWorkspaceAttachmentUnchanged();
     this.post({ type: 'busy', busy: true, message: 'Applying connection bindings…' });
     try {
       const views = await applyConnectionBindings(target, allBindings, this.targetAgentSchemaName);
+      this.ensureWorkspaceAttachmentUnchanged();
       this.currentViews = views;
       void vscode.window.showInformationMessage('Connection bindings updated.');
       const workflows = await this.loadWorkflowStatus();
+      this.ensureWorkspaceAttachmentUnchanged();
       this.post({ type: 'data', views, workflows });
     } catch (error) {
       this.reportError(error, 'Failed to apply connection bindings');
@@ -597,6 +676,7 @@ export class ConnectionManagerController {
       if (isCustomConnectorInternalId(connectorName)) {
         this.post({ type: 'busy', busy: true, message: `Waiting for the custom connector for '${connectionReferenceLogicalName}' to become ready…` });
         await waitForCustomConnectorReady(target, connectorName, { cancellationToken: tokenSource.token });
+        this.ensureWorkspaceAttachmentUnchanged();
         this.post({ type: 'busy', busy: true, message: `Complete the new connection for '${connectionReferenceLogicalName}' in your browser…` });
       }
 
@@ -606,6 +686,7 @@ export class ConnectionManagerController {
         clusterCategory,
         cancellationToken: tokenSource.token
       });
+      this.ensureWorkspaceAttachmentUnchanged();
 
       if (result.status === 'cancelled') {
         this.post({ type: 'info', message: 'Connection creation was cancelled.' });
