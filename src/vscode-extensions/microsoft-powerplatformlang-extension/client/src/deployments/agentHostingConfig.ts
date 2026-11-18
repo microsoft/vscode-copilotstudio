@@ -82,7 +82,12 @@ export async function findAgentHostingConfig(workspacePath: string): Promise<Age
       continue;
     }
 
-    const config: unknown = JSON.parse(contents.replace(/^\uFEFF/, ''));
+    let config: unknown;
+    try {
+      config = JSON.parse(contents.replace(/^\uFEFF/, ''));
+    } catch {
+      throw new SyntaxError('Invalid agent.config.json: malformed JSON.');
+    }
     if (!isRecord(config) || !Array.isArray(config.managedAgents) || !Array.isArray(config.agentDeployments)) {
       throw new Error('Invalid agent.config.json: managedAgents and agentDeployments must be arrays.');
     }

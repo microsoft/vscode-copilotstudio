@@ -20,6 +20,9 @@ test('hosting configuration lookup accepts a BOM and uses the nearest config wit
   assert.equal((await findAgentHostingConfig(workspacePath))?.directory, workspacePath);
   assert.deepEqual((await loadDeploymentContext(workspacePath, syncInfo)).deployments, []);
   await writeFile(nearestConfig, '{');
-  await assert.rejects(findAgentHostingConfig(workspacePath), SyntaxError);
+  await assert.rejects(findAgentHostingConfig(workspacePath), {
+    name: 'SyntaxError',
+    message: 'Invalid agent.config.json: malformed JSON.'
+  });
   assert.deepEqual((await loadDeploymentContext(workspacePath, syncInfo)).deployments, []);
 });

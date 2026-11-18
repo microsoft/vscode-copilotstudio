@@ -397,6 +397,15 @@ test('scenario 5: malformed JSON logs an output-only diagnostic while workspace 
   });
 });
 
+test('malformed configuration reports a safe parse error and still loads and refreshes workspace connections', async t => {
+  for (const contents of ['PrivateAgent', 'Secret</pii>Deploy']) {
+    await verifyWorkspaceConnections(t, config(), 0, {
+      configurationError: /^Invalid agent\.config\.json: malformed JSON\.$/,
+      prepare: workspacePath => writeFile(path.join(workspacePath, '..', '.config', 'agent.config.json'), contents)
+    });
+  }
+});
+
 test('scenario 5: invalid config structure logs an output-only diagnostic while workspace connections load and refresh', async t => {
   await verifyWorkspaceConnections(t, { managedAgents: [], agentDeployments: 'invalid' }, 0, {
     configurationError: /Invalid agent.config.json/
