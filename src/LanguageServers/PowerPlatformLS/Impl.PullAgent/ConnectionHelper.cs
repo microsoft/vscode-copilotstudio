@@ -83,6 +83,22 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             ClusterCategory = request.AccountInfo.ClusterCategory,
         };
 
+        public static async Task<AgentSyncInfo> ResolveDeploymentSyncInfoAsync(DataverseRequest request, string schemaName, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(schemaName))
+            {
+                throw new InvalidOperationException("The deployment's agent schema name is missing.");
+            }
+
+            var agentId = await dataverseClient.GetAgentIdBySchemaNameAsync(schemaName, cancellationToken);
+            if (agentId == Guid.Empty)
+            {
+                throw new InvalidOperationException("The agent was not found in the selected deployment's environment.");
+            }
+
+            return request.BuildSyncInfo(agentId);
+        }
+
         public static async Task<CustomConnectorPushResult> ProvisionConnectionsAsync(IWorkspaceSynchronizer synchronizer, DirectoryPath workspaceFolder, DefinitionBase definition, ISyncDataverseClient dataverseClient, CancellationToken cancellationToken, bool overwriteRemoteChanges = false)
         {
             var connectorPushResult = await synchronizer.PushCustomConnectorsAsync(workspaceFolder, dataverseClient, cancellationToken, overwriteRemoteChanges);

@@ -1,3 +1,8 @@
+import * as strictAssert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import * as path from 'node:path';
+import { createContext, runInContext } from 'node:vm';
+import { HttpRequestError } from '../../utils/httpRequestError';
 import * as assert from 'node:assert';
 import { describe, test } from 'node:test';
 import { Uri } from 'vscode';
@@ -101,4 +106,48 @@ describe('projectSharedAgents', () => {
 	test('returns an empty list when there are no non-owned agents', () => {
 		assert.deepStrictEqual(projectSharedAgents([]), []);
 	});
+});
+
+test('Dataverse request errors retain HTTP diagnostics and expose a plain service message', async () => {
+  let status = 401;
+  let errorBody: unknown = {};
+  const sandbox = createContext({
+    exports: {}, AbortSignal, Response,
+    endpoint: { with: () => ({}) },
+    require: (id: string) => {
+      switch (id) {
+        case './account': return {
+          FetchAccessToken: async (...args: unknown[]) => {
+            strictAssert.equal(args[6], false, 'noninteractive requests must not prompt for sign-in');
+            return { response: new Response(JSON.stringify(errorBody), { status }), tokenInfo: {} };
+          }
+        };
+        case '../generated/schema': return { solutionList: [] };
+        case '../utils/coalesceRequest': return {};
+        case '../utils/httpRequestError': return { HttpRequestError };
+        case '../services/logger': return {};
+        default: throw new Error('Unexpected dependency: ' + id);
+      }
+    }
+  });
+  const compiled = await readFile(path.resolve(__dirname, '..', '..', 'clients', 'dataverseClient.js'), 'utf8');
+  runInContext(compiled, sandbox);
+  const check = () => runInContext(
+    `exports.getAgentAsync(endpoint, "agent-id", AbortSignal.timeout(1000))`, sandbox
+  ) as Promise<unknown>;
+  for (status of [401, 403, 500]) {
+    await strictAssert.rejects(check(), error => {
+      strictAssert.ok(error instanceof HttpRequestError);
+      strictAssert.equal(error.userMessage, 'Request failed with status ' + status);
+      return true;
+    });
+  }
+  status = 403;
+  errorBody = { error: { code: 'AccessDenied', message: 'Access to this environment is denied.' } };
+  await strictAssert.rejects(check(), error => {
+    strictAssert.ok(error instanceof HttpRequestError);
+    strictAssert.equal(error.userMessage, 'Access to this environment is denied.');
+    strictAssert.match(error.message, /status 403/, 'existing access-denied detection keeps HTTP diagnostics');
+    return true;
+  });
 });

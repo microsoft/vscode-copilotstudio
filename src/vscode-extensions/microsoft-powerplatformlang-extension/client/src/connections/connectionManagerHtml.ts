@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { buildDeploymentSelectorHtml, deploymentSelectorScript, deploymentSelectorStyles } from '../deployments/deploymentSelectorHtml';
 
 function getNonce(): string {
   let text = '';
@@ -9,7 +10,7 @@ function getNonce(): string {
   return text;
 }
 
-export function buildConnectionManagerHtml(webview: vscode.Webview, agentName: string): string {
+export function buildConnectionManagerHtml(webview: Pick<vscode.Webview, 'cspSource'>, agentName: string): string {
   const nonce = getNonce();
   const csp = [
     `default-src 'none'`,
@@ -37,18 +38,22 @@ export function buildConnectionManagerHtml(webview: vscode.Webview, agentName: s
       padding: 12px 16px;
       margin: 0;
     }
-    h1 { font-size: 1.15em; margin: 0 0 4px 0; }
-    .subtitle { color: var(--vscode-descriptionForeground); margin: 0 0 12px 0; }
-    .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+    h1, h2 { font-size: 1.15em; margin: 0 0 4px 0; }
+    .subtitle { color: var(--vscode-descriptionForeground); margin: 0 0 12px 0; overflow-wrap: anywhere; }
+    ${deploymentSelectorStyles}
+    .hint { color: var(--vscode-descriptionForeground); }
+    .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
     .search {
       font-family: inherit; font-size: inherit;
       color: var(--vscode-input-foreground);
       background: var(--vscode-input-background);
       border: 1px solid var(--vscode-input-border, var(--vscode-dropdown-border));
-      padding: 4px 8px; border-radius: 2px; min-width: 220px; margin-left: auto;
+      padding: 4px 8px; border-radius: 2px; min-width: 0; margin-left: auto;
+      flex: 1 1 220px; max-width: 360px;
       box-sizing: border-box;
     }
     .search::placeholder { color: var(--vscode-input-placeholderForeground); }
+    .search:disabled { opacity: 0.5; cursor: default; }
     button {
       font-family: inherit;
       font-size: inherit;
@@ -99,9 +104,17 @@ export function buildConnectionManagerHtml(webview: vscode.Webview, agentName: s
     .banner.error { background: var(--vscode-inputValidation-errorBackground); border: 1px solid var(--vscode-inputValidation-errorBorder); }
     .banner.warning { background: var(--vscode-inputValidation-warningBackground); border: 1px solid var(--vscode-inputValidation-warningBorder); }
     .banner.info { background: var(--vscode-inputValidation-infoBackground); border: 1px solid var(--vscode-inputValidation-infoBorder); }
+    .section-loading { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 160px; color: var(--vscode-descriptionForeground); }
+    .spinner {
+      display: inline-block; width: 18px; height: 18px; flex: none; border-radius: 50%;
+      border: 2px solid color-mix(in srgb, var(--vscode-progressBar-background, #0078d4) 25%, transparent);
+      border-top-color: var(--vscode-progressBar-background, #0078d4);
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2s; } }
     .hidden { display: none; }
     .empty { color: var(--vscode-descriptionForeground); padding: 16px 0; }
-    .spinner { color: var(--vscode-descriptionForeground); }
     .badge { display: inline-block; padding: 1px 6px; border-radius: 8px; font-size: 0.8em; margin-left: 6px; }
     .badge.undeclared { background: var(--vscode-editorWarning-foreground, #d4a017); color: var(--vscode-editor-background); }
 
@@ -170,26 +183,31 @@ export function buildConnectionManagerHtml(webview: vscode.Webview, agentName: s
     .wf-toggle:focus { outline: 1px solid var(--vscode-focusBorder); }
     .wf-toggle.on { color: var(--vscode-testing-iconPassed, #2da44e); }
     .wf-toggle:disabled { opacity: 0.5; cursor: not-allowed; }
-    .disabled-wrap { display: inline-block; cursor: not-allowed; }
-    .disabled-wrap > button { pointer-events: none; }
 
-    .add-row { display: flex; gap: 8px; align-items: center; margin: 12px 0 0 0; }
   </style>
 </head>
 <body>
-  <h1>Connections</h1>
-  <p class="subtitle">${title}</p>
+  ${buildDeploymentSelectorHtml(`
+    <p id="workspace-target" class="hint"></p>
+    <p id="connection-scope" class="hint hidden"></p>`)}
+  <section id="connection-management" aria-labelledby="connections-title">
+  <h1 id="connections-title">Connections</h1>
+  <p class="subtitle"><span id="workspace-name">${title}</span><span id="connected-environment"></span></p>
+  <button id="recover-target" class="linkbtn hidden">Use available target</button>
   <div class="toolbar">
-    <button id="apply" disabled>Apply</button>
-    <button id="refresh" class="secondary">Refresh</button>
-    <span id="status" class="spinner"></span>
+    <button id="apply" title="Create connections." disabled>Apply</button>
+    <button id="refresh" class="secondary" title="Reload connections.">Refresh</button>
+    <button id="addRef" class="secondary" title="Add a connector reference to this agent." disabled>Add connection reference</button>
+    <span id="status" class="hint" role="status"></span>
     <input id="search" class="search" type="search" placeholder="Filter connections…" aria-label="Filter connections" />
   </div>
   <div id="banner" class="banner hidden"></div>
-  <div id="content"></div>
-  <div class="add-row">
-    <button id="addRef" class="secondary">Add connection reference…</button>
+  <div id="connection-loading" class="section-loading" role="status">
+    <span class="spinner" aria-hidden="true"></span>
+    <span id="loading-message">Loading connections…</span>
   </div>
+  <div id="content" class="hidden"></div>
+  </section>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const contentEl = document.getElementById('content');
@@ -199,8 +217,67 @@ export function buildConnectionManagerHtml(webview: vscode.Webview, agentName: s
     const bannerEl = document.getElementById('banner');
     const addRefBtn = document.getElementById('addRef');
     const searchInput = document.getElementById('search');
+    const recoverTargetBtn = document.getElementById('recover-target');
+    const loadingEl = document.getElementById('connection-loading');
+    const loadingMessageEl = document.getElementById('loading-message');
+    let isLoading = false;
+    ${deploymentSelectorScript}
+    const deploymentSelector = createDeploymentSelector({
+      onSelect: selectDeployment,
+      onRefresh: refreshDeployments,
+      onChange: renderConnectionTarget
+    });
+
+    function deploymentLabel(deployment) {
+      return deployment.name + (deployment.type ? ' [' + deployment.type + ']' : '');
+    }
+
+    function environmentLabel(name, id) {
+      return name && name.toLowerCase() !== id.toLowerCase() ? name + ' [' + id + ']' : id;
+    }
+
+    function isOtherDeployment() {
+      return !!deploymentSelector.selection && deploymentSelector.selection !== deploymentSelector.context.currentDeploymentId;
+    }
+
+    function renderConnectionTarget(context, selectedDeploymentId) {
+      const deployments = context.deployments;
+      const selected = deployments.find(function (deployment) { return deployment.id === selectedDeploymentId; });
+      const connectionDeployment = selected || deployments.find(function (deployment) {
+        return !selectedDeploymentId && deployment.id === context.currentDeploymentId;
+      });
+      const matchesWorkspace = selected && selected.environmentId.toLowerCase() === context.environmentId.toLowerCase();
+      const unavailable = !!selectedDeploymentId && !selected;
+      const connectionEnvironment = unavailable ? 'Unavailable'
+        : environmentLabel(selected ? selected.environmentName : context.environmentName,
+          selected ? selected.environmentId : context.environmentId);
+      document.getElementById('connected-environment').textContent = ' \u2014 ' + connectionEnvironment;
+      document.getElementById('connections-title').textContent = connectionDeployment
+        ? 'Connections in ' + deploymentLabel(connectionDeployment)
+        : unavailable ? 'Connections in unavailable deployment' : 'Connections';
+      const workspaceTarget = document.getElementById('workspace-target');
+      workspaceTarget.textContent = 'Deployment selection only affects the connections configured below. Sync operations (Pull, Push, and Preview) always use the workspace environment.';
+      const scope = document.getElementById('connection-scope');
+      scope.textContent = unavailable
+        ? 'This deployment was removed. Select another target.'
+        : matchesWorkspace ? 'This deployment targets the workspace environment. Connection changes here also apply to the workspace.' : '';
+      scope.classList.toggle('hidden', !scope.textContent);
+      recoverTargetBtn.classList.toggle('hidden', !unavailable || deploymentSelector.isVisible());
+    }
+
+    function selectDeployment(next) {
+      if (isLoading || next === deploymentSelector.selection) { return; }
+      const pending = hasPendingChanges();
+      setBusy(true, 'Switching deployment…');
+      vscode.postMessage({ type: 'selectDeployment', deploymentId: next, hasPendingChanges: pending });
+    }
+
+    recoverTargetBtn.addEventListener('click', function () {
+      selectDeployment(deploymentSelector.context.currentDeploymentId || '');
+    });
 
     let views = [];
+    let connectionLoadFailed = false;
     let workflows = [];
     let groups = [];
     let filterQuery = '';
@@ -256,16 +333,26 @@ export function buildConnectionManagerHtml(webview: vscode.Webview, agentName: s
       bannerEl.textContent = '';
     }
 
-    function setBusy(busy, message) {
-      applyBtn.disabled = busy || !hasPendingChanges();
+    function setBusy(busy, message, loadingConnections, loadingDeployments) {
+      isLoading = busy;
+      if (busy) {
+        clearBanner();
+      }
+      deploymentSelector.setBusy(busy, loadingDeployments);
+      const showLoading = !!busy && !!loadingConnections;
+      if (showLoading) {
+        contentEl.replaceChildren();
+      }
+      loadingEl.classList.toggle('hidden', !showLoading);
+      contentEl.classList.toggle('hidden', showLoading);
+      loadingMessageEl.textContent = showLoading ? message || 'Loading connections…' : '';
+      recoverTargetBtn.disabled = busy;
+      applyBtn.disabled = busy;
       refreshBtn.disabled = busy;
+      searchInput.disabled = busy;
       addRefBtn.disabled = busy;
-      contentEl.querySelectorAll('select').forEach(function (el) { el.disabled = busy; });
-      contentEl.querySelectorAll('button').forEach(function (el) {
-        if (busy) { el.disabled = true; }
-        else if (!el.dataset.lockedDisabled) { el.disabled = false; }
-      });
-      statusEl.textContent = message || '';
+      contentEl.querySelectorAll('select, button').forEach(function (el) { el.disabled = busy; });
+      statusEl.textContent = showLoading ? '' : message || '';
     }
 
     function buildGroups() {
@@ -336,7 +423,6 @@ export function buildConnectionManagerHtml(webview: vscode.Webview, agentName: s
       const btn = document.createElement('button');
       btn.className = 'wf-toggle';
       btn.textContent = '\u23FB';
-      let actionEl = btn;
       if (on) {
         btn.classList.add('on');
         const msg = "Disable workflow '" + wfName + "'. It is currently enabled.";
@@ -344,24 +430,17 @@ export function buildConnectionManagerHtml(webview: vscode.Webview, agentName: s
         btn.setAttribute('aria-label', msg);
         btn.addEventListener('click', function () { toggleWorkflow(wf); });
       } else if (!wf.canEnable) {
-        btn.disabled = true;
-        btn.dataset.lockedDisabled = 'true';
         const lockMsg = "Can't enable workflow '" + wfName + "' yet. " + workflowBlockTitle(wf) + '.';
         btn.title = lockMsg;
         btn.setAttribute('aria-label', lockMsg);
-        const wrap = document.createElement('span');
-        wrap.className = 'disabled-wrap';
-        wrap.title = lockMsg;
-        wrap.addEventListener('click', function () { showBanner('info', lockMsg); });
-        wrap.appendChild(btn);
-        actionEl = wrap;
+        btn.addEventListener('click', function () { toggleWorkflow(wf); });
       } else {
         const msg = "Enable workflow '" + wfName + "'. It is currently disabled.";
         btn.title = msg;
         btn.setAttribute('aria-label', msg);
         btn.addEventListener('click', function () { toggleWorkflow(wf); });
       }
-      li.appendChild(actionEl);
+      li.appendChild(btn);
 
       li.addEventListener('contextmenu', function (e) {
         e.preventDefault();
@@ -377,7 +456,7 @@ export function buildConnectionManagerHtml(webview: vscode.Webview, agentName: s
       if (usages.length === 0) {
         const none = document.createElement('span');
         none.className = 'usage-none';
-        none.textContent = 'Not used';
+        none.textContent = isOtherDeployment() ? 'See workspace for usages' : 'Not used';
         wrap.appendChild(none);
         return wrap;
       }
@@ -450,7 +529,6 @@ export function buildConnectionManagerHtml(webview: vscode.Webview, agentName: s
       attachTickHandlers(select);
       select.addEventListener('change', function () {
         setSelectTick(select, true);
-        refreshApplyState();
       });
       return select;
     }
@@ -539,7 +617,6 @@ export function buildConnectionManagerHtml(webview: vscode.Webview, agentName: s
           const td = document.getElementById('conn-' + v.connectionReferenceLogicalName);
           if (td) { setConnCellPending(td, v, group, val); }
         });
-        refreshApplyState();
       });
       return select;
     }
@@ -567,7 +644,7 @@ export function buildConnectionManagerHtml(webview: vscode.Webview, agentName: s
         badge.className = 'badge undeclared';
         badge.textContent = 'Not declared — added on Apply';
         name.appendChild(badge);
-      } else {
+      } else if (!isOtherDeployment()) {
         const removeBtn = document.createElement('button');
         removeBtn.className = 'ref-remove';
         removeBtn.textContent = '✕';
@@ -699,7 +776,6 @@ export function buildConnectionManagerHtml(webview: vscode.Webview, agentName: s
       contentEl.innerHTML = '';
       if (!views.length) {
         contentEl.innerHTML = '<div class="empty">This agent has no connection references.</div>';
-        refreshApplyState();
         return;
       }
 
@@ -735,7 +811,6 @@ export function buildConnectionManagerHtml(webview: vscode.Webview, agentName: s
         none.textContent = 'No connections match "' + filterQuery + '".';
         contentEl.appendChild(none);
       }
-      refreshApplyState();
     }
 
     function groupHasPending(group, index) {
@@ -759,10 +834,6 @@ export function buildConnectionManagerHtml(webview: vscode.Webview, agentName: s
 
     function hasPendingChanges() {
       return groups.some(function (g, i) { return groupHasPending(g, i); });
-    }
-
-    function refreshApplyState() {
-      applyBtn.disabled = !hasPendingChanges();
     }
 
     function collectApply() {
@@ -813,6 +884,7 @@ export function buildConnectionManagerHtml(webview: vscode.Webview, agentName: s
     }
 
     function toggleWorkflow(w) {
+      if (isLoading) { return; }
       if (w.state !== 2 && !w.canEnable) {
         showBanner('info', 'Connect this workflow to its connections before you can enable it.');
         return;
@@ -832,16 +904,30 @@ export function buildConnectionManagerHtml(webview: vscode.Webview, agentName: s
     }
 
     applyBtn.addEventListener('click', function () {
+      if (isLoading) { return; }
       const payload = collectApply();
-      if (payload.bindings.length === 0 && payload.creates.length === 0) { return; }
+      if (!connectionLoadFailed) {
+        setBusy(true, 'Applying connection bindings…');
+      }
       vscode.postMessage({ type: 'apply', bindings: payload.bindings, creates: payload.creates });
     });
 
     refreshBtn.addEventListener('click', function () {
-      vscode.postMessage({ type: 'refresh' });
+      if (isLoading) { return; }
+      const pending = hasPendingChanges();
+      setBusy(true, 'Loading connections…', !pending);
+      vscode.postMessage({ type: 'refresh', hasPendingChanges: pending });
     });
 
+    function refreshDeployments() {
+      if (isLoading) { return; }
+      const pending = hasPendingChanges();
+      setBusy(true, 'Loading deployments…', !pending, !pending);
+      vscode.postMessage({ type: 'refreshDeployments', hasPendingChanges: pending });
+    }
+
     addRefBtn.addEventListener('click', function () {
+      if (isLoading) { return; }
       vscode.postMessage({ type: 'addReference' });
     });
 
@@ -860,7 +946,19 @@ export function buildConnectionManagerHtml(webview: vscode.Webview, agentName: s
 
     window.addEventListener('message', function (event) {
       const msg = event.data;
-      if (msg.type === 'data') {
+      if (msg.type === 'context') {
+        if (typeof msg.workspaceName === 'string') {
+          document.getElementById('workspace-name').textContent = msg.workspaceName;
+        }
+        views = [];
+        workflows = [];
+        groups = [];
+        contentEl.replaceChildren();
+        clearBanner();
+        deploymentSelector.setContext(msg.context, msg.selectedDeploymentId);
+        setBusy(true, 'Loading connections…', true);
+      } else if (msg.type === 'data') {
+        connectionLoadFailed = false;
         views = msg.views || [];
         workflows = msg.workflows || [];
         clearBanner();
@@ -868,8 +966,12 @@ export function buildConnectionManagerHtml(webview: vscode.Webview, agentName: s
         maybeShowCatalogBanner();
         setBusy(false, '');
       } else if (msg.type === 'busy') {
-        setBusy(msg.busy, msg.message);
+        setBusy(msg.busy, msg.message, msg.loadingConnections, msg.loadingDeployments);
+      } else if (msg.type === 'selectionCancelled') {
+        deploymentSelector.cancelSelection();
+        setBusy(false, '');
       } else if (msg.type === 'error') {
+        connectionLoadFailed = !!msg.loadFailed;
         showBanner('error', msg.message);
         setBusy(false, '');
       } else if (msg.type === 'warning') {
@@ -879,6 +981,7 @@ export function buildConnectionManagerHtml(webview: vscode.Webview, agentName: s
       }
     });
 
+    setBusy(true, 'Loading connections…', true, true);
     vscode.postMessage({ type: 'ready' });
   </script>
 </body>

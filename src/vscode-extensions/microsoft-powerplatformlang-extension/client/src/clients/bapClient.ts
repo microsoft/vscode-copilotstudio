@@ -3,6 +3,7 @@ import { FetchAccessToken, TokenInfo, getAccessTokenByAccountId } from "./accoun
 import { EnvironmentInfo, EnvironmentEndpointCandidate } from "../types";
 import { CoreServicesClusterCategory, DefaultCoreServicesClusterCategory, TelemetryEventsKeys } from "../constants";
 import logger from "../services/logger";
+import { HttpRequestError } from "../utils/httpRequestError";
 
 export type EnvironmentSku = 'Developer' | 'Default' | 'Sandbox' | 'Production' | 'Teams' | 'Trial' | 'SubscriptionBasedTrial';
 
@@ -232,7 +233,7 @@ async function findEnvironmentDetailsInListAsync(
         accountHint
     );
 
-    return environments.result.value.find(details => details.name === environmentId);
+    return environments.result.value.find(details => details.name.toLowerCase() === environmentId.toLowerCase());
 }
 
 export const DEFAULT_ENVIRONMENT_LOOKUPS: EnvironmentLookup[] = [getEnvironmentEndpointByIdAsync, findEnvironmentEndpointInListAsync];
@@ -282,6 +283,17 @@ export async function getEnvironmentEndpointByIdAsync(
     return toEnvironmentEndpointCandidate(await fetchEnvironmentDetailsByIdAsync(clusterCategory, environmentId, cancellationToken, accountId, accountHint));
 }
 
+export async function getEnvironmentDisplayNameByIdAsync(
+    clusterCategory: CoreServicesClusterCategory | null,
+    environmentId: string,
+    cancellationToken: AbortSignal | null,
+    accountId: string | null = null,
+    accountHint?: string
+): Promise<string | undefined> {
+    const details = await fetchEnvironmentDetailsByIdAsync(clusterCategory, environmentId, cancellationToken, accountId, accountHint);
+    return details.properties?.displayName;
+}
+
 export async function findEnvironmentEndpointInListAsync(
     clusterCategory: CoreServicesClusterCategory | null,
     environmentId: string,
@@ -324,7 +336,7 @@ async function getAsync<TResult>(
     
     if (!response.ok) {
         const errorBody = await response.json().catch(() => null);
-        throw new Error(`Request failed with status ${response.status}: ${JSON.stringify(errorBody ?? {})}`);
+        throw new HttpRequestError(response.status, errorBody);
     }
 
     const result = await response.json() as TResult;

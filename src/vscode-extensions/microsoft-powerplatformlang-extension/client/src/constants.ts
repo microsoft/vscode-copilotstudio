@@ -99,6 +99,8 @@ export const TelemetryEventsKeys = {
   ReattachAgentError: "ReattachAgentError",
   ConnectionCreationInfo: "ConnectionCreationInfo",
   ConnectionCreationError: "ConnectionCreationError",
+  LoadDeploymentsInfo: "LoadDeploymentsInfo",
+  LoadDeploymentsError: "LoadDeploymentsError",
   PostOpenInstruction: "PostOpenInstruction",
   PostOpenError: "PostOpenError",
   LoadEnvironmentError: "LoadEnvironmentError",

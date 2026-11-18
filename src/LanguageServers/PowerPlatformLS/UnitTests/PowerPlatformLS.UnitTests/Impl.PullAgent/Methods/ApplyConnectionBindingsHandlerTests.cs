@@ -109,7 +109,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
                 accessor,
                 diagnosticsPublisher,
                 new Mock<ILspLogger>().Object,
-                synchronizer);
+                synchronizer,
+                new Mock<IOperationContextProvider>().Object);
         }
     }
 }

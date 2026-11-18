@@ -26,6 +26,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         private readonly IDiagnosticsPublisher _diagnosticsPublisher;
         private readonly ILspLogger _logger;
         private readonly IWorkspaceSynchronizer _synchronizer;
+        private readonly IOperationContextProvider _operationContextProvider;
 
         public bool MutatesSolutionState => true;
 
@@ -38,7 +39,8 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             LspDataverseHttpClientAccessor dataverseHttpClientAccessor,
             IDiagnosticsPublisher diagnosticsPublisher,
             ILspLogger logger,
-            IWorkspaceSynchronizer synchronizer)
+            IWorkspaceSynchronizer synchronizer,
+            IOperationContextProvider operationContextProvider)
         {
             _islandControlPlaneService = islandControlPlaneService;
             _connectionManagementService = connectionManagementService ?? throw new ArgumentNullException(nameof(connectionManagementService));
@@ -49,12 +51,34 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
             _diagnosticsPublisher = diagnosticsPublisher ?? throw new ArgumentNullException(nameof(diagnosticsPublisher));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _synchronizer = synchronizer ?? throw new ArgumentNullException(nameof(synchronizer));
+            _operationContextProvider = operationContextProvider ?? throw new ArgumentNullException(nameof(operationContextProvider));
         }
 
         public async Task<ApplyConnectionBindingsResponse> HandleRequestAsync(ApplyConnectionBindingsRequest request, RequestContext context, CancellationToken cancellationToken)
         {
             try
             {
+                if (request.TargetAgentSchemaName != null)
+                {
+                    await ConnectionHelper.ApplyConnectionContext(_islandControlPlaneService, _dataverseTokenManager, _dataverseHttpClientAccessor, _dataverseClient, request, _synchronizer);
+                    var syncInfo = await ConnectionHelper.ResolveDeploymentSyncInfoAsync(request, request.TargetAgentSchemaName, _dataverseClient, cancellationToken);
+                    var operationContext = await _operationContextProvider.GetAsync(syncInfo);
+                    var localWorkspace = (IMcsWorkspace)context.Workspace;
+
+                    var deploymentViews = await _connectionManagementService.ManageDeploymentConnectionsAsync(
+                        localWorkspace.FolderPath, localWorkspace.Definition,
+                        operationContext, syncInfo, _dataverseClient, _connectionCatalogClient,
+                        ConnectionHelper.BuildCatalogContext(request, request.ConnectionsAccessToken),
+                        request.Bindings, cancellationToken);
+
+                    return new ApplyConnectionBindingsResponse()
+                    {
+                        Code = 200, 
+                        Message = string.Empty,
+                        AgentConnections = deploymentViews.ToImmutableArray()
+                    };
+                }
+
                 var workspace = (IMcsWorkspace)context.Workspace;
                 await ConnectionHelper.ApplyConnectionContext(_islandControlPlaneService, _dataverseTokenManager, _dataverseHttpClientAccessor, _dataverseClient, request, _synchronizer, workspace);
                 var classification = WorkspaceClassifier.Classify(workspace.Definition, workspace.FolderPath.ToString());
