@@ -18,7 +18,7 @@ import { isCustomConnectorInternalId, waitForCustomConnectorReady } from './conn
 import { pickConnector } from './connectorPicker';
 import { buildConnectionManagerHtml } from './connectionManagerHtml';
 import { DeploymentContext, loadDeploymentContext, resolveEnvironmentNames } from '../deployments/deploymentContext';
-import { getEnvironmentDisplayNameByIdAsync, getEnvironmentEndpointByIdAsync } from '../clients/bapClient';
+import { findEnvironmentEndpointInListAsync, getEnvironmentDisplayNameByIdAsync, getEnvironmentEndpointByIdAsync } from '../clients/bapClient';
 import { resolveAccountIdentity } from '../clients/account';
 import { getSolutionVersionsAsync } from '../clients/dataverseClient';
 
@@ -259,10 +259,17 @@ export class ConnectionManagerController {
     }
 
     const identity = resolveAccountIdentity(syncInfo.accountInfo);
-    const environment = await getEnvironmentEndpointByIdAsync(
-      syncInfo.accountInfo.clusterCategory ?? DefaultCoreServicesClusterCategory,
+    const clusterCategory = syncInfo.accountInfo.clusterCategory ?? DefaultCoreServicesClusterCategory;
+    let environment = await getEnvironmentEndpointByIdAsync(
+      clusterCategory,
       deployment.environmentId, AbortSignal.timeout(30_000), identity.accountId ?? null, identity.accountEmail
     );
+    if (!environment?.dataverseUrl || !environment.agentManagementUrl) {
+      environment = await findEnvironmentEndpointInListAsync(
+        clusterCategory,
+        deployment.environmentId, AbortSignal.timeout(30_000), identity.accountId ?? null, identity.accountEmail
+      );
+    }
     if (!environment?.dataverseUrl || !environment.agentManagementUrl) {
       throw new Error('The selected environment does not have Copilot Studio enabled.');
     }
@@ -414,8 +421,10 @@ export class ConnectionManagerController {
     const usedConnectorIds = new Set(
       this.currentViews.map(v => v.connectorName).filter((name): name is string => !!name)
     );
+    this.post({ type: 'busy', busy: true, message: 'Select a connector…' });
     const connectorInternalId = await pickConnector(this.requireConnectionWorkspace(), usedConnectorIds);
     if (!connectorInternalId) {
+      this.post({ type: 'busy', busy: false });
       return;
     }
     this.post({ type: 'busy', busy: true, message: 'Creating connection reference…' });

@@ -502,6 +502,11 @@ test('controller isolates remote bindings, confirms discards, serializes switchi
   let choice: string | undefined;
   let failRemote = false;
   let failEnvironment = false;
+  let endpointMissing = false;
+  let fallbackEndpointMissing = false;
+  let fallbackError: Error | undefined;
+  let fallbackCalls = 0;
+  let chooseConnector: (() => Promise<string | undefined>) | undefined;
   let agentExists = true;
   let failAgentAccess = false;
   let configurationLoadError: Error | undefined;
@@ -562,7 +567,7 @@ test('controller isolates remote bindings, confirms discards, serializes switchi
     './connectionCreation': {}, './connectorReadiness': {},
     './connectorPicker': { pickConnector: async (target: typeof workspace) => {
       connectorTargets.push(target);
-      return 'shared_test';
+      return chooseConnector ? chooseConnector() : 'shared_test';
     } },
     './connectionManagerHtml': {},
     '../deployments/deploymentContext': {
@@ -586,7 +591,23 @@ test('controller isolates remote bindings, confirms discards, serializes switchi
         return {
           dataverseUrl: environmentId === 'missing-environment' || environmentId === unavailableEnvironmentId
             ? 'https://missing.example.com' : 'https://remote.example.com',
-          agentManagementUrl: 'https://remote-management.example.com'
+          agentManagementUrl: endpointMissing ? undefined : 'https://remote-management.example.com'
+        };
+      },
+      findEnvironmentEndpointInListAsync: async (
+        category: unknown, environmentId: string, signal: AbortSignal, accountId: string | null, accountHint?: string
+      ) => {
+        fallbackCalls++;
+        assert.ok(endpointMissing, 'Complete by-ID responses must not trigger the list fallback');
+        assert.equal(category, syncInfo.accountInfo.clusterCategory ?? 0);
+        assert.equal(environmentId, 'dev-environment');
+        assert.equal(signal.aborted, false);
+        assert.equal(accountId, null);
+        assert.equal(accountHint, syncInfo.accountInfo.accountEmail);
+        if (fallbackError) { throw fallbackError; }
+        return {
+          dataverseUrl: 'https://fallback.example.com',
+          agentManagementUrl: fallbackEndpointMissing ? undefined : 'https://fallback-management.example.com'
         };
       }
     },
@@ -753,6 +774,99 @@ test('controller isolates remote bindings, confirms discards, serializes switchi
   await singleDeploymentController.onMessage({ type: 'selectDeployment', deploymentId: 'dev', hasPendingChanges: false });
   assert.equal(listed.at(-1)?.schema, 'agent_schema');
   assert.equal(JSON.stringify(workspace), original);
+
+  for (const outcome of ['resolved', 'missing', 'failed'] as const) {
+    await t.test(`deployment endpoint list fallback: ${outcome}`, async child => {
+      child.after(() => {
+        endpointMissing = false;
+        fallbackEndpointMissing = false;
+        fallbackError = undefined;
+      });
+      const fallbackController = new Controller({ extensionUri: 'extension' }, workspace, () => '');
+      await fallbackController.onMessage({ type: 'ready' });
+      endpointMissing = true;
+      fallbackEndpointMissing = outcome === 'missing';
+      fallbackError = outcome === 'failed'
+        ? new HttpRequestError(403, { error: { code: 'Forbidden', message: 'Deployment lookup denied' } })
+        : undefined;
+      const callsBefore = fallbackCalls;
+      const loadsBefore = listed.length;
+      const notificationsBefore = notifications.length;
+      await fallbackController.onMessage({ type: 'selectDeployment', deploymentId: 'dev', hasPendingChanges: false });
+      assert.equal(fallbackCalls, callsBefore + 1);
+      if (outcome === 'resolved') {
+        assert.equal(messages.at(-1)?.type, 'data');
+        assert.equal(listed.at(-1)?.workspace.syncInfo.dataverseEndpoint, 'https://fallback.example.com');
+        assert.equal(listed.at(-1)?.workspace.syncInfo.agentManagementEndpoint, 'https://fallback-management.example.com');
+        assert.equal(listed.at(-1)?.schema, 'agent_schema');
+      } else {
+        assert.equal(listed.length, loadsBefore, 'Incomplete or inaccessible targets must not load connections');
+        assert.equal(messages.at(-1)?.type, 'error');
+        assert.equal(messages.at(-1)?.message, fallbackError instanceof HttpRequestError
+          ? fallbackError.userMessage : 'The selected environment does not have Copilot Studio enabled.');
+        if (fallbackError) {
+          assert.equal(loggedErrors.at(-1)?.error, fallbackError, 'Output retains the original service diagnostics');
+        }
+      }
+      assert.equal(notifications.length, notificationsBefore, 'Load failures remain inline and Output-only');
+      assert.equal(JSON.stringify(workspace), original);
+    });
+  }
+
+  await t.test('connector picker keeps controls busy until cancellation, then allows refresh and deployment switching', async child => {
+    child.after(() => { chooseConnector = undefined; });
+    const pickerController = new Controller({ extensionUri: 'extension' }, workspace, () => '');
+    const view = createConnectionManagerView();
+    let forwarded = messages.length;
+    const forwardMessages = () => {
+      for (const data of messages.slice(forwarded)) {
+        view.onMessage({ data });
+      }
+      forwarded = messages.length;
+    };
+    await pickerController.onMessage({ type: 'ready' });
+    forwardMessages();
+    let finishPicker: ((value: string | undefined) => void) | undefined;
+    let picking: Promise<void> | undefined;
+    const referencesBefore = added.length;
+    const loadsBefore = listed.length;
+    await new Promise<void>(started => {
+      chooseConnector = () => new Promise(resolve => {
+        finishPicker = resolve;
+        started();
+      });
+      picking = pickerController.onMessage({ type: 'addReference' });
+    });
+    forwardMessages();
+    for (const id of ['refresh', 'refresh-deployments', 'deployment-select', 'apply', 'addRef']) {
+      assert.equal(view.element(id).disabled, true, `${id} must be disabled while the picker is pending`);
+    }
+    const requestsBefore = view.messages.length;
+    view.element('refresh').fire('click');
+    view.element('refresh-deployments').fire('click');
+    view.element('deployment-options').children[1].fire('click');
+    assert.equal(view.messages.length, requestsBefore, 'Busy controls must not send requests the controller would drop');
+    assert.ok(finishPicker);
+    finishPicker(undefined);
+    await picking;
+    forwardMessages();
+    assert.equal(added.length, referencesBefore);
+    assert.equal(listed.length, loadsBefore, 'Cancelling does not reload or discard connection edits');
+    for (const id of ['refresh', 'refresh-deployments', 'deployment-select', 'apply', 'addRef']) {
+      assert.equal(view.element(id).disabled, false, `${id} must recover after cancellation`);
+    }
+    view.element('refresh').fire('click');
+    await pickerController.onMessage(view.messages.at(-1));
+    forwardMessages();
+    assert.equal(listed.length, loadsBefore + 1);
+    view.element('deployment-options').children[1].fire('click');
+    assert.equal(view.messages.at(-1)?.deploymentId, 'dev');
+    await pickerController.onMessage(view.messages.at(-1));
+    forwardMessages();
+    assert.equal(listed.at(-1)?.schema, 'agent_schema');
+    assert.equal(listed.at(-1)?.workspace.syncInfo.environmentId, 'dev-environment');
+    assert.equal(JSON.stringify(workspace), original);
+  });
 
   for (const refreshId of ['refresh', 'refresh-deployments']) {
     await t.test(`${refreshId} safely transitions between multiple, sole remote, sole attached and zero deployments`, async child => {
