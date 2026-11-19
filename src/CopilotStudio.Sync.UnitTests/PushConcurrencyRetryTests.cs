@@ -554,6 +554,27 @@ public class PushConcurrencyRetryTests
     }
 
     [Fact]
+    public async Task PushLocalChanges_WithOverwrite_RecreatesAChildAgentTheCloudDeletedTogetherWithItsLocallyEditedTopic()
+    {
+        var bot = BuildBot(Guid.NewGuid(), "Agent", version: 1);
+        var childAgent = CreateChildAgent("Refunds", "Refunds");
+        var topic = CreateTopic("Refund", "refundOriginal", Guid.NewGuid()).WithParentBotComponentId(childAgent.Id);
+
+        var (fileAccessor, sentChangesets) = await PushAfterRemoteRefreshAsync(
+            new BotDefinition().WithEntity(bot).WithComponents(new BotComponentBase[] { childAgent, topic }),
+            new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentDelete(topic.Id, topic.Version), new BotComponentDelete(childAgent.Id, childAgent.Version) }, null, "token-2"),
+            new BotDefinition().WithEntity(bot).WithComponents(new BotComponentBase[] { childAgent, CreateTopic("Refund", "refundLocal", topic.Id.Value).WithParentBotComponentId(childAgent.Id) }),
+            overwriteRemoteChanges: true,
+            confirm: incoming => EnvironmentVariableTestFixtures.CreateChangeSet("token-3", EnvironmentVariableTestFixtures.ConfirmComponentChanges(incoming)));
+
+        var cache = WorkspaceSynchronizer.ReadCloudCacheSnapshot(fileAccessor) ?? throw new Xunit.Sdk.XunitException("Expected a cloud cache.");
+        Assert.True(cache.TryGetComponentBySchemaName(childAgent.SchemaNameString, out var recreatedAgent));
+        Assert.True(cache.TryGetComponentBySchemaName(topic.SchemaNameString, out var recreatedTopic));
+        Assert.Equal(recreatedAgent.Id, recreatedTopic.ParentBotComponentId);
+        Assert.Equal(3, sentChangesets.Count);
+    }
+
+    [Fact]
     public async Task PushLocalChanges_WhenRetryingAfterARefresh_DownloadsAKnowledgeFileAddedOnlyInTheCloud()
     {
         var bot = BuildBot(Guid.NewGuid(), "Agent", version: 1);
@@ -827,7 +848,7 @@ public class PushConcurrencyRetryTests
         Assert.Contains("cre98_shared", await ReadAsync(fileAccessor, "references.mcs.yml"), StringComparison.Ordinal);
     }
 
-    private static async Task<(IFileAccessor FileAccessor, List<PvaComponentChangeSet> SentChangesets)> PushAfterRemoteRefreshAsync(BotDefinition cloudCache, PvaComponentChangeSet remoteChangeset, BotDefinition localDefinition, bool overwriteRemoteChanges = false, ISyncDataverseClient? dataverseClient = null, IReadOnlyDictionary<string, string>? workspaceFiles = null, Func<IFileAccessor, Task>? arrange = null)
+    private static async Task<(IFileAccessor FileAccessor, List<PvaComponentChangeSet> SentChangesets)> PushAfterRemoteRefreshAsync(BotDefinition cloudCache, PvaComponentChangeSet remoteChangeset, BotDefinition localDefinition, bool overwriteRemoteChanges = false, ISyncDataverseClient? dataverseClient = null, IReadOnlyDictionary<string, string>? workspaceFiles = null, Func<IFileAccessor, Task>? arrange = null, Func<PvaComponentChangeSet, PvaComponentChangeSet>? confirm = null)
     {
         var (synchronizer, fileAccessorFactory, island) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/push-refresh-{Guid.NewGuid():N}/");
@@ -855,7 +876,7 @@ public class PushConcurrencyRetryTests
             .Returns<AuthoringOperationContextBase, PvaComponentChangeSet, CancellationToken>((_, incoming, _) =>
             {
                 sentChangesets.Add(incoming);
-                return sentChangesets.Count == 1 ? throw MakeConcurrencyException() : Task.FromResult(new PvaComponentChangeSet.Builder(incoming) { ChangeToken = "token-3" }.Build());
+                return sentChangesets.Count == 1 ? throw MakeConcurrencyException() : Task.FromResult(confirm?.Invoke(incoming) ?? new PvaComponentChangeSet.Builder(incoming) { ChangeToken = "token-3" }.Build());
             });
         island
             .Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))

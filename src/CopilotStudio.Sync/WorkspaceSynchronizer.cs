@@ -1897,13 +1897,20 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         WriteCloudCache(fileAccessor, refreshedSnapshot);
         await WriteChangeTokenAsync(fileAccessor, remoteChangeset, cancellationToken).ConfigureAwait(false);
-        return WithoutIdsDeletedIn(workspaceDefinition, remoteChangeset);
+        return WithFreshIdsForDeletedComponents(workspaceDefinition, remoteChangeset);
     }
 
-    private static DefinitionBase WithoutIdsDeletedIn(DefinitionBase definition, PvaComponentChangeSet remoteChangeset)
+    private static DefinitionBase WithFreshIdsForDeletedComponents(DefinitionBase definition, PvaComponentChangeSet remoteChangeset)
     {
         var deletedIds = GetDeletedComponentIds(remoteChangeset);
-        return deletedIds.Count == 0 ? definition : definition.WithComponents(definition.Components.Select(component => deletedIds.Contains(component.Id) ? component.WithId(Guid.Empty) : component));
+        var freshIdsByDeletedId = definition.Components.Select(component => component.Id).Where(deletedIds.Contains).Distinct().ToDictionary(deletedId => deletedId, _ => new BotComponentId(Guid.NewGuid()));
+        return freshIdsByDeletedId.Count == 0 ? definition : definition.WithComponents(definition.Components.Select(component => WithFreshIds(component, freshIdsByDeletedId)));
+    }
+
+    private static BotComponentBase WithFreshIds(BotComponentBase component, Dictionary<BotComponentId, BotComponentId> freshIdsByDeletedId)
+    {
+        var renewed = freshIdsByDeletedId.TryGetValue(component.Id, out var freshId) ? component.WithId(freshId) : component;
+        return freshIdsByDeletedId.TryGetValue(renewed.ParentBotComponentId, out var freshParentId) ? renewed.WithParentBotComponentId(freshParentId) : renewed;
     }
 
     private static HashSet<BotComponentId> GetDeletedComponentIds(PvaComponentChangeSet changeSet) => changeSet.BotComponentChanges.IsDefaultOrEmpty ? new HashSet<BotComponentId>() : changeSet.BotComponentChanges.OfType<BotComponentDelete>().Select(delete => delete.BotComponentId).ToHashSet();
