@@ -377,7 +377,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var updatedChangeSet = ApplyThreeWayMerge(localChanges, remoteChanges, originalSnapshot, out var mergeConflicts);
 
         var deletedComponents = GetDeletedComponents(originalSnapshot, updatedChangeSet);
-        await DownloadAndRecordKnowledgeFilesAsync(fileAccessor, dataverseClient, newSnapshot, SelectNamedKnowledgeFiles(downloadAllKnowledgeFiles ? newSnapshot.Components : GetUpsertedComponents(remoteChangeset)), skipMissingAttachments: true, cancellationToken).ConfigureAwait(false);
+        await DownloadAndRecordKnowledgeFilesAsync(fileAccessor, dataverseClient, newSnapshot, SelectNamedKnowledgeFiles(downloadAllKnowledgeFiles ? newSnapshot.Components : GetUpsertedComponents(remoteChangeset.BotComponentChanges)), skipMissingAttachments: true, cancellationToken).ConfigureAwait(false);
 
         var updatedDefinition = await UpdateWorkspaceDirectoryAsync(fileAccessor, workspaceFolder, updatedChangeSet, previousDefinition, deletedComponents, dataverseClient, cancellationToken: cancellationToken, pathGroundingDefinition: GroundPreservedComponents(newSnapshot, mergeConflicts), overrideConnectionReferences: connectionReferencesNeedOverride || deletedComponents.Length > 0, previousCloudSnapshot: originalSnapshot).ConfigureAwait(false);
 
@@ -424,7 +424,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return deletedComponents.ToImmutable();
     }
 
-    private static IEnumerable<BotComponentBase?> GetUpsertedComponents(PvaComponentChangeSet changeset) => changeset.BotComponentChanges.OfType<BotComponentUpsert>().Select(change => change.Component);
+    private static IEnumerable<BotComponentBase?> GetUpsertedComponents(IEnumerable<BotComponentChange> changes) => changes.OfType<BotComponentUpsert>().Select(change => change.Component);
 
     private static List<FileAttachmentComponent> SelectNamedKnowledgeFiles(IEnumerable<BotComponentBase?> components) => components.OfType<FileAttachmentComponent>().Where(component => !string.IsNullOrEmpty(component.DisplayName)).GroupBy(component => component.SchemaNameString, StringComparer.Ordinal).Select(group => group.Last()).ToList();
 
@@ -575,7 +575,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             return false;
         }
 
-        return IsMetadataUnchanged(component.DisplayName, originalComponent.DisplayName, isRemoteChange: true) && IsMetadataUnchanged(component.Description, originalComponent.Description, isRemoteChange: true);
+        return HasSameMetadata(component, originalComponent, isRemoteChange: true);
     }
 
     /// <summary>
@@ -622,6 +622,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var remoteChangeset = remoteChanges.ChangeSet;
         var updatedChangeSetBuilder = remoteChangeset.ToBuilder();
         MergeEnvironmentVariableChanges(localChanges.ChangeSet, updatedChangeSetBuilder.EnvironmentVariableChanges, originalSnapshot, conflicts);
+        RemoveMergeableKnowledgeFileChanges(updatedChangeSetBuilder.BotComponentChanges, originalSnapshot ?? BotDefinition.Empty, GetUpdatedKnowledgeFileIds(localChanges.ChangeSet));
         if (conflictingChanges.Length != 0)
         {
             //  Apply 3-way diff on conflicting items and update changeSet
@@ -1060,7 +1061,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             return changeSet;
         }
 
-        var referencingComponents = EnvironmentVariableDependencies.GetReferencingComponents(GetUpsertedComponents(changeSet).OfType<BotComponentBase>(), _expressionSyntaxAnalyzer);
+        var referencingComponents = EnvironmentVariableDependencies.GetReferencingComponents(GetUpsertedComponents(changeSet.BotComponentChanges).OfType<BotComponentBase>(), _expressionSyntaxAnalyzer);
         var upsertedNames = GetUpsertedEnvironmentVariableNames(changeSet);
         if (referencingComponents.Count == 0 && upsertedNames.Count == 0)
         {
@@ -1779,13 +1780,13 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             {
                 concurrencyRetries++;
                 var remoteChangeset = await FetchRemoteChangesetAsync(workspaceFolder, operationContext, cancellationToken).ConfigureAwait(false);
-                var (cloudOnlyChangeset, hasConflicts) = SplitRemoteChanges(changeSet, remoteChangeset, cloudSnapshot, GetComponentIdsWithEditedPayloads(fileAccessor, cloudSnapshot, remoteChangeset));
+                var (cloudOnlyChangeset, mergedKnowledgeFileChanges, hasConflicts) = SplitRemoteChanges(changeSet, remoteChangeset, cloudSnapshot, GetComponentIdsWithEditedPayloads(fileAccessor, cloudSnapshot, remoteChangeset));
                 if (hasConflicts && !overwriteRemoteChanges)
                 {
                     throw new InvalidOperationException("The agent was changed in the cloud while you were editing it. Get the latest changes before pushing again.");
                 }
 
-                workspaceDefinition = await AcceptRemoteChangesAsync(workspaceFolder, workspaceDefinition, dataverseClient, remoteChangeset, cloudOnlyChangeset, cancellationToken).ConfigureAwait(false);
+                workspaceDefinition = await AcceptRemoteChangesAsync(workspaceFolder, workspaceDefinition, dataverseClient, remoteChangeset, cloudOnlyChangeset, mergedKnowledgeFileChanges, cancellationToken).ConfigureAwait(false);
                 pass--;
                 continue;
             }
@@ -1809,14 +1810,19 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return await _islandControlPlaneService.GetComponentsAsync(operationContext, changeToken, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<DefinitionBase> AcceptRemoteChangesAsync(DirectoryPath workspaceFolder, DefinitionBase workspaceDefinition, ISyncDataverseClient dataverseClient, PvaComponentChangeSet remoteChangeset, PvaComponentChangeSet cloudOnlyChangeset, CancellationToken cancellationToken)
+    private async Task<DefinitionBase> AcceptRemoteChangesAsync(DirectoryPath workspaceFolder, DefinitionBase workspaceDefinition, ISyncDataverseClient dataverseClient, PvaComponentChangeSet remoteChangeset, PvaComponentChangeSet cloudOnlyChangeset, IEnumerable<BotComponentChange> mergedKnowledgeFileChanges, CancellationToken cancellationToken)
     {
         var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var cachedSnapshot = ReadCloudCacheSnapshot(fileAccessor);
         var (refreshedSnapshot, _) = BuildUpdatedCloudCache(fileAccessor, remoteChangeset, cachedSnapshot: cachedSnapshot);
+        var knowledgeFilesToDownload = SelectNamedKnowledgeFiles(GetUpsertedComponents(cloudOnlyChangeset.BotComponentChanges.Concat(mergedKnowledgeFileChanges)));
+        if (knowledgeFilesToDownload.Count > 0)
+        {
+            await DownloadAndRecordKnowledgeFilesAsync(fileAccessor, dataverseClient, refreshedSnapshot, knowledgeFilesToDownload, skipMissingAttachments: true, cancellationToken).ConfigureAwait(false);
+        }
+
         if (HasContentAuthoringChanges(cloudOnlyChangeset) || !cloudOnlyChangeset.ComponentCollectionChanges.IsDefaultOrEmpty)
         {
-            await DownloadAndRecordKnowledgeFilesAsync(fileAccessor, dataverseClient, refreshedSnapshot, SelectNamedKnowledgeFiles(GetUpsertedComponents(cloudOnlyChangeset)), skipMissingAttachments: true, cancellationToken).ConfigureAwait(false);
             workspaceDefinition = await UpdateWorkspaceDirectoryAsync(fileAccessor, workspaceFolder, cloudOnlyChangeset, OverlayCliConnectionReferences(workspaceDefinition, fileAccessor, cancellationToken, dropReferencesMissingFromDisk: true), GetDeletedComponents(cachedSnapshot, cloudOnlyChangeset), dataverseClient, cancellationToken, pathGroundingDefinition: refreshedSnapshot, previousCloudSnapshot: cachedSnapshot).ConfigureAwait(false);
             if (cloudOnlyChangeset.Bot != null && workspaceDefinition is BotDefinition botDefinition)
             {
@@ -1829,17 +1835,18 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return workspaceDefinition;
     }
 
-    private static (PvaComponentChangeSet CloudOnly, bool HasConflicts) SplitRemoteChanges(PvaComponentChangeSet localChanges, PvaComponentChangeSet remoteChanges, DefinitionBase cloudSnapshot, IEnumerable<string> componentIdsWithEditedPayloads)
+    private static (PvaComponentChangeSet CloudOnly, List<BotComponentChange> MergedKnowledgeFileChanges, bool HasConflicts) SplitRemoteChanges(PvaComponentChangeSet localChanges, PvaComponentChangeSet remoteChanges, DefinitionBase cloudSnapshot, IReadOnlyCollection<string> componentIdsWithEditedPayloads)
     {
         var (localSchemaNames, localComponentIds) = GetChangedComponentIdentities(localChanges);
-        localComponentIds.UnionWith(componentIdsWithEditedPayloads);
         var cloudOnly = remoteChanges.ToBuilder();
+        var mergedKnowledgeFileChanges = RemoveMergeableKnowledgeFileChanges(cloudOnly.BotComponentChanges, cloudSnapshot, GetUpdatedKnowledgeFileIds(localChanges).Except(componentIdsWithEditedPayloads));
+        localComponentIds.UnionWith(componentIdsWithEditedPayloads);
         var hasConflicts = RemoveConflictingChanges(cloudOnly.BotComponentChanges, change => IsConflictingComponentChange(change, localSchemaNames, localComponentIds, cloudSnapshot))
             | RemoveConflictingChanges(cloudOnly.EnvironmentVariableChanges, localChanges.EnvironmentVariableChanges, change => GetChangedName(change, cloudSnapshot))
             | RemoveConflictingChanges(cloudOnly.ConnectionReferenceChanges, localChanges.ConnectionReferenceChanges, change => GetChangedName(change, cloudSnapshot))
             | RemoveConflictingChanges(cloudOnly.ComponentCollectionChanges, localChanges.ComponentCollectionChanges, change => GetChangedName(change, cloudSnapshot))
             | HasConflictingBotEntityChange(localChanges, remoteChanges, cloudSnapshot);
-        return (cloudOnly.Build().WithBot(localChanges.Bot == null ? remoteChanges.Bot : null), hasConflicts);
+        return (cloudOnly.Build().WithBot(localChanges.Bot == null ? remoteChanges.Bot : null), mergedKnowledgeFileChanges, hasConflicts);
     }
 
     private static bool RemoveConflictingChanges<TChange>(IList<TChange> remoteChanges, ImmutableArray<TChange> localChanges, Func<TChange, string?> getName)
@@ -1848,16 +1855,28 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return RemoveConflictingChanges(remoteChanges, change => getName(change) is { } name && localNames.Contains(name));
     }
 
-    private static bool RemoveConflictingChanges<TChange>(IList<TChange> remoteChanges, Func<TChange, bool> isConflicting)
+    private static bool RemoveConflictingChanges<TChange>(IList<TChange> remoteChanges, Func<TChange, bool> isConflicting) => RemoveChanges(remoteChanges, isConflicting).Count > 0;
+
+    private static List<TChange> RemoveChanges<TChange>(IList<TChange> changes, Func<TChange, bool> shouldRemove)
     {
-        var conflictingChanges = remoteChanges.Where(isConflicting).ToList();
-        foreach (var change in conflictingChanges)
+        var removedChanges = changes.Where(shouldRemove).ToList();
+        foreach (var change in removedChanges)
         {
-            remoteChanges.Remove(change);
+            changes.Remove(change);
         }
 
-        return conflictingChanges.Count > 0;
+        return removedChanges;
     }
+
+    private static List<BotComponentChange> RemoveMergeableKnowledgeFileChanges(IList<BotComponentChange> remoteChanges, DefinitionBase cloudSnapshot, IEnumerable<string> metadataEditedKnowledgeFileIds)
+    {
+        var metadataEditedKnowledgeFileIdSet = metadataEditedKnowledgeFileIds.ToHashSet(StringComparer.Ordinal);
+        return RemoveChanges(remoteChanges, change => IsMergeableKnowledgeFileChange(change, cloudSnapshot, metadataEditedKnowledgeFileIdSet));
+    }
+
+    private static IEnumerable<string> GetUpdatedKnowledgeFileIds(PvaComponentChangeSet changeSet) => changeSet.BotComponentChanges.OfType<BotComponentUpdate>().Select(update => update.Component).OfType<FileAttachmentComponent>().Select(component => component.Id.ToString());
+
+    private static bool IsMergeableKnowledgeFileChange(BotComponentChange change, DefinitionBase cloudSnapshot, HashSet<string> metadataEditedKnowledgeFileIds) => change is BotComponentUpsert { Component: FileAttachmentComponent remote } && metadataEditedKnowledgeFileIds.Contains(remote.Id.ToString()) && cloudSnapshot.TryGetBotComponentById(remote.Id, out var cached) && HasSameMetadata(remote, cached, isRemoteChange: true);
 
     private static string? GetChangedName(EnvironmentVariableChange change, DefinitionBase cloudSnapshot) => change switch
     {
@@ -2350,7 +2369,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         foreach (var (parentId, folder, pendingDisplayNames) in pendingByScope)
         {
             var isSkillScope = folder.StartsWith(LspProjection.BehaviorsFolder, StringComparison.OrdinalIgnoreCase);
-            var stemsByExistingDisplayName = BuildKnowledgeSidecarStemsByDisplayName(fileAccessor, folder, cancellationToken);
+            var sidecarsByDisplayName = BuildKnowledgeSidecarsByDisplayName(fileAccessor, folder, cancellationToken);
 
             var normalizedFolder = folder.Replace('\\', '/').TrimEnd('/');
             var lastSlash = normalizedFolder.LastIndexOf('/');
@@ -2359,15 +2378,18 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             foreach (var displayName in pendingDisplayNames)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                var skillAssetMetadata = isSkillScope ? SkillLayout.ReadMetadata(fileAccessor, new AgentFilePath($"{folder}/{displayName}{SkillLayout.SidecarExtension}")) : default;
                 string schemaName;
+                var sidecarDescription = skillAssetMetadata.Description;
 
-                if (isSkillScope && TryReadSkillAssetSchemaName(fileAccessor, folder, displayName, out var authoredSchemaName))
+                if (skillAssetMetadata.SchemaName is { Length: > 0 } authoredSchemaName)
                 {
                     schemaName = authoredSchemaName;
                 }
-                else if (stemsByExistingDisplayName.TryGetValue(displayName, out var materializedStem))
+                else if (sidecarsByDisplayName.TryGetValue(displayName, out var sidecar))
                 {
-                    schemaName = $"{botSchemaPrefix}.file.{materializedStem}";
+                    schemaName = $"{botSchemaPrefix}.file.{sidecar.Stem}";
+                    sidecarDescription ??= sidecar.Description;
                 }
                 else
                 {
@@ -2389,7 +2411,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 var builder = new FileAttachmentComponent()
                     .WithSchemaName(schemaName)
                     .WithDisplayName(displayName)
-                    .WithDescription($"This knowledge source searches information contained in {displayName}")
+                    .WithDescription(sidecarDescription is { Length: > 0 } ? sidecarDescription : $"This knowledge source searches information contained in {displayName}")
                     .ToBuilder();
                 if (parentId.HasValue)
                 {
@@ -2403,26 +2425,21 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return newComponents;
     }
 
-    private static bool TryReadSkillAssetSchemaName(IFileAccessor fileAccessor, string folder, string displayName, out string schemaName)
-    {
-        schemaName = SkillLayout.ReadMetadata(fileAccessor, new AgentFilePath($"{folder}/{displayName}{SkillLayout.SidecarExtension}")).SchemaName ?? string.Empty;
-        return schemaName.Length > 0;
-    }
-
-    private Dictionary<string, string> BuildKnowledgeSidecarStemsByDisplayName(IFileAccessor fileAccessor, string folder, CancellationToken cancellationToken)
+    private Dictionary<string, (string Stem, string? Description)> BuildKnowledgeSidecarsByDisplayName(IFileAccessor fileAccessor, string folder, CancellationToken cancellationToken)
     {
         const string sidecarExtension = ".mcs.yml";
-        var stemsByDisplayName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var sidecarsByDisplayName = new Dictionary<string, (string Stem, string? Description)>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var sidecar in fileAccessor.ListFiles(folder, "*.mcs.yml"))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!sidecar.FileName.EndsWith(sidecarExtension, StringComparison.OrdinalIgnoreCase))
+            if (!sidecar.FileName.EndsWith(sidecarExtension, StringComparison.OrdinalIgnoreCase) || ConnectionReferenceStore.ReadListedFileTextOrNull(fileAccessor, sidecar) is not { } sidecarText)
             {
                 continue;
             }
 
-            var sidecarDisplayName = ReadKnowledgeSidecarDisplayName(fileAccessor, sidecar);
+            var metadata = SkillLayout.ParseMetadata(sidecarText);
+            var sidecarDisplayName = metadata.ComponentName is { Length: > 0 } componentName ? componentName : ParseLegacyKnowledgeSidecarDisplayName(sidecarText);
             if (sidecarDisplayName is null || sidecarDisplayName.Length == 0)
             {
                 continue;
@@ -2438,50 +2455,25 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 continue;
             }
 
-            if (!stemsByDisplayName.ContainsKey(key))
+            if (!sidecarsByDisplayName.ContainsKey(key))
             {
-                stemsByDisplayName[key] = sidecar.FileName.Substring(0, sidecar.FileName.Length - sidecarExtension.Length);
+                sidecarsByDisplayName[key] = (sidecar.FileName.Substring(0, sidecar.FileName.Length - sidecarExtension.Length), metadata.Description);
             }
         }
 
-        return stemsByDisplayName;
+        return sidecarsByDisplayName;
     }
 
-    private static string? ReadKnowledgeSidecarDisplayName(IFileAccessor fileAccessor, AgentFilePath sidecar)
+    private static string? ParseLegacyKnowledgeSidecarDisplayName(string sidecarText)
     {
-        string yaml;
         try
         {
-            using var reader = new StreamReader(fileAccessor.OpenRead(sidecar));
-            yaml = reader.ReadToEnd();
-        }
-        catch (IOException)
-        {
-            return null;
-        }
-
-        Dictionary<string, object?>? root;
-        try
-        {
-            root = McsYamlReader.Parse(yaml);
+            return McsYamlReader.Parse(sidecarText) is { } root && root.TryGetValue("displayName", out var displayName) && displayName is string { Length: > 0 } displayNameText ? displayNameText : null;
         }
         catch (McsYamlFormatException)
         {
             return null;
         }
-
-        if (root == null)
-        {
-            return null;
-        }
-
-        if (root.TryGetValue(McsMetadata.PropertyName, out var metadata) && metadata is IDictionary<string, object?> metadataMap && metadataMap.TryGetValue(McsMetadata.ComponentNameKey, out var componentName)
-            && componentName is string componentNameText && !string.IsNullOrEmpty(componentNameText))
-        {
-            return componentNameText;
-        }
-
-        return root.TryGetValue("displayName", out var displayName) && displayName is string displayNameText && !string.IsNullOrEmpty(displayNameText) ? displayNameText : null;
     }
 
     private List<(BotComponentId? ParentId, string Folder)> GetKnowledgeFileScopes(DefinitionBase definition, IReadOnlyDictionary<string, string> folderOverrides)
@@ -4779,6 +4771,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var deletedChildAgentFolders = new List<string>();
         var deletedChildAgentSchemas = new List<string>();
         var deletedSkillFolders = new List<string>();
+        HashSet<AgentFilePath>? survivingKnowledgeFilePaths = null;
         foreach (var deleted in deletedComponents)
         {
             // Shape-aware single source of truth (D20/D30): the delete target is
@@ -4786,6 +4779,20 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             // component is removed from the workspace at its projected location.
             var path = new AgentFilePath(_pathResolver.GetComponentPath(deleted, deleteGroundingDefinition));
             path = ResolveOnDiskComponentPath(fileAccessor, ApplyComponentFolderOverride(path, deleted, deleteGroundingDefinition, componentFolderOverrides), deleted, deleteGroundingDefinition);
+            if (deleted is FileAttachmentComponent fileComponent)
+            {
+                survivingKnowledgeFilePaths ??= updatedDefinition.Components.OfType<FileAttachmentComponent>().SelectMany(component => GetKnowledgeFilePaths(GetStickyComponentPath(component, groundingDefinition, componentFolderOverrides), component)).ToHashSet();
+                foreach (var knowledgeFilePath in GetKnowledgeFilePaths(path, fileComponent))
+                {
+                    if (!survivingKnowledgeFilePaths.Contains(knowledgeFilePath))
+                    {
+                        fileAccessor.Delete(knowledgeFilePath);
+                    }
+                }
+
+                continue;
+            }
+
             fileAccessor.Delete(path);
 
             if (deleted is DialogComponent { RootElement: AgentDialog })
@@ -4803,14 +4810,6 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             {
                 SkillLinkFile.DeleteLink(fileAccessor, path);
                 deletedSkillFolders.Add(SkillLayout.GetSkillFolderPath(deletedSkillName));
-            }
-            else if (deleted is FileAttachmentComponent fileComponent && fileComponent.DisplayName is { Length: > 0 } displayName)
-            {
-                var contentPath = GetKnowledgeContentFilePath(path, displayName);
-                if (fileAccessor.Exists(contentPath))
-                {
-                    fileAccessor.Delete(contentPath);
-                }
             }
         }
 
@@ -6580,7 +6579,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 // In new and old ... --> possible Update
                 var r1 = localComponent.RootElement?.WithoutMcsMetadata();
                 var r2 = cloudComponent.RootElement?.WithoutMcsMetadata();
-                var same = IsMetadataUnchanged(localComponent.DisplayName, cloudComponent.DisplayName, isRemoteChange) && IsMetadataUnchanged(localComponent.Description, cloudComponent.Description, isRemoteChange);
+                var same = HasSameMetadata(localComponent, cloudComponent, isRemoteChange);
 
                 if (localComponent is not FileAttachmentComponent)
                 {
@@ -7045,6 +7044,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         return NormalizeString(metadata) == NormalizeString(cached);
     }
+
+    private static bool HasSameMetadata(BotComponentBase component, BotComponentBase other, bool isRemoteChange) => IsMetadataUnchanged(component.DisplayName, other.DisplayName, isRemoteChange) && IsMetadataUnchanged(component.Description, other.Description, isRemoteChange);
 
     private static bool IsRootAgentMetadata(BotComponentBase localComponent, string componentUri, bool isRemoteChange)
         => !isRemoteChange
@@ -8437,7 +8438,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                         error ?? new InvalidOperationException("This file could not be interpreted as a supported component, so the last synced version is being used. Fix or remove it, then sync again."));
                 }
 
-                updatedComponents.Add(component);
+                updatedComponents.Add(component is FileAttachmentComponent && (fileDescription ?? SkillLayout.ParseMetadata(yaml).Description) is { Length: > 0 } sidecarDescription ? component.WithDescription(sidecarDescription) : component);
                 continue;
             }
 
@@ -8998,6 +8999,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     {
         return KnowledgeFilePath.GetContentFilePath(componentPath, displayName);
     }
+
+    private static IEnumerable<AgentFilePath> GetKnowledgeFilePaths(AgentFilePath metadataPath, FileAttachmentComponent component) => component.DisplayName is { Length: > 0 } displayName ? [metadataPath, GetKnowledgeContentFilePath(metadataPath, displayName)] : [metadataPath];
 
     private static string GetKnowledgeSyncKey(FileAttachmentComponent component) => component.Id.Value.ToString("N");
 

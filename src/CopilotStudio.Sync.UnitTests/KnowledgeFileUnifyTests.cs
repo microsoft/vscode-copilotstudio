@@ -283,6 +283,34 @@ public class KnowledgeFileUnifyTests
             Times.Exactly(2));
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task PushChangeset_DeletedKnowledgeFile_KeepsTheLocalFileOnlyWhileAReplacementClaimsItsName(bool replacedUnderTheSameName)
+    {
+        var infrastructure = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var (entity, definition, accessor, synchronizer, workspace) = await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger", infrastructure);
+        var deleted = definition.Components.OfType<FileAttachmentComponent>().Single();
+        var fileName = deleted.DisplayName ?? throw new Xunit.Sdk.XunitException("Expected a knowledge file name.");
+        var contentPath = new AgentFilePath($"capabilities/knowledge/files/{fileName}");
+        await accessor.WriteAsync(contentPath, FileBytes, CancellationToken.None);
+        var uploads = new List<(Guid ComponentId, string FileName)>();
+        var dataverse = new Mock<ISyncDataverseClient>();
+        dataverse.As<IStreamingKnowledgeFileClient>().Setup(d => d.UploadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<Stream, Guid, string, CancellationToken>((_, componentId, uploadedFileName, _) => uploads.Add((componentId, uploadedFileName)))
+            .Returns(Task.CompletedTask);
+        await synchronizer.UploadKnowledgeFilesAsync(workspace, dataverse.Object, CancellationToken.None);
+        var replacement = KnowledgeFileTestFixtures.CreateFileComponent($"{deleted.SchemaNameString}_r4", fileName, Guid.NewGuid());
+        var response = new PvaComponentChangeSet(replacedUnderTheSameName ? new BotComponentChange[] { new BotComponentInsert(replacement), new BotComponentDelete(deleted.Id, deleted.Version) } : new BotComponentChange[] { new BotComponentDelete(deleted.Id, deleted.Version) }, entity, "after-replace");
+        infrastructure.island.Setup(island => island.SaveChangesAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<PvaComponentChangeSet>(), It.IsAny<CancellationToken>())).ReturnsAsync(response);
+
+        await synchronizer.PushChangesetAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), response, dataverse.Object, Guid.NewGuid(), null, default, CancellationToken.None);
+        await synchronizer.UploadKnowledgeFilesAsync(workspace, dataverse.Object, CancellationToken.None);
+
+        Assert.Equal(replacedUnderTheSameName, accessor.Exists(contentPath));
+        Assert.Equal(replacedUnderTheSameName ? new[] { (deleted.Id.Value, fileName), (replacement.Id.Value, fileName) } : new[] { (deleted.Id.Value, fileName) }, uploads);
+    }
+
     [Fact]
     public async Task GetLocalChanges_NewKnowledgeFileOnDisk_CreatesComponentWithoutWritingMetadata()
     {
@@ -331,6 +359,68 @@ public class KnowledgeFileUnifyTests
         Assert.DoesNotContain(
             changeSet.BotComponentChanges.OfType<BotComponentInsert>(),
             i => i.Component is FileAttachmentComponent);
+    }
+
+    [Fact]
+    public async Task GetLocalChanges_EditedKnowledgeFileSidecarDescription_IsSentAsAnUpdate()
+    {
+        var (synced, _, changeSet) = await GetLocalChangesAfterDescribingTheKnowledgeFileAsync("Nutrient values for every food. Use for questions about calories.");
+
+        var updated = Assert.IsType<FileAttachmentComponent>(Assert.Single(changeSet.BotComponentChanges.OfType<BotComponentUpdate>()).Component);
+        Assert.Equal((synced.SchemaNameString, "Nutrient values for every food. Use for questions about calories."), (updated.SchemaNameString, updated.Description));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(null)]
+    public async Task GetLocalChanges_KnowledgeFileSidecarWithoutADescription_KeepsTheSyncedDescriptionWithoutAnUpdate(string? authoredDescription)
+    {
+        var (synced, read, changeSet) = await GetLocalChangesAfterDescribingTheKnowledgeFileAsync(authoredDescription);
+
+        Assert.Empty(changeSet.BotComponentChanges.OfType<BotComponentUpdate>());
+        Assert.Equal(synced.Description, Assert.Single(read.Components.OfType<FileAttachmentComponent>()).Description);
+    }
+
+    [Fact]
+    public async Task Pull_KnowledgeFileReuploadedInTheCloud_KeepsTheLocalSidecarDescriptionPendingAndDownloadsTheUpload()
+    {
+        var infrastructure = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var (_, definition, accessor, synchronizer, workspace) = await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger", infrastructure);
+        var synced = definition.Components.OfType<FileAttachmentComponent>().Single();
+        await accessor.WriteAsync(accessor.ListFiles("capabilities/knowledge/files", "*.mcs.yml").Single(), KnowledgeSidecar(synced.DisplayName, "Local parking rules."), CancellationToken.None);
+        var local = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
+        var reuploaded = synced.WithVersion(synced.Version + 1);
+        infrastructure.island.Setup(island => island.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>())).ReturnsAsync(new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentUpdate(reuploaded) }, null, "after-reupload"));
+        var dataverse = KnowledgeFileTestFixtures.CreateStreamingMock(destination => KnowledgeFileTestFixtures.SeedContent(destination, "cloud rules"));
+        var conflicts = new List<WorkspaceDiagnostic>();
+
+        await synchronizer.PullExistingChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), local, dataverse.Object, MakeSyncInfo(), CancellationToken.None, conflicts: conflicts);
+
+        var (changeSet, _) = await synchronizer.GetLocalChangesAsync(workspace, await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true), dataverse.Object, MakeSyncInfo(), CancellationToken.None);
+        var pending = Assert.IsType<FileAttachmentComponent>(Assert.Single(changeSet.BotComponentChanges.OfType<BotComponentUpdate>()).Component);
+        var cached = Assert.Single((WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a cloud cache.")).Components.OfType<FileAttachmentComponent>());
+        Assert.Equal(("Local parking rules.", reuploaded.Version), (pending.Description, pending.Version));
+        Assert.Equal((synced.Description, reuploaded.Version), (cached.Description, cached.Version));
+        Assert.Equal("cloud rules", await accessor.ReadStringAsync(new AgentFilePath($"capabilities/knowledge/files/{synced.DisplayName}"), CancellationToken.None));
+        Assert.Empty(conflicts);
+    }
+
+    [Theory]
+    [InlineData("Parking rules. Use for questions about parking fees.", "Parking rules. Use for questions about parking fees.")]
+    [InlineData("", "This knowledge source searches information contained in parking.txt")]
+    [InlineData(null, "This knowledge source searches information contained in parking.txt")]
+    public async Task GetLocalChanges_NewKnowledgeFileWithASidecar_IsCreatedWithItsAuthoredDescription(string? authoredDescription, string expectedDescription)
+    {
+        var (_, _, accessor, synchronizer, workspace) = await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
+        await accessor.WriteAsync(new AgentFilePath("capabilities/knowledge/files/parking.txt"), FileBytes, CancellationToken.None);
+        await accessor.WriteAsync(new AgentFilePath("capabilities/knowledge/files/parkingtxt_r1.mcs.yml"), KnowledgeSidecar("parking.txt", authoredDescription), CancellationToken.None);
+        var read = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
+
+        var (changeSet, _) = await synchronizer.GetLocalChangesAsync(workspace, read, new Mock<ISyncDataverseClient>().Object, MakeSyncInfo(), CancellationToken.None);
+
+        var created = Assert.IsType<FileAttachmentComponent>(Assert.Single(changeSet.BotComponentChanges.OfType<BotComponentInsert>()).Component);
+        Assert.Equal("Default_draft_rxzs_q.file.parkingtxt_r1", created.SchemaNameString);
+        Assert.Equal(expectedDescription, created.Description);
     }
 
     [Fact]
@@ -486,6 +576,18 @@ public class KnowledgeFileUnifyTests
     }
 
     private static string TwinTool(string schemaName) => $"mcs.metadata:\n  componentName: Twin\n  schemaName: {schemaName}\nkind: ConnectorTool\nauthMode: Invoker\nconnectionReference: cr.shared_teams\nconnectorId: /providers/Microsoft.PowerApps/apis/shared_teams\noperationId: GetSection\n";
+
+    private static string KnowledgeSidecar(string? fileName, string? description) => $"mcs.metadata:\n  componentName: {fileName}\n" + (description is null ? string.Empty : $"  description: \"{description}\"\n");
+
+    private static async Task<(FileAttachmentComponent Synced, DefinitionBase Read, PvaComponentChangeSet ChangeSet)> GetLocalChangesAfterDescribingTheKnowledgeFileAsync(string? description)
+    {
+        var (_, definition, accessor, synchronizer, workspace) = await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger");
+        var synced = definition.Components.OfType<FileAttachmentComponent>().Single();
+        await accessor.WriteAsync(accessor.ListFiles("capabilities/knowledge/files", "*.mcs.yml").Single(), KnowledgeSidecar(synced.DisplayName, description), CancellationToken.None);
+        var read = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
+        var (changeSet, _) = await synchronizer.GetLocalChangesAsync(workspace, read, new Mock<ISyncDataverseClient>().Object, MakeSyncInfo(), CancellationToken.None);
+        return (synced, read, changeSet);
+    }
 
     private static async Task MoveAsync(InMemoryFileAccessor accessor, string source, string destination, string content)
     {

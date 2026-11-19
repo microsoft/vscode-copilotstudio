@@ -207,13 +207,10 @@ public static class ConnectionReferenceStore
         return parsed is null || parsed.ConnectionReferences.IsDefaultOrEmpty ? Array.Empty<ConnectionReference>() : parsed.ConnectionReferences.ToList();
     }
 
-    internal static string? ReadTextOrNull(IFileAccessor fileAccessor, AgentFilePath path)
-    {
-        if (!fileAccessor.Exists(path))
-        {
-            return null;
-        }
+    internal static string? ReadTextOrNull(IFileAccessor fileAccessor, AgentFilePath path) => fileAccessor.Exists(path) ? ReadListedFileTextOrNull(fileAccessor, path) : null;
 
+    internal static string? ReadListedFileTextOrNull(IFileAccessor fileAccessor, AgentFilePath path)
+    {
         try
         {
             using var stream = fileAccessor.OpenRead(path);

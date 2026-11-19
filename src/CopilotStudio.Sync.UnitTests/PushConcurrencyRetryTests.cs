@@ -594,6 +594,18 @@ public class PushConcurrencyRetryTests
     }
 
     [Fact]
+    public async Task PushLocalChanges_WithOverwrite_ReplacesTheCloudDescriptionOfAKnowledgeFileDescribedOnDisk()
+    {
+        var (fileAccessor, sentChangesets) = await PushAfterTheCloudUpdatedNotesAsync(localEdit: null, overwriteRemoteChanges: true, localDescription: "Parking rules.", cloudDescription: "Cloud description");
+
+        Assert.Equal(2, sentChangesets.Count);
+        var retried = Assert.IsType<FileAttachmentComponent>(Assert.Single(sentChangesets[1].BotComponentChanges.OfType<BotComponentUpdate>()).Component);
+        Assert.Equal("Parking rules.", retried.Description);
+        Assert.Equal(2, retried.Version);
+        Assert.Equal("synced notes", await ReadAsync(fileAccessor, NotesPath));
+    }
+
+    [Fact]
     public async Task PushLocalChanges_WhenTheCloudUpdatedAKnowledgeFileUnchangedOnDisk_DownloadsIt()
     {
         var (fileAccessor, sentChangesets) = await PushAfterTheCloudUpdatedNotesAsync(localEdit: null);
@@ -602,16 +614,40 @@ public class PushConcurrencyRetryTests
         Assert.Equal("cloud notes", await ReadAsync(fileAccessor, NotesPath));
     }
 
-    private static Task<(IFileAccessor FileAccessor, List<PvaComponentChangeSet> SentChangesets)> PushAfterTheCloudUpdatedNotesAsync(string? localEdit, bool overwriteRemoteChanges = false, long? localEditLength = null)
+    [Fact]
+    public async Task PushLocalChanges_WhenTheCloudOnlyReuploadedAKnowledgeFileDescribedOnDisk_RetriesWithTheLocalDescriptionAndDownloadsTheUpload()
+    {
+        var (fileAccessor, sentChangesets) = await PushAfterTheCloudUpdatedNotesAsync(localEdit: null, localDescription: "Parking rules.");
+
+        Assert.Equal(2, sentChangesets.Count);
+        var retried = Assert.IsType<FileAttachmentComponent>(Assert.Single(sentChangesets[1].BotComponentChanges.OfType<BotComponentUpdate>()).Component);
+        Assert.Equal("Parking rules.", retried.Description);
+        Assert.Equal(2, retried.Version);
+        Assert.Equal("cloud notes", await ReadAsync(fileAccessor, NotesPath));
+    }
+
+    [Theory]
+    [InlineData("Cloud description", null)]
+    [InlineData(null, "local notes")]
+    public async Task PushLocalChanges_WhenAKnowledgeFileDescribedOnDiskOverlapsAnotherEdit_AbortsWithoutOverwrite(string? cloudDescription, string? localEdit)
+    {
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => PushAfterTheCloudUpdatedNotesAsync(localEdit, localDescription: "Parking rules.", cloudDescription: cloudDescription));
+
+        Assert.Contains("Get the latest changes", exception.Message);
+    }
+
+    private static Task<(IFileAccessor FileAccessor, List<PvaComponentChangeSet> SentChangesets)> PushAfterTheCloudUpdatedNotesAsync(string? localEdit, bool overwriteRemoteChanges = false, long? localEditLength = null, string? localDescription = null, string? cloudDescription = null)
     {
         var bot = BuildBot(Guid.NewGuid(), "Agent", version: 1);
         var notesId = Guid.NewGuid();
         var notes = KnowledgeFileTestFixtures.CreateFileComponent($"{AgentSchema}.file.Notes", "Notes.txt", notesId);
+        var cloudNotes = notes.WithDescription(cloudDescription ?? notes.Description).ToBuilder();
+        cloudNotes.Version = 2;
 
         return PushAfterRemoteRefreshAsync(
             new BotDefinition().WithEntity(bot).WithComponents(new[] { notes }),
-            new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentUpdate(notes) }, null, "token-2"),
-            new BotDefinition().WithEntity(bot).WithComponents(new BotComponentBase[] { notes, CreateTopic("Greeting", "greetingLocal", Guid.NewGuid()) }),
+            new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentUpdate(cloudNotes.Build()) }, null, "token-2"),
+            new BotDefinition().WithEntity(bot).WithComponents(new BotComponentBase[] { notes.WithDescription(localDescription ?? notes.Description), CreateTopic("Greeting", "greetingLocal", Guid.NewGuid()) }),
             overwriteRemoteChanges,
             KnowledgeFileTestFixtures.CreateStreamingMock(destination => KnowledgeFileTestFixtures.SeedContent(destination, "cloud notes")).Object,
             new Dictionary<string, string> { [NotesPath] = "synced notes" },
