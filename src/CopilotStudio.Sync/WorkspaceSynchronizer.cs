@@ -1892,6 +1892,13 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         RemoveMergeableKnowledgeFileChanges(remoteChanges, originalSnapshot, locallyUpdatedKnowledgeFiles.Keys);
         for (var index = 0; index < remoteChanges.Count; index++)
         {
+            if (remoteChanges[index] is BotComponentDelete delete && locallyUpdatedKnowledgeFiles.TryGetValue(delete.BotComponentId.ToString(), out var deletedRemotely))
+            {
+                remoteChanges[index] = new BotComponentUpdate(deletedRemotely);
+                conflicts.ComponentsBySchemaName[deletedRemotely.SchemaNameString] = new MergeConflictComponent(string.Empty, deletedRemotely, DeletedRemotely: true);
+                continue;
+            }
+
             if (remoteChanges[index] is not BotComponentUpsert { Component: FileAttachmentComponent remote } || !locallyUpdatedKnowledgeFiles.TryGetValue(remote.Id.ToString(), out var local) || !originalSnapshot.TryGetBotComponentById(remote.Id, out var original))
             {
                 continue;
@@ -2140,7 +2147,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var fileAccessor = this.OpenWorkspace(workspaceFolder);
         var existingSchemaNames = definition.Components.Select(c => c.SchemaNameString).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        newComponents = ScanForNewKnowledgeFiles(fileAccessor, definition, existingSchemaNames, droppedSchemaNames: new HashSet<string>(), cancellationToken);
+        newComponents = ScanForNewKnowledgeFiles(fileAccessor, definition, existingSchemaNames, droppedSchemaNames: new HashSet<string>(), conflicts: null, cancellationToken);
 
         if (newComponents.Count == 0)
         {
@@ -2329,7 +2336,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             dialog: new InlineAgentSkill.Builder().Build());
     }
 
-    private List<BotComponentBase> ScanForNewKnowledgeFiles(IFileAccessor fileAccessor, DefinitionBase definition, HashSet<string> existingSchemaNames, HashSet<string> droppedSchemaNames, CancellationToken cancellationToken)
+    private List<BotComponentBase> ScanForNewKnowledgeFiles(IFileAccessor fileAccessor, DefinitionBase definition, HashSet<string> existingSchemaNames, HashSet<string> droppedSchemaNames, ICollection<WorkspaceDiagnostic>? conflicts, CancellationToken cancellationToken)
     {
         var newComponents = new List<BotComponentBase>();
         var folderOverrides = BuildComponentFolderOverrides(fileAccessor, definition);
@@ -2404,7 +2411,10 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         foreach (var (parentId, folder, pendingDisplayNames) in pendingByScope)
         {
             var isSkillScope = folder.StartsWith(LspProjection.BehaviorsFolder, StringComparison.OrdinalIgnoreCase);
-            var sidecarsByDisplayName = BuildKnowledgeSidecarsByDisplayName(fileAccessor, folder, cancellationToken);
+            if (BuildKnowledgeSidecarsByDisplayName(fileAccessor, folder, conflicts, cancellationToken) is not { } sidecarsByDisplayName)
+            {
+                continue;
+            }
 
             var normalizedFolder = folder.Replace('\\', '/').TrimEnd('/');
             var lastSlash = normalizedFolder.LastIndexOf('/');
@@ -2460,16 +2470,24 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return newComponents;
     }
 
-    private Dictionary<string, (string Stem, string? Description)> BuildKnowledgeSidecarsByDisplayName(IFileAccessor fileAccessor, string folder, CancellationToken cancellationToken)
+    private Dictionary<string, (string Stem, string? Description)>? BuildKnowledgeSidecarsByDisplayName(IFileAccessor fileAccessor, string folder, ICollection<WorkspaceDiagnostic>? conflicts, CancellationToken cancellationToken)
     {
         const string sidecarExtension = ".mcs.yml";
         var sidecarsByDisplayName = new Dictionary<string, (string Stem, string? Description)>(StringComparer.OrdinalIgnoreCase);
+        var hasConflicts = false;
 
         foreach (var sidecar in fileAccessor.ListFiles(folder, "*.mcs.yml"))
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!sidecar.FileName.EndsWith(sidecarExtension, StringComparison.OrdinalIgnoreCase) || ConnectionReferenceStore.ReadListedFileTextOrNull(fileAccessor, sidecar) is not { } sidecarText)
             {
+                continue;
+            }
+
+            if (ContainsConflictMarkers(sidecarText))
+            {
+                conflicts?.Add(CreateConflictDiagnostic(sidecar.ToString(), sidecarText));
+                hasConflicts = true;
                 continue;
             }
 
@@ -2496,7 +2514,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             }
         }
 
-        return sidecarsByDisplayName;
+        return hasConflicts ? null : sidecarsByDisplayName;
     }
 
     private static string? ParseLegacyKnowledgeSidecarDisplayName(string sidecarText)
@@ -6121,7 +6139,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
             var component = conflict.Value.Component;
             var path = ResolveOnDiskComponentPath(fileAccessor, GetStickyComponentPath(component, definition, folderOverrides), component, definition);
-            var body = McsComponentBodyWriter.ReplaceBodyPreservingMetadata(component, definition, path, conflict.Value.Yaml, conflict.Value.DisplayName, conflict.Value.Description);
+            var preserved = McsComponentBodyWriter.ReplaceBodyPreservingMetadata(component, definition, path, conflict.Value.Yaml, conflict.Value.DisplayName, conflict.Value.Description);
+            var body = conflict.Value.DeletedRemotely ? McsConflictMarkers.Build(preserved.TrimEnd(), null) : preserved;
             await fileAccessor.WriteAsync(path, encoding.GetBytes(body), cancellationToken).ConfigureAwait(false);
             reported?.Add(CreateConflictDiagnostic(path.ToString(), body));
         }
@@ -8566,7 +8585,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
             var diskSkills = updatedComponents.Where(component => component is DialogComponent { Dialog: InlineAgentSkill }).ToImmutableArray();
             var scanComponents = definition.Components.Where(component => component is not DialogComponent { Dialog: InlineAgentSkill }).Concat(diskSkills).ToImmutableArray();
             var scanDefinition = DetectNewLocalSkills(fileAccessor, definition.WithComponents(scanComponents), definition, out var synthesizedSkills);
-            var newKnowledgeComponents = ScanForNewKnowledgeFiles(fileAccessor, scanDefinition, existingSchemaNames, droppedSchemaNames, cancellationToken);
+            var newKnowledgeComponents = ScanForNewKnowledgeFiles(fileAccessor, scanDefinition, existingSchemaNames, droppedSchemaNames, readDiagnostics, cancellationToken);
 
             // ! The filter excludes skills without a schema name before building the lookup.
             var resolvedSkillsBySchema = scanDefinition.Components.Where(component => component is DialogComponent { Dialog: InlineAgentSkill } && !string.IsNullOrEmpty(component.SchemaNameString)).ToDictionary(component => component.SchemaNameString!, component => component, StringComparer.OrdinalIgnoreCase);
