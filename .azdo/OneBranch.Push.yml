@@ -1,0 +1,72 @@
+trigger:
+  batch: false
+  branches:
+    include:
+    - main
+
+pr: none
+
+parameters:
+  - name: target
+    type: string
+    values:
+    - client
+    - server
+    - both
+    default: both
+
+variables:
+  ENABLE_PRS_DELAYSIGN: 1
+  Codeql.TSAEnabled: true
+  WindowsContainerImage: 'onebranch.azurecr.io/windows/ltsc2022/vse2022:latest'
+  LinuxContainerImage: cdpxlinux.azurecr.io/user/lsg-linux/lsg-yocto-project:latest
+  IsOfficialBuild: true
+  EnablePush: true
+  BuildConfiguration: Release
+  ProjectBranch: $(Build.SourceBranch)
+  ProjectFolder: vscode-copilotstudio
+  ProjectSourceRoot: '$(Pipeline.Workspace)/s/$(ProjectFolder)'
+  BuildProjectFile: '$(ProjectSourceRoot)/src/build.proj'
+  LanguageServerHostProjectFile: '$(ProjectSourceRoot)/src/LanguageServers/PowerPlatformLS/LanguageServerHost/LanguageServerHost.csproj'
+  ${{ if and(startsWith(variables['Build.SourceBranch'], 'refs/heads/release/'), eq(length(split(variables['Build.SourceBranchName'], '.')), 3)) }}:
+    BUILD_PREFIX: $[ variables['Build.SourceBranchName'] ]
+  ${{ else }}:
+    BUILD_PREFIX: $[ format('1.{0:yyyy}.{1:Mdd}', pipeline.startTime, pipeline.startTime) ]
+
+name: $(BUILD_PREFIX)$(Rev:.r)
+
+resources:
+  repositories:
+  - repository: templates
+    type: git
+    name: OneBranch.Pipelines/GovernedTemplates
+    ref: refs/heads/main
+  - repository: tools
+    type: github
+    endpoint: bic-proxima-shared-stamp
+    name: bic/Microsoft.Botframework.Builds
+    ref: refs/heads/main
+
+extends:
+  template: v2/OneBranch.Official.CrossPlat.yml@templates
+  parameters:
+    featureFlags:
+      WindowsHostVersion:
+        Version: 2022
+      networkisolation:
+        policy: GitHub,Permissive
+    globalSdl:
+      tsa:
+        enabled: false
+      binskim:
+        break: true
+      policheck:
+        break: true
+    git:
+      persistCredentials: false
+    stages:
+    - template: VSCode-CopilotStudio/templates/push-stages.yml@tools
+      parameters:
+        target: ${{ parameters.target }}
+        sourceRepository: self
+        buildToolsRepository: tools

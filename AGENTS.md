@@ -458,7 +458,9 @@ The scenario catalogue is `client/src/tests/ui/lib/groups.ts` and the shapes are
 
 ## CI/CD
 - Pull requests to `main` run `.github/workflows/pr.yml`, which restores, builds, and tests `src/build.proj` in Debug configuration.
-- Pushes to `main` run `.github/workflows/push.yml`, which triggers and monitors Azure DevOps pipeline `31673`.
+- Pushes to `main` are triggered directly by Azure DevOps using `.azdo/OneBranch.Push.yml`, which imports the existing build/sign/package/publish stages from `Microsoft.Botframework.Builds`.
+- Native CI runs once per `main` push, including bot pushes; the former GitHub workflow excluded the Dependabot actor. PR validation and nightly scheduling are unchanged.
+- Cutover requires merging the shared template in `Microsoft.Botframework.Builds` first, then configuring Azure DevOps pipeline `31673` (`Agents-VSIX-Push`) to use this repository and `.azdo/OneBranch.Push.yml` on `main`. Authorize the GitHub connection and shared template repository, use the YAML CI trigger without a UI override, and update any required GitHub checks. The merge that introduces this file needs a manually queued build if cutover occurs afterward.
 - New issues are automatically labeled by `.github/workflows/auto-label-triage.yml`.
 
 ## Important Notes
