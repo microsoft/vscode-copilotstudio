@@ -296,8 +296,8 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
         [Theory]
         [InlineData(new[] { "knowledge/files/Jane Doe rules.txt" }, true, 410, "A knowledge file you changed locally was deleted in the environment: knowledge/files/Jane Doe rules.txt")]
         [InlineData(new[] { "knowledge/files/Jane Doe rules.txt", "knowledge/files/Jane Doe rules.txt.md" }, true, 410, "2 knowledge files you changed locally were deleted in the environment: knowledge/files/Jane Doe rules.txt, knowledge/files/Jane Doe rules.txt.md")]
-        [InlineData(new[] { "knowledge/files/Jane Doe rules.txt" }, false, 428, "A knowledge file you changed locally was deleted in the environment and can't be kept: knowledge/files/Jane Doe rules.txt")]
-        [InlineData(new[] { "knowledge/files/Jane Doe rules.txt", "knowledge/files/Jane Doe rules.txt.md" }, false, 428, "2 knowledge files you changed locally were deleted in the environment and can't all be kept: knowledge/files/Jane Doe rules.txt, knowledge/files/Jane Doe rules.txt.md")]
+        [InlineData(new[] { "knowledge/files/Jane Doe rules.txt" }, false, 428, "A knowledge file you changed locally was deleted or replaced in the environment and can't be kept: knowledge/files/Jane Doe rules.txt")]
+        [InlineData(new[] { "knowledge/files/Jane Doe rules.txt", "knowledge/files/Jane Doe rules.txt.md" }, false, 428, "2 knowledge files you changed locally were deleted or replaced in the environment and can't all be kept: knowledge/files/Jane Doe rules.txt, knowledge/files/Jane Doe rules.txt.md")]
         public void Handle_KnowledgeFilesDeletedAfterLocalEdits_ReturnsWhetherTheyCanBeKeptAndTagsEveryPathWithoutLogging(string[] filePaths, bool canBeKept, int expectedCode, string expected)
         {
             var failure = new DeletedKnowledgeFileEditsException(filePaths, canBeKept);

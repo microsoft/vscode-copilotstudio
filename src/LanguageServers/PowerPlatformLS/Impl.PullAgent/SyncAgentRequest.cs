@@ -16,5 +16,7 @@
         public bool RequireNoUnpulledChanges { get; set; }
 
         public ImmutableArray<string>? ApprovedEnvironmentVariableOverwrites { get; set; }
+
+        public ImmutableArray<string>? ApprovedKnowledgeFileDeletions { get; set; }
     }
 }

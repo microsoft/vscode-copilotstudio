@@ -4,7 +4,7 @@ import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import { ServerOptions, TransportKind, LanguageClient, LanguageClientOptions, State, LogMessageNotification, Trace } from "vscode-languageclient/node";
 import { TELEMETRY_CONNECTION_STRING, TelemetryEventsKeys } from '../constants';
-import { AccountInfo, AgentSyncInfo, EnvironmentInfo, RemoteApiRequest } from '../types';
+import { AccountInfo, AgentSyncInfo, EnvironmentInfo, RemoteApiRequest, RemoteApiResponse } from '../types';
 import { getAccessTokenByAccountId, getCopilotStudioAccessTokenByAccountId, isIdentityUnbound, resolveAccountIdentity, resolveTenantId } from '../clients/account';
 import { getSolutionVersionsAsync } from '../clients/dataverseClient';
 import { getClusterCategory } from '../utils/genericUtils';
@@ -17,13 +17,18 @@ let currentOutputChannel: vscode.LogOutputChannel | null = null;
 let currentSessionId: string | null = null;
 
 /**
- * A language server response whose status code was not 200, carrying that code so callers
+ * A language server response whose status code was not 200, carrying that code and the response so callers
  * can tell an expected refusal from a failure without matching on message text.
  */
 export class LspRequestError extends Error {
-  public constructor(public readonly code: number, message: string) {
+  public constructor(public readonly code: number, message: string, public readonly response?: RemoteApiResponse) {
     super(message);
     this.name = 'LspRequestError';
+  }
+
+  /** Creates the error for a response the server refused, keeping that response for callers that read its details. */
+  public static fromResponse(response: RemoteApiResponse): LspRequestError {
+    return new LspRequestError(response.code, response.message ?? `Request failed with code ${response.code}`, response);
   }
 }
 
@@ -301,7 +306,7 @@ class LspClientService {
             const result = await next(type, param, token);
             const durationMs = Date.now() - startTime;
             if (result && typeof result === 'object' && 'code' in result && (result as any).code !== 200) {
-              throw new LspRequestError((result as any).code, (result as any).message ?? `Request failed with code ${(result as any).code}`);
+              throw LspRequestError.fromResponse(result as RemoteApiResponse);
             } else {
               if (isCustom) {
                 logger.logInfo(TelemetryEventsKeys.LanguageServerInfo, undefined, {

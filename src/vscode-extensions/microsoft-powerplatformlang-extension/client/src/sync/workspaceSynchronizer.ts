@@ -84,9 +84,9 @@ export interface PullOptions {
     offerRemoteOverwrite?: boolean;
 }
 
-export type RemoteChangeOptions = Pick<PushOptions, 'requireNoUnpulledChanges' | 'approvedEnvironmentVariableOverwrites'> & Pick<PullOptions, 'offerRemoteOverwrite'> & { keepLocalChanges?: boolean };
+export type RemoteChangeOptions = Pick<PushOptions, 'requireNoUnpulledChanges' | 'approvedEnvironmentVariableOverwrites'> & Pick<PullOptions, 'offerRemoteOverwrite'> & { keepLocalChanges?: boolean; approvedKnowledgeFileDeletions?: string[] };
 
-export type ConflictResolution = 'getRemoteChanges' | 'replaceLocalChanges' | 'overwriteRemoteChanges' | 'keepLocalChanges';
+export type ConflictResolution = 'getRemoteChanges' | 'replaceLocalChanges' | 'overwriteRemoteChanges' | 'keepLocalChanges' | 'deleteLocalFiles';
 
 export class RemoteOverwriteRequestedError extends Error {
   public constructor() {
@@ -334,6 +334,7 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
     keepLocalChanges: remoteChanges.keepLocalChanges ?? false,
     requireNoUnpulledChanges: remoteChanges.requireNoUnpulledChanges ?? false,
     approvedEnvironmentVariableOverwrites: remoteChanges.approvedEnvironmentVariableOverwrites,
+    approvedKnowledgeFileDeletions: remoteChanges.approvedKnowledgeFileDeletions,
   };
 
   try {
@@ -359,8 +360,8 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
     const errorMessage = error instanceof Error ? error.message : String(error);
     if (!overwriteLocalChanges && !remoteChanges.keepLocalChanges && (holdsUnpushedLocalChanges(error) || holdsLocalChangesDeletedRemotely(error))) {
       const resolution = holdsUnpushedLocalChanges(error) ? await askLocalChangeResolution(errorMessage, remoteChanges.offerRemoteOverwrite ?? false) : await askDeletedLocalChangeResolution(errorMessage, !holdsUnkeepableLocalChangesDeletedRemotely(error));
-      if (resolution === 'replaceLocalChanges' || resolution === 'keepLocalChanges') {
-        return await sync(workspace, displayText, methodName, silent, suppressErrorNotification, suppressSuccessNotification, suppressDisabledWorkflowWarnings, draftConnectionReferenceWorkflows, retryOnUserNotMember, accountOverride, resolution === 'replaceLocalChanges', { ...remoteChanges, keepLocalChanges: resolution === 'keepLocalChanges' });
+      if (resolution === 'replaceLocalChanges' || resolution === 'keepLocalChanges' || resolution === 'deleteLocalFiles') {
+        return await sync(workspace, displayText, methodName, silent, suppressErrorNotification, suppressSuccessNotification, suppressDisabledWorkflowWarnings, draftConnectionReferenceWorkflows, retryOnUserNotMember, accountOverride, resolution === 'replaceLocalChanges', { ...remoteChanges, keepLocalChanges: resolution === 'keepLocalChanges', approvedKnowledgeFileDeletions: resolution === 'deleteLocalFiles' ? getKnowledgeFileDeletions(error) : undefined });
       }
 
       if (resolution === 'overwriteRemoteChanges') {
@@ -424,6 +425,10 @@ function holdsUnkeepableLocalChangesDeletedRemotely(error: unknown): boolean {
   return error instanceof LspRequestError && error.code === LSP_UNKEEPABLE_LOCAL_CHANGES_DELETED_REMOTELY;
 }
 
+function getKnowledgeFileDeletions(error: unknown): string[] {
+  return (error instanceof LspRequestError ? (error.response as SyncResponse | undefined)?.knowledgeFileDeletions : undefined) ?? [];
+}
+
 async function askDeletedLocalChangeResolution(reason: string, canKeep: boolean): Promise<ConflictResolution | undefined> {
   return await askConflictResolution(
     stripPiiTags(reason),
@@ -431,9 +436,9 @@ async function askDeletedLocalChangeResolution(reason: string, canKeep: boolean)
       modal: true,
       detail: canKeep
         ? 'Keep local change keeps your copy as a new local file that applying your changes adds back. Delete local file removes your copy.'
-        : "Your copy can't be kept: its content was never downloaded, the agent or skill it belongs to was deleted too, or a file with the same name replaced it. Delete local file removes your copy.",
+        : "Your copy can't be kept: its content was never downloaded, the agent or skill it belongs to was deleted, or a file with the same name replaced it. Delete local file removes your copy.",
     },
-    [...(canKeep ? [['Keep local change', 'keepLocalChanges'] as const] : []), ['Delete local file', 'replaceLocalChanges']]);
+    [...(canKeep ? [['Keep local change', 'keepLocalChanges'] as const] : []), ['Delete local file', 'deleteLocalFiles']]);
 }
 
 /** Asks whether the unpushed local workflow edits the server named may be replaced. */

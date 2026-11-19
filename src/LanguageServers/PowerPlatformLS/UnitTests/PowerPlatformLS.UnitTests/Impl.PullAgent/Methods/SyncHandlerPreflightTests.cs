@@ -245,7 +245,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
                     .Returns(Task.CompletedTask);
                 _synchronizer.Setup(service => service.GetLocalChangesAsync(It.IsAny<DirectoryPath>(), It.IsAny<DefinitionBase>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>()))
                     .ReturnsAsync((new PvaComponentChangeSet(Array.Empty<BotComponentChange>(), null, "token"), ImmutableArray<Change>.Empty));
-                _synchronizer.Setup(service => service.PullExistingChangesAsync(It.IsAny<DirectoryPath>(), It.IsAny<AuthoringOperationContextBase>(), It.IsAny<DefinitionBase>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>(), It.IsAny<bool>(), It.IsAny<ICollection<WorkspaceDiagnostic>>(), It.IsAny<DeletedKnowledgeFileEdits>()))
+                _synchronizer.Setup(service => service.PullExistingChangesAsync(It.IsAny<DirectoryPath>(), It.IsAny<AuthoringOperationContextBase>(), It.IsAny<DefinitionBase>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>(), It.IsAny<bool>(), It.IsAny<ICollection<WorkspaceDiagnostic>>(), It.IsAny<DeletedKnowledgeFileEdits>(), It.IsAny<ImmutableArray<string>?>()))
                     .ReturnsAsync(() => Workspace.Definition);
                 _operationProvider.Setup(provider => provider.GetAsync(It.IsAny<AgentSyncInfo>()))
                     .ReturnsAsync(new AuthoringOperationContext(null, new CdsOrganizationInfo(), new BotReference(), null, false));
@@ -316,7 +316,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
                 _synchronizer.Verify(service => service.UpsertWorkflowForAgentAsync(It.IsAny<DirectoryPath>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>(), It.IsAny<WorkflowActivationMode>()), Times.Never);
                 _synchronizer.Verify(service => service.UpsertAIPromptsForAgentAsync(It.IsAny<DirectoryPath>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>(), It.IsAny<bool>()), Times.Never);
                 _synchronizer.Verify(service => service.PushLocalChangesAsync(It.IsAny<DirectoryPath>(), It.IsAny<AuthoringOperationContextBase>(), It.IsAny<DefinitionBase>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<AgentSyncInfo>(), It.IsAny<CloudFlowMetadata?>(), It.IsAny<ImmutableArray<SyncDataverseClient.AIPromptMetadata>>(), It.IsAny<CancellationToken>(), It.IsAny<AuthoringOperationContextBase?>(), It.IsAny<bool>(), It.IsAny<ImmutableArray<string>?>()), Times.Never);
-                _synchronizer.Verify(service => service.PullExistingChangesAsync(It.IsAny<DirectoryPath>(), It.IsAny<AuthoringOperationContextBase>(), It.IsAny<DefinitionBase>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>(), It.IsAny<bool>(), It.IsAny<ICollection<WorkspaceDiagnostic>>(), It.IsAny<DeletedKnowledgeFileEdits>()), Times.Never);
+                _synchronizer.Verify(service => service.PullExistingChangesAsync(It.IsAny<DirectoryPath>(), It.IsAny<AuthoringOperationContextBase>(), It.IsAny<DefinitionBase>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>(), It.IsAny<bool>(), It.IsAny<ICollection<WorkspaceDiagnostic>>(), It.IsAny<DeletedKnowledgeFileEdits>(), It.IsAny<ImmutableArray<string>?>()), Times.Never);
             }
 
             public void AssertPushCompleted()

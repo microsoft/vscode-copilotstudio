@@ -36,12 +36,14 @@ export interface SyncRequest extends RemoteApiRequest {
   keepLocalChanges?: boolean;
   requireNoUnpulledChanges?: boolean;
   approvedEnvironmentVariableOverwrites?: string[];
+  approvedKnowledgeFileDeletions?: string[];
 }
 
 export interface SyncResponse extends RemoteApiResponse {
   localChanges: Change[];
   workflowResponse: WorkflowResponse[];
   aiPromptResponse?: AIPromptResponse[];
+  knowledgeFileDeletions?: string[];
 }
 
 export interface DiscardSkippedChange {

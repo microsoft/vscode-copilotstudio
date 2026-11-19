@@ -589,6 +589,31 @@ public class PushConcurrencyRetryTests
         Assert.Equal("cloud notes", await ReadAsync(fileAccessor, "knowledge/files/Notes.txt"));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PushLocalChanges_WhenTheCloudAddedAKnowledgeFileUnderTheNameOfANewLocalOne_AbortsWithoutReplacingIt(bool overwriteRemoteChanges)
+    {
+        var bot = BuildBot(Guid.NewGuid(), "Agent", version: 1);
+        IFileAccessor? workspaceFiles = null;
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => PushAfterRemoteRefreshAsync(
+            new BotDefinition().WithEntity(bot),
+            new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentInsert(KnowledgeFileTestFixtures.CreateFileComponent($"{AgentSchema}.file.Notes", "Notes.txt", Guid.NewGuid())) }, null, "token-2"),
+            new BotDefinition().WithEntity(bot).WithComponents(new[] { CreateTopic("Greeting", "greetingLocal", Guid.NewGuid()) }),
+            overwriteRemoteChanges,
+            KnowledgeFileTestFixtures.CreateStreamingMock(destination => KnowledgeFileTestFixtures.SeedContent(destination, "cloud notes")).Object,
+            new Dictionary<string, string> { [NotesPath] = "local notes" },
+            fileAccessor =>
+            {
+                workspaceFiles = fileAccessor;
+                return Task.CompletedTask;
+            }));
+
+        Assert.Contains("Get the latest changes", exception.Message);
+        Assert.Equal("local notes", await ReadAsync(workspaceFiles ?? throw new Xunit.Sdk.XunitException("Expected the workspace."), NotesPath));
+    }
+
     [Fact]
     public async Task PushLocalChanges_WhenTheCloudUpdatedAKnowledgeFileEditedOnDisk_AbortsWithoutReplacingTheEdit()
     {

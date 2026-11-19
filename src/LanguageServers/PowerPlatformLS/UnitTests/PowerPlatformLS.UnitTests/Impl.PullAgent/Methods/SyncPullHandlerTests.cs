@@ -17,6 +17,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
     using Moq;
     using System;
     using System.Collections.Generic;
+    using System.Collections.Immutable;
     using System.IO;
     using System.Linq;
     using System.Threading;
@@ -178,18 +179,20 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
         }
 
         [Theory]
-        [InlineData(false, false, DeletedKnowledgeFileEdits.Refuse)]
-        [InlineData(false, true, DeletedKnowledgeFileEdits.Keep)]
-        [InlineData(true, false, DeletedKnowledgeFileEdits.Discard)]
-        [InlineData(true, true, DeletedKnowledgeFileEdits.Discard)]
-        public async Task Pull_PassesTheUsersChoiceForKnowledgeFileEditsTheEnvironmentDeleted(bool overwriteLocalChanges, bool keepLocalChanges, DeletedKnowledgeFileEdits expected)
+        [InlineData(false, false, false, DeletedKnowledgeFileEdits.Refuse)]
+        [InlineData(true, false, false, DeletedKnowledgeFileEdits.Refuse)]
+        [InlineData(false, true, false, DeletedKnowledgeFileEdits.Keep)]
+        [InlineData(false, false, true, DeletedKnowledgeFileEdits.Discard)]
+        [InlineData(true, true, true, DeletedKnowledgeFileEdits.Keep)]
+        public async Task Pull_PassesTheUsersChoiceForKnowledgeFileEditsTheEnvironmentDeleted(bool overwriteLocalChanges, bool keepLocalChanges, bool approveDeletions, DeletedKnowledgeFileEdits expected)
         {
             using var fixture = new PullFixture();
+            ImmutableArray<string>? approvedKnowledgeFileDeletions = approveDeletions ? ImmutableArray.Create(KnowledgePayloadPath) : null;
 
-            var response = await fixture.PullAsync(overwriteLocalChanges, keepLocalChanges);
+            var response = await fixture.PullAsync(overwriteLocalChanges, keepLocalChanges, approvedKnowledgeFileDeletions);
 
             Assert.Equal(200, response.Code);
-            fixture.AssertPullCalledOnce(expected);
+            fixture.AssertPullCalledOnce(expected, approvedKnowledgeFileDeletions);
         }
 
         [Fact]
@@ -204,6 +207,24 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
 
             Assert.Equal(410, response.Code);
             Assert.Equal($"A knowledge file you changed locally was deleted in the environment: <pii type=\"WORKSPACE FILE DETAILS\" encoded=\"true\">{KnowledgePayloadPath}</pii>", response.Message);
+            Assert.Equal(new[] { KnowledgePayloadPath }, response.KnowledgeFileDeletions);
+            fixture.AssertUnchanged(before);
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public async Task Pull_KnowledgeFileDeletedInTheEnvironmentAfterALocalDescriptionEdit_AsksAgainBeforeChangingAnythingWhenItsDeletionWasNotApproved(bool overwriteLocalChanges)
+        {
+            using var fixture = new PullFixture(withKnowledgeFile: true);
+            fixture.Edit(KnowledgeSidecarPath, DescribedKnowledgeSidecar);
+            fixture.DeleteTheKnowledgeFileInTheEnvironment();
+            var before = fixture.Snapshot();
+
+            var response = await fixture.PullAsync(overwriteLocalChanges, approvedKnowledgeFileDeletions: ImmutableArray.Create("knowledge/files/other.txt"));
+
+            Assert.Equal(410, response.Code);
+            Assert.Equal(new[] { KnowledgePayloadPath }, response.KnowledgeFileDeletions);
             fixture.AssertUnchanged(before);
         }
 
@@ -216,7 +237,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             fixture.Edit(KnowledgeSidecarPath, DescribedKnowledgeSidecar);
             fixture.DeleteTheKnowledgeFileInTheEnvironment();
 
-            var response = await fixture.PullAsync(overwriteLocalChanges: !keepLocalChanges, keepLocalChanges: keepLocalChanges);
+            var response = await fixture.PullAsync(keepLocalChanges: keepLocalChanges, approvedKnowledgeFileDeletions: keepLocalChanges ? null : ImmutableArray.Create(KnowledgePayloadPath));
 
             Assert.Equal(200, response.Code);
             Assert.Equal(string.Empty, response.Message);
@@ -304,12 +325,12 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
                 _synchronizer.Setup(value => value.PullExistingChangesAsync(
                     It.IsAny<DirectoryPath>(), It.IsAny<AuthoringOperationContextBase>(), It.IsAny<DefinitionBase>(),
                     It.IsAny<ISyncDataverseClient>(), It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>(),
-                    It.IsAny<bool>(), It.IsAny<ICollection<WorkspaceDiagnostic>>(), It.IsAny<DeletedKnowledgeFileEdits>()))
-                    .Returns((DirectoryPath folder, AuthoringOperationContextBase context, DefinitionBase definition, ISyncDataverseClient client, AgentSyncInfo info, CancellationToken token, bool downloadAll, ICollection<WorkspaceDiagnostic> conflicts, DeletedKnowledgeFileEdits deletedKnowledgeFileEdits)
+                    It.IsAny<bool>(), It.IsAny<ICollection<WorkspaceDiagnostic>>(), It.IsAny<DeletedKnowledgeFileEdits>(), It.IsAny<ImmutableArray<string>?>()))
+                    .Returns((DirectoryPath folder, AuthoringOperationContextBase context, DefinitionBase definition, ISyncDataverseClient client, AgentSyncInfo info, CancellationToken token, bool downloadAll, ICollection<WorkspaceDiagnostic> conflicts, DeletedKnowledgeFileEdits deletedKnowledgeFileEdits, ImmutableArray<string>? approvedKnowledgeFileDeletions)
                         =>
                         {
                             _pullSyncInfo = info;
-                            return sync.PullExistingChangesAsync(folder, context, definition, client, info, token, downloadAll, conflicts, deletedKnowledgeFileEdits);
+                            return sync.PullExistingChangesAsync(folder, context, definition, client, info, token, downloadAll, conflicts, deletedKnowledgeFileEdits, approvedKnowledgeFileDeletions);
                         });
                 _synchronizer.Setup(value => value.GetLocalChangesAsync(
                     It.IsAny<DirectoryPath>(), It.IsAny<DefinitionBase>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>()))
@@ -396,11 +417,11 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
                 _logger.VerifyNoOtherCalls();
             }
 
-            public void AssertPullCalledOnce(DeletedKnowledgeFileEdits deletedKnowledgeFileEdits = DeletedKnowledgeFileEdits.Refuse)
+            public void AssertPullCalledOnce(DeletedKnowledgeFileEdits deletedKnowledgeFileEdits = DeletedKnowledgeFileEdits.Refuse, ImmutableArray<string>? approvedKnowledgeFileDeletions = null)
                 => _synchronizer.Verify(value => value.PullExistingChangesAsync(
                     It.IsAny<DirectoryPath>(), It.IsAny<AuthoringOperationContextBase>(), It.IsAny<DefinitionBase>(),
                     It.IsAny<ISyncDataverseClient>(), It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>(),
-                    false, It.IsAny<ICollection<WorkspaceDiagnostic>>(), deletedKnowledgeFileEdits), Times.Once);
+                    false, It.IsAny<ICollection<WorkspaceDiagnostic>>(), deletedKnowledgeFileEdits, approvedKnowledgeFileDeletions), Times.Once);
 
             public void AssertRequestConnectionContextUsed()
             {
@@ -430,10 +451,11 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
                 Assert.Same(_request.SolutionVersions, info.SolutionVersions);
             }
 
-            public Task<SyncAgentResponse> PullAsync(bool overwriteLocalChanges = false, bool keepLocalChanges = false)
+            public Task<SyncAgentResponse> PullAsync(bool overwriteLocalChanges = false, bool keepLocalChanges = false, ImmutableArray<string>? approvedKnowledgeFileDeletions = null)
             {
                 _request.OverwriteLocalChanges = overwriteLocalChanges;
                 _request.KeepLocalChanges = keepLocalChanges;
+                _request.ApprovedKnowledgeFileDeletions = approvedKnowledgeFileDeletions;
                 return _handler.HandleRequestAsync(_request, World.GetRequestContext(World.GetDocument(File(SettingsPath))!, 0), CancellationToken.None);
             }
 

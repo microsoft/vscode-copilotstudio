@@ -12,5 +12,7 @@
         public ImmutableArray<WorkflowResponse> WorkflowResponse { get; init; } = ImmutableArray<WorkflowResponse>.Empty;
 
         public ImmutableArray<SyncDataverseClient.AIPromptResponse> AIPromptResponse { get; init; } = ImmutableArray<SyncDataverseClient.AIPromptResponse>.Empty;
+
+        public ImmutableArray<string> KnowledgeFileDeletions { get; init; } = ImmutableArray<string>.Empty;
     }
 }
