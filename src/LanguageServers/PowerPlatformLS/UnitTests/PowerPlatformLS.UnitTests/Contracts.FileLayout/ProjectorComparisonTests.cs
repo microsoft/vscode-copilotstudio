@@ -690,6 +690,7 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Contracts.FileLayout
                             && !typeof(ConnectedAgentTool).IsAssignableFrom(t)
                             && !typeof(PackagedMcpTool).IsAssignableFrom(t)
                             && !typeof(BrokeredMcpTool).IsAssignableFrom(t)
+                            && !typeof(PackagedBrokeredMcpTool).IsAssignableFrom(t)
                             && !typeof(IQCapability).IsAssignableFrom(t)
                             && !typeof(ImportedPackageSkill).IsAssignableFrom(t)
                             && !typeof(AgentToAgentTool).IsAssignableFrom(t)

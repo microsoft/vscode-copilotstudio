@@ -233,7 +233,8 @@ public class CliAgentNodeGMergeTests
 
         var merged = sync.MergeComponent(schema, baseComp, localComp, remoteComp, out var conflict);
 
-        Assert.Null(conflict.Yaml);
+        _output.WriteLine($"Original:\n{SerializeRoot(baseComp)}\nLocal:\n{SerializeRoot(localComp)}\nRemote:\n{SerializeRoot(remoteComp)}");
+        Assert.True(conflict.Yaml is null, $"Unexpected merge conflict:\n{conflict.Yaml}");
         Assert.NotNull(merged);
         var mergedYaml = SerializeRoot(merged);
         Assert.Contains("mcp_LOCAL_EDIT", mergedYaml);
