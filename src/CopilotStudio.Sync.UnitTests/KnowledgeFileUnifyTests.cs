@@ -7,7 +7,9 @@ using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Moq;
 using System.Collections.Immutable;
+using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Xunit;
 
 namespace Microsoft.CopilotStudio.Sync.UnitTests;
@@ -447,12 +449,8 @@ public class KnowledgeFileUnifyTests
     {
         var pull = await DescribeTheKnowledgeFileAsync(DeleteInTheCloud);
         pull.Dataverse.Setup(client => client.DownloadAllWorkflowsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>())).ReturnsAsync(new[] { new SyncDataverseClient.WorkflowMetadata { WorkflowId = Guid.NewGuid(), Name = "Notify", ClientData = "{}" } });
-        var before = SnapshotFiles(pull.Accessor);
 
-        var failure = await Assert.ThrowsAsync<DeletedKnowledgeFileEditsException>(() => pull.PullAsync(DeletedKnowledgeFileEdits.Refuse));
-
-        Assert.Equal([pull.PayloadPath.ToString()], failure.FilePaths);
-        Assert.Equal(before, SnapshotFiles(pull.Accessor));
+        await AssertPullStopsBeforeWritingAnythingAsync(pull, DeletedKnowledgeFileEdits.Refuse, pull.PayloadPath, canBeKept: true);
     }
 
     [Fact]
@@ -494,6 +492,7 @@ public class KnowledgeFileUnifyTests
         Assert.Contains("Get the latest changes", refusal.Message);
         Assert.Single(pull.Pushed);
         Assert.Equal([pull.PayloadPath.ToString()], pullRefusal.FilePaths);
+        Assert.True(pullRefusal.CanBeKept);
     }
 
     [Fact]
@@ -522,27 +521,61 @@ public class KnowledgeFileUnifyTests
         Assert.Single(pull.Pushed);
     }
 
-    [Fact]
-    public async Task Pull_KnowledgeFileDeletedInTheCloudAfterALocalDescriptionEditOfItsUndownloadedPayload_RemovesItsSidecarWithoutRefusingAndReportsTheDiscardedDescription()
+    [Theory]
+    [InlineData(DeletedKnowledgeFileEdits.Refuse)]
+    [InlineData(DeletedKnowledgeFileEdits.Keep)]
+    public async Task Pull_KnowledgeFileDeletedInTheCloudAfterALocalDescriptionEditOfItsUndownloadedPayload_StopsBeforeWritingAnythingBecauseItCannotBeKept(DeletedKnowledgeFileEdits deletedKnowledgeFileEdits)
     {
-        var pull = await PullAfterDescribingTheKnowledgeFileAsync(DeleteInTheCloud, downloaded: false, deletedKnowledgeFileEdits: DeletedKnowledgeFileEdits.Refuse);
+        var pull = await DescribeTheKnowledgeFileAsync(DeleteInTheCloud, downloaded: false);
+
+        await AssertPullStopsBeforeWritingAnythingAsync(pull, deletedKnowledgeFileEdits, pull.SidecarPath, canBeKept: false);
+    }
+
+    [Fact]
+    public async Task Pull_KnowledgeFileDeletedInTheCloudAfterALocalDescriptionEditOfItsUndownloadedPayload_RemovesItsSidecarWhenTheLocalEditIsDiscarded()
+    {
+        var pull = await PullAfterDescribingTheKnowledgeFileAsync(DeleteInTheCloud, downloaded: false, deletedKnowledgeFileEdits: DeletedKnowledgeFileEdits.Discard);
 
         Assert.False(pull.Accessor.Exists(pull.SidecarPath));
         Assert.Empty((await GetLocalChangesAsync(pull.Synchronizer, pull.Workspace)).BotComponentChanges);
-        Assert.Contains($"Discarded the local description of {pull.Synced.DisplayName}: it was deleted in the environment.", pull.Progress);
     }
 
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task Pull_KnowledgeFileReplacedInTheCloudUnderTheSameName_KeepsTheReplacementFilesWithoutRefusingAndWithNothingToPush(bool describeLocally)
+    [InlineData("synced rules", true)]
+    [InlineData(LocalContent, false)]
+    public async Task Pull_KnowledgeFileDeletedInTheCloud_AsksFirstOnlyWhenItsContentChangedLocallySinceItsLastSync(string lastSyncedContent, bool contentChanged)
     {
-        var pull = await PullAfterDescribingTheKnowledgeFileAsync(ReplaceInTheCloud, describeLocally, deletedKnowledgeFileEdits: DeletedKnowledgeFileEdits.Refuse);
+        var pull = await DescribeTheKnowledgeFileAsync(DeleteInTheCloud, describeLocally: false, lastSyncedContent: lastSyncedContent);
+
+        var refusal = await Record.ExceptionAsync(() => pull.PullAsync(DeletedKnowledgeFileEdits.Refuse));
+
+        IReadOnlyList<string> expected = contentChanged ? [pull.PayloadPath.ToString()] : [];
+        Assert.Equal(expected, refusal is DeletedKnowledgeFileEditsException { CanBeKept: true } failure ? failure.FilePaths : []);
+        Assert.Equal(contentChanged, pull.Accessor.Exists(pull.PayloadPath));
+    }
+
+    [Theory]
+    [InlineData(DeletedKnowledgeFileEdits.Refuse, false)]
+    [InlineData(DeletedKnowledgeFileEdits.Discard, true)]
+    public async Task Pull_KnowledgeFileReplacedInTheCloudUnderTheSameName_KeepsTheReplacementFilesWithNothingToPushWhenNoLocalEditIsLost(DeletedKnowledgeFileEdits deletedKnowledgeFileEdits, bool describeLocally)
+    {
+        var pull = await PullAfterDescribingTheKnowledgeFileAsync(ReplaceInTheCloud, describeLocally, deletedKnowledgeFileEdits: deletedKnowledgeFileEdits);
 
         Assert.NotEqual(pull.Synced.Id, ReadCachedKnowledgeFile(pull.Accessor).Id);
         Assert.Equal("cloud rules", await pull.Accessor.ReadStringAsync(pull.PayloadPath, CancellationToken.None));
         Assert.Empty((await GetLocalChangesAsync(pull.Synchronizer, pull.Workspace)).BotComponentChanges);
-        Assert.Equal(describeLocally, pull.Progress.Contains($"Discarded the local description of {pull.Synced.DisplayName}: it was deleted in the environment."));
+    }
+
+    [Theory]
+    [InlineData(DeletedKnowledgeFileEdits.Refuse, true, null)]
+    [InlineData(DeletedKnowledgeFileEdits.Keep, true, null)]
+    [InlineData(DeletedKnowledgeFileEdits.Refuse, false, "synced rules")]
+    [InlineData(DeletedKnowledgeFileEdits.Keep, false, "synced rules")]
+    public async Task Pull_KnowledgeFileReplacedInTheCloudUnderTheSameNameAfterALocalEdit_StopsBeforeWritingAnythingBecauseTheReplacementTakesItsPlace(DeletedKnowledgeFileEdits deletedKnowledgeFileEdits, bool describeLocally, string? lastSyncedContent)
+    {
+        var pull = await DescribeTheKnowledgeFileAsync(ReplaceInTheCloud, describeLocally, lastSyncedContent: lastSyncedContent);
+
+        await AssertPullStopsBeforeWritingAnythingAsync(pull, deletedKnowledgeFileEdits, pull.PayloadPath, canBeKept: false);
     }
 
     [Theory]
@@ -731,7 +764,7 @@ public class KnowledgeFileUnifyTests
         return [new BotComponentDelete(synced.Id, synced.Version), new BotComponentInsert(replacement.Build())];
     }
 
-    private sealed record KnowledgeFilePull(FileAttachmentComponent Synced, InMemoryFileAccessor Accessor, WorkspaceSynchronizer Synchronizer, DirectoryPath Workspace, AgentFilePath SidecarPath, AgentFilePath PayloadPath, DefinitionBase Local, Mock<ISyncDataverseClient> Dataverse, List<WorkspaceDiagnostic> Conflicts, List<string> Progress, List<PvaComponentChangeSet> Pushed)
+    private sealed record KnowledgeFilePull(FileAttachmentComponent Synced, InMemoryFileAccessor Accessor, WorkspaceSynchronizer Synchronizer, DirectoryPath Workspace, AgentFilePath SidecarPath, AgentFilePath PayloadPath, DefinitionBase Local, Mock<ISyncDataverseClient> Dataverse, List<WorkspaceDiagnostic> Conflicts, List<PvaComponentChangeSet> Pushed)
     {
         public Task PullAsync(DeletedKnowledgeFileEdits deletedKnowledgeFileEdits) => Synchronizer.PullExistingChangesAsync(Workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), Local, Dataverse.Object, MakeSyncInfo(), CancellationToken.None, conflicts: Conflicts, deletedKnowledgeFileEdits: deletedKnowledgeFileEdits);
 
@@ -745,14 +778,20 @@ public class KnowledgeFileUnifyTests
         return pull;
     }
 
-    private static async Task<KnowledgeFilePull> DescribeTheKnowledgeFileAsync(Func<FileAttachmentComponent, BotComponentChange[]> changesInTheCloud, bool describeLocally = true, bool downloaded = true)
+    private static async Task<KnowledgeFilePull> DescribeTheKnowledgeFileAsync(Func<FileAttachmentComponent, BotComponentChange[]> changesInTheCloud, bool describeLocally = true, bool downloaded = true, string? lastSyncedContent = null)
     {
-        var progress = new List<string>();
-        var infrastructure = ComponentWriterDefensiveTests.CreateSyncInfrastructure(new TestSyncProgress(progress));
+        var infrastructure = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var (_, definition, accessor, synchronizer, workspace) = await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger", infrastructure);
         var synced = definition.Components.OfType<FileAttachmentComponent>().Single();
         var sidecarPath = accessor.ListFiles("capabilities/knowledge/files", "*.mcs.yml").Single();
         var payloadPath = new AgentFilePath($"capabilities/knowledge/files/{synced.DisplayName}");
+        if (lastSyncedContent is not null)
+        {
+            await accessor.WriteAsync(payloadPath, lastSyncedContent, CancellationToken.None);
+            using var baseline = accessor.OpenWrite(new AgentFilePath(".mcs/.knowledge-sync.json"));
+            JsonSerializer.Serialize(baseline, new Dictionary<string, string> { [synced.Id.Value.ToString("N")] = Convert.ToBase64String(SHA256.HashData(WorkspaceBytes.Read(accessor, payloadPath))) });
+        }
+
         if (downloaded)
         {
             await accessor.WriteAsync(payloadPath, LocalContent, CancellationToken.None);
@@ -774,10 +813,21 @@ public class KnowledgeFileUnifyTests
                 return pushed.Count == 1 ? throw new DataverseNotFoundException("ObjectDoesNotExist", "0x80040217", Guid.NewGuid().ToString(), $"Entity 'botcomponent' With Id = {synced.Id} Does Not Exist", new HttpRequestException("Not Found")) : Task.FromResult(EnvironmentVariableTestFixtures.CreateChangeSet("after-push", EnvironmentVariableTestFixtures.ConfirmComponentChanges(incoming)));
             });
         var dataverse = KnowledgeFileTestFixtures.CreateStreamingMock(destination => KnowledgeFileTestFixtures.SeedContent(destination, "cloud rules"));
-        return new KnowledgeFilePull(synced, accessor, synchronizer, workspace, sidecarPath, payloadPath, local, dataverse, [], progress, pushed);
+        return new KnowledgeFilePull(synced, accessor, synchronizer, workspace, sidecarPath, payloadPath, local, dataverse, [], pushed);
     }
 
-    private static List<(string Path, string Content)> SnapshotFiles(InMemoryFileAccessor accessor) => accessor.Files.OrderBy(file => file.Key, StringComparer.Ordinal).Select(file => (file.Key, Convert.ToBase64String(file.Value))).ToList();
+    internal static List<(string Path, string Content)> SnapshotFiles(InMemoryFileAccessor accessor) => accessor.Files.OrderBy(file => file.Key, StringComparer.Ordinal).Select(file => (file.Key, Convert.ToBase64String(file.Value))).ToList();
+
+    private static async Task AssertPullStopsBeforeWritingAnythingAsync(KnowledgeFilePull pull, DeletedKnowledgeFileEdits deletedKnowledgeFileEdits, AgentFilePath expectedFilePath, bool canBeKept)
+    {
+        var before = SnapshotFiles(pull.Accessor);
+
+        var refusal = await Assert.ThrowsAsync<DeletedKnowledgeFileEditsException>(() => pull.PullAsync(deletedKnowledgeFileEdits));
+
+        Assert.Equal([expectedFilePath.ToString()], refusal.FilePaths);
+        Assert.Equal(canBeKept, refusal.CanBeKept);
+        Assert.Equal(before, SnapshotFiles(pull.Accessor));
+    }
 
     private static async Task<PvaComponentChangeSet> GetLocalChangesAsync(WorkspaceSynchronizer synchronizer, DirectoryPath workspace) => (await synchronizer.GetLocalChangesAsync(workspace, await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true), new Mock<ISyncDataverseClient>().Object, MakeSyncInfo(), CancellationToken.None)).Item1;
 

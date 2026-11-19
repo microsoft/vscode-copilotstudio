@@ -158,7 +158,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private const string KnowledgeDownloadStagingSuffix = ".download.tmp";
 
-    private const string KeptKnowledgeFileMessage = "The environment deleted it after its description was edited locally, so it is kept as a new local file. Delete it and its .mcs.yml metadata file to accept the deletion.";
+    private const string KeptKnowledgeFileMessage = "The environment deleted it after it was edited locally, so it is kept as a new local file. Delete it and its .mcs.yml metadata file to accept the deletion.";
 
     private const string BotComponentEntityName = "botcomponent";
 
@@ -388,7 +388,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var updatedDefinition = await UpdateWorkspaceDirectoryAsync(fileAccessor, workspaceFolder, updatedChangeSet, previousDefinition, deletedComponents, dataverseClient, cancellationToken: cancellationToken, pathGroundingDefinition: GroundPreservedComponents(newSnapshot, mergeConflicts), overrideConnectionReferences: connectionReferencesNeedOverride || deletedComponents.Length > 0, previousCloudSnapshot: originalSnapshot).ConfigureAwait(false);
 
         var reportedConflicts = conflicts != null ? new List<WorkspaceDiagnostic>() : null;
-        reportedConflicts?.AddRange(keptKnowledgeFiles.Select(kept => new WorkspaceDiagnostic(kept.PayloadPath.ToString(), KeptKnowledgeFileMessage, 0, 0, WorkspaceDiagnosticKind.DeletedInEnvironment)));
+        reportedConflicts?.AddRange(keptKnowledgeFiles.Select(kept => new WorkspaceDiagnostic(kept.FilePath.ToString(), KeptKnowledgeFileMessage, 0, 0, WorkspaceDiagnosticKind.DeletedInEnvironment)));
         if (mergeConflicts.SettingsYaml != null)
         {
             await fileAccessor.WriteAsync(SettingsPath, new UTF8Encoding(false).GetBytes(mergeConflicts.SettingsYaml), cancellationToken).ConfigureAwait(false);
@@ -431,43 +431,41 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return deletedComponents.ToImmutable();
     }
 
-    private List<(FileAttachmentComponent Component, AgentFilePath PayloadPath)> ResolveKnowledgeFilesDeletedAfterLocalEdits(IFileAccessor fileAccessor, PvaComponentChangeSet remoteChangeset, DefinitionBase localDefinition, DefinitionBase? cloudSnapshot, DeletedKnowledgeFileEdits deletedKnowledgeFileEdits)
+    private List<(FileAttachmentComponent Component, AgentFilePath FilePath)> ResolveKnowledgeFilesDeletedAfterLocalEdits(IFileAccessor fileAccessor, PvaComponentChangeSet remoteChangeset, DefinitionBase localDefinition, DefinitionBase? cloudSnapshot, DeletedKnowledgeFileEdits deletedKnowledgeFileEdits)
     {
-        var kept = new List<(FileAttachmentComponent Component, AgentFilePath PayloadPath)>();
         if (deletedKnowledgeFileEdits == DeletedKnowledgeFileEdits.Discard || cloudSnapshot is null)
         {
-            return kept;
+            return [];
         }
 
         var deletedIds = GetDeletedComponentIds(remoteChangeset);
-        var editedThenDeleted = cloudSnapshot.Components.OfType<FileAttachmentComponent>().Where(cached => deletedIds.Contains(cached.Id) && localDefinition.TryGetComponentBySchemaName(cached.SchemaNameString, out var local) && !HasSameMetadata(local, cached, isRemoteChange: false)).ToList();
-        if (editedThenDeleted.Count == 0)
+        var deletedKnowledgeFiles = cloudSnapshot.Components.OfType<FileAttachmentComponent>().Where(cached => deletedIds.Contains(cached.Id)).ToList();
+        if (deletedKnowledgeFiles.Count == 0)
         {
-            return kept;
+            return [];
         }
 
         var folderOverrides = BuildComponentFolderOverrides(fileAccessor, cloudSnapshot);
+        var baseline = ReadKnowledgeSyncState(fileAccessor);
         var upsertedKnowledgeFiles = GetUpsertedComponents(remoteChangeset.BotComponentChanges).OfType<FileAttachmentComponent>().ToList();
-        foreach (var cached in editedThenDeleted)
+        var editedThenDeleted = new List<(FileAttachmentComponent Component, AgentFilePath FilePath)>();
+        var canBeKept = true;
+        foreach (var cached in deletedKnowledgeFiles.Where(cached => localDefinition.TryGetComponentBySchemaName(cached.SchemaNameString, out var local) && (!HasSameMetadata(local, cached, isRemoteChange: false) || IsPayloadEditedSinceLastSync(fileAccessor, cloudSnapshot, cached, baseline, folderOverrides))))
         {
-            if (GetPayloadPath(cloudSnapshot, cached, folderOverrides) is { } payloadPath && fileAccessor.Exists(payloadPath) && !(cached.ParentBotComponentId.HasValue && deletedIds.Contains(cached.ParentBotComponentId.Value)) && !upsertedKnowledgeFiles.Any(upserted => IsSameKnowledgeFile(upserted, cached)))
-            {
-                kept.Add((cached, payloadPath));
-                continue;
-            }
-
-            _syncProgress.Report($"Discarded the local description of {cached.DisplayName}: it was deleted in the environment.");
+            AgentFilePath? payloadPath = GetPayloadPath(cloudSnapshot, cached, folderOverrides) is { } path && fileAccessor.Exists(path) ? path : null;
+            canBeKept &= payloadPath is not null && !(cached.ParentBotComponentId.HasValue && deletedIds.Contains(cached.ParentBotComponentId.Value)) && !upsertedKnowledgeFiles.Any(upserted => IsSameKnowledgeFile(upserted, cached));
+            editedThenDeleted.Add((cached, payloadPath ?? GetStickyComponentPath(cached, cloudSnapshot, folderOverrides)));
         }
 
-        if (deletedKnowledgeFileEdits == DeletedKnowledgeFileEdits.Refuse && kept.Count > 0)
+        if (!canBeKept || (deletedKnowledgeFileEdits == DeletedKnowledgeFileEdits.Refuse && editedThenDeleted.Count > 0))
         {
-            throw new DeletedKnowledgeFileEditsException(kept.Select(file => file.PayloadPath.ToString()).ToList());
+            throw new DeletedKnowledgeFileEditsException(editedThenDeleted.Select(file => file.FilePath.ToString()).ToList(), canBeKept);
         }
 
-        return kept;
+        return editedThenDeleted;
     }
 
-    private static PvaComponentChangeSet WithoutDeletesOf(PvaComponentChangeSet changeSet, IReadOnlyCollection<(FileAttachmentComponent Component, AgentFilePath PayloadPath)> keptKnowledgeFiles)
+    private static PvaComponentChangeSet WithoutDeletesOf(PvaComponentChangeSet changeSet, IReadOnlyCollection<(FileAttachmentComponent Component, AgentFilePath FilePath)> keptKnowledgeFiles)
     {
         if (keptKnowledgeFiles.Count == 0)
         {
@@ -1535,6 +1533,8 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
     private bool HasEditedPayload(IFileAccessor fileAccessor, DefinitionBase snapshot, FileAttachmentComponent component, IReadOnlyDictionary<string, string> baseline, IReadOnlyDictionary<string, string> folderOverrides) => GetPayloadPath(snapshot, component, folderOverrides) is { } contentPath && fileAccessor.Exists(contentPath) && !MatchesKnowledgeBaseline(component, ComputeKnowledgeFileHash(fileAccessor, contentPath), baseline);
 
+    private bool IsPayloadEditedSinceLastSync(IFileAccessor fileAccessor, DefinitionBase snapshot, FileAttachmentComponent component, IReadOnlyDictionary<string, string> baseline, IReadOnlyDictionary<string, string> folderOverrides) => baseline.ContainsKey(GetKnowledgeSyncKey(component)) && HasEditedPayload(fileAccessor, snapshot, component, baseline, folderOverrides);
+
     private AgentFilePath? GetPayloadPath(DefinitionBase snapshot, FileAttachmentComponent component, IReadOnlyDictionary<string, string> folderOverrides) => component.DisplayName is { Length: > 0 } displayName ? GetKnowledgeContentFilePath(GetStickyComponentPath(component, snapshot, folderOverrides), displayName) : null;
 
     private static bool MatchesKnowledgeBaseline(FileAttachmentComponent component, string? hash, IReadOnlyDictionary<string, string> baseline) => hash != null && baseline.TryGetValue(GetKnowledgeSyncKey(component), out var syncedHash) && string.Equals(syncedHash, hash, StringComparison.Ordinal);
@@ -1636,19 +1636,11 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
                 fileAccessor.Replace(stagingPath, contentPath);
                 return;
             }
-            catch (IOException exception) when (attempt < maxAttempts && IsSharingViolation(exception))
+            catch (IOException exception) when (attempt < maxAttempts && FileLockErrors.IsSharingViolation(exception))
             {
                 await Task.Delay(baseDelayMilliseconds * attempt, cancellationToken).ConfigureAwait(false);
             }
         }
-    }
-
-    private static bool IsSharingViolation(IOException exception)
-    {
-        const int errorSharingViolation = 32;
-        const int errorLockViolation = 33;
-        var errorCode = exception.HResult & 0xFFFF;
-        return errorCode == errorSharingViolation || errorCode == errorLockViolation;
     }
 
     internal static bool IsKnowledgeDownloadStagingFile(AgentFilePath file)
@@ -9128,7 +9120,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
 
         foreach (var component in components)
         {
-            if (baseline.ContainsKey(GetKnowledgeSyncKey(component)) && HasEditedPayload(fileAccessor, snapshot, component, baseline, folderOverrides))
+            if (IsPayloadEditedSinceLastSync(fileAccessor, snapshot, component, baseline, folderOverrides))
             {
                 _syncProgress.Report($"Kept {GetPayloadPath(snapshot, component, folderOverrides)}: it changed after its last sync, so the copy in the environment did not replace it.");
                 continue;

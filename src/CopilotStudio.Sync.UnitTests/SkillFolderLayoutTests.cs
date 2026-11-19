@@ -998,11 +998,34 @@ public class SkillFolderLayoutTests
         Assert.Empty(changes);
     }
 
-    [Fact]
-    public async Task SkillDeletedInCloudAfterAnAssetDescriptionEdit_PullRemovesWholeFolderWithoutRefusingAndReportsTheDiscardedDescription()
+    [Theory]
+    [InlineData(DeletedKnowledgeFileEdits.Refuse)]
+    [InlineData(DeletedKnowledgeFileEdits.Keep)]
+    public async Task SkillDeletedInCloudAfterAnAssetDescriptionEdit_PullStopsBeforeWritingAnythingBecauseTheAssetCannotBeKeptWithoutItsSkill(DeletedKnowledgeFileEdits deletedKnowledgeFileEdits)
     {
-        var progress = new List<string>();
-        var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure(new TestSyncProgress(progress));
+        var (accessor, pullAsync) = await DeleteSkillInCloudAfterDescribingItsScriptAsync();
+        var before = KnowledgeFileUnifyTests.SnapshotFiles(accessor);
+
+        var refusal = await Assert.ThrowsAsync<DeletedKnowledgeFileEditsException>(() => pullAsync(deletedKnowledgeFileEdits));
+
+        Assert.Equal(["behaviors/get-us-weather/scripts/Get-UsWeather.ps1"], refusal.FilePaths);
+        Assert.False(refusal.CanBeKept);
+        Assert.Equal(before, KnowledgeFileUnifyTests.SnapshotFiles(accessor));
+    }
+
+    [Fact]
+    public async Task SkillDeletedInCloudAfterAnAssetDescriptionEdit_PullRemovesWholeFolderWhenTheLocalEditIsDiscarded()
+    {
+        var (accessor, pullAsync) = await DeleteSkillInCloudAfterDescribingItsScriptAsync();
+
+        await pullAsync(DeletedKnowledgeFileEdits.Discard);
+
+        Assert.DoesNotContain(accessor.Files.Keys, key => key.Replace('\\', '/').StartsWith("behaviors/get-us-weather/", StringComparison.Ordinal));
+    }
+
+    private static async Task<(InMemoryFileAccessor Accessor, Func<DeletedKnowledgeFileEdits, Task> PullAsync)> DeleteSkillInCloudAfterDescribingItsScriptAsync()
+    {
+        var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/skill-cloud-delete-described-{Guid.NewGuid():N}/");
         var accessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
         var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
@@ -1027,10 +1050,7 @@ public class SkillFolderLayoutTests
         mockIsland.Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentDelete(skill.Id, skill.Version), new BotComponentDelete(manifest.Id, manifest.Version), new BotComponentDelete(script.Id, script.Version) }, entity, "token-3"));
 
-        await synchronizer.PullExistingChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), local, mockDataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None, deletedKnowledgeFileEdits: DeletedKnowledgeFileEdits.Refuse);
-
-        Assert.DoesNotContain(accessor.Files.Keys, key => key.Replace('\\', '/').StartsWith("behaviors/get-us-weather/", StringComparison.Ordinal));
-        Assert.Contains($"Discarded the local description of {script.DisplayName}: it was deleted in the environment.", progress);
+        return (accessor, deletedKnowledgeFileEdits => synchronizer.PullExistingChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), local, mockDataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None, deletedKnowledgeFileEdits: deletedKnowledgeFileEdits));
     }
 
     [Fact]

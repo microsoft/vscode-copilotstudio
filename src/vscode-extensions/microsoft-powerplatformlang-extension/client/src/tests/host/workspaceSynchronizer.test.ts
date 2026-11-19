@@ -21,7 +21,7 @@ import {
 import { registerSyncCommands, requestsRemoteOverwrite, resolveWorkspaceArg } from '../../commands/syncWorkspace';
 import { AIPromptSchemaNamePrefix, CustomConnectorSchemaNamePrefix, LspMethods } from '../../constants';
 import logger, { formatFileName, formatPii, PiiRedactionType, prepareLogData, sanitizeErrorDetails, stripPiiTags } from '../../services/logger';
-import { LspRequestError, LSP_LOCAL_CHANGES_DELETED_REMOTELY, LSP_UNPUSHED_LOCAL_CHANGES } from '../../services/lspClient';
+import { LspRequestError, LSP_LOCAL_CHANGES_DELETED_REMOTELY, LSP_UNKEEPABLE_LOCAL_CHANGES_DELETED_REMOTELY, LSP_UNPUSHED_LOCAL_CHANGES } from '../../services/lspClient';
 import type { SyncRequest, WorkflowResponse } from '../../types';
 import { replace, restoreReplaced } from './helpers/replace';
 
@@ -938,14 +938,14 @@ describe('workspaceSynchronizer: local changes the environment deleted', () => {
 	let requests: SyncRequest[];
 	let warnings: string[];
 
-	const arrange = (answer?: string, refuseEveryPull = false) => {
+	const arrange = (answer?: string, refuseEveryPull = false, refusalCode = LSP_LOCAL_CHANGES_DELETED_REMOTELY) => {
 		prompts = [];
 		requests = [];
 		warnings = [];
 		replaceLanguageServer(async (_method: string, request: SyncRequest) => {
 			requests.push(request);
 			if (refuseEveryPull || (!request.overwriteLocalChanges && !request.keepLocalChanges)) {
-				throw new LspRequestError(LSP_LOCAL_CHANGES_DELETED_REMOTELY, refusal);
+				throw new LspRequestError(refusalCode, refusal);
 			}
 			return { localChanges: [] };
 		});
@@ -993,6 +993,19 @@ describe('workspaceSynchronizer: local changes the environment deleted', () => {
 
 		await pull();
 
+		assert.deepStrictEqual(requests.map(request => [request.overwriteLocalChanges, request.keepLocalChanges]), [[false, false], [true, false]]);
+	});
+
+	test('a Get refused because the local change cannot be kept only offers to delete the local file', async () => {
+		arrange('Delete local file', false, LSP_UNKEEPABLE_LOCAL_CHANGES_DELETED_REMOTELY);
+
+		await pull();
+
+		assert.deepStrictEqual(prompts, [{
+			message: 'A knowledge file you changed locally was deleted in the environment: knowledge/files/Jane Doe rules.txt',
+			options: { modal: true, detail: "Your copy can't be kept: its content was never downloaded, the agent or skill it belongs to was deleted too, or a file with the same name replaced it. Delete local file removes your copy." },
+			items: ['Delete local file'],
+		}]);
 		assert.deepStrictEqual(requests.map(request => [request.overwriteLocalChanges, request.keepLocalChanges]), [[false, false], [true, false]]);
 	});
 

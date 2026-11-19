@@ -57,7 +57,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                     NoLog(409, DescribeStandaloneWorkflow(swe)),
 
                 DeletedKnowledgeFileEditsException deletedKnowledgeFileEdits =>
-                    NoLog(410, DeletedKnowledgeFileEditsException.Describe(deletedKnowledgeFileEdits.FilePaths, ProtectUserContent)),
+                    NoLog(deletedKnowledgeFileEdits.CanBeKept ? 410 : 428, DeletedKnowledgeFileEditsException.Describe(deletedKnowledgeFileEdits.FilePaths, deletedKnowledgeFileEdits.CanBeKept, ProtectUserContent)),
 
                 StandaloneWorkflowException swe when RequiresUserAction(swe.Failure) =>
                     NoLog(400, DescribeStandaloneWorkflow(swe)),

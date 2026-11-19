@@ -6,7 +6,7 @@ import { uploadKnowledgeFiles } from '../knowledgeFiles/uploadKnowledgeFiles';
 import { virtualKnowledgeFileSystemProvider } from '../knowledgeFiles/virtualKnowledgeFile';
 import { knowledgeTreeDataProvider } from '../knowledgeFiles/knowledgeFileTree';
 import { getConnectorOrPromptAssetSchemaName, isConnectorOrPromptSchemaName, LspMethods, TelemetryEventsKeys } from '../constants';
-import { lspClient, buildLspRequestPayload, LspRequestError, LSP_UNPUSHED_LOCAL_CHANGES, LSP_LOCAL_CHANGES_DELETED_REMOTELY } from '../services/lspClient';
+import { lspClient, buildLspRequestPayload, LspRequestError, LSP_UNPUSHED_LOCAL_CHANGES, LSP_LOCAL_CHANGES_DELETED_REMOTELY, LSP_UNKEEPABLE_LOCAL_CHANGES_DELETED_REMOTELY } from '../services/lspClient';
 import { replaceLocalChanges } from './workspaceScm';
 import logger, { formatPii, PiiRedactionType, stripPiiTags } from '../services/logger';
 
@@ -358,7 +358,7 @@ export async function sync(workspace: CopilotStudioWorkspace, displayText: strin
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     if (!overwriteLocalChanges && !remoteChanges.keepLocalChanges && (holdsUnpushedLocalChanges(error) || holdsLocalChangesDeletedRemotely(error))) {
-      const resolution = holdsUnpushedLocalChanges(error) ? await askLocalChangeResolution(errorMessage, remoteChanges.offerRemoteOverwrite ?? false) : await askDeletedLocalChangeResolution(errorMessage);
+      const resolution = holdsUnpushedLocalChanges(error) ? await askLocalChangeResolution(errorMessage, remoteChanges.offerRemoteOverwrite ?? false) : await askDeletedLocalChangeResolution(errorMessage, !holdsUnkeepableLocalChangesDeletedRemotely(error));
       if (resolution === 'replaceLocalChanges' || resolution === 'keepLocalChanges') {
         return await sync(workspace, displayText, methodName, silent, suppressErrorNotification, suppressSuccessNotification, suppressDisabledWorkflowWarnings, draftConnectionReferenceWorkflows, retryOnUserNotMember, accountOverride, resolution === 'replaceLocalChanges', { ...remoteChanges, keepLocalChanges: resolution === 'keepLocalChanges' });
       }
@@ -417,14 +417,23 @@ export function holdsUnpushedLocalChanges(error: unknown): boolean {
 }
 
 function holdsLocalChangesDeletedRemotely(error: unknown): boolean {
-  return error instanceof LspRequestError && error.code === LSP_LOCAL_CHANGES_DELETED_REMOTELY;
+  return (error instanceof LspRequestError && error.code === LSP_LOCAL_CHANGES_DELETED_REMOTELY) || holdsUnkeepableLocalChangesDeletedRemotely(error);
 }
 
-async function askDeletedLocalChangeResolution(reason: string): Promise<ConflictResolution | undefined> {
+function holdsUnkeepableLocalChangesDeletedRemotely(error: unknown): boolean {
+  return error instanceof LspRequestError && error.code === LSP_UNKEEPABLE_LOCAL_CHANGES_DELETED_REMOTELY;
+}
+
+async function askDeletedLocalChangeResolution(reason: string, canKeep: boolean): Promise<ConflictResolution | undefined> {
   return await askConflictResolution(
     stripPiiTags(reason),
-    { modal: true, detail: 'Keep local change keeps your copy as a new local file that applying your changes adds back. Delete local file removes your copy.' },
-    [['Keep local change', 'keepLocalChanges'], ['Delete local file', 'replaceLocalChanges']]);
+    {
+      modal: true,
+      detail: canKeep
+        ? 'Keep local change keeps your copy as a new local file that applying your changes adds back. Delete local file removes your copy.'
+        : "Your copy can't be kept: its content was never downloaded, the agent or skill it belongs to was deleted too, or a file with the same name replaced it. Delete local file removes your copy.",
+    },
+    [...(canKeep ? [['Keep local change', 'keepLocalChanges'] as const] : []), ['Delete local file', 'replaceLocalChanges']]);
 }
 
 /** Asks whether the unpushed local workflow edits the server named may be replaced. */

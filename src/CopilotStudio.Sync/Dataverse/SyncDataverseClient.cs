@@ -1309,19 +1309,11 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
             {
                 return new FileStream(localPath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite, 81920, useAsync: true);
             }
-            catch (IOException ex) when (attempt < maxAttempts && IsSharingViolation(ex))
+            catch (IOException ex) when (attempt < maxAttempts && FileLockErrors.IsSharingViolation(ex))
             {
                 await Task.Delay(baseDelayMilliseconds * attempt, cancellationToken).ConfigureAwait(false);
             }
         }
-    }
-
-    private static bool IsSharingViolation(IOException ex)
-    {
-        const int errorSharingViolation = 32;
-        const int errorLockViolation = 33;
-        var errorCode = ex.HResult & 0xFFFF;
-        return errorCode == errorSharingViolation || errorCode == errorLockViolation;
     }
 
     public async Task UploadKnowledgeFileAsync(string knowledgeFileFolder, Guid botComponentId, string fileName, CancellationToken cancellationToken = default)

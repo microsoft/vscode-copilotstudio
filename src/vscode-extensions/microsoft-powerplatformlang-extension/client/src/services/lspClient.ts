@@ -33,6 +33,9 @@ export const LSP_UNPUSHED_LOCAL_CHANGES = 409;
 /** The status the server returns when the environment deleted files that were changed locally. */
 export const LSP_LOCAL_CHANGES_DELETED_REMOTELY = 410;
 
+/** The status the server returns when the environment deleted files that were changed locally and cannot be kept. */
+export const LSP_UNKEEPABLE_LOCAL_CHANGES_DELETED_REMOTELY = 428;
+
 /**
  * Mirrors the .NET IsBuiltInLspMethod logic.
  * Built-in LSP methods are standard protocol methods that don't need custom logging.
