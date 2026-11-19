@@ -15,6 +15,10 @@ public class KnowledgeFileUnifyTests
 {
     private const string GreetingSchema = "cr931_HRAgent.topic.Greeting";
 
+    private const string LocalDescription = "Local parking rules.";
+
+    private const string CloudDescription = "Cloud parking rules.";
+
     private static readonly byte[] FileBytes = Encoding.UTF8.GetBytes("col1,col2\n1,2\n");
 
     private static readonly BotEntity Agent = new BotEntity.Builder { SchemaName = new BotEntitySchemaName("cr1_agent"), CdsBotId = Guid.NewGuid() }.Build();
@@ -384,25 +388,43 @@ public class KnowledgeFileUnifyTests
     [Fact]
     public async Task Pull_KnowledgeFileReuploadedInTheCloud_KeepsTheLocalSidecarDescriptionPendingAndDownloadsTheUpload()
     {
-        var infrastructure = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
-        var (_, definition, accessor, synchronizer, workspace) = await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger", infrastructure);
-        var synced = definition.Components.OfType<FileAttachmentComponent>().Single();
-        await accessor.WriteAsync(accessor.ListFiles("capabilities/knowledge/files", "*.mcs.yml").Single(), KnowledgeSidecar(synced.DisplayName, "Local parking rules."), CancellationToken.None);
-        var local = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
-        var reuploaded = synced.WithVersion(synced.Version + 1);
-        infrastructure.island.Setup(island => island.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>())).ReturnsAsync(new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentUpdate(reuploaded) }, null, "after-reupload"));
-        var dataverse = KnowledgeFileTestFixtures.CreateStreamingMock(destination => KnowledgeFileTestFixtures.SeedContent(destination, "cloud rules"));
-        var conflicts = new List<WorkspaceDiagnostic>();
+        var pull = await PullAfterDescribingTheKnowledgeFileAsync(synced => synced.WithVersion(synced.Version + 1));
 
-        await synchronizer.PullExistingChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), local, dataverse.Object, MakeSyncInfo(), CancellationToken.None, conflicts: conflicts);
+        var pending = Assert.IsType<FileAttachmentComponent>(Assert.Single((await GetLocalChangesAsync(pull.Synchronizer, pull.Workspace)).BotComponentChanges.OfType<BotComponentUpdate>()).Component);
+        var cached = ReadCachedKnowledgeFile(pull.Accessor);
+        Assert.Equal((LocalDescription, pull.Cloud.Version), (pending.Description, pending.Version));
+        Assert.Equal((pull.Synced.Description, pull.Cloud.Version), (cached.Description, cached.Version));
+        Assert.Equal("cloud rules", await pull.Accessor.ReadStringAsync(new AgentFilePath($"capabilities/knowledge/files/{pull.Synced.DisplayName}"), CancellationToken.None));
+        Assert.Empty(pull.Conflicts);
+    }
 
-        var (changeSet, _) = await synchronizer.GetLocalChangesAsync(workspace, await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true), dataverse.Object, MakeSyncInfo(), CancellationToken.None);
-        var pending = Assert.IsType<FileAttachmentComponent>(Assert.Single(changeSet.BotComponentChanges.OfType<BotComponentUpdate>()).Component);
-        var cached = Assert.Single((WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a cloud cache.")).Components.OfType<FileAttachmentComponent>());
-        Assert.Equal(("Local parking rules.", reuploaded.Version), (pending.Description, pending.Version));
-        Assert.Equal((synced.Description, reuploaded.Version), (cached.Description, cached.Version));
-        Assert.Equal("cloud rules", await accessor.ReadStringAsync(new AgentFilePath($"capabilities/knowledge/files/{synced.DisplayName}"), CancellationToken.None));
-        Assert.Empty(conflicts);
+    [Fact]
+    public async Task Pull_KnowledgeFileDescribedDifferentlyInTheCloud_WritesBothDescriptionsBetweenConflictMarkersAndBlocksThePush()
+    {
+        var pull = await PullAfterDescribingTheKnowledgeFileAsync(DescribeInTheCloud);
+
+        var sidecar = await pull.Accessor.ReadStringAsync(pull.SidecarPath, CancellationToken.None);
+        var conflict = Assert.Single(pull.Conflicts);
+        var failure = await Assert.ThrowsAsync<WorkspaceValidationException>(() => pull.Synchronizer.ReadWorkspaceDefinitionAsync(pull.Workspace, CancellationToken.None, checkKnowledgeFiles: true));
+        Assert.Equal($"mcs.metadata:\n  componentName: {pull.Synced.DisplayName}\n{McsConflictMarkers.OursLine}\n  description: {LocalDescription}\n{McsConflictMarkers.SplitterLine}\n  description: {CloudDescription}\n{McsConflictMarkers.TheirsLine}\n", sidecar);
+        Assert.Equal((pull.SidecarPath.ToString(), WorkspaceDiagnosticKind.MergeConflict, 3), (conflict.FilePath, conflict.Kind, conflict.Line));
+        Assert.Equal(CloudDescription, ReadCachedKnowledgeFile(pull.Accessor).Description);
+        Assert.Equal(pull.SidecarPath.ToString(), Assert.Single(failure.Diagnostics).FilePath);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Pull_KnowledgeFileDescribedDifferentlyInTheCloud_OnceResolvedPushesTheDescriptionOnlyWhenTheLocalOneIsKept(bool keepLocal)
+    {
+        var pull = await PullAfterDescribingTheKnowledgeFileAsync(DescribeInTheCloud);
+        var discardedLine = $"  description: {(keepLocal ? CloudDescription : LocalDescription)}";
+        var sidecar = await pull.Accessor.ReadStringAsync(pull.SidecarPath, CancellationToken.None);
+        await pull.Accessor.WriteAsync(pull.SidecarPath, string.Join("\n", sidecar.Split('\n').Where(line => !McsConflictMarkers.IsMarkerLine(line) && line != discardedLine)), CancellationToken.None);
+
+        var pushed = (await GetLocalChangesAsync(pull.Synchronizer, pull.Workspace)).BotComponentChanges.OfType<BotComponentUpdate>().Select(update => (update.Component?.Description, update.Component?.Version));
+
+        Assert.Equal(keepLocal ? new (string?, long?)[] { (LocalDescription, pull.Cloud.Version) } : [], pushed);
     }
 
     [Theory]
@@ -578,6 +600,30 @@ public class KnowledgeFileUnifyTests
     private static string TwinTool(string schemaName) => $"mcs.metadata:\n  componentName: Twin\n  schemaName: {schemaName}\nkind: ConnectorTool\nauthMode: Invoker\nconnectionReference: cr.shared_teams\nconnectorId: /providers/Microsoft.PowerApps/apis/shared_teams\noperationId: GetSection\n";
 
     private static string KnowledgeSidecar(string? fileName, string? description) => $"mcs.metadata:\n  componentName: {fileName}\n" + (description is null ? string.Empty : $"  description: \"{description}\"\n");
+
+    private static BotComponentBase DescribeInTheCloud(FileAttachmentComponent synced) => synced.WithDescription(CloudDescription).WithVersion(synced.Version + 1);
+
+    private static async Task<(FileAttachmentComponent Synced, BotComponentBase Cloud, InMemoryFileAccessor Accessor, WorkspaceSynchronizer Synchronizer, DirectoryPath Workspace, AgentFilePath SidecarPath, List<WorkspaceDiagnostic> Conflicts)> PullAfterDescribingTheKnowledgeFileAsync(Func<FileAttachmentComponent, BotComponentBase> changeInTheCloud)
+    {
+        var infrastructure = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var (_, definition, accessor, synchronizer, workspace) = await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger", infrastructure);
+        var synced = definition.Components.OfType<FileAttachmentComponent>().Single();
+        var sidecarPath = accessor.ListFiles("capabilities/knowledge/files", "*.mcs.yml").Single();
+        await accessor.WriteAsync(sidecarPath, KnowledgeSidecar(synced.DisplayName, LocalDescription), CancellationToken.None);
+        var local = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
+        var cloud = changeInTheCloud(synced);
+        infrastructure.island.Setup(island => island.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>())).ReturnsAsync(new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentUpdate(cloud) }, null, "after-cloud-change"));
+        var dataverse = KnowledgeFileTestFixtures.CreateStreamingMock(destination => KnowledgeFileTestFixtures.SeedContent(destination, "cloud rules"));
+        var conflicts = new List<WorkspaceDiagnostic>();
+
+        await synchronizer.PullExistingChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), local, dataverse.Object, MakeSyncInfo(), CancellationToken.None, conflicts: conflicts);
+
+        return (synced, cloud, accessor, synchronizer, workspace, sidecarPath, conflicts);
+    }
+
+    private static async Task<PvaComponentChangeSet> GetLocalChangesAsync(WorkspaceSynchronizer synchronizer, DirectoryPath workspace) => (await synchronizer.GetLocalChangesAsync(workspace, await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true), new Mock<ISyncDataverseClient>().Object, MakeSyncInfo(), CancellationToken.None)).Item1;
+
+    private static FileAttachmentComponent ReadCachedKnowledgeFile(InMemoryFileAccessor accessor) => Assert.Single((WorkspaceSynchronizer.ReadCloudCacheSnapshot(accessor) ?? throw new Xunit.Sdk.XunitException("Expected a cloud cache.")).Components.OfType<FileAttachmentComponent>());
 
     private static async Task<(FileAttachmentComponent Synced, DefinitionBase Read, PvaComponentChangeSet ChangeSet)> GetLocalChangesAfterDescribingTheKnowledgeFileAsync(string? description)
     {

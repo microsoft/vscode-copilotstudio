@@ -622,7 +622,7 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         var remoteChangeset = remoteChanges.ChangeSet;
         var updatedChangeSetBuilder = remoteChangeset.ToBuilder();
         MergeEnvironmentVariableChanges(localChanges.ChangeSet, updatedChangeSetBuilder.EnvironmentVariableChanges, originalSnapshot, conflicts);
-        RemoveMergeableKnowledgeFileChanges(updatedChangeSetBuilder.BotComponentChanges, originalSnapshot ?? BotDefinition.Empty, GetUpdatedKnowledgeFileIds(localChanges.ChangeSet));
+        MergeKnowledgeFileDescriptions(updatedChangeSetBuilder.BotComponentChanges, originalSnapshot ?? BotDefinition.Empty, localChanges.ChangeSet, conflicts);
         if (conflictingChanges.Length != 0)
         {
             //  Apply 3-way diff on conflicting items and update changeSet
@@ -849,28 +849,30 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
     }
 
     /// <summary>Resolves a three-way metadata merge, returning false only when both sides are present and changed the value differently.</summary>
-    private static bool TryMergeMetaInfo(string? originalMeta, string? localMeta, string? remoteMeta, out string? merged)
+    private static bool TryMergeMetaInfo(string? originalMeta, string? localMeta, string? remoteMeta, out string? merged) => TryMergeMetaInfo(originalMeta, localMeta, remoteMeta, string.Equals, out merged) || localMeta == null || remoteMeta == null;
+
+    private static bool TryMergeMetaInfo(string? originalMeta, string? localMeta, string? remoteMeta, Func<string?, string?, bool> isSameMeta, out string? merged)
     {
         merged = localMeta;
 
-        if (localMeta == remoteMeta)
+        if (isSameMeta(localMeta, remoteMeta))
         {
             return true;
         }
 
-        if (originalMeta == localMeta)
+        if (isSameMeta(originalMeta, localMeta))
         {
             merged = remoteMeta;
             return true;
         }
 
-        if (originalMeta == remoteMeta)
+        if (isSameMeta(originalMeta, remoteMeta))
         {
             return true;
         }
 
         merged = remoteMeta;
-        return localMeta == null || remoteMeta == null;
+        return false;
     }
 
     public async Task<PushChangesetResult> PushChangesetAsync(
@@ -1874,7 +1876,40 @@ internal class WorkspaceSynchronizer : IWorkspaceSynchronizer, IConnectionManage
         return RemoveChanges(remoteChanges, change => IsMergeableKnowledgeFileChange(change, cloudSnapshot, metadataEditedKnowledgeFileIdSet));
     }
 
-    private static IEnumerable<string> GetUpdatedKnowledgeFileIds(PvaComponentChangeSet changeSet) => changeSet.BotComponentChanges.OfType<BotComponentUpdate>().Select(update => update.Component).OfType<FileAttachmentComponent>().Select(component => component.Id.ToString());
+    private static void MergeKnowledgeFileDescriptions(IList<BotComponentChange> remoteChanges, DefinitionBase originalSnapshot, PvaComponentChangeSet localChangeSet, MergeConflictReport conflicts)
+    {
+        var locallyUpdatedKnowledgeFiles = new Dictionary<string, FileAttachmentComponent>(StringComparer.Ordinal);
+        foreach (var knowledgeFile in GetUpdatedKnowledgeFiles(localChangeSet))
+        {
+            locallyUpdatedKnowledgeFiles[knowledgeFile.Id.ToString()] = knowledgeFile;
+        }
+
+        if (locallyUpdatedKnowledgeFiles.Count == 0)
+        {
+            return;
+        }
+
+        RemoveMergeableKnowledgeFileChanges(remoteChanges, originalSnapshot, locallyUpdatedKnowledgeFiles.Keys);
+        for (var index = 0; index < remoteChanges.Count; index++)
+        {
+            if (remoteChanges[index] is not BotComponentUpsert { Component: FileAttachmentComponent remote } || !locallyUpdatedKnowledgeFiles.TryGetValue(remote.Id.ToString(), out var local) || !originalSnapshot.TryGetBotComponentById(remote.Id, out var original))
+            {
+                continue;
+            }
+
+            var descriptionConflicted = !TryMergeMetaInfo(original.Description, local.Description, remote.Description, (first, second) => IsMetadataUnchanged(first, second, isRemoteChange: true), out var description);
+            var merged = remote.WithDescription(descriptionConflicted ? local.Description : description);
+            remoteChanges[index] = new BotComponentUpdate(merged);
+            if (descriptionConflicted)
+            {
+                conflicts.ComponentsBySchemaName[merged.SchemaNameString] = new MergeConflictComponent(string.Empty, merged, Description: new McsMetadataConflict(local.Description, remote.Description));
+            }
+        }
+    }
+
+    private static IEnumerable<FileAttachmentComponent> GetUpdatedKnowledgeFiles(PvaComponentChangeSet changeSet) => changeSet.BotComponentChanges.OfType<BotComponentUpdate>().Select(update => update.Component).OfType<FileAttachmentComponent>();
+
+    private static IEnumerable<string> GetUpdatedKnowledgeFileIds(PvaComponentChangeSet changeSet) => GetUpdatedKnowledgeFiles(changeSet).Select(component => component.Id.ToString());
 
     private static bool IsMergeableKnowledgeFileChange(BotComponentChange change, DefinitionBase cloudSnapshot, HashSet<string> metadataEditedKnowledgeFileIds) => change is BotComponentUpsert { Component: FileAttachmentComponent remote } && metadataEditedKnowledgeFileIds.Contains(remote.Id.ToString()) && cloudSnapshot.TryGetBotComponentById(remote.Id, out var cached) && HasSameMetadata(remote, cached, isRemoteChange: true);
 
