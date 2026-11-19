@@ -19,4 +19,7 @@ public enum WorkspaceDiagnosticKind
 
     /// <summary>The file changes an environment variable that already exists in the target environment without an approved overwrite.</summary>
     UnapprovedOverwrite,
+
+    /// <summary>The environment deleted the file after it was edited locally, so the pull kept it as a new local file.</summary>
+    DeletedInEnvironment,
 }

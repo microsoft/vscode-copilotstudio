@@ -39,7 +39,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         protected override async Task<(DefinitionBase Definition, ImmutableArray<WorkflowResponse> Workflows, ImmutableArray<SyncDataverseClient.AIPromptResponse> AIPrompts, string Warning)> ExecuteAsync(SyncAgentRequest request, IMcsWorkspace workspace, AuthoringOperationContextBase operationContext, ISyncDataverseClient dataverseClient, AgentSyncInfo syncInfo, CancellationToken cancellationToken)
         {
             var conflicts = new List<CopilotStudio.Sync.WorkspaceDiagnostic>();
-            var updatedDefinition = await _synchronizer.PullExistingChangesAsync(workspace.FolderPath, operationContext, workspace.Definition, dataverseClient, syncInfo, cancellationToken, downloadAllKnowledgeFiles: false, conflicts).ConfigureAwait(false);
+            var updatedDefinition = await _synchronizer.PullExistingChangesAsync(workspace.FolderPath, operationContext, workspace.Definition, dataverseClient, syncInfo, cancellationToken, downloadAllKnowledgeFiles: false, conflicts, request.OverwriteLocalChanges ? DeletedKnowledgeFileEdits.Discard : request.KeepLocalChanges ? DeletedKnowledgeFileEdits.Keep : DeletedKnowledgeFileEdits.Refuse).ConfigureAwait(false);
             if (workspace is Workspace trackedWorkspace)
             {
                 trackedWorkspace.RemoveMissingDocuments(_fileProvider);

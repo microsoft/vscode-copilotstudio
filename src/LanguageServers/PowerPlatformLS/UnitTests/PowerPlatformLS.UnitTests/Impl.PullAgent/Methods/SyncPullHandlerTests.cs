@@ -30,6 +30,9 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
         private const string Settings = "schemaName: test_agent\ndisplayName: Base\ntemplate: default-1.0.0\n";
         private const string Topic = "kind: AdaptiveDialog\nbeginDialog:\n  kind: OnRecognizedIntent\n  id: main\n";
         private const string Conflict = "<<<<<<< ours\ndisplayName: Local\n=======\ndisplayName: Remote\n>>>>>>> theirs\n";
+        private const string KnowledgeSidecarPath = "knowledge/files/rules.txt.mcs.yml";
+        private const string KnowledgePayloadPath = "knowledge/files/rules.txt";
+        private const string DescribedKnowledgeSidecar = "mcs.metadata:\n  componentName: rules.txt\n  description: Local description\n";
         private static readonly Guid PersistedTenantId = Guid.Empty;
         private static readonly Guid SelectedTenantId = Guid.Parse("22222222-2222-2222-2222-222222222222");
 
@@ -174,6 +177,54 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             fixture.AssertPullCalledOnce();
         }
 
+        [Theory]
+        [InlineData(false, false, DeletedKnowledgeFileEdits.Refuse)]
+        [InlineData(false, true, DeletedKnowledgeFileEdits.Keep)]
+        [InlineData(true, false, DeletedKnowledgeFileEdits.Discard)]
+        [InlineData(true, true, DeletedKnowledgeFileEdits.Discard)]
+        public async Task Pull_PassesTheUsersChoiceForKnowledgeFileEditsTheEnvironmentDeleted(bool overwriteLocalChanges, bool keepLocalChanges, DeletedKnowledgeFileEdits expected)
+        {
+            using var fixture = new PullFixture();
+
+            var response = await fixture.PullAsync(overwriteLocalChanges, keepLocalChanges);
+
+            Assert.Equal(200, response.Code);
+            fixture.AssertPullCalledOnce(expected);
+        }
+
+        [Fact]
+        public async Task Pull_KnowledgeFileDeletedInTheEnvironmentAfterALocalDescriptionEdit_AsksBeforeChangingAnything()
+        {
+            using var fixture = new PullFixture(withKnowledgeFile: true);
+            fixture.Edit(KnowledgeSidecarPath, DescribedKnowledgeSidecar);
+            fixture.DeleteTheKnowledgeFileInTheEnvironment();
+            var before = fixture.Snapshot();
+
+            var response = await fixture.PullAsync();
+
+            Assert.Equal(410, response.Code);
+            Assert.Equal($"A knowledge file you changed locally was deleted in the environment: <pii type=\"WORKSPACE FILE DETAILS\" encoded=\"true\">{KnowledgePayloadPath}</pii>", response.Message);
+            fixture.AssertUnchanged(before);
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task Pull_KnowledgeFileDeletedInTheEnvironmentAfterALocalDescriptionEdit_KeepsItAsALocalAdditionOrDeletesItAsTheUserChose(bool keepLocalChanges)
+        {
+            using var fixture = new PullFixture(withKnowledgeFile: true);
+            fixture.Edit(KnowledgeSidecarPath, DescribedKnowledgeSidecar);
+            fixture.DeleteTheKnowledgeFileInTheEnvironment();
+
+            var response = await fixture.PullAsync(overwriteLocalChanges: !keepLocalChanges, keepLocalChanges: keepLocalChanges);
+
+            Assert.Equal(200, response.Code);
+            Assert.Equal(string.Empty, response.Message);
+            Assert.Equal(keepLocalChanges ? DescribedKnowledgeSidecar : null, System.IO.File.Exists(fixture.File(KnowledgeSidecarPath)) ? System.IO.File.ReadAllText(fixture.File(KnowledgeSidecarPath)) : null);
+            Assert.Equal(keepLocalChanges, System.IO.File.Exists(fixture.File(KnowledgePayloadPath)));
+            Assert.Equal(keepLocalChanges ? new[] { ChangeType.Create } : [], response.LocalChanges.Where(change => change.Uri.StartsWith("knowledge/", StringComparison.Ordinal)).Select(change => change.ChangeType));
+        }
+
         private sealed class PullFixture : IDisposable
         {
             private readonly Mock<IWorkspaceSynchronizer> _synchronizer = new();
@@ -188,8 +239,9 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
             private AgentSyncInfo? _operationSyncInfo;
             private AgentSyncInfo? _pullSyncInfo;
             private AgentSyncInfo? _localChangesSyncInfo;
+            private readonly FileAttachmentComponent? _knowledgeFile;
 
-            public PullFixture()
+            public PullFixture(bool withKnowledgeFile = false)
             {
                 Root = Path.Combine(Path.GetTempPath(), "pull-preflight-" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(Path.Combine(Root, "topics"));
@@ -205,10 +257,18 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
                     id: Guid.NewGuid(),
                     parentBotComponentId: default,
                     dialog: CodeSerializer.Deserialize<AdaptiveDialog>(Topic)!);
-                WorkspaceSynchronizer.WriteCloudCache(accessor, new BotDefinition().WithEntity(_entity).WithComponents(new[] { topic }));
+                _knowledgeFile = withKnowledgeFile ? CreateKnowledgeFile() : null;
+                WorkspaceSynchronizer.WriteCloudCache(accessor, new BotDefinition().WithEntity(_entity).WithComponents(_knowledgeFile is null ? new BotComponentBase[] { topic } : new BotComponentBase[] { topic, _knowledgeFile }));
                 System.IO.File.WriteAllText(File(SettingsPath), Settings);
                 System.IO.File.WriteAllText(File(TopicPath), Topic);
                 System.IO.File.WriteAllText(File(".mcs/changetoken.txt"), "before-pull");
+                if (withKnowledgeFile)
+                {
+                    Directory.CreateDirectory(Path.Combine(Root, "knowledge", "files"));
+                    System.IO.File.WriteAllText(File(KnowledgeSidecarPath), "mcs.metadata:\n  componentName: rules.txt\n");
+                    System.IO.File.WriteAllText(File(KnowledgePayloadPath), "rules");
+                }
+
                 World = new World(Root);
                 Workspace = World.GetWorkspace();
                 Workspace.BuildCompilationModel();
@@ -244,12 +304,12 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
                 _synchronizer.Setup(value => value.PullExistingChangesAsync(
                     It.IsAny<DirectoryPath>(), It.IsAny<AuthoringOperationContextBase>(), It.IsAny<DefinitionBase>(),
                     It.IsAny<ISyncDataverseClient>(), It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>(),
-                    It.IsAny<bool>(), It.IsAny<ICollection<WorkspaceDiagnostic>>()))
-                    .Returns((DirectoryPath folder, AuthoringOperationContextBase context, DefinitionBase definition, ISyncDataverseClient client, AgentSyncInfo info, CancellationToken token, bool downloadAll, ICollection<WorkspaceDiagnostic> conflicts)
+                    It.IsAny<bool>(), It.IsAny<ICollection<WorkspaceDiagnostic>>(), It.IsAny<DeletedKnowledgeFileEdits>()))
+                    .Returns((DirectoryPath folder, AuthoringOperationContextBase context, DefinitionBase definition, ISyncDataverseClient client, AgentSyncInfo info, CancellationToken token, bool downloadAll, ICollection<WorkspaceDiagnostic> conflicts, DeletedKnowledgeFileEdits deletedKnowledgeFileEdits)
                         =>
                         {
                             _pullSyncInfo = info;
-                            return sync.PullExistingChangesAsync(folder, context, definition, client, info, token, downloadAll, conflicts);
+                            return sync.PullExistingChangesAsync(folder, context, definition, client, info, token, downloadAll, conflicts, deletedKnowledgeFileEdits);
                         });
                 _synchronizer.Setup(value => value.GetLocalChangesAsync(
                     It.IsAny<DirectoryPath>(), It.IsAny<DefinitionBase>(), It.IsAny<ISyncDataverseClient>(), It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>()))
@@ -311,6 +371,10 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
                     .ReturnsAsync(new PvaComponentChangeSet(Array.Empty<BotComponentChange>(), builder.Build(), "after-pull"));
             }
 
+            public void DeleteTheKnowledgeFileInTheEnvironment()
+                => _island.Setup(value => value.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+                    .ReturnsAsync(new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentDelete(_knowledgeFile!.Id, _knowledgeFile.Version) }, _entity, "after-pull"));
+
             public Dictionary<string, byte[]> Snapshot()
                 => Directory.GetFiles(Root, "*", SearchOption.AllDirectories).ToDictionary(path => path, System.IO.File.ReadAllBytes);
 
@@ -332,11 +396,11 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
                 _logger.VerifyNoOtherCalls();
             }
 
-            public void AssertPullCalledOnce()
+            public void AssertPullCalledOnce(DeletedKnowledgeFileEdits deletedKnowledgeFileEdits = DeletedKnowledgeFileEdits.Refuse)
                 => _synchronizer.Verify(value => value.PullExistingChangesAsync(
                     It.IsAny<DirectoryPath>(), It.IsAny<AuthoringOperationContextBase>(), It.IsAny<DefinitionBase>(),
                     It.IsAny<ISyncDataverseClient>(), It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>(),
-                    false, It.IsAny<ICollection<WorkspaceDiagnostic>>()), Times.Once);
+                    false, It.IsAny<ICollection<WorkspaceDiagnostic>>(), deletedKnowledgeFileEdits), Times.Once);
 
             public void AssertRequestConnectionContextUsed()
             {
@@ -366,10 +430,22 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent.Methods
                 Assert.Same(_request.SolutionVersions, info.SolutionVersions);
             }
 
-            public Task<SyncAgentResponse> PullAsync()
-                => _handler.HandleRequestAsync(_request, World.GetRequestContext(World.GetDocument(File(SettingsPath))!, 0), CancellationToken.None);
+            public Task<SyncAgentResponse> PullAsync(bool overwriteLocalChanges = false, bool keepLocalChanges = false)
+            {
+                _request.OverwriteLocalChanges = overwriteLocalChanges;
+                _request.KeepLocalChanges = keepLocalChanges;
+                return _handler.HandleRequestAsync(_request, World.GetRequestContext(World.GetDocument(File(SettingsPath))!, 0), CancellationToken.None);
+            }
 
             public void Dispose() => Directory.Delete(Root, recursive: true);
+
+            private static FileAttachmentComponent CreateKnowledgeFile()
+            {
+                var builder = new FileAttachmentComponent().WithSchemaName("test_agent.file.rules.txt").WithDisplayName("rules.txt").ToBuilder();
+                builder.Id = Guid.NewGuid();
+                builder.Version = 1;
+                return builder.Build();
+            }
         }
     }
 }

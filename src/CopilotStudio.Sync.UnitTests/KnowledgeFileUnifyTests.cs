@@ -2,6 +2,7 @@
 
 using Microsoft.Agents.ObjectModel;
 using Microsoft.Agents.Platform.Content;
+using Microsoft.Agents.Platform.Content.Exceptions;
 using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.Sync.Dataverse;
 using Moq;
@@ -390,7 +391,7 @@ public class KnowledgeFileUnifyTests
     [Fact]
     public async Task Pull_KnowledgeFileReuploadedInTheCloud_KeepsTheLocalSidecarDescriptionPendingAndDownloadsTheUpload()
     {
-        var pull = await PullAfterDescribingTheKnowledgeFileAsync(synced => new BotComponentUpdate(synced.WithVersion(synced.Version + 1)));
+        var pull = await PullAfterDescribingTheKnowledgeFileAsync(synced => [new BotComponentUpdate(synced.WithVersion(synced.Version + 1))]);
 
         var pending = Assert.IsType<FileAttachmentComponent>(Assert.Single((await GetLocalChangesAsync(pull.Synchronizer, pull.Workspace)).BotComponentChanges.OfType<BotComponentUpdate>()).Component);
         var cached = ReadCachedKnowledgeFile(pull.Accessor);
@@ -430,33 +431,118 @@ public class KnowledgeFileUnifyTests
     }
 
     [Fact]
-    public async Task Pull_KnowledgeFileDeletedInTheCloudAfterALocalDescriptionEdit_KeepsItsFilesBehindConflictMarkersAndBlocksThePush()
+    public async Task Pull_KnowledgeFileDeletedInTheCloudAfterALocalDescriptionEdit_KeepsItsFilesAndReportsThemAsKept()
     {
         var pull = await PullAfterDescribingTheKnowledgeFileAsync(DeleteInTheCloud);
 
-        var sidecar = await pull.Accessor.ReadStringAsync(pull.SidecarPath, CancellationToken.None);
-        var conflict = Assert.Single(pull.Conflicts);
-        var failure = await Assert.ThrowsAsync<WorkspaceValidationException>(() => pull.Synchronizer.ReadWorkspaceDefinitionAsync(pull.Workspace, CancellationToken.None, checkKnowledgeFiles: true));
-        Assert.Equal($"{McsConflictMarkers.OursLine}\nmcs.metadata:\n  componentName: {pull.Synced.DisplayName}\n  description: {LocalDescription}\n{McsConflictMarkers.SplitterLine}\n\n{McsConflictMarkers.TheirsLine}", sidecar);
-        Assert.Equal((pull.SidecarPath.ToString(), WorkspaceDiagnosticKind.MergeConflict, 1), (conflict.FilePath, conflict.Kind, conflict.Line));
+        var kept = Assert.Single(pull.Conflicts);
+        Assert.Equal(KnowledgeSidecar(pull.Synced.DisplayName, LocalDescription), await pull.Accessor.ReadStringAsync(pull.SidecarPath, CancellationToken.None));
         Assert.Equal(LocalContent, await pull.Accessor.ReadStringAsync(pull.PayloadPath, CancellationToken.None));
         Assert.Empty(ReadCloudCache(pull.Accessor).Components.OfType<FileAttachmentComponent>());
-        Assert.Equal(pull.SidecarPath.ToString(), Assert.Single(failure.Diagnostics).FilePath);
+        Assert.Equal((pull.PayloadPath.ToString(), WorkspaceDiagnosticKind.DeletedInEnvironment), (kept.FilePath, kept.Kind));
     }
 
     [Fact]
-    public async Task Pull_KnowledgeFileDeletedInTheCloudAfterALocalDescriptionEdit_IsRecreatedWithTheLocalDescriptionOnlyOnceTheMarkersAreResolved()
+    public async Task Pull_KnowledgeFileDeletedInTheCloudAfterALocalDescriptionEdit_RefusesBeforeWritingAnythingWhenAskedTo()
+    {
+        var pull = await DescribeTheKnowledgeFileAsync(DeleteInTheCloud);
+        pull.Dataverse.Setup(client => client.DownloadAllWorkflowsForAgentAsync(It.IsAny<AgentSyncInfo>(), It.IsAny<CancellationToken>())).ReturnsAsync(new[] { new SyncDataverseClient.WorkflowMetadata { WorkflowId = Guid.NewGuid(), Name = "Notify", ClientData = "{}" } });
+        var before = SnapshotFiles(pull.Accessor);
+
+        var failure = await Assert.ThrowsAsync<DeletedKnowledgeFileEditsException>(() => pull.PullAsync(DeletedKnowledgeFileEdits.Refuse));
+
+        Assert.Equal([pull.PayloadPath.ToString()], failure.FilePaths);
+        Assert.Equal(before, SnapshotFiles(pull.Accessor));
+    }
+
+    [Fact]
+    public async Task Pull_KnowledgeFileDeletedInTheCloudAfterALocalDescriptionEdit_DeletesItsFilesWhenTheLocalEditIsDiscarded()
+    {
+        var pull = await PullAfterDescribingTheKnowledgeFileAsync(DeleteInTheCloud, deletedKnowledgeFileEdits: DeletedKnowledgeFileEdits.Discard);
+
+        Assert.False(pull.Accessor.Exists(pull.SidecarPath));
+        Assert.False(pull.Accessor.Exists(pull.PayloadPath));
+        Assert.Empty(pull.Conflicts);
+        Assert.Empty((await GetLocalChangesAsync(pull.Synchronizer, pull.Workspace)).BotComponentChanges);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Pull_KnowledgeFileDeletedInTheCloudAfterALocalDescriptionEdit_IsCreatedAgainWithTheLocalDescriptionOnlyWhileItsFilesAreKept(bool keepFiles)
     {
         var pull = await PullAfterDescribingTheKnowledgeFileAsync(DeleteInTheCloud);
-        var unresolved = await pull.Synchronizer.ReadWorkspaceDefinitionAsync(pull.Workspace, CancellationToken.None, checkKnowledgeFiles: true, diagnostics: null, validate: false);
-        var (whileConflicted, _) = await pull.Synchronizer.GetLocalChangesAsync(pull.Workspace, unresolved, new Mock<ISyncDataverseClient>().Object, MakeSyncInfo(), CancellationToken.None);
-        var sidecar = await pull.Accessor.ReadStringAsync(pull.SidecarPath, CancellationToken.None);
-        await pull.Accessor.WriteAsync(pull.SidecarPath, string.Join("\n", sidecar.Split('\n').Where(line => !McsConflictMarkers.IsMarkerLine(line))), CancellationToken.None);
+        if (!keepFiles)
+        {
+            pull.Accessor.Delete(pull.SidecarPath);
+            pull.Accessor.Delete(pull.PayloadPath);
+        }
 
-        var recreated = Assert.IsType<FileAttachmentComponent>(Assert.Single((await GetLocalChangesAsync(pull.Synchronizer, pull.Workspace)).BotComponentChanges.OfType<BotComponentInsert>()).Component);
+        var pushed = (await GetLocalChangesAsync(pull.Synchronizer, pull.Workspace)).BotComponentChanges.Select(change => (change.GetType(), (change as BotComponentUpsert)?.Component?.DisplayName, (change as BotComponentUpsert)?.Component?.Description));
 
-        Assert.Empty(whileConflicted.BotComponentChanges.OfType<BotComponentInsert>());
-        Assert.Equal(($"Default_draft_rxzs_q.file.{pull.SidecarPath.FileName[..^".mcs.yml".Length]}", pull.Synced.DisplayName, LocalDescription), (recreated.SchemaNameString, recreated.DisplayName, recreated.Description));
+        Assert.Equal(keepFiles ? new (Type, string?, string?)[] { (typeof(BotComponentInsert), pull.Synced.DisplayName, LocalDescription) } : [], pushed);
+    }
+
+    [Fact]
+    public async Task Push_KnowledgeFileDeletedInTheCloudAfterALocalDescriptionEdit_AsksToGetTheLatestChangesWhichStillOfferToKeepIt()
+    {
+        var pull = await DescribeTheKnowledgeFileAsync(DeleteInTheCloud);
+
+        var refusal = await Assert.ThrowsAsync<InvalidOperationException>(() => pull.PushAsync(overwriteRemoteChanges: false));
+        var pullRefusal = await Assert.ThrowsAsync<DeletedKnowledgeFileEditsException>(() => pull.PullAsync(DeletedKnowledgeFileEdits.Refuse));
+
+        Assert.Contains("Get the latest changes", refusal.Message);
+        Assert.Single(pull.Pushed);
+        Assert.Equal([pull.PayloadPath.ToString()], pullRefusal.FilePaths);
+    }
+
+    [Fact]
+    public async Task Push_KnowledgeFileDeletedInTheCloudAfterALocalDescriptionEdit_CreatesItAgainAsANewKnowledgeFileWhenOverwriting()
+    {
+        var pull = await DescribeTheKnowledgeFileAsync(DeleteInTheCloud);
+
+        await pull.PushAsync(overwriteRemoteChanges: true);
+
+        Assert.Equal(2, pull.Pushed.Count);
+        var created = Assert.IsType<FileAttachmentComponent>(Assert.IsType<BotComponentInsert>(Assert.Single(pull.Pushed[1].BotComponentChanges)).Component);
+        Assert.Equal((pull.Synced.DisplayName, LocalDescription), (created.DisplayName, created.Description));
+        Assert.NotEqual(pull.Synced.Id, created.Id);
+        Assert.Equal(LocalContent, await pull.Accessor.ReadStringAsync(pull.PayloadPath, CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Push_KnowledgeFileMissingInTheEnvironmentWithoutAChangeInTheCloud_ReportsTheMissingComponentWithoutRetrying(bool overwriteRemoteChanges)
+    {
+        var pull = await DescribeTheKnowledgeFileAsync(_ => []);
+
+        await Assert.ThrowsAsync<DataverseNotFoundException>(() => pull.PushAsync(overwriteRemoteChanges));
+
+        Assert.Single(pull.Pushed);
+    }
+
+    [Fact]
+    public async Task Pull_KnowledgeFileDeletedInTheCloudAfterALocalDescriptionEditOfItsUndownloadedPayload_RemovesItsSidecarWithoutRefusingAndReportsTheDiscardedDescription()
+    {
+        var pull = await PullAfterDescribingTheKnowledgeFileAsync(DeleteInTheCloud, downloaded: false, deletedKnowledgeFileEdits: DeletedKnowledgeFileEdits.Refuse);
+
+        Assert.False(pull.Accessor.Exists(pull.SidecarPath));
+        Assert.Empty((await GetLocalChangesAsync(pull.Synchronizer, pull.Workspace)).BotComponentChanges);
+        Assert.Contains($"Discarded the local description of {pull.Synced.DisplayName}: it was deleted in the environment.", pull.Progress);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Pull_KnowledgeFileReplacedInTheCloudUnderTheSameName_KeepsTheReplacementFilesWithoutRefusingAndWithNothingToPush(bool describeLocally)
+    {
+        var pull = await PullAfterDescribingTheKnowledgeFileAsync(ReplaceInTheCloud, describeLocally, deletedKnowledgeFileEdits: DeletedKnowledgeFileEdits.Refuse);
+
+        Assert.NotEqual(pull.Synced.Id, ReadCachedKnowledgeFile(pull.Accessor).Id);
+        Assert.Equal("cloud rules", await pull.Accessor.ReadStringAsync(pull.PayloadPath, CancellationToken.None));
+        Assert.Empty((await GetLocalChangesAsync(pull.Synchronizer, pull.Workspace)).BotComponentChanges);
+        Assert.Equal(describeLocally, pull.Progress.Contains($"Discarded the local description of {pull.Synced.DisplayName}: it was deleted in the environment."));
     }
 
     [Theory]
@@ -633,28 +719,65 @@ public class KnowledgeFileUnifyTests
 
     private static string KnowledgeSidecar(string? fileName, string? description) => $"mcs.metadata:\n  componentName: {fileName}\n" + (description is null ? string.Empty : $"  description: \"{description}\"\n");
 
-    private static BotComponentChange DescribeInTheCloud(FileAttachmentComponent synced) => new BotComponentUpdate(synced.WithDescription(CloudDescription).WithVersion(synced.Version + 1));
+    private static BotComponentChange[] DescribeInTheCloud(FileAttachmentComponent synced) => [new BotComponentUpdate(synced.WithDescription(CloudDescription).WithVersion(synced.Version + 1))];
 
-    private static BotComponentChange DeleteInTheCloud(FileAttachmentComponent synced) => new BotComponentDelete(synced.Id, synced.Version);
+    private static BotComponentChange[] DeleteInTheCloud(FileAttachmentComponent synced) => [new BotComponentDelete(synced.Id, synced.Version)];
 
-    private static async Task<(FileAttachmentComponent Synced, InMemoryFileAccessor Accessor, WorkspaceSynchronizer Synchronizer, DirectoryPath Workspace, AgentFilePath SidecarPath, AgentFilePath PayloadPath, List<WorkspaceDiagnostic> Conflicts)> PullAfterDescribingTheKnowledgeFileAsync(Func<FileAttachmentComponent, BotComponentChange> changeInTheCloud)
+    private static BotComponentChange[] ReplaceInTheCloud(FileAttachmentComponent synced)
     {
-        var infrastructure = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var replacement = synced.ToBuilder();
+        replacement.Id = Guid.NewGuid();
+        replacement.Description = CloudDescription;
+        return [new BotComponentDelete(synced.Id, synced.Version), new BotComponentInsert(replacement.Build())];
+    }
+
+    private sealed record KnowledgeFilePull(FileAttachmentComponent Synced, InMemoryFileAccessor Accessor, WorkspaceSynchronizer Synchronizer, DirectoryPath Workspace, AgentFilePath SidecarPath, AgentFilePath PayloadPath, DefinitionBase Local, Mock<ISyncDataverseClient> Dataverse, List<WorkspaceDiagnostic> Conflicts, List<string> Progress, List<PvaComponentChangeSet> Pushed)
+    {
+        public Task PullAsync(DeletedKnowledgeFileEdits deletedKnowledgeFileEdits) => Synchronizer.PullExistingChangesAsync(Workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), Local, Dataverse.Object, MakeSyncInfo(), CancellationToken.None, conflicts: Conflicts, deletedKnowledgeFileEdits: deletedKnowledgeFileEdits);
+
+        public Task PushAsync(bool overwriteRemoteChanges) => Synchronizer.PushLocalChangesAsync(Workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), Local, Dataverse.Object, MakeSyncInfo(), cloudFlowMetadata: null, ImmutableArray<SyncDataverseClient.AIPromptMetadata>.Empty, CancellationToken.None, overwriteRemoteChanges: overwriteRemoteChanges);
+    }
+
+    private static async Task<KnowledgeFilePull> PullAfterDescribingTheKnowledgeFileAsync(Func<FileAttachmentComponent, BotComponentChange[]> changesInTheCloud, bool describeLocally = true, bool downloaded = true, DeletedKnowledgeFileEdits deletedKnowledgeFileEdits = DeletedKnowledgeFileEdits.Keep)
+    {
+        var pull = await DescribeTheKnowledgeFileAsync(changesInTheCloud, describeLocally, downloaded);
+        await pull.PullAsync(deletedKnowledgeFileEdits);
+        return pull;
+    }
+
+    private static async Task<KnowledgeFilePull> DescribeTheKnowledgeFileAsync(Func<FileAttachmentComponent, BotComponentChange[]> changesInTheCloud, bool describeLocally = true, bool downloaded = true)
+    {
+        var progress = new List<string>();
+        var infrastructure = ComponentWriterDefensiveTests.CreateSyncInfrastructure(new TestSyncProgress(progress));
         var (_, definition, accessor, synchronizer, workspace) = await CliAgentRoundTripReadTests.PushFixtureAsClone("FoodLogger", infrastructure);
         var synced = definition.Components.OfType<FileAttachmentComponent>().Single();
         var sidecarPath = accessor.ListFiles("capabilities/knowledge/files", "*.mcs.yml").Single();
         var payloadPath = new AgentFilePath($"capabilities/knowledge/files/{synced.DisplayName}");
-        await accessor.WriteAsync(payloadPath, LocalContent, CancellationToken.None);
-        await accessor.WriteAsync(sidecarPath, KnowledgeSidecar(synced.DisplayName, LocalDescription), CancellationToken.None);
+        if (downloaded)
+        {
+            await accessor.WriteAsync(payloadPath, LocalContent, CancellationToken.None);
+        }
+
+        if (describeLocally)
+        {
+            await accessor.WriteAsync(sidecarPath, KnowledgeSidecar(synced.DisplayName, LocalDescription), CancellationToken.None);
+        }
+
         var local = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
-        infrastructure.island.Setup(island => island.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>())).ReturnsAsync(new PvaComponentChangeSet(new[] { changeInTheCloud(synced) }, null, "after-cloud-change"));
+        infrastructure.island.Setup(island => island.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>())).ReturnsAsync(new PvaComponentChangeSet(changesInTheCloud(synced), null, "after-cloud-change"));
+        var pushed = new List<PvaComponentChangeSet>();
+        infrastructure.island
+            .Setup(island => island.SaveChangesAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<PvaComponentChangeSet>(), It.IsAny<CancellationToken>()))
+            .Returns<AuthoringOperationContextBase, PvaComponentChangeSet, CancellationToken>((_, incoming, _) =>
+            {
+                pushed.Add(incoming);
+                return pushed.Count == 1 ? throw new DataverseNotFoundException("ObjectDoesNotExist", "0x80040217", Guid.NewGuid().ToString(), $"Entity 'botcomponent' With Id = {synced.Id} Does Not Exist", new HttpRequestException("Not Found")) : Task.FromResult(EnvironmentVariableTestFixtures.CreateChangeSet("after-push", EnvironmentVariableTestFixtures.ConfirmComponentChanges(incoming)));
+            });
         var dataverse = KnowledgeFileTestFixtures.CreateStreamingMock(destination => KnowledgeFileTestFixtures.SeedContent(destination, "cloud rules"));
-        var conflicts = new List<WorkspaceDiagnostic>();
-
-        await synchronizer.PullExistingChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), local, dataverse.Object, MakeSyncInfo(), CancellationToken.None, conflicts: conflicts);
-
-        return (synced, accessor, synchronizer, workspace, sidecarPath, payloadPath, conflicts);
+        return new KnowledgeFilePull(synced, accessor, synchronizer, workspace, sidecarPath, payloadPath, local, dataverse, [], progress, pushed);
     }
+
+    private static List<(string Path, string Content)> SnapshotFiles(InMemoryFileAccessor accessor) => accessor.Files.OrderBy(file => file.Key, StringComparer.Ordinal).Select(file => (file.Key, Convert.ToBase64String(file.Value))).ToList();
 
     private static async Task<PvaComponentChangeSet> GetLocalChangesAsync(WorkspaceSynchronizer synchronizer, DirectoryPath workspace) => (await synchronizer.GetLocalChangesAsync(workspace, await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true), new Mock<ISyncDataverseClient>().Object, MakeSyncInfo(), CancellationToken.None)).Item1;
 

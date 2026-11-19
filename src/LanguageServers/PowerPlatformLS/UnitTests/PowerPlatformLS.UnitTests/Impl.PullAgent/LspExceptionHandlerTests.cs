@@ -282,6 +282,34 @@ namespace Microsoft.PowerPlatformLS.UnitTests.Impl.PullAgent
             Assert.Equal(3, StripPiiTags(message).Split(Environment.NewLine).Length);
         }
 
+        [Fact]
+        public void DescribeConflicts_LeavesOutFilesKeptAfterTheEnvironmentDeletedThem()
+        {
+            var kept = new WorkspaceDiagnostic("knowledge/files/rules.txt", "Kept.", 0, 0, WorkspaceDiagnosticKind.DeletedInEnvironment);
+
+            Assert.Equal(string.Empty, LspExceptionHandler.DescribeConflicts([kept]));
+            Assert.Equal(
+                "1 workspace file has unresolved merge conflicts. Resolve them before pushing:" + Environment.NewLine + "  settings.mcs.yml(7,1): Unresolved merge conflict.",
+                StripPiiTags(LspExceptionHandler.DescribeConflicts([kept, new WorkspaceDiagnostic("settings.mcs.yml", "Unresolved merge conflict.", 7, 1, WorkspaceDiagnosticKind.MergeConflict)])));
+        }
+
+        [Theory]
+        [InlineData(new[] { "knowledge/files/Jane Doe rules.txt" }, "A knowledge file you changed locally was deleted in the environment: knowledge/files/Jane Doe rules.txt")]
+        [InlineData(new[] { "knowledge/files/Jane Doe rules.txt", "knowledge/files/Jane Doe rules.txt.md" }, "2 knowledge files you changed locally were deleted in the environment: knowledge/files/Jane Doe rules.txt, knowledge/files/Jane Doe rules.txt.md")]
+        public void Handle_KnowledgeFilesDeletedAfterLocalEdits_Returns410AndTagsEveryPathWithoutLogging(string[] filePaths, string expected)
+        {
+            var failure = new DeletedKnowledgeFileEditsException(filePaths);
+
+            var (code, message) = LspExceptionHandler.Handle(failure, _logger);
+
+            Assert.Equal(410, code);
+            Assert.Equal(expected, failure.Message);
+            Assert.Equal(expected, StripPiiTags(message));
+            Assert.DoesNotContain("rules", RedactPiiTags(message), StringComparison.Ordinal);
+            Assert.Empty(_testLogger.Error);
+            Assert.Empty(_testLogger.Warning);
+        }
+
         private static string StripPiiTags(string value)
             => PiiTagPattern.Replace(value, match => match.Groups["value"].Value.Replace("&lt;", "<").Replace("&gt;", ">").Replace("&amp;", "&"));
 

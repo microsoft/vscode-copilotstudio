@@ -21,7 +21,7 @@ import {
 import { registerSyncCommands, requestsRemoteOverwrite, resolveWorkspaceArg } from '../../commands/syncWorkspace';
 import { AIPromptSchemaNamePrefix, CustomConnectorSchemaNamePrefix, LspMethods } from '../../constants';
 import logger, { formatFileName, formatPii, PiiRedactionType, prepareLogData, sanitizeErrorDetails, stripPiiTags } from '../../services/logger';
-import { LspRequestError, LSP_UNPUSHED_LOCAL_CHANGES } from '../../services/lspClient';
+import { LspRequestError, LSP_LOCAL_CHANGES_DELETED_REMOTELY, LSP_UNPUSHED_LOCAL_CHANGES } from '../../services/lspClient';
 import type { SyncRequest, WorkflowResponse } from '../../types';
 import { replace, restoreReplaced } from './helpers/replace';
 
@@ -927,6 +927,91 @@ describe('workspaceSynchronizer: remote change conflicts', () => {
 		arrange();
 
 		assert.strictEqual(await askRemoteChangeResolution(workflowWorkspace, [workflowChange], []), undefined);
+	});
+});
+
+describe('workspaceSynchronizer: local changes the environment deleted', () => {
+	const agentWorkspace = { ...createWorkflowWorkspace('deleted-knowledge'), type: WorkspaceType.Agent };
+	const refusal = `A knowledge file you changed locally was deleted in the environment: ${formatPii('knowledge/files/Jane Doe rules.txt', 'WORKSPACE FILE DETAILS')}`;
+
+	let prompts: { message: string; options: vscode.MessageOptions; items: string[] }[];
+	let requests: SyncRequest[];
+	let warnings: string[];
+
+	const arrange = (answer?: string, refuseEveryPull = false) => {
+		prompts = [];
+		requests = [];
+		warnings = [];
+		replaceLanguageServer(async (_method: string, request: SyncRequest) => {
+			requests.push(request);
+			if (refuseEveryPull || (!request.overwriteLocalChanges && !request.keepLocalChanges)) {
+				throw new LspRequestError(LSP_LOCAL_CHANGES_DELETED_REMOTELY, refusal);
+			}
+			return { localChanges: [] };
+		});
+		runProgressInline();
+		replace(vscode.window as any, 'showWarningMessage', async (message: string, options: vscode.MessageOptions, ...items: string[]) => {
+			prompts.push({ message, options, items });
+			return prompts.length === 1 ? answer : undefined;
+		});
+		replace(logger as any, 'logInfo', () => undefined);
+		replace(logger as any, 'logWarning', (_key: string, message: string) => { warnings.push(message); });
+		replace(logger as any, 'logError', () => undefined);
+		removeSynchronizer(agentWorkspace.workspaceUri);
+	};
+
+	const pull = () => getOrAddSynchronizer(agentWorkspace).pull(undefined as any);
+	const isRefusal = (error: unknown) => error instanceof LspRequestError && error.code === LSP_LOCAL_CHANGES_DELETED_REMOTELY;
+
+	afterEach(() => {
+		restoreReplaced();
+		removeSynchronizer(agentWorkspace.workspaceUri);
+	});
+
+	test('a refused Get asks whether to keep the local change or delete the local file', async () => {
+		arrange('Keep local change');
+
+		await pull();
+
+		assert.deepStrictEqual(prompts, [{
+			message: 'A knowledge file you changed locally was deleted in the environment: knowledge/files/Jane Doe rules.txt',
+			options: { modal: true, detail: 'Keep local change keeps your copy as a new local file that applying your changes adds back. Delete local file removes your copy.' },
+			items: ['Keep local change', 'Delete local file'],
+		}]);
+	});
+
+	test('keeping the local change gets the remote changes again while keeping it', async () => {
+		arrange('Keep local change');
+
+		await pull();
+
+		assert.deepStrictEqual(requests.map(request => [request.overwriteLocalChanges, request.keepLocalChanges]), [[false, false], [false, true]]);
+	});
+
+	test('deleting the local file gets the remote changes again while replacing it', async () => {
+		arrange('Delete local file');
+
+		await pull();
+
+		assert.deepStrictEqual(requests.map(request => [request.overwriteLocalChanges, request.keepLocalChanges]), [[false, false], [true, false]]);
+	});
+
+	test('a dismissed dialog cancels the Get and changes nothing', async () => {
+		arrange();
+
+		await assert.rejects(() => pull(), isRefusal);
+
+		assert.strictEqual(requests.length, 1);
+		assert.deepStrictEqual(warnings, ['getting changes was cancelled to keep local changes.']);
+	});
+
+	test('a Get refused again after keeping the local change fails without asking twice', async () => {
+		arrange('Keep local change', true);
+
+		await assert.rejects(() => pull(), isRefusal);
+
+		assert.strictEqual(prompts.length, 1);
+		assert.strictEqual(requests.length, 2);
 	});
 });
 

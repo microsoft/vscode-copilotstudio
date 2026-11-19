@@ -56,6 +56,9 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 StandaloneWorkflowException swe when HoldsUnpushedChanges(swe.Failure) =>
                     NoLog(409, DescribeStandaloneWorkflow(swe)),
 
+                DeletedKnowledgeFileEditsException deletedKnowledgeFileEdits =>
+                    NoLog(410, DeletedKnowledgeFileEditsException.Describe(deletedKnowledgeFileEdits.FilePaths, ProtectUserContent)),
+
                 StandaloneWorkflowException swe when RequiresUserAction(swe.Failure) =>
                     NoLog(400, DescribeStandaloneWorkflow(swe)),
 
@@ -114,12 +117,15 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
         /// using the same user-content tagging as validation failures.
         /// </summary>
         internal static string DescribeConflicts(IReadOnlyCollection<WorkspaceDiagnostic> conflicts)
-            => conflicts.Count == 0
+        {
+            var unresolvedConflicts = conflicts.Where(static conflict => conflict.Kind != WorkspaceDiagnosticKind.DeletedInEnvironment).ToList();
+            return unresolvedConflicts.Count == 0
                 ? string.Empty
                 : WorkspaceDiagnostic.Summarize(
                     count => $"{count} workspace {(count == 1 ? "file has" : "files have")} unresolved merge conflicts. Resolve them before pushing:",
-                    conflicts,
+                    unresolvedConflicts,
                     static diagnostic => diagnostic.ToString(ProtectUserContent));
+        }
 
         /// <summary>
         /// Formats why some custom connectors were not saved, tagging each whole reason because a server

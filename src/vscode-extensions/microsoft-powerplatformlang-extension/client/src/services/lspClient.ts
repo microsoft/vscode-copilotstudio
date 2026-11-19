@@ -30,6 +30,9 @@ export class LspRequestError extends Error {
 /** The status the server returns when a workspace holds an edit the environment has not seen. */
 export const LSP_UNPUSHED_LOCAL_CHANGES = 409;
 
+/** The status the server returns when the environment deleted files that were changed locally. */
+export const LSP_LOCAL_CHANGES_DELETED_REMOTELY = 410;
+
 /**
  * Mirrors the .NET IsBuiltInLspMethod logic.
  * Built-in LSP methods are standard protocol methods that don't need custom logging.

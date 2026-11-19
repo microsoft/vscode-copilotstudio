@@ -11,6 +11,8 @@
 
         public bool OverwriteLocalChanges { get; set; }
 
+        public bool KeepLocalChanges { get; set; }
+
         public bool RequireNoUnpulledChanges { get; set; }
 
         public ImmutableArray<string>? ApprovedEnvironmentVariableOverwrites { get; set; }

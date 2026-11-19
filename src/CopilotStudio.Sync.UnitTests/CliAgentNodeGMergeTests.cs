@@ -376,24 +376,6 @@ public class CliAgentNodeGMergeTests
     }
 
     [Fact]
-    public void ApplyThreeWayMerge_KnowledgeFileDeletedInTheCloudAfterALocalDescriptionEdit_KeepsTheLocalFileAndReportsTheConflict()
-    {
-        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
-        var described = MakeKnowledgeFile(Guid.NewGuid(), "rules.txt", "LOCAL description", 1);
-        var untouched = MakeKnowledgeFile(Guid.NewGuid(), "fees.txt", "base fees", 1);
-
-        var merged = sync.ApplyThreeWayMerge(
-            MakeUpdateChanges(described),
-            MakeDeleteChanges(described, untouched),
-            new BotDefinition().WithComponents(new[] { described.WithDescription("base description"), untouched }),
-            out var conflicts);
-
-        Assert.Equal(new MergeConflictComponent(string.Empty, described, DeletedRemotely: true), Assert.Single(conflicts.ComponentsBySchemaName).Value);
-        Assert.Same(described, Assert.Single(merged.BotComponentChanges.OfType<BotComponentUpdate>()).Component);
-        Assert.Equal(untouched.Id, Assert.Single(merged.BotComponentChanges.OfType<BotComponentDelete>()).BotComponentId);
-    }
-
-    [Fact]
     public void MergeComponent_DescriptionChangedOnBothSides_NeverSilentlyDiscardsTheLocalEdit()
     {
         var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
@@ -885,19 +867,15 @@ public class CliAgentNodeGMergeTests
 
     // --- Helpers --------------------------------------------------------------------
 
-    private static (PvaComponentChangeSet, ImmutableArray<Change>) MakeUpdateChanges(params BotComponentBase[] updated) => MakeChanges(ChangeType.Update, component => new BotComponentUpdate(component), updated);
-
-    private static (PvaComponentChangeSet, ImmutableArray<Change>) MakeDeleteChanges(params BotComponentBase[] deleted) => MakeChanges(ChangeType.Delete, component => new BotComponentDelete(component.Id, component.Version), deleted);
-
-    private static (PvaComponentChangeSet, ImmutableArray<Change>) MakeChanges(ChangeType changeType, Func<BotComponentBase, BotComponentChange> toChange, BotComponentBase[] components)
+    private static (PvaComponentChangeSet, ImmutableArray<Change>) MakeUpdateChanges(params BotComponentBase[] updated)
     {
         var changeset = new PvaComponentChangeSet(
-            components.Select(toChange).ToList(),
+            updated.Select(component => (BotComponentChange)new BotComponentUpdate(component)).ToList(),
             bot: null,
             changeToken: "t");
-        var changes = components.Select(component => new Change
+        var changes = updated.Select(component => new Change
         {
-            ChangeType = changeType,
+            ChangeType = ChangeType.Update,
             Name = component.SchemaNameString,
             Uri = component.SchemaNameString,
             SchemaName = component.SchemaNameString,

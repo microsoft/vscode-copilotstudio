@@ -999,6 +999,41 @@ public class SkillFolderLayoutTests
     }
 
     [Fact]
+    public async Task SkillDeletedInCloudAfterAnAssetDescriptionEdit_PullRemovesWholeFolderWithoutRefusingAndReportsTheDiscardedDescription()
+    {
+        var progress = new List<string>();
+        var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure(new TestSyncProgress(progress));
+        var workspace = new DirectoryPath($"c:/test/skill-cloud-delete-described-{Guid.NewGuid():N}/");
+        var accessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
+        var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
+        var previous = new BotDefinition().WithEntity(entity);
+        var skill = CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", Guid.NewGuid(), $"<!-- bic:bundle={Bot}.file.getusweatherzip -->");
+        var manifest = CreateAsset($"{Bot}.file.skillmd_a1B", "./SKILL.md", skill.Id);
+        var script = CreateAsset($"{Bot}.file.script_a1B", "./scripts/Get-UsWeather.ps1", skill.Id);
+        const string ScriptSidecar = "behaviors/get-us-weather/scripts/Get-UsWeather.ps1.mcs.yml";
+
+        await accessor.WriteAsync(new AgentFilePath(AgentClassifier.WorkspaceLayoutMarkerFileName), "layoutVersion: 1\n", CancellationToken.None);
+        await accessor.WriteAsync(new AgentFilePath("settings.mcs.yml"), CliSettings, CancellationToken.None);
+        WorkspaceSynchronizer.WriteCloudCache(accessor, previous);
+        mockIsland.Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentInsert(skill), new BotComponentInsert(manifest), new BotComponentInsert(script) }, entity, "token-2"));
+        var mockDataverse = CreateDataverseMock();
+        mockDataverse.Setup(x => x.DownloadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<BotComponentId>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns<string, BotComponentId, string, CancellationToken>((_, _, fileName, cancellationToken) =>
+                accessor.WriteAsync(SkillLayout.GetAssetPath("get-us-weather", fileName), $"payload:{fileName}", cancellationToken));
+        await synchronizer.PullExistingChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), previous, mockDataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
+        Write(accessor, ScriptSidecar, Read(accessor, ScriptSidecar).Replace("mcs.metadata:\n", "mcs.metadata:\n  description: Local script\n"));
+        var local = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
+        mockIsland.Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentDelete(skill.Id, skill.Version), new BotComponentDelete(manifest.Id, manifest.Version), new BotComponentDelete(script.Id, script.Version) }, entity, "token-3"));
+
+        await synchronizer.PullExistingChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), local, mockDataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None, deletedKnowledgeFileEdits: DeletedKnowledgeFileEdits.Refuse);
+
+        Assert.DoesNotContain(accessor.Files.Keys, key => key.Replace('\\', '/').StartsWith("behaviors/get-us-weather/", StringComparison.Ordinal));
+        Assert.Contains($"Discarded the local description of {script.DisplayName}: it was deleted in the environment.", progress);
+    }
+
+    [Fact]
     public async Task AssetReplacedInCloudUnderTheSameName_PullKeepsTheReplacementSidecarAndPayload()
     {
         var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
