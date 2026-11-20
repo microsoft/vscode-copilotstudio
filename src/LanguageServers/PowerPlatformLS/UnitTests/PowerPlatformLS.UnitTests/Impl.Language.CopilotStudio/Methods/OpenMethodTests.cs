@@ -458,6 +458,41 @@ beginDialog:
             }
         }
 
+        [Theory]
+        [InlineData("configuration:\n  isTelephonyEnabled: true", new string[0])]
+        [InlineData("configuration: {}", new[] { "IdentifierNotRecognized", "IncorrectTypeAssignment" })]
+        public async Task Diagnostics_OnSipXHeaderParseValue_DependOnTelephony_Async(string configurationYaml, string[] expectedErrorCodes)
+        {
+            const string ConversationStartYaml = """
+                kind: AdaptiveDialog
+                beginDialog:
+                  kind: OnConversationStart
+                  id: main
+                  actions:
+                    - kind: ParseValue
+                      id: parseValue_sipXHeader
+                      variable: Global.SipHeaders
+                      valueType:
+                        kind: Record
+                        properties:
+                          x-CallId: String
+                      value: =System.Conversation.SipXHeader
+                """;
+
+            var diskContent = new Dictionary<string, string>
+            {
+                { "ws/agent.mcs.yml", "instructions: voice agent" },
+                { "ws/settings.mcs.yml", $"schemaName: cr_voiceAgent\n{configurationYaml}" },
+            };
+
+            await using var context = new TestHost([new McsLspModule(), new TestFileModule(diskContent)]);
+            await context.InitializeLanguageServerAsync("file:///");
+
+            var diagParams = await context.OpenDocumentWithTextAsync(new Uri("file:///c:/ws/topics/ConversationStart.mcs.yml"), ConversationStartYaml);
+
+            Assert.Equal(expectedErrorCodes, diagParams.Diagnostics.Where(x => x.Severity == DiagnosticSeverity.Error).Select(x => x.Code).Order());
+        }
+
         private static void AssertAgentDirectoryChangeNotification(TestHost context)
         {
             var notification = context.Notifications.Single();
