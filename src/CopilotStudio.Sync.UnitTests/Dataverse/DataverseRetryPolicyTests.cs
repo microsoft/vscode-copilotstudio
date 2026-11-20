@@ -21,7 +21,7 @@ public class DataverseRetryPolicyTests
 
     private static readonly HttpRequestOptionsKey<string> TraceOption = new("trace");
 
-    private sealed record SentRequest(HttpMethod Method, string Url, string? ClientRequestId, string? Authorization, string? Trace, string? ContentType, byte[] Body);
+    private sealed record SentRequest(HttpMethod Method, string Url, string? ClientRequestId, string? FileName, string? Authorization, string? Trace, string? ContentType, byte[] Body);
 
     private sealed class ScriptedHandler : HttpMessageHandler
     {
@@ -41,8 +41,9 @@ public class DataverseRetryPolicyTests
         {
             Requests.Add(new SentRequest(
                 request.Method,
-                (request.RequestUri ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).ToString(),
-                request.Headers.TryGetValues("x-ms-client-request-id", out var clientRequestIds) ? string.Join(",", clientRequestIds) : null,
+                (request.RequestUri ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value.")).AbsoluteUri,
+                HeaderValue(request, "x-ms-client-request-id"),
+                HeaderValue(request, "x-ms-file-name"),
                 request.Headers.Authorization?.ToString(),
                 request.Options.TryGetValue(TraceOption, out var trace) ? trace : null,
                 request.Content?.Headers.ContentType?.ToString(),
@@ -51,6 +52,8 @@ public class DataverseRetryPolicyTests
 
             return Failures.TryDequeue(out var failure) ? throw failure : _responses.Dequeue();
         }
+
+        private static string? HeaderValue(HttpRequestMessage request, string name) => request.Headers.TryGetValues(name, out var values) ? string.Join(",", values) : null;
     }
 
     private sealed class ForwardOnlyStream(byte[] content) : MemoryStream(content)
@@ -513,6 +516,22 @@ public class DataverseRetryPolicyTests
         await KnowledgeFileClient(handler).UploadKnowledgeFileAsync(source, ComponentId, "Rates.pdf", CancellationToken.None);
 
         Assert.Equal(["knowledge", "knowledge"], handler.Requests.Select(request => Encoding.UTF8.GetString(request.Body)));
+    }
+
+    [Theory]
+    [InlineData("Rates.pdf", "", "Rates.pdf")]
+    [InlineData("Caf\u00e9 & Co+1.txt", "?x-ms-file-name=Caf%C3%A9%20%26%20Co%2B1.txt", null)]
+    [InlineData("\u6599\u91d1\u8868.pdf", "?x-ms-file-name=%E6%96%99%E9%87%91%E8%A1%A8.pdf", null)]
+    [InlineData("Rates\n2026.pdf", "?x-ms-file-name=Rates%0A2026.pdf", null)]
+    public async Task UploadKnowledgeFileAsync_NamesTheFileInTheQueryWhenTheHeaderCannotCarryIt(string fileName, string expectedQuery, string? expectedHeader)
+    {
+        var handler = new ScriptedHandler(Status(HttpStatusCode.NoContent));
+        using var source = new MemoryStream(Encoding.UTF8.GetBytes("knowledge"));
+
+        await KnowledgeFileClient(handler).UploadKnowledgeFileAsync(source, ComponentId, fileName, CancellationToken.None);
+
+        var request = Assert.Single(handler.Requests);
+        Assert.Equal(($"https://test.crm.dynamics.com/api/data/v9.2/botcomponents({ComponentId})/filedata/{expectedQuery}", expectedHeader), (request.Url, request.FileName));
     }
 
     [Fact]

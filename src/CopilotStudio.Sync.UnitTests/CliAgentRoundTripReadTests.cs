@@ -355,7 +355,7 @@ public class CliAgentRoundTripReadTests
         InMemoryFileAccessor accessor,
         WorkspaceSynchronizer synchronizer,
         DirectoryPath workspace)>
-        PushFixtureAsClone(string fixtureName)
+        PushFixtureAsClone(string fixtureName, (WorkspaceSynchronizer synchronizer, InMemoryFileAccessorFactory factory, Mock<IIslandControlPlaneService> island)? infrastructure = null)
     {
         var (entity, definition) = LoadFixtureBotAndDefinition(fixtureName);
 
@@ -366,7 +366,7 @@ public class CliAgentRoundTripReadTests
             .Select(cr => (ConnectionReferenceChange)new ConnectionReferenceInsert(cr))
             .ToList();
 
-        var (synchronizer, factory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var (synchronizer, factory, mockIsland) = infrastructure ?? ComponentWriterDefensiveTests.CreateSyncInfrastructure();
         var workspace = new DirectoryPath($"c:/test/round-trip-pull-{Guid.NewGuid():N}/");
         var accessor = (InMemoryFileAccessor)factory.Create(workspace);
 

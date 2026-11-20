@@ -96,6 +96,7 @@ namespace Microsoft.PowerPlatformLS.Impl.PullAgent
                 {
                     Code = code,
                     Message = message,
+                    KnowledgeFileDeletions = ex is DeletedKnowledgeFileEditsException refusal ? refusal.FilePaths.ToImmutableArray() : ImmutableArray<string>.Empty,
                 };
             }
         }

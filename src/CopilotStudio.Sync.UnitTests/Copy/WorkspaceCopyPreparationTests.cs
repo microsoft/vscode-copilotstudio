@@ -1338,7 +1338,59 @@ public class WorkspaceCopyPreparationTests
         Assert.Equal(before, workspace.Snapshot());
     }
 
+    [Theory]
+    [InlineData(CopyTestWorkspace.CliWorkflowFolder + "/metadata.yml")]
+    [InlineData("infrastructure/connections/cr1_cli.cr.shared_teams.sync.yaml")]
+    public async Task Prepare_WhileAnotherProcessHoldsAFileTheCopyRenames_RenamesItOnceTheFileIsReleased(string heldPath)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var workspace = CopyTestWorkspace.Cli();
+        var sourceText = workspace.Read(heldPath);
+        var heldFile = new FileStream(workspace.Path(heldPath), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        var release = Task.Factory.StartNew(() =>
+        {
+            using (heldFile)
+            {
+                SpinWait.SpinUntil(() => ReadHeld(heldFile) != sourceText, TimeSpan.FromSeconds(10));
+                Thread.Sleep(200);
+            }
+        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+
+        await CopyTestWorkspace.CreateService().PrepareAsync(workspace.Request(), CancellationToken.None);
+        await release;
+
+        Assert.False(workspace.Exists(heldPath));
+    }
+
+    [Theory]
+    [InlineData(unchecked((int)0x80070005), 5)]
+    [InlineData(unchecked((int)0x80070020), 5)]
+    [InlineData(unchecked((int)0x80070003), 1)]
+    public void MoveWithRetries_RetriesOnlyWhileAnotherProcessMayHoldThePathAndThenReportsTheFailure(int hresult, int expectedAttempts)
+    {
+        var attempts = 0;
+
+        var failure = Assert.Throws<IOException>(() => WorkspaceCopyTransform.MoveWithRetries(() =>
+        {
+            attempts++;
+            throw new IOException("The move failed.", hresult);
+        }));
+
+        Assert.Equal((hresult, expectedAttempts), (failure.HResult, attempts));
+    }
+
     private static string Destination(CopyPreparationResult result, string kind, string source) => result.Identities.Single(mapping => mapping.Kind == kind && string.Equals(mapping.Source, source, StringComparison.OrdinalIgnoreCase)).Destination;
+
+    private static string ReadHeld(FileStream heldFile)
+    {
+        heldFile.Position = 0;
+        using var reader = new StreamReader(heldFile, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true);
+        return reader.ReadToEnd();
+    }
 
     private static bool IsPromptOrConnectorFile(string snapshotEntry) => snapshotEntry.StartsWith("prompts/", StringComparison.Ordinal) || snapshotEntry.StartsWith("connectors/", StringComparison.Ordinal);
 

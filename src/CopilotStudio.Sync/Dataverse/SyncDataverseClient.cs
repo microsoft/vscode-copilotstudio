@@ -30,6 +30,8 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
 
     private const int ConnectorSuffixSampleSize = 50;
 
+    private const string FileNameField = "x-ms-file-name";
+
     private const string ConnectorColumns = "connectorid,name,displayname,description,connectorinternalid,openapidefinition,connectionparameters,connectionparametersets,policytemplateinstances,iconbrandcolor,iconblob,connectortype,statecode,statuscode,ismanaged,componentstate,createdon,modifiedon,versionnumber";
 
     private const string ConnectorVersionColumns = "connectorid,connectorinternalid,ismanaged,modifiedon,versionnumber";
@@ -1307,19 +1309,11 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
             {
                 return new FileStream(localPath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite, 81920, useAsync: true);
             }
-            catch (IOException ex) when (attempt < maxAttempts && IsSharingViolation(ex))
+            catch (IOException ex) when (attempt < maxAttempts && FileLockErrors.IsSharingViolation(ex))
             {
                 await Task.Delay(baseDelayMilliseconds * attempt, cancellationToken).ConfigureAwait(false);
             }
         }
-    }
-
-    private static bool IsSharingViolation(IOException ex)
-    {
-        const int errorSharingViolation = 32;
-        const int errorLockViolation = 33;
-        var errorCode = ex.HResult & 0xFFFF;
-        return errorCode == errorSharingViolation || errorCode == errorLockViolation;
     }
 
     public async Task UploadKnowledgeFileAsync(string knowledgeFileFolder, Guid botComponentId, string fileName, CancellationToken cancellationToken = default)
@@ -1331,13 +1325,15 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
 
     public async Task UploadKnowledgeFileAsync(Stream content, Guid botComponentId, string fileName, CancellationToken cancellationToken = default)
     {
-        var requestUri = RequireDataverseOrigin(new Uri(new Uri(DataverseUrl), $"/api/data/v9.2/botcomponents({botComponentId})/filedata/").ToString());
+        var fileDataUri = RequireDataverseOrigin(new Uri(new Uri(DataverseUrl), $"/api/data/v9.2/botcomponents({botComponentId})/filedata/").ToString());
+        var fileNameFitsHeader = fileName.All(character => character is >= ' ' and <= '~');
+        var requestUri = fileNameFitsHeader ? fileDataUri : new Uri(fileDataUri, $"?{FileNameField}={Uri.EscapeDataString(fileName)}");
 
         using var buffered = content.CanSeek ? null : await BufferAsync(content, cancellationToken).ConfigureAwait(false);
         var body = buffered ?? content;
         var bodyStart = body.Position;
 
-        using var response = await _retryPolicy.SendAsync(_httpClientAccessor.CreateClient(), () => CreateUploadRequest(requestUri, body, bodyStart, fileName), HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        using var response = await _retryPolicy.SendAsync(_httpClientAccessor.CreateClient(), () => CreateUploadRequest(requestUri, body, bodyStart, fileNameFitsHeader ? fileName : null), HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
 
         if (!response.IsSuccessStatusCode)
         {
@@ -1355,13 +1351,17 @@ public class SyncDataverseClient : ISyncDataverseClient, IStandaloneWorkflowData
         return buffer;
     }
 
-    private HttpRequestMessage CreateUploadRequest(Uri requestUri, Stream body, long bodyStart, string fileName)
+    private HttpRequestMessage CreateUploadRequest(Uri requestUri, Stream body, long bodyStart, string? headerFileName)
     {
         body.Position = bodyStart;
 
         var request = new HttpRequestMessage(HttpMethodHelper.Patch, requestUri) { Content = new StreamContent(new NonDisposingStream(body), bufferSize: 81920) };
         request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
-        request.Headers.Add("x-ms-file-name", fileName);
+        if (headerFileName is not null)
+        {
+            request.Headers.Add(FileNameField, headerFileName);
+        }
+
         request.Headers.Add("Accept", "application/json");
         request.Headers.UserAgent.ParseAdd(_userAgent);
 

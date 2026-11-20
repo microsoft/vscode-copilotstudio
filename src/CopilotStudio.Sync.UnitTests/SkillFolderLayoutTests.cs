@@ -3,6 +3,7 @@
 using System.Text;
 using Microsoft.Agents.ObjectModel;
 using Microsoft.Agents.Platform.Content;
+using Microsoft.Agents.Platform.Content.Exceptions;
 using Microsoft.CopilotStudio.McsCore;
 using Microsoft.CopilotStudio.McsCore.Yaml;
 using Microsoft.CopilotStudio.Sync.Dataverse;
@@ -998,6 +999,133 @@ public class SkillFolderLayoutTests
         Assert.Empty(changes);
     }
 
+    [Theory]
+    [InlineData(DeletedKnowledgeFileEdits.Refuse)]
+    [InlineData(DeletedKnowledgeFileEdits.Keep)]
+    public async Task SkillDeletedInCloudAfterAnAssetDescriptionEdit_PullStopsBeforeWritingAnythingBecauseTheAssetCannotBeKeptWithoutItsSkill(DeletedKnowledgeFileEdits deletedKnowledgeFileEdits)
+    {
+        var skillDeletion = await DeleteSkillInCloudAfterEditingItLocallyAsync(DescribeTheScript);
+        var before = KnowledgeFileUnifyTests.SnapshotFiles(skillDeletion.Accessor);
+
+        var refusal = await Assert.ThrowsAsync<DeletedKnowledgeFileEditsException>(() => skillDeletion.PullAsync(deletedKnowledgeFileEdits));
+
+        Assert.Equal(["behaviors/get-us-weather/scripts/Get-UsWeather.ps1"], refusal.FilePaths);
+        Assert.False(refusal.CanBeKept);
+        Assert.Equal(before, KnowledgeFileUnifyTests.SnapshotFiles(skillDeletion.Accessor));
+    }
+
+    [Theory]
+    [InlineData(DeletedKnowledgeFileEdits.Refuse)]
+    [InlineData(DeletedKnowledgeFileEdits.Keep)]
+    public async Task SkillDeletedInCloudAfterAnAssetWasAddedLocally_PullStopsBeforeWritingAnythingBecauseTheAssetCannotBeKeptWithoutItsSkill(DeletedKnowledgeFileEdits deletedKnowledgeFileEdits)
+    {
+        var skillDeletion = await DeleteSkillInCloudAfterEditingItLocallyAsync(accessor => Write(accessor, "behaviors/get-us-weather/scripts/Get-UsForecast.ps1", "Write-Output 'forecast'\n"));
+        var before = KnowledgeFileUnifyTests.SnapshotFiles(skillDeletion.Accessor);
+
+        var refusal = await Assert.ThrowsAsync<DeletedKnowledgeFileEditsException>(() => skillDeletion.PullAsync(deletedKnowledgeFileEdits));
+
+        Assert.Equal(["behaviors/get-us-weather/scripts/Get-UsForecast.ps1"], refusal.FilePaths);
+        Assert.False(refusal.CanBeKept);
+        Assert.Equal(before, KnowledgeFileUnifyTests.SnapshotFiles(skillDeletion.Accessor));
+    }
+
+    [Fact]
+    public async Task SkillDeletedInCloudAfterAnAssetDescriptionEdit_PullRemovesWholeFolderWhenTheLocalEditIsDiscarded()
+    {
+        var skillDeletion = await DeleteSkillInCloudAfterEditingItLocallyAsync(DescribeTheScript);
+
+        await skillDeletion.PullAsync(DeletedKnowledgeFileEdits.Discard);
+
+        Assert.DoesNotContain(skillDeletion.Accessor.Files.Keys, key => key.Replace('\\', '/').StartsWith("behaviors/get-us-weather/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SkillDeletedInCloudAfterAnAssetDescriptionEdit_PushAsksToGetTheLatestChangesInsteadOfDeletingTheAssetEvenWhenOverwriting()
+    {
+        var skillDeletion = await DeleteSkillInCloudAfterEditingItLocallyAsync(DescribeTheScript);
+        var before = KnowledgeFileUnifyTests.SnapshotFiles(skillDeletion.Accessor);
+
+        var refusal = await Assert.ThrowsAsync<InvalidOperationException>(() => skillDeletion.PushAsync(true));
+
+        Assert.Contains("Get the latest changes", refusal.Message);
+        Assert.Equal(before, KnowledgeFileUnifyTests.SnapshotFiles(skillDeletion.Accessor));
+    }
+
+    private const string ScriptSidecar = "behaviors/get-us-weather/scripts/Get-UsWeather.ps1.mcs.yml";
+
+    private static void DescribeTheScript(InMemoryFileAccessor accessor) => Write(accessor, ScriptSidecar, Read(accessor, ScriptSidecar).Replace("mcs.metadata:\n", "mcs.metadata:\n  description: Local script\n"));
+
+    private sealed record SkillDeletion(InMemoryFileAccessor Accessor, Func<DeletedKnowledgeFileEdits, Task> PullAsync, Func<bool, Task> PushAsync);
+
+    private static async Task<SkillDeletion> DeleteSkillInCloudAfterEditingItLocallyAsync(Action<InMemoryFileAccessor> editLocally)
+    {
+        var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath($"c:/test/skill-cloud-delete-described-{Guid.NewGuid():N}/");
+        var accessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
+        var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
+        var previous = new BotDefinition().WithEntity(entity);
+        var skill = CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", Guid.NewGuid(), $"<!-- bic:bundle={Bot}.file.getusweatherzip -->");
+        var manifest = CreateAsset($"{Bot}.file.skillmd_a1B", "./SKILL.md", skill.Id);
+        var script = CreateAsset($"{Bot}.file.script_a1B", "./scripts/Get-UsWeather.ps1", skill.Id);
+
+        await accessor.WriteAsync(new AgentFilePath(AgentClassifier.WorkspaceLayoutMarkerFileName), "layoutVersion: 1\n", CancellationToken.None);
+        await accessor.WriteAsync(new AgentFilePath("settings.mcs.yml"), CliSettings, CancellationToken.None);
+        WorkspaceSynchronizer.WriteCloudCache(accessor, previous);
+        mockIsland.Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentInsert(skill), new BotComponentInsert(manifest), new BotComponentInsert(script) }, entity, "token-2"));
+        var mockDataverse = CreateDataverseMock();
+        mockDataverse.Setup(x => x.DownloadKnowledgeFileAsync(It.IsAny<string>(), It.IsAny<BotComponentId>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns<string, BotComponentId, string, CancellationToken>((_, _, fileName, cancellationToken) =>
+                accessor.WriteAsync(SkillLayout.GetAssetPath("get-us-weather", fileName), $"payload:{fileName}", cancellationToken));
+        await synchronizer.PullExistingChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), previous, mockDataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
+        editLocally(accessor);
+        var local = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
+        mockIsland.Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentDelete(skill.Id, skill.Version), new BotComponentDelete(manifest.Id, manifest.Version), new BotComponentDelete(script.Id, script.Version) }, entity, "token-3"));
+        mockIsland.Setup(x => x.SaveChangesAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<PvaComponentChangeSet>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new DataverseNotFoundException("ObjectDoesNotExist", "0x80040217", Guid.NewGuid().ToString(), $"Entity 'botcomponent' With Id = {script.Id} Does Not Exist", new HttpRequestException("Not Found")));
+
+        return new SkillDeletion(
+            accessor,
+            deletedKnowledgeFileEdits => synchronizer.PullExistingChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), local, mockDataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None, deletedKnowledgeFileEdits: deletedKnowledgeFileEdits),
+            overwriteRemoteChanges => synchronizer.PushLocalChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), local, mockDataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, cloudFlowMetadata: null, System.Collections.Immutable.ImmutableArray<SyncDataverseClient.AIPromptMetadata>.Empty, CancellationToken.None, overwriteRemoteChanges: overwriteRemoteChanges));
+    }
+
+    [Fact]
+    public async Task AssetReplacedInCloudUnderTheSameName_PullKeepsTheReplacementSidecarAndPayload()
+    {
+        var (synchronizer, fileAccessorFactory, mockIsland) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var workspace = new DirectoryPath($"c:/test/skill-cloud-replace-{Guid.NewGuid():N}/");
+        var accessor = (InMemoryFileAccessor)fileAccessorFactory.Create(workspace);
+        var entity = (CodeSerializer.Deserialize<BotEntity>("kind: Bot\n" + CliSettings) ?? throw new Xunit.Sdk.XunitException("Expected a non-null test value."));
+        var skill = CreateSkill($"{Bot}.skill.get-us-weather", "get-us-weather", Guid.NewGuid(), "Instructions.\n");
+        var original = CreateAsset($"{Bot}.file.rules_a1B", "rules.txt", skill.Id);
+        var replacement = CreateAsset($"{Bot}.file.rules_c3D", "rules.txt", skill.Id);
+        var cloud = new BotDefinition().WithEntity(entity).WithComponents(new BotComponentBase[] { skill, original });
+
+        await accessor.WriteAsync(new AgentFilePath(AgentClassifier.WorkspaceLayoutMarkerFileName), "layoutVersion: 1\n", CancellationToken.None);
+        await accessor.WriteAsync(new AgentFilePath("settings.mcs.yml"), CliSettings, CancellationToken.None);
+        WorkspaceSynchronizer.WriteCloudCache(accessor, cloud);
+        Write(accessor, "behaviors/get-us-weather/skill.mcs.yml", $"mcs.metadata:\n  componentName: get-us-weather\n  schemaName: {Bot}.skill.get-us-weather\nkind: InlineAgentSkill\n");
+        Write(accessor, "behaviors/get-us-weather/SKILL.md", "Instructions.\n");
+        Write(accessor, "behaviors/get-us-weather/rules.txt", "original rules\n");
+        Write(accessor, "behaviors/get-us-weather/rules.txt.mcs.yml", $"mcs.metadata:\n  componentName: rules.txt\n  schemaName: {original.SchemaNameString}\nkind: FileAttachmentComponentMetadata\n");
+
+        mockIsland.Setup(x => x.GetComponentsAsync(It.IsAny<AuthoringOperationContextBase>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PvaComponentChangeSet(new BotComponentChange[] { new BotComponentInsert(replacement), new BotComponentDelete(original.Id, original.Version) }, entity, "token-2"));
+        var mockDataverse = CreateDataverseMock();
+        mockDataverse.As<IStreamingKnowledgeFileClient>()
+            .Setup(x => x.DownloadKnowledgeFileAsync(It.IsAny<Stream>(), It.IsAny<BotComponentId>(), It.IsAny<CancellationToken>()))
+            .Returns<Stream, BotComponentId, CancellationToken>((destination, _, _) => KnowledgeFileTestFixtures.SeedContent(destination, "replacement rules\n"));
+
+        await synchronizer.PullExistingChangesAsync(workspace, ComponentWriterDefensiveTests.CreateMockOperationContext(), cloud, mockDataverse.Object, new AgentSyncInfo { AgentId = Guid.NewGuid() }, CancellationToken.None);
+
+        Assert.Equal("replacement rules\n", Read(accessor, "behaviors/get-us-weather/rules.txt"));
+        Assert.Contains($"schemaName: {replacement.SchemaNameString}", Read(accessor, "behaviors/get-us-weather/rules.txt.mcs.yml"), StringComparison.Ordinal);
+        var read = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
+        Assert.Single(read.Components.OfType<FileAttachmentComponent>(), component => component.SchemaNameString == replacement.SchemaNameString);
+    }
+
     [Fact]
     public async Task SkillAddedInCloud_PullDownloadsNewManifestAndAssetPayloads()
     {
@@ -1396,6 +1524,23 @@ public class SkillFolderLayoutTests
         var fooBar = Assert.Single(read.Components.OfType<FileAttachmentComponent>(), component => component.DisplayName == "foo_bar");
         Assert.Equal($"{Bot}.file.foo_bar_a1B", fooBar.SchemaNameString);
         Assert.NotEqual(fooBar.SchemaNameString, foo.SchemaNameString);
+    }
+
+    [Theory]
+    [InlineData($"  componentName: rules.txt\n  schemaName: {Bot}.file.rules_a1B\n", $"{Bot}.file.rules_a1B")]
+    [InlineData("", $"{Bot}.file.rules.txt")]
+    public async Task NewAssetWithAnAuthoredSidecar_KeepsItsDescription(string authoredIdentity, string expectedSchemaName)
+    {
+        var (synchronizer, accessor, workspace) = await CreateWorkspaceAsync();
+        Write(accessor, "behaviors/get-us-weather/skill.mcs.yml", $"mcs.metadata:\n  componentName: get-us-weather\n  schemaName: {Bot}.skill.get-us-weather\nkind: InlineAgentSkill\n");
+        Write(accessor, "behaviors/get-us-weather/SKILL.md", "Instructions.\n");
+        Write(accessor, "behaviors/get-us-weather/rules.txt", "rules\n");
+        Write(accessor, "behaviors/get-us-weather/rules.txt.mcs.yml", $"mcs.metadata:\n{authoredIdentity}  description: Parking rules.\n");
+
+        var read = await synchronizer.ReadWorkspaceDefinitionAsync(workspace, CancellationToken.None, checkKnowledgeFiles: true);
+
+        var rules = Assert.Single(read.Components.OfType<FileAttachmentComponent>(), component => component.DisplayName == "rules.txt");
+        Assert.Equal((expectedSchemaName, "Parking rules."), (rules.SchemaNameString, rules.Description));
     }
 
     [Fact]

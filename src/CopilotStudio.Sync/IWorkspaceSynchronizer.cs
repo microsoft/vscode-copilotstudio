@@ -153,7 +153,9 @@ public interface IWorkspaceSynchronizer
     /// <param name="syncInfo">Synchronization information for the agent.</param>
     /// <param name="cancellationToken">Used to cancel the request</param>
     /// <param name="downloadAllKnowledgeFiles">True/False to download or not all knowledge files.</param>
-    /// <param name="conflicts">Receives one diagnostic per file left with unresolved merge markers by this pull.</param>
+    /// <param name="conflicts">Receives one diagnostic per file this pull left with unresolved merge markers or kept after the environment deleted it.</param>
+    /// <param name="deletedKnowledgeFileEdits">What to do with locally edited knowledge files that the environment deleted or replaced.</param>
+    /// <param name="approvedKnowledgeFileDeletions">When set, the only local knowledge files a pull that discards them may delete, so it stops when any other would be lost.</param>
     /// <returns>A task representing the asynchronous operation</returns>
     Task<DefinitionBase> PullExistingChangesAsync(
         DirectoryPath workspaceFolder,
@@ -163,7 +165,9 @@ public interface IWorkspaceSynchronizer
         AgentSyncInfo syncInfo,
         CancellationToken cancellationToken,
         bool downloadAllKnowledgeFiles = false,
-        ICollection<WorkspaceDiagnostic>? conflicts = null);
+        ICollection<WorkspaceDiagnostic>? conflicts = null,
+        DeletedKnowledgeFileEdits deletedKnowledgeFileEdits = DeletedKnowledgeFileEdits.Keep,
+        ImmutableArray<string>? approvedKnowledgeFileDeletions = null);
 
     /// <summary>
     /// Pushes local changes to the cloud service and receives updated change information.

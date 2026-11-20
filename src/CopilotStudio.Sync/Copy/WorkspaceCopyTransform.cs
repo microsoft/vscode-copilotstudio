@@ -1039,16 +1039,33 @@ internal sealed class WorkspaceCopyTransform
 
         if (Directory.Exists(source))
         {
-            Directory.Move(source, target);
+            MoveWithRetries(() => Directory.Move(source, target));
             RenameTracked(relative + "/", destination + "/");
         }
         else
         {
-            File.Move(source, target);
+            MoveWithRetries(() => File.Move(source, target));
             RenameTracked(relative, destination);
         }
 
         _renamed.Add(new CopyIdentityMapping("path", relative, destination));
+    }
+
+    internal static void MoveWithRetries(Action move)
+    {
+        const int maxAttempts = 5;
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                move();
+                return;
+            }
+            catch (IOException exception) when (attempt < maxAttempts && FileLockErrors.MayBeHeldByAnotherProcess(exception))
+            {
+                Thread.Sleep(100 * attempt);
+            }
+        }
     }
 
     private void RenameTracked(string source, string destination)

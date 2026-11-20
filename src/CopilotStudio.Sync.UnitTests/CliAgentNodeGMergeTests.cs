@@ -335,6 +335,46 @@ public class CliAgentNodeGMergeTests
         Assert.Equal("LOCAL description", component.Description);
     }
 
+    [Theory]
+    [InlineData("rules v2.txt", "base description")]
+    [InlineData("rules.txt", " LOCAL description\r\n")]
+    public void ApplyThreeWayMerge_KnowledgeFileDescribedLocallyAndChangedInTheCloud_KeepsTheLocalDescriptionWithoutAConflict(string cloudDisplayName, string cloudDescription)
+    {
+        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var id = Guid.NewGuid();
+
+        var merged = sync.ApplyThreeWayMerge(
+            MakeUpdateChanges(MakeKnowledgeFile(id, "rules.txt", "LOCAL description", 1)),
+            MakeUpdateChanges(MakeKnowledgeFile(id, cloudDisplayName, cloudDescription, 2)),
+            new BotDefinition().WithComponents(new[] { MakeKnowledgeFile(id, "rules.txt", "base description", 1) }),
+            out var conflicts);
+
+        var component = Assert.Single(merged.BotComponentChanges.OfType<BotComponentUpdate>()).Component;
+        Assert.Equal((cloudDisplayName, "LOCAL description", 2L), (component?.DisplayName, component?.Description, component?.Version));
+        Assert.Empty(conflicts.ComponentsBySchemaName);
+    }
+
+    [Theory]
+    [InlineData("REMOTE description")]
+    [InlineData(null)]
+    public void ApplyThreeWayMerge_KnowledgeFileDescribedDifferentlyOnBothSides_KeepsTheLocalDescriptionAndReportsOnlyThatConflict(string? cloudDescription)
+    {
+        var (sync, _, _) = ComponentWriterDefensiveTests.CreateSyncInfrastructure();
+        var described = Guid.NewGuid();
+        var untouched = Guid.NewGuid();
+
+        var merged = sync.ApplyThreeWayMerge(
+            MakeUpdateChanges(MakeKnowledgeFile(described, "rules.txt", "LOCAL description", 1)),
+            MakeUpdateChanges(MakeKnowledgeFile(described, "rules.txt", cloudDescription, 2), MakeKnowledgeFile(untouched, "fees.txt", "REMOTE fees", 2)),
+            new BotDefinition().WithComponents(new[] { MakeKnowledgeFile(described, "rules.txt", "base description", 1), MakeKnowledgeFile(untouched, "fees.txt", "base fees", 1) }),
+            out var conflicts);
+
+        var conflict = Assert.Single(conflicts.ComponentsBySchemaName).Value;
+        Assert.Equal((string.Empty, new McsMetadataConflict("LOCAL description", cloudDescription)), (conflict.Yaml, conflict.Description));
+        Assert.Equal(new (string?, long?)[] { ("LOCAL description", 2), ("REMOTE fees", 2) }, merged.BotComponentChanges.OfType<BotComponentUpsert>().Select(upsert => (upsert.Component?.Description, upsert.Component?.Version)));
+        Assert.Same(conflict.Component, merged.BotComponentChanges.OfType<BotComponentUpsert>().First().Component);
+    }
+
     [Fact]
     public void MergeComponent_DescriptionChangedOnBothSides_NeverSilentlyDiscardsTheLocalEdit()
     {
@@ -827,22 +867,25 @@ public class CliAgentNodeGMergeTests
 
     // --- Helpers --------------------------------------------------------------------
 
-    private static (PvaComponentChangeSet, ImmutableArray<Change>) MakeUpdateChanges(BotComponentBase updated)
+    private static (PvaComponentChangeSet, ImmutableArray<Change>) MakeUpdateChanges(params BotComponentBase[] updated)
     {
         var changeset = new PvaComponentChangeSet(
-            new List<BotComponentChange> { new BotComponentUpdate(updated) },
+            updated.Select(component => (BotComponentChange)new BotComponentUpdate(component)).ToList(),
             bot: null,
             changeToken: "t");
-        var change = new Change
+        var changes = updated.Select(component => new Change
         {
             ChangeType = ChangeType.Update,
-            Name = updated.SchemaNameString,
-            Uri = updated.SchemaNameString,
-            SchemaName = updated.SchemaNameString,
-            ChangeKind = updated.Kind.ToString(),
-        };
-        return (changeset, ImmutableArray.Create(change));
+            Name = component.SchemaNameString,
+            Uri = component.SchemaNameString,
+            SchemaName = component.SchemaNameString,
+            ChangeKind = component.Kind.ToString(),
+        }).ToImmutableArray();
+        return (changeset, changes);
     }
+
+    private static BotComponentBase MakeKnowledgeFile(Guid id, string displayName, string? description, long version)
+        => KnowledgeFileTestFixtures.CreateFileComponent($"cr1_agent.file.{id:N}", displayName, id).WithDescription(description).WithVersion(version);
 
     private static DialogComponent MakeDialogComponent(
         string schemaName, string dialogYaml, Guid? id = null, long version = 1)
